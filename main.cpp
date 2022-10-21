@@ -32,9 +32,27 @@ typedef	unsigned char byte;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Strings
 
+struct String
+{
+	const char* str;
+	u32 size;
+};
+
+String MakeString(const char *str, u32 size)
+{
+	String string = { str, size };
+	return string;
+}
+
 void StrCopy(char *dst, const char *src, u32 size)
 {
 	while (size-- > 0) *dst++ = *src++;
+}
+
+void StrCopy(char *dst, const String& src)
+{
+	StrCopy(dst, src.str, src.size);
+	dst[src.size] = '\0';
 }
 
 
@@ -84,12 +102,31 @@ char* PushCString(Arena &arena, const char* str, u32 size)
 	return dest;
 }
 
+void ResetArena(Arena &arena)
+{
+	arena.used = 0;
+}
+
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
+#define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Files
+
+u32 GetFileSize(const char *filename)
+{
+	u32 size = 0;
+	FILE *f = fopen(filename, "rb");
+	if ( f )
+	{
+		fseek(f, 0, SEEK_END);
+		size = ftell(f);
+		fclose(f);
+	}
+	return size;
+}
 
 u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
 {
@@ -114,7 +151,6 @@ u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
 #define COMMAND_NAME "jsl"
 #define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
-#define MAX_LEXEME_SIZE 128
 
 
 // Enum values
@@ -162,7 +198,7 @@ struct Literal
 struct Token
 {
     TokenType type;
-	char* lexeme;
+	String lexeme;
 	Literal literal;
 	i32 line;
 };
@@ -194,6 +230,24 @@ bool IsEOL(char character)
 	return character == '\n';
 }
 
+bool IsAlpha(char character)
+{
+	return
+		( character >= 'a' && character <= 'z' ) ||
+		( character >= 'A' && character <= 'Z' ) ||
+		( character == '_' );
+}
+
+bool IsDigit(char character)
+{
+	return character >= '0' && character <= '9';
+}
+
+bool IsAlphaNumeric(char character)
+{
+	return IsAlpha(character) || IsDigit(character);
+}
+
 bool IsAtEnd(const ScanState &scanState)
 {
 	return scanState.current >= scanState.scriptSize;
@@ -205,11 +259,6 @@ char Advance(ScanState &scanState)
 	return scanState.script[scanState.current++];
 }
 
-char Peek(const ScanState &scanState)
-{
-	return IsAtEnd(scanState) ? '\0' : scanState.script[ scanState.current ];
-}
-
 bool Consume(ScanState &scanState, char expected)
 {
 	if ( IsAtEnd(scanState) ) return false;
@@ -218,17 +267,34 @@ bool Consume(ScanState &scanState, char expected)
 	return true;
 }
 
+char Peek(const ScanState &scanState)
+{
+	return IsAtEnd(scanState) ? '\0' : scanState.script[ scanState.current ];
+}
+
+char PeekNext(const ScanState &scanState)
+{
+	if (scanState.current + 1 >= scanState.scriptSize) return '\0';
+	return scanState.script[ scanState.current + 1 ];
+}
+
+String ScannedString(const ScanState &scanState)
+{
+	const char *lexemeStart = scanState.script + scanState.start;
+	u32 lexemeSize = scanState.current - scanState.start;
+	String scannedString = { lexemeStart, lexemeSize };
+	return scannedString;
+}
+
 void AddToken(ScanState &scanState, TokenList &tokenList, TokenType tokenType, Literal literal)
 {
 	Token newToken = {};
 	newToken.type = tokenType;
-
-	const char *lexemeStart = scanState.script + scanState.start;
-	u32 lexemeSize = scanState.current - scanState.start;
-	newToken.lexeme = PushCString(scanState.stringArena, lexemeStart, lexemeSize);
+	newToken.lexeme = ScannedString(scanState);
 	newToken.literal = literal;
 	newToken.line = scanState.line;
 
+	ASSERT( tokenList.count < MAX_TOKEN_COUNT );
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
@@ -240,6 +306,8 @@ void AddToken(ScanState &scanState, TokenList &tokenList, TokenType tokenType)
 
 void ScanToken(ScanState &scanState, TokenList &tokenList)
 {
+	scanState.start = scanState.current;
+
 	char c = Advance(scanState);
 
 	switch (c)
@@ -298,9 +366,33 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 			AddToken(scanState, tokenList, TOKEN_STRING);
 			break;
 
-		default:;
-			// TODO(jesus): Substitute this by a proper error call
-			//ERROR( "Unexpected character");
+		default:
+			if ( IsDigit(c) )
+			{
+				while ( IsDigit( Peek(scanState) ) ) Advance(scanState);
+
+				if ( Peek(scanState) == '.' && IsDigit( PeekNext(scanState) ) )
+				{
+					Advance(scanState);
+					//while ( IsDigit(Peek(scanState)) ) Advance(scanState);
+				}
+
+				Literal literal;
+				// TODO: Convert literal to number
+				AddToken(scanState, tokenList, TOKEN_NUMBER, literal);
+			}
+			else if ( IsAlpha(c) )
+			{
+				while ( IsAlphaNumeric( Peek(scanState) ) ) Advance(scanState);
+
+				String word = ScannedString(scanState);
+				AddToken(scanState, tokenList, TOKEN_IDENTIFIER);
+			}
+			else
+			{
+				// TODO(jesus): Substitute this by a proper error call
+				ERROR( "Unexpected character");
+			}
 	}
 }
 
@@ -318,7 +410,6 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 
 	while ( !IsAtEnd(scanState) )
 	{
-		scanState.start = scanState.current;
 		ScanToken(scanState, tokenList);
 	}
 
@@ -330,12 +421,15 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 void PrintTokenList(const TokenList &tokenList)
 {
 	printf("List of tokens:\n");
+	#define MAX_LEXEME_SIZE 128
+	char lexeme[MAX_LEXEME_SIZE] = {};
 	for (u32 i = 0; i < tokenList.count; ++i)
 	{
-		TokenType tokenId = tokenList.tokens[i].type;
-		printf("%s\t: %s\n", TokenNames[tokenId], tokenList.tokens[i].lexeme);
+		const Token& token = tokenList.tokens[i];
+		ASSERT(token.lexeme.size < MAX_LEXEME_SIZE);
+		StrCopy(lexeme, token.lexeme);
+		printf("%s\t: %s\n", TokenNames[token.type], lexeme);
 	}
-	printf("\n");
 }
 
 void Run(const char *script, u32 scriptSize)
@@ -343,22 +437,15 @@ void Run(const char *script, u32 scriptSize)
 	TokenList tokenList = ScanTokens(script, scriptSize);
 
 	PrintTokenList(tokenList);
-
-	for (u32 tokenIdx = 0; tokenIdx < tokenList.count; ++tokenIdx)
-	{
-		const Token &token = tokenList.tokens[tokenIdx];
-		printf("%s ", TokenName(token.type));
-	}
-	printf("\n");
 }
 
 void RunFile(const char* filename)
 {
-	u32 bufferSize = KB(1);
-	char *bytes = new char[bufferSize]();
-	u32 bytesRead = ReadEntireFile(filename, bytes, bufferSize);
+	u32 fileSize = GetFileSize(filename);
+	char* bytes = PushArray(globalArena, char, fileSize);
+	u32 bytesRead = ReadEntireFile(filename, bytes, fileSize);
+	ASSERT(bytesRead == fileSize);
 	Run(bytes, bytesRead);
-	delete[] bytes;
 }
 
 void RunPrompt()
@@ -367,6 +454,7 @@ void RunPrompt()
 	u32 lineSize = 0;
 	for (;;)
 	{
+		ResetArena(globalArena);
 		printf("> ");
 		// TODO: Read line
 		// TODO: Break if exit command
