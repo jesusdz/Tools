@@ -55,6 +55,19 @@ void StrCopy(char *dst, const String& src)
 	dst[src.size] = '\0';
 }
 
+bool StrEq(const String &s11, const char *s2)
+{
+	const char *s1 = s11.str;
+	u32 count = s11.size;
+	while ( count > 0 && *s1 == *s2 )
+	{
+		s1++;
+		s2++;
+		count--;
+	}
+	return count == 0 && *s2 == 0;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -386,7 +399,29 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 				while ( IsAlphaNumeric( Peek(scanState) ) ) Advance(scanState);
 
 				String word = ScannedString(scanState);
-				AddToken(scanState, tokenList, TOKEN_IDENTIFIER);
+
+				// Keywords
+				TokenType tokenType;
+				// TODO: This keyword search could be much more efficient
+				if ( StrEq( word, "if" ) ) tokenType = TOKEN_IF;
+				else if ( StrEq( word, "else" ) ) tokenType = TOKEN_ELSE;
+				else if ( StrEq( word, "for" ) ) tokenType = TOKEN_FOR;
+				else if ( StrEq( word, "while" ) ) tokenType = TOKEN_WHILE;
+				else if ( StrEq( word, "class" ) ) tokenType = TOKEN_CLASS;
+				else if ( StrEq( word, "super" ) ) tokenType = TOKEN_SUPER;
+				else if ( StrEq( word, "this" ) ) tokenType = TOKEN_THIS;
+				else if ( StrEq( word, "fun" ) ) tokenType = TOKEN_FUN;
+				else if ( StrEq( word, "return" ) ) tokenType = TOKEN_RETURN;
+				else if ( StrEq( word, "true" ) ) tokenType = TOKEN_TRUE;
+				else if ( StrEq( word, "false" ) ) tokenType = TOKEN_FALSE;
+				else if ( StrEq( word, "nil" ) ) tokenType = TOKEN_NIL;
+				else if ( StrEq( word, "var" ) ) tokenType = TOKEN_VAR;
+				else if ( StrEq( word, "print" ) ) tokenType = TOKEN_PRINT;
+				else if ( StrEq( word, "eof" ) ) tokenType = TOKEN_EOF;
+				// Identifier
+				else tokenType = TOKEN_IDENTIFIER;
+
+				AddToken(scanState, tokenList, tokenType);
 			}
 			else
 			{
