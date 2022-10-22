@@ -68,6 +68,12 @@ bool StrEq(const String &s11, const char *s2)
 	return count == 0 && *s2 == 0;
 }
 
+bool StrEq(const char *s1, const char *s2)
+{
+	while ( *s1++ == *s2++ && *s1 ) {}
+    return *s1 == *s2;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -493,16 +499,28 @@ void RunFile(const char* filename)
 
 void RunPrompt()
 {
-	char line[MAX_LINE_SIZE];
-	u32 lineSize = 0;
+    char* line = NULL;
+    size_t lineLen = 0;
+
 	for (;;)
 	{
 		ResetArena(globalArena);
+
 		printf("> ");
-		// TODO: Read line
-		// TODO: Break if exit command
-		Run(line, lineSize);
+        ssize_t lineSize;
+        lineSize = getline(&line, &lineLen, stdin);
+
+        if ( StrEq( "exit", line ) )
+        {
+            break;
+        }
+        else
+        {
+            Run(line, lineSize);
+        }
 	}
+
+    free(line);
 }
 
 int main(int argc, char **argv)
