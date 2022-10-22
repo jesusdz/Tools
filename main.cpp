@@ -229,7 +229,7 @@ struct ScanState
 	i32 line;
 
 	const char *script;
-	char scriptSize;
+	u32 scriptSize;
 	Arena stringArena;
 };
 
@@ -344,6 +344,14 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 			{
 				// Discard all chars until the end of line is reached
 				while ( !IsEOL( Peek(scanState) ) && !IsAtEnd(scanState) ) Advance(scanState);
+			}
+			else if ( Consume(scanState, '*') )
+			{
+				while( Peek(scanState) != '*' && PeekNext(scanState) != '/' &&  !IsAtEnd(scanState) )
+				{
+					if ( IsEOL( Peek(scanState) ) ) scanState.line++;
+					Advance(scanState);
+				}
 			}
 			else
 			{
@@ -499,7 +507,7 @@ void RunPrompt()
 
 int main(int argc, char **argv)
 {
-	u32 globalArenaSize = MB(1);
+	u32 globalArenaSize = KB(512);
 	byte* globalArenaBase = new byte[globalArenaSize]();
 	globalArena = MakeArena(globalArenaBase, globalArenaSize);
 
