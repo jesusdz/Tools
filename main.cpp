@@ -27,6 +27,7 @@ typedef	unsigned char byte;
 
 #define ASSERT(expression) assert(expression)
 #define ERROR(message) ASSERT( 0 && message )
+#define INVALID_CODE_PATH() ERROR("Invalid code path")
 
 
 
@@ -73,6 +74,14 @@ bool StrEq(const char *s1, const char *s2)
 {
 	while ( *s1++ == *s2++ && *s1 ) {}
 	return *s1 == *s2;
+}
+
+f32 StrToFloat(const String &s)
+{
+	char buf[256] = {};
+	StrCopy(buf, s);
+	f32 number = atof(buf);
+	return number;
 }
 
 
@@ -190,25 +199,27 @@ const char *TokenNames[] = {
 
 
 
-enum LiteralType
+enum ValueType
 {
-	LITERAL_BOOL,
-	LITERAL_INT,
-	LITERAL_FLOAT,
-	LITERAL_STRING,
+	VALUE_TYPE_BOOL,
+	//VALUE_TYPE_INT,
+	VALUE_TYPE_FLOAT,
+	VALUE_TYPE_STRING,
 };
 
-struct Literal
+struct Value
 {
-	LiteralType type;
+	ValueType type;
 	union
 	{
 		bool b;
 		i32 i;
 		f32 f;
-		char* s;
+		const char* s;
 	};
 };
+
+typedef Value Literal;
 
 struct Token
 {
@@ -300,7 +311,7 @@ String ScannedString(const ScanState &scanState)
 	return scannedString;
 }
 
-void AddToken(ScanState &scanState, TokenList &tokenList, TokenType tokenType, Literal literal)
+void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenType, Literal literal)
 {
 	Token newToken = {};
 	newToken.type = tokenType;
@@ -312,10 +323,27 @@ void AddToken(ScanState &scanState, TokenList &tokenList, TokenType tokenType, L
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
-void AddToken(ScanState &scanState, TokenList &tokenList, TokenType tokenType)
+void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenType)
 {
-	Literal nullLiteral = {};
-	AddToken(scanState, tokenList, tokenType, nullLiteral);
+	Literal literal = {};
+
+	if ( tokenType == TOKEN_STRING )
+	{
+		literal.type = VALUE_TYPE_STRING;
+		literal.s = ScannedString(scanState).str; // TODO: Probably we have to zero-terminate this string
+	}
+	else if ( tokenType == TOKEN_NUMBER )
+	{
+		literal.type = VALUE_TYPE_FLOAT;
+		literal.f = StrToFloat( ScannedString(scanState) );
+	}
+	else if ( tokenType == TOKEN_TRUE || tokenType == TOKEN_FALSE )
+	{
+		literal.type == VALUE_TYPE_BOOL;
+		literal.b = tokenType == TOKEN_TRUE;
+	}
+
+	AddToken(scanState, tokenList, tokenType, literal);
 }
 
 void ScanToken(ScanState &scanState, TokenList &tokenList)
@@ -399,9 +427,7 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 					while ( IsDigit(Peek(scanState)) ) Advance(scanState);
 				}
 
-				Literal literal;
-				// TODO: Convert literal to number
-				AddToken(scanState, tokenList, TOKEN_NUMBER, literal);
+				AddToken(scanState, tokenList, TOKEN_NUMBER);
 			}
 			else if ( IsAlpha(c) )
 			{
@@ -409,28 +435,23 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 
 				String word = ScannedString(scanState);
 
-				// Keywords
-				TokenType tokenType;
-				// TODO: This keyword search could be much more efficient
-				if ( StrEq( word, "if" ) ) tokenType = TOKEN_IF;
-				else if ( StrEq( word, "else" ) ) tokenType = TOKEN_ELSE;
-				else if ( StrEq( word, "for" ) ) tokenType = TOKEN_FOR;
-				else if ( StrEq( word, "while" ) ) tokenType = TOKEN_WHILE;
-				else if ( StrEq( word, "class" ) ) tokenType = TOKEN_CLASS;
-				else if ( StrEq( word, "super" ) ) tokenType = TOKEN_SUPER;
-				else if ( StrEq( word, "this" ) ) tokenType = TOKEN_THIS;
-				else if ( StrEq( word, "fun" ) ) tokenType = TOKEN_FUN;
-				else if ( StrEq( word, "return" ) ) tokenType = TOKEN_RETURN;
-				else if ( StrEq( word, "true" ) ) tokenType = TOKEN_TRUE;
-				else if ( StrEq( word, "false" ) ) tokenType = TOKEN_FALSE;
-				else if ( StrEq( word, "nil" ) ) tokenType = TOKEN_NIL;
-				else if ( StrEq( word, "var" ) ) tokenType = TOKEN_VAR;
-				else if ( StrEq( word, "print" ) ) tokenType = TOKEN_PRINT;
-				else if ( StrEq( word, "eof" ) ) tokenType = TOKEN_EOF;
-				// Identifier
-				else tokenType = TOKEN_IDENTIFIER;
-
-				AddToken(scanState, tokenList, tokenType);
+				// Keywords // TODO: This keyword search could be much more efficient
+				if      ( StrEq( word, "if" ) )     AddToken(scanState, tokenList, TOKEN_IF);
+				else if ( StrEq( word, "else" ) )   AddToken(scanState, tokenList, TOKEN_ELSE);
+				else if ( StrEq( word, "for" ) )    AddToken(scanState, tokenList, TOKEN_FOR);
+				else if ( StrEq( word, "while" ) )  AddToken(scanState, tokenList, TOKEN_WHILE);
+				else if ( StrEq( word, "class" ) )  AddToken(scanState, tokenList, TOKEN_CLASS);
+				else if ( StrEq( word, "super" ) )  AddToken(scanState, tokenList, TOKEN_SUPER);
+				else if ( StrEq( word, "this" ) )   AddToken(scanState, tokenList, TOKEN_THIS);
+				else if ( StrEq( word, "fun" ) )    AddToken(scanState, tokenList, TOKEN_FUN);
+				else if ( StrEq( word, "return" ) ) AddToken(scanState, tokenList, TOKEN_RETURN);
+				else if ( StrEq( word, "true" ) )   AddToken(scanState, tokenList, TOKEN_TRUE);
+				else if ( StrEq( word, "false" ) )  AddToken(scanState, tokenList, TOKEN_FALSE);
+				else if ( StrEq( word, "nil" ) )    AddToken(scanState, tokenList, TOKEN_NIL);
+				else if ( StrEq( word, "var" ) )    AddToken(scanState, tokenList, TOKEN_VAR);
+				else if ( StrEq( word, "print" ) )  AddToken(scanState, tokenList, TOKEN_PRINT);
+				else if ( StrEq( word, "eof" ) )    AddToken(scanState, tokenList, TOKEN_EOF);
+				else                                AddToken(scanState, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
 			{
@@ -749,6 +770,131 @@ AST Parse(Arena &arena, TokenList &tokens)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Evaluator
+
+Value Evaluate(Expr *expr)
+{
+	Value value = {};
+
+	switch (expr->type)
+	{
+		case EXPR_LITERAL:
+		{
+			value = expr->literal.literalToken->literal;
+			break;
+		}
+		case EXPR_UNARY:
+		{
+			value = Evaluate( expr->unary.expr );
+			switch ( expr->unary.operatorToken->type )
+			{
+				case TOKEN_MINUS:
+					ASSERT( value.type == VALUE_TYPE_FLOAT );
+					value.f = -value.f;
+					break;
+				default:
+					INVALID_CODE_PATH();
+			}
+			break;
+		}
+		case EXPR_BINARY:
+		{
+			Value left = Evaluate( expr->binary.left );
+			Value right = Evaluate( expr->binary.right );
+			switch ( expr->binary.operatorToken->type )
+			{
+				case TOKEN_MINUS:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_FLOAT;
+					value.f = left.f - right.f;
+					break;
+				case TOKEN_PLUS:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_FLOAT;
+					value.f = left.f + right.f;
+					break;
+				case TOKEN_STAR:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_FLOAT;
+					value.f = left.f * right.f;
+					break;
+				case TOKEN_SLASH:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_FLOAT;
+					value.f = left.f / right.f;
+					break;
+				case TOKEN_LESS:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_BOOL;
+					value.b = left.f < right.f;
+					break;
+				case TOKEN_LESS_EQUAL:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_BOOL;
+					value.b = left.f <= right.f;
+					break;
+				case TOKEN_GREATER:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_BOOL;
+					value.b = left.f > right.f;
+					break;
+				case TOKEN_GREATER_EQUAL:
+					ASSERT( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT );
+					value.type = VALUE_TYPE_BOOL;
+					value.b = left.f >= right.f;
+					break;
+				case TOKEN_NOT_EQUAL:
+					value.type = VALUE_TYPE_BOOL;
+					value.b = false;
+					if ( left.type == VALUE_TYPE_BOOL && right.type == VALUE_TYPE_BOOL ) {
+						value.b = left.b != right.b;
+					} else if ( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT ) {
+						value.b = left.f != right.f;
+					}
+					break;
+				case TOKEN_EQUAL_EQUAL:
+					value.type = VALUE_TYPE_BOOL;
+					value.b = false;
+					if ( left.type == VALUE_TYPE_BOOL && right.type == VALUE_TYPE_BOOL ) {
+						value.b = left.b == right.b;
+					} else if ( left.type == VALUE_TYPE_FLOAT && right.type == VALUE_TYPE_FLOAT ) {
+						value.b = left.f == right.f;
+					}
+					break;
+				default:
+					INVALID_CODE_PATH();
+			}
+			break;
+		}
+		default:
+			INVALID_CODE_PATH();
+	}
+
+	return value;
+}
+
+void Evaluate(AST &ast)
+{
+	Value val = Evaluate(ast.first);
+
+	printf("Evaluated value: ");
+	switch ( val.type )
+	{
+		case VALUE_TYPE_FLOAT:
+			printf("%f", val.f);
+			break;
+		case VALUE_TYPE_BOOL:
+			printf("%s", val.b ? "true" : "false" );
+			break;
+		default:
+			INVALID_CODE_PATH();
+	}
+	printf("\n");
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Program
 
 #define COMMAND_NAME "jsl"
@@ -773,6 +919,8 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 	PrintTokenList(tokenList);
 
 	AST ast = Parse(arena, tokenList);
+
+	Evaluate(ast);
 }
 
 void RunFile(Arena &arena, const char* filename)
