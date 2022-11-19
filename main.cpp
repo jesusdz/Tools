@@ -168,7 +168,6 @@ u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
 // Scanner
 
 
-#define COMMAND_NAME "jsl"
 #define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
 
@@ -188,10 +187,6 @@ const char *TokenNames[] = {
 #include "token_list.h"
 };
 #undef ENUM_ENTRY
-
-
-
-Arena globalArena;
 
 
 
@@ -225,7 +220,7 @@ struct Token
 
 struct TokenList
 {
-	Token tokens[MAX_TOKEN_COUNT];
+	Token *tokens;
 	i32 count;
 };
 
@@ -444,9 +439,10 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 	}
 }
 
-TokenList ScanTokens(const char *script, u32 scriptSize)
+TokenList Scan(Arena &arena, const char *script, u32 scriptSize)
 {
 	TokenList tokenList = {};
+	tokenList.tokens = PushArray(arena, Token, MAX_TOKEN_COUNT);
 
 	ScanState scanState = {};
 	scanState.line = 1;
@@ -468,6 +464,8 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Parser
 
+#define MAX_EXPR_COUNT (MAX_TOKEN_COUNT * 2)
+
 // Grammar:
 // expression -> equality
 // equality   -> comparison ( ( "!=" | "==") comparison )
@@ -477,10 +475,10 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 // unary      -> ( "!" | "-" ) unary | primary
 // primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
 
-struct Parser
+struct ParseState
 {
 	TokenList* tokenList;
-	int current;
+	u32 current;
 };
 
 enum ExprType
@@ -521,20 +519,27 @@ struct Expr
 	};
 };
 
-bool IsAtEnd(const Parser &parser)
+struct AST
 {
-	const TokenList &tokenList = *parser.tokenList;
-	const Token &currentToken = tokenList.tokens[ parser.current ];
+	Expr *exprArray;
+	u32   exprCount;
+	Expr *first;
+};
+
+bool IsAtEnd(const ParseState &parseState)
+{
+	const TokenList &tokenList = *parseState.tokenList;
+	const Token &currentToken = tokenList.tokens[ parseState.current ];
 	return currentToken.type == TOKEN_EOF;
 }
 
-bool Consume(Parser &parser, TokenType tokenType)
+bool Consume(ParseState &parseState, TokenType tokenType)
 {
-	TokenList &tokenList = *parser.tokenList;
-	Token &currentToken = tokenList.tokens[ parser.current ];
+	TokenList &tokenList = *parseState.tokenList;
+	Token &currentToken = tokenList.tokens[ parseState.current ];
 	if ( currentToken.type == tokenType )
 	{
-		parser.current++;
+		parseState.current++;
 		return true;
 	}
 	else
@@ -543,61 +548,68 @@ bool Consume(Parser &parser, TokenType tokenType)
 	}
 }
 
-void ConsumeForced(Parser &parser, TokenType tokenType)
+void ConsumeForced(ParseState &parseState, TokenType tokenType)
 {
-	if ( !Consume(parser, tokenType) )
+	if ( !Consume(parseState, tokenType) )
 	{
 		ERROR("Unexpected token type");
 	}
 }
 
-Token* Consumed(Parser &parser)
+Token* Consumed(ParseState &parseState)
 {
-	ASSERT( parser.current > 0 );
-	TokenList &tokenList = *parser.tokenList;
-	Token &consumedToken = tokenList.tokens[ parser.current - 1 ];
+	ASSERT( parseState.current > 0 );
+	TokenList &tokenList = *parseState.tokenList;
+	Token &consumedToken = tokenList.tokens[ parseState.current - 1 ];
 	return &consumedToken;
 }
 
-Expr* MakeExpression(Token* token)
+Expr* AddExpression(AST &ast)
 {
-	Expr* expr = new Expr; // TODO: Use Arenas instead of new
-	expr->type = EXPR_LITERAL;
-	expr->literal.literalToken = token;
+	ASSERT(ast.exprCount < MAX_EXPR_COUNT);
+	Expr* expr = &ast.exprArray[ ast.exprCount++ ];
 	return expr;
 }
 
-Expr* MakeExpression(Token* token, Expr* pExpr)
+Expr* AddExpression(AST &ast, Token* literalToken)
 {
-	Expr* expr = new Expr; // TODO: Use Arenas instead of new
+	Expr* expr = AddExpression(ast);
+	expr->type = EXPR_LITERAL;
+	expr->literal.literalToken = literalToken;
+	return expr;
+}
+
+Expr* AddExpression(AST &ast, Token* operatorToken, Expr* pExpr)
+{
+	Expr* expr = AddExpression(ast);
 	expr->type = EXPR_UNARY;
-	expr->unary.operatorToken = token;
+	expr->unary.operatorToken = operatorToken;
 	expr->unary.expr = pExpr;
 	return expr;
 }
 
-Expr* MakeExpression(Expr* left, Token* token, Expr* right)
+Expr* AddExpression(AST &ast, Expr* left, Token* operatorToken, Expr* right)
 {
-	Expr* expr = new Expr; // TODO: Use Arenas instead of new
+	Expr* expr = AddExpression(ast);
 	expr->type = EXPR_BINARY;
 	expr->binary.left = left;
-	expr->binary.operatorToken = token;
+	expr->binary.operatorToken = operatorToken;
 	expr->binary.right = right;
 	return expr;
 }
 
-Expr* ParseExpression(Parser &parser);
+Expr* ParseExpression(ParseState &parseState, AST &ast);
 
-Expr* ParsePrimary(Parser &parser)
+Expr* ParsePrimary(ParseState &parseState, AST &ast)
 {
-	if ( Consume(parser, TOKEN_FALSE) ) return MakeExpression(Consumed(parser));
-	if ( Consume(parser, TOKEN_TRUE) ) return MakeExpression(Consumed(parser));
-	if ( Consume(parser, TOKEN_NIL) ) return MakeExpression(Consumed(parser));
-	if ( Consume(parser, TOKEN_NUMBER) ) return MakeExpression(Consumed(parser));
-	if ( Consume(parser, TOKEN_LEFT_PAREN) )
+	if ( Consume(parseState, TOKEN_FALSE) ) return AddExpression(ast, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_TRUE) ) return AddExpression(ast, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_NIL) ) return AddExpression(ast, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_NUMBER) ) return AddExpression(ast, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_LEFT_PAREN) )
 	{
-		Expr* expr = ParseExpression(parser);
-		ConsumeForced(parser, TOKEN_RIGHT_PAREN);
+		Expr* expr = ParseExpression(parseState, ast);
+		ConsumeForced(parseState, TOKEN_RIGHT_PAREN);
 		return expr;
 	}
 
@@ -605,94 +617,95 @@ Expr* ParsePrimary(Parser &parser)
 	return nullptr;
 }
 
-Expr* ParseUnary(Parser &parser)
+Expr* ParseUnary(ParseState &parseState, AST &ast)
 {
-	if ( Consume(parser, TOKEN_NOT) ||
-		 Consume(parser, TOKEN_MINUS) )
+	if ( Consume(parseState, TOKEN_NOT) ||
+		 Consume(parseState, TOKEN_MINUS) )
 	{
-		Token* op = Consumed(parser);
-		Expr* expr = ParseUnary(parser);
-		return MakeExpression(op, expr);
+		Token* op = Consumed(parseState);
+		Expr* expr = ParseUnary(parseState, ast);
+		return AddExpression(ast, op, expr);
 	}
 	else
 	{
-		return ParsePrimary(parser);
+		return ParsePrimary(parseState, ast);
 	}
 }
 
-Expr* ParseFactor(Parser &parser)
+Expr* ParseFactor(ParseState &parseState, AST &ast)
 {
-	Expr *expr = ParseUnary(parser);
+	Expr *expr = ParseUnary(parseState, ast);
 
-	while ( Consume(parser, TOKEN_STAR) ||
-			Consume(parser, TOKEN_SLASH) )
+	while ( Consume(parseState, TOKEN_STAR) ||
+			Consume(parseState, TOKEN_SLASH) )
 	{
-		Token* op = Consumed(parser);
-		Expr* right = ParseUnary(parser);
-		expr = MakeExpression(expr, op, right);
+		Token* op = Consumed(parseState);
+		Expr* right = ParseUnary(parseState, ast);
+		expr = AddExpression(ast, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseTerm(Parser &parser)
+Expr* ParseTerm(ParseState &parseState, AST &ast)
 {
-	Expr* expr = ParseFactor(parser);
+	Expr* expr = ParseFactor(parseState, ast);
 
-	while ( Consume(parser, TOKEN_MINUS) ||
-			Consume(parser, TOKEN_PLUS) )
+	while ( Consume(parseState, TOKEN_MINUS) ||
+			Consume(parseState, TOKEN_PLUS) )
 	{
-		Token* op = Consumed(parser);
-		Expr* right = ParseFactor(parser);
-		expr = MakeExpression(expr, op, right);
+		Token* op = Consumed(parseState);
+		Expr* right = ParseFactor(parseState, ast);
+		expr = AddExpression(ast, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseComparison(Parser &parser)
+Expr* ParseComparison(ParseState &parseState, AST &ast)
 {
-	Expr* expr = ParseTerm(parser);
+	Expr* expr = ParseTerm(parseState, ast);
 
-	while ( Consume(parser, TOKEN_GREATER) ||
-			Consume(parser, TOKEN_GREATER_EQUAL) ||
-			Consume(parser, TOKEN_LESS) ||
-			Consume(parser, TOKEN_LESS_EQUAL) )
+	while ( Consume(parseState, TOKEN_GREATER) ||
+			Consume(parseState, TOKEN_GREATER_EQUAL) ||
+			Consume(parseState, TOKEN_LESS) ||
+			Consume(parseState, TOKEN_LESS_EQUAL) )
 	{
-		Token* op = Consumed(parser);
-		Expr* right = ParseTerm(parser);
-		expr = MakeExpression(expr, op, right);
+		Token* op = Consumed(parseState);
+		Expr* right = ParseTerm(parseState, ast);
+		expr = AddExpression(ast, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseEquality(Parser &parser)
+Expr* ParseEquality(ParseState &parseState, AST &ast)
 {
-	Expr* expr = ParseComparison(parser);
+	Expr* expr = ParseComparison(parseState, ast);
 
-	if ( Consume(parser, TOKEN_EQUAL_EQUAL) ||
-		 Consume(parser, TOKEN_NOT_EQUAL) )
+	if ( Consume(parseState, TOKEN_EQUAL_EQUAL) ||
+		 Consume(parseState, TOKEN_NOT_EQUAL) )
 	{
-		Token* op = Consumed(parser);
-		Expr* right = ParseComparison(parser);
-		expr = MakeExpression(expr, op, right);
+		Token* op = Consumed(parseState);
+		Expr* right = ParseComparison(parseState, ast);
+		expr = AddExpression(ast, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseExpression(Parser &parser)
+Expr* ParseExpression(ParseState &parseState, AST &ast)
 {
-	return ParseEquality(parser);
+	return ParseEquality(parseState, ast);
 }
 
-void PrintAST(Expr* expr, int level = 0)
-{
-	for (int i = 0; i < level; ++i) printf("  ");
-	int space = 16 - level*2;
+#define MAX_LEXEME_SIZE 128
 
-	#define MAX_LEXEME_SIZE 128
+void PrintExpr(Expr* expr, u32 level = 0)
+{
+	for (u32 i = 0; i < level; ++i) printf("  ");
+	u32 space = 16 - level*2;
+
 	char lexeme[MAX_LEXEME_SIZE] = {};
 	if (expr->type == EXPR_LITERAL)
 	{
@@ -703,28 +716,34 @@ void PrintAST(Expr* expr, int level = 0)
 	{
 		StrCopy(lexeme, expr->unary.operatorToken->lexeme);
 		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->unary.operatorToken->type] );
-		PrintAST(expr->unary.expr, level+1);
+		PrintExpr(expr->unary.expr, level+1);
 	}
 	else if (expr->type == EXPR_BINARY)
 	{
 		StrCopy(lexeme, expr->binary.operatorToken->lexeme);
 		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->binary.operatorToken->type] );
-		PrintAST(expr->binary.left, level+1);
-		PrintAST(expr->binary.right, level+1);
+		PrintExpr(expr->binary.left, level+1);
+		PrintExpr(expr->binary.right, level+1);
 	}
 }
 
-void Parse(TokenList &tokens)
+AST Parse(Arena &arena, TokenList &tokens)
 {
-	Parser parser = {};
-	parser.tokenList = &tokens;
-	parser.current = 0;
+	AST ast = {};
+	ast.exprArray = PushArray(arena, Expr, MAX_EXPR_COUNT);
 
-	while (!IsAtEnd(parser))
+	ParseState parseState = {};
+	parseState.tokenList = &tokens;
+	parseState.current = 0;
+
+	while (!IsAtEnd(parseState))
 	{
-		Expr *expr = ParseExpression(parser);
-		PrintAST(expr);
+		ast.exprCount = 0; // Reset AST expression list
+		ast.first = ParseExpression(parseState, ast);
+		PrintExpr(ast.first);
 	}
+
+	return ast;
 }
 
 
@@ -732,11 +751,11 @@ void Parse(TokenList &tokens)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Program
 
+#define COMMAND_NAME "jsl"
 
 void PrintTokenList(const TokenList &tokenList)
 {
 	printf("List of tokens:\n");
-	#define MAX_LEXEME_SIZE 128
 	char lexeme[MAX_LEXEME_SIZE] = {};
 	for (u32 i = 0; i < tokenList.count; ++i)
 	{
@@ -747,32 +766,32 @@ void PrintTokenList(const TokenList &tokenList)
 	}
 }
 
-void Run(const char *script, u32 scriptSize)
+void Run(Arena &arena, const char *script, u32 scriptSize)
 {
-	TokenList tokenList = ScanTokens(script, scriptSize);
+	TokenList tokenList = Scan(arena, script, scriptSize);
 
 	PrintTokenList(tokenList);
 
-	Parse(tokenList);
+	AST ast = Parse(arena, tokenList);
 }
 
-void RunFile(const char* filename)
+void RunFile(Arena &arena, const char* filename)
 {
 	u32 fileSize = GetFileSize(filename);
-	char* bytes = PushArray(globalArena, char, fileSize);
+	char* bytes = PushArray(arena, char, fileSize);
 	u32 bytesRead = ReadEntireFile(filename, bytes, fileSize);
 	ASSERT(bytesRead == fileSize);
-	Run(bytes, bytesRead);
+	Run(arena, bytes, bytesRead);
 }
 
-void RunPrompt()
+void RunPrompt(Arena &arena)
 {
 	char* line = NULL;
 	size_t lineLen = 0;
 
 	for (;;)
 	{
-		ResetArena(globalArena);
+		ResetArena(arena);
 
 		printf("> ");
 		ssize_t lineSize;
@@ -784,7 +803,7 @@ void RunPrompt()
 		}
 		else
 		{
-			Run(line, lineSize);
+			Run(arena, line, lineSize);
 		}
 	}
 
@@ -793,9 +812,9 @@ void RunPrompt()
 
 int main(int argc, char **argv)
 {
-	u32 globalArenaSize = KB(512);
+	u32 globalArenaSize = MB(2);
 	byte* globalArenaBase = new byte[globalArenaSize]();
-	globalArena = MakeArena(globalArenaBase, globalArenaSize);
+	Arena globalArena = MakeArena(globalArenaBase, globalArenaSize);
 
 	if ( argc > 2 )
 	{
@@ -804,11 +823,11 @@ int main(int argc, char **argv)
 	}
 	else if ( argc == 2 )
 	{
-		RunFile(argv[1]);
+		RunFile(globalArena, argv[1]);
 	}
 	else
 	{
-		RunPrompt();
+		RunPrompt(globalArena);
 	}
 
 	delete[] globalArenaBase;
