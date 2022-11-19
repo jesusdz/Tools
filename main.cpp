@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h> // free
 
 
 
@@ -236,7 +237,6 @@ struct ScanState
 
 	const char *script;
 	u32 scriptSize;
-	Arena stringArena;
 };
 
 const char* TokenName(TokenType type)
@@ -401,7 +401,7 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 				if ( Peek(scanState) == '.' && IsDigit( PeekNext(scanState) ) )
 				{
 					Advance(scanState);
-					//while ( IsDigit(Peek(scanState)) ) Advance(scanState);
+					while ( IsDigit(Peek(scanState)) ) Advance(scanState);
 				}
 
 				Literal literal;
@@ -439,7 +439,6 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 			}
 			else
 			{
-				// TODO(jesus): Substitute this by a proper error call
 				ERROR( "Unexpected character");
 			}
 	}
@@ -454,9 +453,6 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 	scanState.script = script;
 	scanState.scriptSize = scriptSize;
 
-	u32 stringArenaSize = KB(128);
-	scanState.stringArena = MakeSubArena(globalArena, stringArenaSize);
-
 	while ( !IsAtEnd(scanState) )
 	{
 		ScanToken(scanState, tokenList);
@@ -466,6 +462,276 @@ TokenList ScanTokens(const char *script, u32 scriptSize)
 
 	return tokenList;
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Parser
+
+// Grammar:
+// expression -> equality
+// equality   -> comparison ( ( "!=" | "==") comparison )
+// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
+// term       -> factor ( ( "-" | "+" ) factor )*
+// factor     -> unary ( ( "/" | "*" ) unary )*
+// unary      -> ( "!" | "-" ) unary | primary
+// primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
+
+struct Parser
+{
+	TokenList* tokenList;
+	int current;
+};
+
+enum ExprType
+{
+	EXPR_LITERAL,
+	EXPR_UNARY,
+	EXPR_BINARY,
+};
+
+struct Expr;
+
+struct ExprLiteral
+{
+	Token *literalToken;
+};
+
+struct ExprUnary
+{
+	Token *operatorToken;
+	Expr *expr;
+};
+
+struct ExprBinary
+{
+	Expr *left;
+	Token *operatorToken;
+	Expr *right;
+};
+
+struct Expr
+{
+	ExprType type;
+	union
+	{
+		ExprLiteral literal;
+		ExprUnary unary;
+		ExprBinary binary;
+	};
+};
+
+bool IsAtEnd(const Parser &parser)
+{
+	const TokenList &tokenList = *parser.tokenList;
+	const Token &currentToken = tokenList.tokens[ parser.current ];
+	return currentToken.type == TOKEN_EOF;
+}
+
+bool Consume(Parser &parser, TokenType tokenType)
+{
+	TokenList &tokenList = *parser.tokenList;
+	Token &currentToken = tokenList.tokens[ parser.current ];
+	if ( currentToken.type == tokenType )
+	{
+		parser.current++;
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void ConsumeForced(Parser &parser, TokenType tokenType)
+{
+	if ( !Consume(parser, tokenType) )
+	{
+		ERROR("Unexpected token type");
+	}
+}
+
+Token* Consumed(Parser &parser)
+{
+	ASSERT( parser.current > 0 );
+	TokenList &tokenList = *parser.tokenList;
+	Token &consumedToken = tokenList.tokens[ parser.current - 1 ];
+	return &consumedToken;
+}
+
+Expr* MakeExpression(Token* token)
+{
+	Expr* expr = new Expr; // TODO: Use Arenas instead of new
+	expr->type = EXPR_LITERAL;
+	expr->literal.literalToken = token;
+	return expr;
+}
+
+Expr* MakeExpression(Token* token, Expr* pExpr)
+{
+	Expr* expr = new Expr; // TODO: Use Arenas instead of new
+	expr->type = EXPR_UNARY;
+	expr->unary.operatorToken = token;
+	expr->unary.expr = pExpr;
+	return expr;
+}
+
+Expr* MakeExpression(Expr* left, Token* token, Expr* right)
+{
+	Expr* expr = new Expr; // TODO: Use Arenas instead of new
+	expr->type = EXPR_BINARY;
+	expr->binary.left = left;
+	expr->binary.operatorToken = token;
+	expr->binary.right = right;
+	return expr;
+}
+
+Expr* ParseExpression(Parser &parser);
+
+Expr* ParsePrimary(Parser &parser)
+{
+	if ( Consume(parser, TOKEN_FALSE) ) return MakeExpression(Consumed(parser));
+	if ( Consume(parser, TOKEN_TRUE) ) return MakeExpression(Consumed(parser));
+	if ( Consume(parser, TOKEN_NIL) ) return MakeExpression(Consumed(parser));
+	if ( Consume(parser, TOKEN_NUMBER) ) return MakeExpression(Consumed(parser));
+	if ( Consume(parser, TOKEN_LEFT_PAREN) )
+	{
+		Expr* expr = ParseExpression(parser);
+		ConsumeForced(parser, TOKEN_RIGHT_PAREN);
+		return expr;
+	}
+
+	ERROR("Could not parse primary expression");
+	return nullptr;
+}
+
+Expr* ParseUnary(Parser &parser)
+{
+	if ( Consume(parser, TOKEN_NOT) ||
+		 Consume(parser, TOKEN_MINUS) )
+	{
+		Token* op = Consumed(parser);
+		Expr* expr = ParseUnary(parser);
+		return MakeExpression(op, expr);
+	}
+	else
+	{
+		return ParsePrimary(parser);
+	}
+}
+
+Expr* ParseFactor(Parser &parser)
+{
+	Expr *expr = ParseUnary(parser);
+
+	while ( Consume(parser, TOKEN_STAR) ||
+			Consume(parser, TOKEN_SLASH) )
+	{
+		Token* op = Consumed(parser);
+		Expr* right = ParseUnary(parser);
+		expr = MakeExpression(expr, op, right);
+	}
+
+	return expr;
+}
+
+Expr* ParseTerm(Parser &parser)
+{
+	Expr* expr = ParseFactor(parser);
+
+	while ( Consume(parser, TOKEN_MINUS) ||
+			Consume(parser, TOKEN_PLUS) )
+	{
+		Token* op = Consumed(parser);
+		Expr* right = ParseFactor(parser);
+		expr = MakeExpression(expr, op, right);
+	}
+
+	return expr;
+}
+
+Expr* ParseComparison(Parser &parser)
+{
+	Expr* expr = ParseTerm(parser);
+
+	while ( Consume(parser, TOKEN_GREATER) ||
+			Consume(parser, TOKEN_GREATER_EQUAL) ||
+			Consume(parser, TOKEN_LESS) ||
+			Consume(parser, TOKEN_LESS_EQUAL) )
+	{
+		Token* op = Consumed(parser);
+		Expr* right = ParseTerm(parser);
+		expr = MakeExpression(expr, op, right);
+	}
+
+	return expr;
+}
+
+Expr* ParseEquality(Parser &parser)
+{
+	Expr* expr = ParseComparison(parser);
+
+	if ( Consume(parser, TOKEN_EQUAL_EQUAL) ||
+		 Consume(parser, TOKEN_NOT_EQUAL) )
+	{
+		Token* op = Consumed(parser);
+		Expr* right = ParseComparison(parser);
+		expr = MakeExpression(expr, op, right);
+	}
+
+	return expr;
+}
+
+Expr* ParseExpression(Parser &parser)
+{
+	return ParseEquality(parser);
+}
+
+void PrintAST(Expr* expr, int level = 0)
+{
+	for (int i = 0; i < level; ++i) printf("  ");
+	int space = 16 - level*2;
+
+	#define MAX_LEXEME_SIZE 128
+	char lexeme[MAX_LEXEME_SIZE] = {};
+	if (expr->type == EXPR_LITERAL)
+	{
+		StrCopy(lexeme, expr->literal.literalToken->lexeme);
+		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->literal.literalToken->type] );
+	}
+	else if (expr->type == EXPR_UNARY)
+	{
+		StrCopy(lexeme, expr->unary.operatorToken->lexeme);
+		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->unary.operatorToken->type] );
+		PrintAST(expr->unary.expr, level+1);
+	}
+	else if (expr->type == EXPR_BINARY)
+	{
+		StrCopy(lexeme, expr->binary.operatorToken->lexeme);
+		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->binary.operatorToken->type] );
+		PrintAST(expr->binary.left, level+1);
+		PrintAST(expr->binary.right, level+1);
+	}
+}
+
+void Parse(TokenList &tokens)
+{
+	Parser parser = {};
+	parser.tokenList = &tokens;
+	parser.current = 0;
+
+	while (!IsAtEnd(parser))
+	{
+		Expr *expr = ParseExpression(parser);
+		PrintAST(expr);
+	}
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Program
+
 
 void PrintTokenList(const TokenList &tokenList)
 {
@@ -486,6 +752,8 @@ void Run(const char *script, u32 scriptSize)
 	TokenList tokenList = ScanTokens(script, scriptSize);
 
 	PrintTokenList(tokenList);
+
+	Parse(tokenList);
 }
 
 void RunFile(const char* filename)
