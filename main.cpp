@@ -792,6 +792,10 @@ Value Evaluate(Expr *expr)
 					ASSERT( value.type == VALUE_TYPE_FLOAT );
 					value.f = -value.f;
 					break;
+				case TOKEN_NOT:
+					assert( value.type == VALUE_TYPE_BOOL );
+					value.b = !value.b;
+					break;
 				default:
 					INVALID_CODE_PATH();
 			}
