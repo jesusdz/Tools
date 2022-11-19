@@ -72,7 +72,7 @@ bool StrEq(const String &s11, const char *s2)
 bool StrEq(const char *s1, const char *s2)
 {
 	while ( *s1++ == *s2++ && *s1 ) {}
-    return *s1 == *s2;
+	return *s1 == *s2;
 }
 
 
@@ -217,7 +217,7 @@ struct Literal
 
 struct Token
 {
-    TokenType type;
+	TokenType type;
 	String lexeme;
 	Literal literal;
 	i32 line;
@@ -767,28 +767,28 @@ void RunFile(const char* filename)
 
 void RunPrompt()
 {
-    char* line = NULL;
-    size_t lineLen = 0;
+	char* line = NULL;
+	size_t lineLen = 0;
 
 	for (;;)
 	{
 		ResetArena(globalArena);
 
 		printf("> ");
-        ssize_t lineSize;
-        lineSize = getline(&line, &lineLen, stdin);
+		ssize_t lineSize;
+		lineSize = getline(&line, &lineLen, stdin);
 
-        if ( StrEq( "exit", line ) )
-        {
-            break;
-        }
-        else
-        {
-            Run(line, lineSize);
-        }
+		if ( StrEq( "exit", line ) )
+		{
+			break;
+		}
+		else
+		{
+			Run(line, lineSize);
+		}
 	}
 
-    free(line);
+	free(line);
 }
 
 int main(int argc, char **argv)
@@ -813,6 +813,6 @@ int main(int argc, char **argv)
 
 	delete[] globalArenaBase;
 
-    return 0;
+	return 0;
 }
 
