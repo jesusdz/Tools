@@ -28,6 +28,7 @@ typedef	unsigned char byte;
 #define ASSERT(expression) assert(expression)
 #define ERROR(message) ASSERT( 0 && message )
 #define INVALID_CODE_PATH() ERROR("Invalid code path")
+#define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 
 
 
@@ -79,6 +80,7 @@ bool StrEq(const char *s1, const char *s2)
 f32 StrToFloat(const String &s)
 {
 	char buf[256] = {};
+	ASSERT(s.size + 1 < ARRAY_COUNT(buf));
 	StrCopy(buf, s);
 	f32 number = atof(buf);
 	return number;
@@ -240,6 +242,7 @@ struct ScanState
 	i32 start;
 	i32 current;
 	i32 line;
+	bool hasErrors;
 
 	const char *script;
 	u32 scriptSize;
@@ -346,6 +349,12 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenT
 	AddToken(scanState, tokenList, tokenType, literal);
 }
 
+void ReportError(ScanState &scanState, const char *message)
+{
+	printf("ERROR: %d:%d: %s\n", scanState.line, scanState.current, message);
+	scanState.hasErrors = true;
+}
+
 void ScanToken(ScanState &scanState, TokenList &tokenList)
 {
 	scanState.start = scanState.current;
@@ -408,7 +417,8 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 
 			if ( IsAtEnd(scanState) )
 			{
-				ERROR( "Unterminated string.");
+				ReportError( scanState, "Unterminated string." );
+				return;
 			}
 
 			Advance(scanState);
@@ -455,18 +465,18 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 			}
 			else
 			{
-				ERROR( "Unexpected character");
+				ReportError( scanState, "Unexpected character." );
 			}
 	}
 }
 
-TokenList Scan(Arena &arena, const char *script, u32 scriptSize)
+TokenList Scan(Arena &arena, ScanState &scanState, const char *script, u32 scriptSize)
 {
 	TokenList tokenList = {};
 	tokenList.tokens = PushArray(arena, Token, MAX_TOKEN_COUNT);
 
-	ScanState scanState = {};
 	scanState.line = 1;
+	scanState.hasErrors = false;
 	scanState.script = script;
 	scanState.scriptSize = scriptSize;
 
@@ -500,6 +510,7 @@ struct ParseState
 {
 	TokenList* tokenList;
 	u32 current;
+	bool hasErrors;
 };
 
 enum ExprType
@@ -547,6 +558,15 @@ struct AST
 	Expr *first;
 };
 
+void ReportError(ParseState &parseState, const char *message)
+{
+	Token &token = parseState.tokenList->tokens[ parseState.current ];
+	u32 line = token.line;
+	printf("ERROR: %d: %s\n", line, message);
+	parseState.hasErrors = true;
+	parseState.current++; // The current token provoked an error so we advance
+}
+
 bool IsAtEnd(const ParseState &parseState)
 {
 	const TokenList &tokenList = *parseState.tokenList;
@@ -573,7 +593,7 @@ void ConsumeForced(ParseState &parseState, TokenType tokenType)
 {
 	if ( !Consume(parseState, tokenType) )
 	{
-		ERROR("Unexpected token type");
+		ReportError( parseState, "Unexpected token type" );
 	}
 }
 
@@ -634,7 +654,7 @@ Expr* ParsePrimary(ParseState &parseState, AST &ast)
 		return expr;
 	}
 
-	ERROR("Could not parse primary expression");
+	ReportError(parseState, "Could not parse primary expression");
 	return nullptr;
 }
 
@@ -722,6 +742,7 @@ Expr* ParseExpression(ParseState &parseState, AST &ast)
 
 #define MAX_LEXEME_SIZE 128
 
+#if 0
 void PrintExpr(Expr* expr, u32 level = 0)
 {
 	for (u32 i = 0; i < level; ++i) printf("  ");
@@ -747,21 +768,24 @@ void PrintExpr(Expr* expr, u32 level = 0)
 		PrintExpr(expr->binary.right, level+1);
 	}
 }
+#endif
 
-AST Parse(Arena &arena, TokenList &tokens)
+AST Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
 {
 	AST ast = {};
 	ast.exprArray = PushArray(arena, Expr, MAX_EXPR_COUNT);
 
-	ParseState parseState = {};
 	parseState.tokenList = &tokens;
 	parseState.current = 0;
+	parseState.hasErrors = false;
 
 	while (!IsAtEnd(parseState))
 	{
 		ast.exprCount = 0; // Reset AST expression list
 		ast.first = ParseExpression(parseState, ast);
+#if 0
 		PrintExpr(ast.first);
+#endif
 	}
 
 	return ast;
@@ -903,6 +927,7 @@ void Evaluate(AST &ast)
 
 #define COMMAND_NAME "jsl"
 
+#if 0
 void PrintTokenList(const TokenList &tokenList)
 {
 	printf("List of tokens:\n");
@@ -915,16 +940,27 @@ void PrintTokenList(const TokenList &tokenList)
 		printf("%s\t: %s\n", TokenNames[token.type], lexeme);
 	}
 }
+#endif
 
 void Run(Arena &arena, const char *script, u32 scriptSize)
 {
-	TokenList tokenList = Scan(arena, script, scriptSize);
+	ScanState scanState = {};
+	TokenList tokenList = Scan(arena, scanState, script, scriptSize);
 
-	PrintTokenList(tokenList);
+	if ( !scanState.hasErrors )
+	{
+#if 0
+		PrintTokenList(tokenList);
+#endif
 
-	AST ast = Parse(arena, tokenList);
+		ParseState parseState = {};
+		AST ast = Parse(arena, parseState, tokenList);
 
-	Evaluate(ast);
+		if ( !parseState.hasErrors )
+		{
+			Evaluate(ast);
+		}
+	}
 }
 
 void RunFile(Arena &arena, const char* filename)
