@@ -342,7 +342,7 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenT
 	}
 	else if ( tokenType == TOKEN_TRUE || tokenType == TOKEN_FALSE )
 	{
-		literal.type == VALUE_TYPE_BOOL;
+		literal.type = VALUE_TYPE_BOOL;
 		literal.b = tokenType == TOKEN_TRUE;
 	}
 
@@ -655,7 +655,7 @@ Expr* ParsePrimary(ParseState &parseState, AST &ast)
 	}
 
 	ReportError(parseState, "Could not parse primary expression");
-	return nullptr;
+	return 0;
 }
 
 Expr* ParseUnary(ParseState &parseState, AST &ast)
@@ -975,17 +975,22 @@ void RunFile(Arena &arena, const char* filename)
 void RunPrompt(Arena &arena)
 {
 	char* line = NULL;
-	size_t lineLen = 0;
+	size_t lineLen = 0; // used buffer size
 
 	for (;;)
 	{
 		ResetArena(arena);
 
 		printf("> ");
-		ssize_t lineSize;
+
+		ssize_t lineSize; // number of characters, includes \n
 		lineSize = getline(&line, &lineLen, stdin);
 
-		if ( StrEq( "exit", line ) )
+		line[lineSize - 1] = 0; // remove trailing \n
+
+		if ( StrEq( "exit", line ) ||
+			 StrEq( "quit", line ) ||
+			 StrEq( "q", line ) )
 		{
 			break;
 		}
