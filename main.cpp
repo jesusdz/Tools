@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <assert.h>
-#include <stdlib.h> // free
 
 
 
@@ -73,7 +72,11 @@ bool StrEq(const String &s11, const char *s2)
 
 bool StrEq(const char *s1, const char *s2)
 {
-	while ( *s1++ == *s2++ && *s1 ) {}
+	while ( *s1 == *s2 && *s1 )
+	{
+		s1++;
+		s2++;
+	}
 	return *s1 == *s2;
 }
 
@@ -140,6 +143,26 @@ void ResetArena(Arena &arena)
 
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
+
+#if __APPLE__
+
+#include<sys/mman.h>
+
+void* AllocateVirtualMemory(u32 size)
+{
+	void* baseAddress = 0;
+	int prot = PROT_READ | PROT_WRITE;
+	int flags = MAP_ANONYMOUS | MAP_SHARED;
+	int fd = -1;
+	off_t offset = 0;
+	void *allocatedMemory = mmap(baseAddress, size, prot, flags, fd, offset);
+	ASSERT( allocatedMemory != MAP_FAILED && "Failed to allocate memory." );
+	return allocatedMemory;
+}
+
+#else
+#	error "Missing platform implementation"
+#endif
 
 
 
@@ -986,9 +1009,13 @@ void RunPrompt(Arena &arena)
 		ssize_t lineSize; // number of characters, includes \n
 		lineSize = getline(&line, &lineLen, stdin);
 
-		line[lineSize - 1] = 0; // remove trailing \n
+		line[--lineSize] = 0; // remove trailing \n
 
-		if ( StrEq( "exit", line ) ||
+		if ( StrEq( "", line ) )
+		{
+		    continue;
+		}
+		else if ( StrEq( "exit", line ) ||
 			 StrEq( "quit", line ) ||
 			 StrEq( "q", line ) )
 		{
@@ -1006,7 +1033,8 @@ void RunPrompt(Arena &arena)
 int main(int argc, char **argv)
 {
 	u32 globalArenaSize = MB(2);
-	byte* globalArenaBase = new byte[globalArenaSize]();
+	byte *globalArenaBase = (byte*)AllocateVirtualMemory(globalArenaSize);
+
 	Arena globalArena = MakeArena(globalArenaBase, globalArenaSize);
 
 	if ( argc > 2 )
@@ -1022,8 +1050,6 @@ int main(int argc, char **argv)
 	{
 		RunPrompt(globalArena);
 	}
-
-	delete[] globalArenaBase;
 
 	return 0;
 }
