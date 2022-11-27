@@ -46,15 +46,24 @@ String MakeString(const char *str, u32 size)
 	return string;
 }
 
-void StrCopy(char *dst, const char *src, u32 size)
+void StrCopy(char *dst, const String& src_string)
 {
+	u32 size = src_string.size;
+	const char *src = src_string.str;
 	while (size-- > 0) *dst++ = *src++;
+	dst[src_string.size] = '\0';
 }
 
-void StrCopy(char *dst, const String& src)
+void StrCopy(char *dst, const char *src)
 {
-	StrCopy(dst, src.str, src.size);
-	dst[src.size] = '\0';
+	while (*src) *dst++ = *src++;
+	*dst = 0;
+}
+
+void StrCat(char *dst, const char *src)
+{
+	while (*dst) ++dst;
+	StrCopy(dst, src);
 }
 
 bool StrEq(const String &s11, const char *s2)
@@ -128,19 +137,19 @@ byte* PushSize(Arena &arena, u32 size)
 	return head;
 }
 
-char* PushCString(Arena &arena, const char* str, u32 size)
-{
-	char* dest = (char*)PushSize(arena, size + 1);
-	StrCopy(dest, str, size);
-	dest[size] = '\0';
-	return dest;
-}
-
 void ResetArena(Arena &arena)
 {
 	arena.used = 0;
 }
 
+void PrintArenaUsage(Arena &arena)
+{
+	printf("Memory Arena Usage:\n");
+	printf("- size: %u B / %u kB\n", arena.size, arena.size/1024);
+	printf("- used: %u B / %u kB\n", arena.used, arena.used/1024);
+}
+
+#define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer) )
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 
@@ -163,6 +172,12 @@ void* AllocateVirtualMemory(u32 size)
 #else
 #	error "Missing platform implementation"
 #endif
+
+void MemSet(void *ptr, u32 size)
+{
+	byte *bytePtr = (byte*)ptr;
+	while (size-- > 0) *bytePtr++ = 0;
+}
 
 
 
@@ -240,7 +255,7 @@ struct Value
 		bool b;
 		i32 i;
 		f32 f;
-		const char* s;
+		String s;
 	};
 };
 
@@ -356,7 +371,7 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenT
 	if ( tokenType == TOKEN_STRING )
 	{
 		literal.type = VALUE_TYPE_STRING;
-		literal.s = ScannedString(scanState).str; // TODO: Probably we have to zero-terminate this string
+		literal.s = ScannedString(scanState);
 	}
 	else if ( tokenType == TOKEN_NUMBER )
 	{
@@ -518,16 +533,18 @@ TokenList Scan(Arena &arena, ScanState &scanState, const char *script, u32 scrip
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Parser
 
-#define MAX_EXPR_COUNT (MAX_TOKEN_COUNT * 2)
-
 // Grammar:
-// expression -> equality
-// equality   -> comparison ( ( "!=" | "==") comparison )
-// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
-// term       -> factor ( ( "-" | "+" ) factor )*
-// factor     -> unary ( ( "/" | "*" ) unary )*
-// unary      -> ( "!" | "-" ) unary | primary
-// primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
+// program        -> statement* EOF
+// statement      -> exprStatement | printStatement
+// exprStatement  -> expression ";"
+// printStatement -> "print" "(" expression ")" ";"
+// expression     -> equality
+// equality       -> comparison ( ( "!=" | "==") comparison )
+// comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
+// term           -> factor ( ( "-" | "+" ) factor )*
+// factor         -> unary ( ( "/" | "*" ) unary )*
+// unary          -> ( "!" | "-" ) unary | primary
+// primary        -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
 
 struct ParseState
 {
@@ -574,11 +591,37 @@ struct Expr
 	};
 };
 
-struct AST
+struct ExprList
 {
-	Expr *exprArray;
-	u32   exprCount;
-	Expr *first;
+	Expr exprs[8];
+	u32 exprsCount;
+	ExprList *next;
+};
+
+enum StmtType
+{
+	STMT_PRINT,
+	STMT_EXPR,
+};
+
+struct Stmt
+{
+	StmtType type;
+	Expr *expr;
+};
+
+struct StmtList
+{
+	Stmt stmts[8];
+	u32 stmtsCount;
+	StmtList *next;
+};
+
+struct Program
+{
+	Arena *arena;
+	ExprList *expressions;
+	StmtList *statements;
 };
 
 void ReportError(ParseState &parseState, const char *message)
@@ -587,7 +630,6 @@ void ReportError(ParseState &parseState, const char *message)
 	u32 line = token.line;
 	printf("ERROR: %d: %s\n", line, message);
 	parseState.hasErrors = true;
-	parseState.current++; // The current token provoked an error so we advance
 }
 
 bool IsAtEnd(const ParseState &parseState)
@@ -616,7 +658,11 @@ void ConsumeForced(ParseState &parseState, TokenType tokenType)
 {
 	if ( !Consume(parseState, tokenType) )
 	{
-		ReportError( parseState, "Unexpected token type" );
+		char errorMessage[512];
+		StrCopy(errorMessage, "Expected token ");
+		StrCat(errorMessage, TokenNames[tokenType]);
+		StrCat(errorMessage, " not found.");
+		ReportError( parseState, errorMessage );
 	}
 }
 
@@ -628,33 +674,53 @@ Token* Consumed(ParseState &parseState)
 	return &consumedToken;
 }
 
-Expr* AddExpression(AST &ast)
+Expr* AddExpression(Program &program)
 {
-	ASSERT(ast.exprCount < MAX_EXPR_COUNT);
-	Expr* expr = &ast.exprArray[ ast.exprCount++ ];
+	// Ensure the first expression list block
+	if ( !program.expressions )
+	{
+		program.expressions = PushStruct(*program.arena, ExprList);
+		program.expressions->exprsCount = 0;
+		program.expressions->next = 0;
+	}
+
+	// Advance to the last expression list block
+	ExprList *list = program.expressions;
+	while ( list->next ) list = list->next;
+
+	// Ensure we have a list block with space
+	if ( list->exprsCount == ARRAY_COUNT(list->exprs) )
+	{
+		list->next = PushStruct(*program.arena, ExprList);
+		list->next->exprsCount = 0;
+		list->next->next = 0;
+		list = list->next;
+	}
+
+	Expr* expr = &list->exprs[list->exprsCount++];
 	return expr;
 }
 
-Expr* AddExpression(AST &ast, Token* literalToken)
+Expr* AddExpression(Program &program, Token* literalToken)
 {
-	Expr* expr = AddExpression(ast);
+	Expr* expr = AddExpression(program);
 	expr->type = EXPR_LITERAL;
 	expr->literal.literalToken = literalToken;
 	return expr;
 }
 
-Expr* AddExpression(AST &ast, Token* operatorToken, Expr* pExpr)
+Expr* AddExpression(Program &program, Token* operatorToken, Expr* pExpr)
 {
-	Expr* expr = AddExpression(ast);
+	Expr* expr = AddExpression(program);
 	expr->type = EXPR_UNARY;
 	expr->unary.operatorToken = operatorToken;
 	expr->unary.expr = pExpr;
 	return expr;
 }
 
-Expr* AddExpression(AST &ast, Expr* left, Token* operatorToken, Expr* right)
+Expr* AddExpression(Program &program, Expr* left, Token* operatorToken, Expr* right)
 {
-	Expr* expr = AddExpression(ast);
+	Expr* expr = AddExpression(program);
 	expr->type = EXPR_BINARY;
 	expr->binary.left = left;
 	expr->binary.operatorToken = operatorToken;
@@ -662,17 +728,61 @@ Expr* AddExpression(AST &ast, Expr* left, Token* operatorToken, Expr* right)
 	return expr;
 }
 
-Expr* ParseExpression(ParseState &parseState, AST &ast);
-
-Expr* ParsePrimary(ParseState &parseState, AST &ast)
+Stmt* AddStatement(Program &program)
 {
-	if ( Consume(parseState, TOKEN_FALSE) ) return AddExpression(ast, Consumed(parseState));
-	if ( Consume(parseState, TOKEN_TRUE) ) return AddExpression(ast, Consumed(parseState));
-	if ( Consume(parseState, TOKEN_NIL) ) return AddExpression(ast, Consumed(parseState));
-	if ( Consume(parseState, TOKEN_NUMBER) ) return AddExpression(ast, Consumed(parseState));
+	// Ensure first list block
+	if ( !program.statements )
+	{
+		program.statements = PushStruct(*program.arena, StmtList);
+		program.statements->stmtsCount = 0;
+		program.statements->next = 0;
+	}
+
+	// Advance to the last list block
+	StmtList *list = program.statements;
+	while ( list->next ) list = list->next;
+
+	// Ensure a current list block with space
+	if ( list->stmtsCount == ARRAY_COUNT( list->stmts ) )
+	{
+		list->next = PushStruct(*program.arena, StmtList);
+		list->next->stmtsCount = 0;
+		list->next->next = 0;
+		list = list->next;
+	}
+
+	Stmt *stmt = &list->stmts[ list->stmtsCount++ ];
+	return stmt;
+}
+
+Stmt* AddPrintStatement(Program &program, Expr *expr)
+{
+	Stmt *statement = AddStatement(program);
+	statement->type = STMT_PRINT;
+	statement->expr = expr;
+	return statement;
+}
+
+Stmt* AddExpressionStatement(Program &program, Expr *expr)
+{
+	Stmt *statement = AddStatement(program);
+	statement->type = STMT_EXPR;
+	statement->expr = expr;
+	return statement;
+}
+
+Expr* ParseExpression(ParseState &parseState, Program &program);
+
+Expr* ParsePrimary(ParseState &parseState, Program &program)
+{
+	if ( Consume(parseState, TOKEN_FALSE) ) return AddExpression(program, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_TRUE) ) return AddExpression(program, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_NIL) ) return AddExpression(program, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_NUMBER) ) return AddExpression(program, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_STRING) ) return AddExpression(program, Consumed(parseState));
 	if ( Consume(parseState, TOKEN_LEFT_PAREN) )
 	{
-		Expr* expr = ParseExpression(parseState, ast);
+		Expr* expr = ParseExpression(parseState, program);
 		ConsumeForced(parseState, TOKEN_RIGHT_PAREN);
 		return expr;
 	}
@@ -681,54 +791,54 @@ Expr* ParsePrimary(ParseState &parseState, AST &ast)
 	return 0;
 }
 
-Expr* ParseUnary(ParseState &parseState, AST &ast)
+Expr* ParseUnary(ParseState &parseState, Program &program)
 {
 	if ( Consume(parseState, TOKEN_NOT) ||
 		 Consume(parseState, TOKEN_MINUS) )
 	{
 		Token* op = Consumed(parseState);
-		Expr* expr = ParseUnary(parseState, ast);
-		return AddExpression(ast, op, expr);
+		Expr* expr = ParseUnary(parseState, program);
+		return AddExpression(program, op, expr);
 	}
 	else
 	{
-		return ParsePrimary(parseState, ast);
+		return ParsePrimary(parseState, program);
 	}
 }
 
-Expr* ParseFactor(ParseState &parseState, AST &ast)
+Expr* ParseFactor(ParseState &parseState, Program &program)
 {
-	Expr *expr = ParseUnary(parseState, ast);
+	Expr *expr = ParseUnary(parseState, program);
 
 	while ( Consume(parseState, TOKEN_STAR) ||
 			Consume(parseState, TOKEN_SLASH) )
 	{
 		Token* op = Consumed(parseState);
-		Expr* right = ParseUnary(parseState, ast);
-		expr = AddExpression(ast, expr, op, right);
+		Expr* right = ParseUnary(parseState, program);
+		expr = AddExpression(program, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseTerm(ParseState &parseState, AST &ast)
+Expr* ParseTerm(ParseState &parseState, Program &program)
 {
-	Expr* expr = ParseFactor(parseState, ast);
+	Expr* expr = ParseFactor(parseState, program);
 
 	while ( Consume(parseState, TOKEN_MINUS) ||
 			Consume(parseState, TOKEN_PLUS) )
 	{
 		Token* op = Consumed(parseState);
-		Expr* right = ParseFactor(parseState, ast);
-		expr = AddExpression(ast, expr, op, right);
+		Expr* right = ParseFactor(parseState, program);
+		expr = AddExpression(program, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseComparison(ParseState &parseState, AST &ast)
+Expr* ParseComparison(ParseState &parseState, Program &program)
 {
-	Expr* expr = ParseTerm(parseState, ast);
+	Expr* expr = ParseTerm(parseState, program);
 
 	while ( Consume(parseState, TOKEN_GREATER) ||
 			Consume(parseState, TOKEN_GREATER_EQUAL) ||
@@ -736,31 +846,61 @@ Expr* ParseComparison(ParseState &parseState, AST &ast)
 			Consume(parseState, TOKEN_LESS_EQUAL) )
 	{
 		Token* op = Consumed(parseState);
-		Expr* right = ParseTerm(parseState, ast);
-		expr = AddExpression(ast, expr, op, right);
+		Expr* right = ParseTerm(parseState, program);
+		expr = AddExpression(program, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseEquality(ParseState &parseState, AST &ast)
+Expr* ParseEquality(ParseState &parseState, Program &program)
 {
-	Expr* expr = ParseComparison(parseState, ast);
+	Expr* expr = ParseComparison(parseState, program);
 
 	if ( Consume(parseState, TOKEN_EQUAL_EQUAL) ||
 		 Consume(parseState, TOKEN_NOT_EQUAL) )
 	{
 		Token* op = Consumed(parseState);
-		Expr* right = ParseComparison(parseState, ast);
-		expr = AddExpression(ast, expr, op, right);
+		Expr* right = ParseComparison(parseState, program);
+		expr = AddExpression(program, expr, op, right);
 	}
 
 	return expr;
 }
 
-Expr* ParseExpression(ParseState &parseState, AST &ast)
+Expr* ParseExpression(ParseState &parseState, Program &program)
 {
-	return ParseEquality(parseState, ast);
+	return ParseEquality(parseState, program);
+}
+
+Stmt* ParseExpressionStatement(ParseState &parseState, Program &program)
+{
+	Expr *expr = ParseExpression(parseState, program);
+	ConsumeForced(parseState, TOKEN_SEMICOLON);
+	Stmt *stmt = AddPrintStatement(program, expr);
+	return stmt;
+}
+
+Stmt* ParsePrintStatement(ParseState &parseState, Program &program)
+{
+	ConsumeForced(parseState, TOKEN_LEFT_PAREN);
+	Expr *expr = ParseExpression(parseState, program);
+	ConsumeForced(parseState, TOKEN_RIGHT_PAREN);
+	ConsumeForced(parseState, TOKEN_SEMICOLON);
+	Stmt *stmt = AddPrintStatement(program, expr);
+	return stmt;
+}
+
+Stmt* ParseStatement(ParseState &parseState, Program &program)
+{
+	if ( Consume(parseState, TOKEN_PRINT) )
+	{
+		return ParsePrintStatement(parseState, program);
+	}
+	else
+	{
+		return ParseExpressionStatement(parseState, program);
+	}
 }
 
 #define MAX_LEXEME_SIZE 128
@@ -793,25 +933,26 @@ void PrintExpr(Expr* expr, u32 level = 0)
 }
 #endif
 
-AST Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
+Program Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
 {
-	AST ast = {};
-	ast.exprArray = PushArray(arena, Expr, MAX_EXPR_COUNT);
+	Program program = {};
+	program.arena = &arena;
 
 	parseState.tokenList = &tokens;
 	parseState.current = 0;
 	parseState.hasErrors = false;
 
-	while (!IsAtEnd(parseState))
+	while (!IsAtEnd(parseState) && !parseState.hasErrors)
 	{
-		ast.exprCount = 0; // Reset AST expression list
-		ast.first = ParseExpression(parseState, ast);
+		ParseStatement(parseState, program);
+		//program.exprCount = 0; // Reset AST expression list
+		//Expr *expr = ParseExpression(parseState, program);
 #if 0
-		PrintExpr(ast.first);
+		PrintExpr(expr);
 #endif
 	}
 
-	return ast;
+	return program;
 }
 
 
@@ -924,23 +1065,49 @@ Value Evaluate(Expr *expr)
 	return value;
 }
 
-void Evaluate(AST &ast)
+void Execute(Stmt &stmt)
 {
-	Value val = Evaluate(ast.first);
-
-	printf("Evaluated value: ");
-	switch ( val.type )
+	switch ( stmt.type )
 	{
-		case VALUE_TYPE_FLOAT:
-			printf("%f", val.f);
-			break;
-		case VALUE_TYPE_BOOL:
-			printf("%s", val.b ? "true" : "false" );
+		case STMT_PRINT:
+		case STMT_EXPR:
+			{
+				Value val = Evaluate(stmt.expr);
+
+				printf("Evaluated value: ");
+				switch ( val.type )
+				{
+					case VALUE_TYPE_FLOAT:
+						printf("%f", val.f);
+						break;
+					case VALUE_TYPE_BOOL:
+						printf("%s", val.b ? "true" : "false" );
+						break;
+					case VALUE_TYPE_STRING:
+						char cstring[512];
+						StrCopy(cstring, val.s);
+						printf("%s", cstring);
+						break;
+					default:
+						INVALID_CODE_PATH();
+				}
+				printf("\n");
+			}
 			break;
 		default:
 			INVALID_CODE_PATH();
 	}
-	printf("\n");
+}
+
+void Execute(Program &program)
+{
+	for (StmtList *list = program.statements; list; list = list->next)
+	{
+		for (u32 i = 0; i < list->stmtsCount; ++i)
+		{
+			Execute( list->stmts[i] );
+		}
+	}
 }
 
 
@@ -977,11 +1144,11 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 #endif
 
 		ParseState parseState = {};
-		AST ast = Parse(arena, parseState, tokenList);
+		Program program = Parse(arena, parseState, tokenList);
 
 		if ( !parseState.hasErrors )
 		{
-			Evaluate(ast);
+			Execute(program);
 		}
 	}
 }
@@ -1002,8 +1169,6 @@ void RunPrompt(Arena &arena)
 
 	for (;;)
 	{
-		ResetArena(arena);
-
 		printf("> ");
 
 		ssize_t lineSize; // number of characters, includes \n
@@ -1023,6 +1188,7 @@ void RunPrompt(Arena &arena)
 		}
 		else
 		{
+			ResetArena(arena);
 			Run(arena, line, lineSize);
 		}
 	}
@@ -1050,6 +1216,8 @@ int main(int argc, char **argv)
 	{
 		RunPrompt(globalArena);
 	}
+
+	PrintArenaUsage(globalArena);
 
 	return 0;
 }
