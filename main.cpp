@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h> // free, atof
 
 
 
@@ -153,7 +154,7 @@ void PrintArenaUsage(Arena &arena)
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 
-#if __APPLE__
+#if __APPLE__ || __linux__
 
 #include<sys/mman.h>
 
