@@ -535,7 +535,8 @@ TokenList Scan(Arena &arena, ScanState &scanState, const char *script, u32 scrip
 // Parser
 
 // Grammar:
-// program        -> statement* EOF
+// program        -> declaration* EOF
+// declaration    -> varDecl | statement
 // statement      -> exprStatement | printStatement
 // exprStatement  -> expression ";"
 // printStatement -> "print" "(" expression ")" ";"
@@ -556,12 +557,18 @@ struct ParseState
 
 enum ExprType
 {
+	EXPR_IDENTIFIER,
 	EXPR_LITERAL,
 	EXPR_UNARY,
 	EXPR_BINARY,
 };
 
 struct Expr;
+
+struct ExprIdentifier
+{
+	Token *identifierToken;
+};
 
 struct ExprLiteral
 {
@@ -586,6 +593,7 @@ struct Expr
 	ExprType type;
 	union
 	{
+		ExprIdentifier identifier;
 		ExprLiteral literal;
 		ExprUnary unary;
 		ExprBinary binary;
@@ -603,6 +611,7 @@ enum StmtType
 {
 	STMT_PRINT,
 	STMT_EXPR,
+	STMT_VAR_DECL,
 };
 
 struct Stmt
@@ -623,6 +632,24 @@ struct Program
 	Arena *arena;
 	ExprList *expressions;
 	StmtList *statements;
+};
+
+struct Var
+{
+	String name;
+	Value value;
+};
+
+struct VarList
+{
+	Var vars[16];
+	u32 varsCount;
+	VarList *next;
+};
+
+struct Environment
+{
+	VarList *variables;
 };
 
 void ReportError(ParseState &parseState, const char *message)
@@ -655,14 +682,15 @@ bool Consume(ParseState &parseState, TokenType tokenType)
 	}
 }
 
-void ConsumeForced(ParseState &parseState, TokenType tokenType)
+void ConsumeForced(ParseState &parseState, TokenType tokenType, const char *context)
 {
 	if ( !Consume(parseState, tokenType) )
 	{
-		char errorMessage[512];
+		char errorMessage[1024];
 		StrCopy(errorMessage, "Expected token ");
 		StrCat(errorMessage, TokenNames[tokenType]);
-		StrCat(errorMessage, " not found.");
+		StrCat(errorMessage, " not found in context: ");
+		StrCat(errorMessage, context);
 		ReportError( parseState, errorMessage );
 	}
 }
@@ -702,11 +730,19 @@ Expr* AddExpression(Program &program)
 	return expr;
 }
 
-Expr* AddExpression(Program &program, Token* literalToken)
+Expr* AddExpression(Program &program, Token* token)
 {
 	Expr* expr = AddExpression(program);
-	expr->type = EXPR_LITERAL;
-	expr->literal.literalToken = literalToken;
+	if ( token->type == TOKEN_IDENTIFIER )
+	{
+		expr->type = EXPR_IDENTIFIER;
+		expr->identifier.identifierToken = token;
+	}
+	else
+	{
+		expr->type = EXPR_LITERAL;
+		expr->literal.literalToken = token;
+	}
 	return expr;
 }
 
@@ -772,6 +808,14 @@ Stmt* AddExpressionStatement(Program &program, Expr *expr)
 	return statement;
 }
 
+Stmt* AddVarDeclaration(Program &program, Expr *expr)
+{
+	Stmt *statement = AddStatement(program);
+	statement->type = STMT_VAR_DECL;
+	statement->expr = expr;
+	return statement;
+}
+
 Expr* ParseExpression(ParseState &parseState, Program &program);
 
 Expr* ParsePrimary(ParseState &parseState, Program &program)
@@ -781,10 +825,11 @@ Expr* ParsePrimary(ParseState &parseState, Program &program)
 	if ( Consume(parseState, TOKEN_NIL) ) return AddExpression(program, Consumed(parseState));
 	if ( Consume(parseState, TOKEN_NUMBER) ) return AddExpression(program, Consumed(parseState));
 	if ( Consume(parseState, TOKEN_STRING) ) return AddExpression(program, Consumed(parseState));
+	if ( Consume(parseState, TOKEN_IDENTIFIER) ) return AddExpression(program, Consumed(parseState));
 	if ( Consume(parseState, TOKEN_LEFT_PAREN) )
 	{
 		Expr* expr = ParseExpression(parseState, program);
-		ConsumeForced(parseState, TOKEN_RIGHT_PAREN);
+		ConsumeForced(parseState, TOKEN_RIGHT_PAREN, __FUNCTION__);
 		return expr;
 	}
 
@@ -877,17 +922,17 @@ Expr* ParseExpression(ParseState &parseState, Program &program)
 Stmt* ParseExpressionStatement(ParseState &parseState, Program &program)
 {
 	Expr *expr = ParseExpression(parseState, program);
-	ConsumeForced(parseState, TOKEN_SEMICOLON);
+	ConsumeForced(parseState, TOKEN_SEMICOLON, __FUNCTION__);
 	Stmt *stmt = AddPrintStatement(program, expr);
 	return stmt;
 }
 
 Stmt* ParsePrintStatement(ParseState &parseState, Program &program)
 {
-	ConsumeForced(parseState, TOKEN_LEFT_PAREN);
+	ConsumeForced(parseState, TOKEN_LEFT_PAREN, __FUNCTION__);
 	Expr *expr = ParseExpression(parseState, program);
-	ConsumeForced(parseState, TOKEN_RIGHT_PAREN);
-	ConsumeForced(parseState, TOKEN_SEMICOLON);
+	ConsumeForced(parseState, TOKEN_RIGHT_PAREN, __FUNCTION__);
+	ConsumeForced(parseState, TOKEN_SEMICOLON, __FUNCTION__);
 	Stmt *stmt = AddPrintStatement(program, expr);
 	return stmt;
 }
@@ -901,6 +946,40 @@ Stmt* ParseStatement(ParseState &parseState, Program &program)
 	else
 	{
 		return ParseExpressionStatement(parseState, program);
+	}
+}
+
+Stmt* ParseVarDeclaration(ParseState &parseState, Program &program)
+{
+	ConsumeForced(parseState, TOKEN_IDENTIFIER, __FUNCTION__);
+
+	Expr *initExpr = 0;
+	if ( Consume(parseState, TOKEN_EQUAL) )
+	{
+		initExpr = ParseExpression(parseState, program);
+	}
+
+	ConsumeForced(parseState, TOKEN_SEMICOLON, __FUNCTION__);
+
+	Stmt *stmt = AddVarDeclaration(program, initExpr);
+	return stmt;
+}
+
+void ParseDeclaration(ParseState &parseState, Program &program)
+{
+	if ( Consume(parseState, TOKEN_VAR) )
+	{
+		ParseVarDeclaration(parseState, program);
+	}
+	else
+	{
+		ParseStatement(parseState, program);
+	}
+
+	// This is a good point to catch parsing errors and synchronize
+	if ( parseState.hasErrors )
+	{
+		// TODO(jesus): Advance to the next declaration/statement here
 	}
 }
 
@@ -945,7 +1024,9 @@ Program Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
 
 	while (!IsAtEnd(parseState) && !parseState.hasErrors)
 	{
-		ParseStatement(parseState, program);
+		ParseDeclaration(parseState, program);
+		// TODO: Maybe the declaration must be pushed here onto the arena
+
 		//program.exprCount = 0; // Reset AST expression list
 		//Expr *expr = ParseExpression(parseState, program);
 #if 0
@@ -1066,7 +1147,7 @@ Value Evaluate(Expr *expr)
 	return value;
 }
 
-void Execute(Stmt &stmt)
+void Execute(Stmt &stmt, Environment &env)
 {
 	switch ( stmt.type )
 	{
@@ -1095,18 +1176,23 @@ void Execute(Stmt &stmt)
 				printf("\n");
 			}
 			break;
+		case STMT_VAR_DECL:
+			{
+				// TODO: Reserve space for the var
+				// TODO: If available, evaluate the init expression
+			}
 		default:
 			INVALID_CODE_PATH();
 	}
 }
 
-void Execute(Program &program)
+void Execute(Program &program, Environment &env)
 {
 	for (StmtList *list = program.statements; list; list = list->next)
 	{
 		for (u32 i = 0; i < list->stmtsCount; ++i)
 		{
-			Execute( list->stmts[i] );
+			Execute( list->stmts[i], env );
 		}
 	}
 }
@@ -1149,7 +1235,9 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 
 		if ( !parseState.hasErrors )
 		{
-			Execute(program);
+			Environment env = {};
+
+			Execute(program, env);
 		}
 	}
 }
