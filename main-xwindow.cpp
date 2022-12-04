@@ -1,3 +1,5 @@
+#include "tools.h"
+
 #define USE_XCB
 #if defined(USE_XCB)
 #include <xcb/xcb.h>
@@ -5,10 +7,10 @@
 # error "Platform implementation for a Windowing system is missing"
 #endif
 
-#include <vulkan/vulkan.h>
+#define VOLK_IMPLEMENTATION
+#include "volk/volk.h"
+
 #include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h> // printf
 
 struct XWindow
 {
@@ -111,11 +113,180 @@ print_modifiers (uint32_t mask)
 }
 #endif
 
+
+VkBool32 VulkanDebugReportCallback(
+		VkDebugReportFlagsEXT                       flags,
+		VkDebugReportObjectTypeEXT                  objectType,
+		uint64_t                                    object,
+		size_t                                      location,
+		int32_t                                     messageCode,
+		const char*                                 pLayerPrefix,
+		const char*                                 pMessage,
+		void*                                       pUserData)
+{
+	printf("VulkanDebugReportCallback was called.\n");
+	printf(" - pLayerPrefix: %s.\n", pLayerPrefix);
+	printf(" - pMessage: %s.\n", pMessage);
+	return VK_FALSE;
+}
+
+#define DEFAULT_VK_ALLOCATION_CALLBACKS NULL
+
+#define VK_CHECK_RESULT( call ) \
+	if ( call != VK_SUCCESS ) \
+	{ \
+		printf("Vulkan call failed:.\n"); \
+		printf(" - " #call "\n"); \
+		return false; \
+	}
+
+bool InitializeGraphics(XWindow window)
+{
+	// Initialize Volk -- load basic Vulkan function pointers
+	VkResult result = volkInitialize();
+	if ( result != VK_SUCCESS )
+	{
+		printf("The Vulkan loader was not found in the system.\n");
+		return false;
+	}
+
+	VkApplicationInfo applicationInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+	applicationInfo.pApplicationName = "Example application";
+	applicationInfo.applicationVersion = 0;
+	applicationInfo.pEngineName = "Example engine";
+	applicationInfo.engineVersion = 0;
+	applicationInfo.apiVersion = 0;
+
+	// TODO: Check these layers are present first and enable them only if available
+	const char *requestedInstanceExtensionNames[] = {
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME 
+	};
+	uint32_t requestedInstanceExtensionCount = 1;
+
+	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+	instanceCreateInfo.pApplicationInfo = &applicationInfo;
+	instanceCreateInfo.enabledLayerCount = 0;
+	instanceCreateInfo.ppEnabledLayerNames = NULL;
+	instanceCreateInfo.enabledExtensionCount = requestedInstanceExtensionCount;
+	instanceCreateInfo.ppEnabledExtensionNames = requestedInstanceExtensionNames;
+
+	VkInstance instance = {};
+	VK_CHECK_RESULT ( vkCreateInstance(
+			&instanceCreateInfo,
+			DEFAULT_VK_ALLOCATION_CALLBACKS,
+			&instance ) );
+
+	// Load the instance-related Vulkan function pointers
+	volkLoadInstanceOnly(instance);
+
+	if ( vkCreateDebugReportCallbackEXT )
+	{
+		VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
+		//debugReportCallbackCreateInfo.flags = VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_WARNING_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_ERROR_BIT_EXT;
+		debugReportCallbackCreateInfo.pfnCallback = VulkanDebugReportCallback;
+		debugReportCallbackCreateInfo.pUserData = 0;
+
+		VkDebugReportCallbackEXT reportCallback;
+		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT(
+					instance,
+					&debugReportCallbackCreateInfo,
+					DEFAULT_VK_ALLOCATION_CALLBACKS,
+					&reportCallback) );
+	}
+
+	VkPhysicalDevice physicalDevices[5];
+	uint32_t physicalDeviceCount = 0;
+	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, NULL ) );
+	assert( physicalDeviceCount < ARRAY_COUNT( physicalDevices ) );
+	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, physicalDevices ) );
+
+	VkPhysicalDevice physicalDevice = physicalDevices[0];
+	// TODO: Investigate how to do this selection better
+
+	VkQueueFamilyProperties queueFamilyProperties[5];
+	uint32_t queueFamilyPropertyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(
+			physicalDevice,
+			&queueFamilyPropertyCount,
+			NULL);
+	ASSERT( queueFamilyPropertyCount < ARRAY_COUNT( queueFamilyProperties ) );
+	vkGetPhysicalDeviceQueueFamilyProperties(
+			physicalDevice,
+			&queueFamilyPropertyCount,
+			queueFamilyProperties);
+	uint32_t queueFamilyIndex = 9999;
+	for ( uint32_t i = 0; i < queueFamilyPropertyCount; ++i )
+	{
+		if ( queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT )
+		{
+			// TODO: Investigate how to make this selection better
+			queueFamilyIndex = i;
+			break;
+		}
+	}
+
+	uint32_t queueCount = 1;
+	float queuePriorities[1] = { 1.0f };
+
+	VkDeviceQueueCreateInfo queueCreateInfos[1];
+	queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	//queueCreateInfos[0].flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;
+	queueCreateInfos[0].queueFamilyIndex = queueFamilyIndex;
+	queueCreateInfos[0].queueCount = queueCount;
+	queueCreateInfos[0].pQueuePriorities = queuePriorities;
+	uint32_t queueCreateInfoCount = 0; // TODO: Crash if enabling a queue here
+	// TODO
+
+	const char *enabledDeviceLayerNames[2];
+	uint32_t enabledDeviceLayerCount = 0;
+	// TODO
+
+	const char *enabledDeviceExtensionNames[2];
+	uint32_t enabledDeviceExtensionCount = 0;
+	// TODO
+
+	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+	deviceCreateInfo.queueCreateInfoCount = queueCreateInfoCount;;
+	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
+	deviceCreateInfo.enabledLayerCount = enabledDeviceLayerCount;
+	deviceCreateInfo.ppEnabledLayerNames = enabledDeviceLayerNames;
+	deviceCreateInfo.enabledExtensionCount = enabledDeviceExtensionCount;
+	deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensionNames;
+	deviceCreateInfo.pEnabledFeatures = NULL;
+
+	VkDevice device = {};
+	result = vkCreateDevice(
+			physicalDevice,
+			&deviceCreateInfo,
+			DEFAULT_VK_ALLOCATION_CALLBACKS,
+			&device );
+	if ( result != VK_SUCCESS )
+	{
+		printf("vkCreateDevice failed!\n");
+		return false;
+	}
+
+	// Load all the remaining device-related Vulkan function pointers
+	volkLoadDevice(device);
+
+	return true;
+}
+
 int main(int argc, char **argv)
 {
 	// Create Window
 	XWindow window = CreateXWindow();
 
+	// Initialize graphics
+	if ( !InitializeGraphics(window) )
+	{
+		printf("InitializeGraphics failed!\n");
+		return -1;
+	}
+	
 	// Input loop
 #if defined(USE_XCB)
 	xcb_generic_event_t *event;

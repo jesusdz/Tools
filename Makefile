@@ -4,7 +4,7 @@ main:
 	g++ -g -o main main.cpp
 
 main-xwindow:
-	g++ -g -o main-xwindow  main-xwindow.cpp -lxcb
+	g++ -g -o main-xwindow  main-xwindow.cpp -DVK_NO_PROTOTYPES -lxcb
 
 clean:
-	rm main
+	rm -f main main-xwindow
