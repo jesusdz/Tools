@@ -114,7 +114,7 @@ VkBool32 VulkanDebugReportCallback(
 	return VK_FALSE;
 }
 
-#define DEFAULT_VK_ALLOCATION_CALLBACKS NULL
+#define VULKAN_ALLOCATORS NULL
 
 #define VK_CHECK_RESULT( call ) \
 	if ( call != VK_SUCCESS ) \
@@ -124,7 +124,20 @@ VkBool32 VulkanDebugReportCallback(
 		return false; \
 	}
 
-bool InitializeGraphics(Arena &arena, XWindow window)
+struct GfxDevice
+{
+	VkInstance instance;
+	VkDevice device;
+
+	struct
+	{
+		bool debugReportCallbacks;
+	} support;
+
+	VkDebugReportCallbackEXT debugReportCallback;
+};
+
+bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -137,11 +150,11 @@ bool InitializeGraphics(Arena &arena, XWindow window)
 	}
 
 	VkApplicationInfo applicationInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
-	applicationInfo.pApplicationName = "Example application";
-	applicationInfo.applicationVersion = 0;
-	applicationInfo.pEngineName = "Example engine";
-	applicationInfo.engineVersion = 0;
-	applicationInfo.apiVersion = 0;
+	applicationInfo.pApplicationName = "Vulkan application";
+	applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+	applicationInfo.pEngineName = "Vulkan engine";
+	applicationInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+	applicationInfo.apiVersion = VK_API_VERSION_1_1;
 
 	uint32_t instanceLayerCount;
 	VK_CHECK_RESULT( vkEnumerateInstanceLayerProperties( &instanceLayerCount, NULL ) );
@@ -179,7 +192,10 @@ bool InitializeGraphics(Arena &arena, XWindow window)
 	VK_CHECK_RESULT( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, instanceExtensions ) );
 
 	const char *wantedInstanceExtensionNames[] = {
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME 
+		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+		//VK_EXT_DEBUG_UTILS_EXTENSION_NAME, // This one is newer, only supported from vulkan 1.1
 	};
 	const char *enabledInstanceExtensionNames[ARRAY_COUNT(wantedInstanceExtensionNames)];
 	uint32_t enabledInstanceExtensionCount = 0;
@@ -205,22 +221,22 @@ bool InitializeGraphics(Arena &arena, XWindow window)
 
 	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 	instanceCreateInfo.pApplicationInfo = &applicationInfo;
+	instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 	instanceCreateInfo.enabledLayerCount = enabledInstanceLayerCount;
 	instanceCreateInfo.ppEnabledLayerNames = enabledInstanceLayerNames;
 	instanceCreateInfo.enabledExtensionCount = enabledInstanceExtensionCount;
 	instanceCreateInfo.ppEnabledExtensionNames = enabledInstanceExtensionNames;
 
 	VkInstance instance = {};
-	VK_CHECK_RESULT ( vkCreateInstance(
-			&instanceCreateInfo,
-			DEFAULT_VK_ALLOCATION_CALLBACKS,
-			&instance ) );
+	VK_CHECK_RESULT ( vkCreateInstance( &instanceCreateInfo, VULKAN_ALLOCATORS, &instance ) );
 
 	// Load the instance-related Vulkan function pointers
 	volkLoadInstanceOnly(instance);
 
 	if ( vkCreateDebugReportCallbackEXT )
 	{
+		gfxDevice.support.debugReportCallbacks = true;
+
 		VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
 		//debugReportCallbackCreateInfo.flags = VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
 		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_WARNING_BIT_EXT;
@@ -229,80 +245,114 @@ bool InitializeGraphics(Arena &arena, XWindow window)
 		debugReportCallbackCreateInfo.pfnCallback = VulkanDebugReportCallback;
 		debugReportCallbackCreateInfo.pUserData = 0;
 
-		VkDebugReportCallbackEXT reportCallback;
-		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT(
-					instance,
-					&debugReportCallbackCreateInfo,
-					DEFAULT_VK_ALLOCATION_CALLBACKS,
-					&reportCallback) );
+		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT( instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.debugReportCallback) );
 	}
 
-	VkPhysicalDevice physicalDevices[5];
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, NULL ) );
-	assert( physicalDeviceCount < ARRAY_COUNT( physicalDevices ) );
+	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, physicalDevices ) );
 
-	VkPhysicalDevice physicalDevice = physicalDevices[0];
-	// TODO: Investigate how to do this selection better
+	bool suitableDeviceFound;
+	VkPhysicalDevice physicalDevice;
+	uint32_t graphicsQueueFamilyIndex;
 
-	VkQueueFamilyProperties queueFamilyProperties[5];
-	uint32_t queueFamilyPropertyCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(
-			physicalDevice,
-			&queueFamilyPropertyCount,
-			NULL);
-	ASSERT( queueFamilyPropertyCount < ARRAY_COUNT( queueFamilyProperties ) );
-	vkGetPhysicalDeviceQueueFamilyProperties(
-			physicalDevice,
-			&queueFamilyPropertyCount,
-			queueFamilyProperties);
-	uint32_t queueFamilyIndex = 9999;
-	for ( uint32_t i = 0; i < queueFamilyPropertyCount; ++i )
+	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
-		if ( queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT )
+		VkPhysicalDevice device = physicalDevices[i];
+
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties( device, &properties );
+		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+			continue;
+
+		VkPhysicalDeviceFeatures features;
+		vkGetPhysicalDeviceFeatures( device, &features );
+		// Check any needed features here
+
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, NULL);
+		VkQueueFamilyProperties *queueFamilies = PushArray( scratch, VkQueueFamilyProperties, queueFamilyCount );
+		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, queueFamilies );
+
+		uint32_t gfxFamilyIndex = -1;
+		for ( uint32_t i = 0; i < queueFamilyCount; ++i )
 		{
-			// TODO: Investigate how to make this selection better
-			queueFamilyIndex = i;
+			if ( queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT )
+			{
+				gfxFamilyIndex = i;
+				break;
+			}
+		}
+
+		if ( gfxFamilyIndex != -1 )
+		{
+			suitableDeviceFound = true;
+			physicalDevice = device;
+			graphicsQueueFamilyIndex = gfxFamilyIndex;
 			break;
 		}
+	}
+
+	if ( !suitableDeviceFound )
+	{
+		printf("Could not find any suitable GFX device.\n");
+		return false;
 	}
 
 	uint32_t queueCount = 1;
 	float queuePriorities[1] = { 1.0f };
 
-	VkDeviceQueueCreateInfo queueCreateInfos[1];
-	queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	//queueCreateInfos[0].flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;
-	queueCreateInfos[0].queueFamilyIndex = queueFamilyIndex;
-	queueCreateInfos[0].queueCount = queueCount;
-	queueCreateInfos[0].pQueuePriorities = queuePriorities;
-	uint32_t queueCreateInfoCount = 0; // TODO: Crash if enabling a queue here
-	// TODO
+	VkDeviceQueueCreateInfo queueCreateInfo = {};
+	queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	//queueCreateInfo.flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;
+	queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+	queueCreateInfo.queueCount = queueCount;
+	queueCreateInfo.pQueuePriorities = queuePriorities;
 
-	const char *enabledDeviceLayerNames[2];
-	uint32_t enabledDeviceLayerCount = 0;
-	// TODO
+	VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
 
-	const char *enabledDeviceExtensionNames[2];
+	uint32_t deviceExtensionCount;
+	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, NULL ) );
+	VkExtensionProperties *deviceExtensions = PushArray(scratch, VkExtensionProperties, deviceExtensionCount);
+	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
+
+	const char *wantedDeviceExtensionNames[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+	const char *enabledDeviceExtensionNames[ARRAY_COUNT(wantedDeviceExtensionNames)];
 	uint32_t enabledDeviceExtensionCount = 0;
-	// TODO
+
+	printf("Device extensions:\n");
+	for (u32 i = 0; i < deviceExtensionCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *iteratedExtensionName = deviceExtensions[i].extensionName;
+		for (u32 j = 0; j < ARRAY_COUNT(wantedDeviceExtensionNames); ++j)
+		{
+			const char *wantedExtensionName = wantedDeviceExtensionNames[j];
+			if ( StrEq( iteratedExtensionName, wantedExtensionName ) )
+			{
+				enabledDeviceExtensionNames[enabledDeviceExtensionCount++] = wantedExtensionName;
+				enabled = true;
+			}
+		}
+
+		printf("%c %s\n", enabled?'*':'-', deviceExtensions[i].extensionName);
+	}
 
 	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	deviceCreateInfo.queueCreateInfoCount = queueCreateInfoCount;;
-	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
-	deviceCreateInfo.enabledLayerCount = enabledDeviceLayerCount;
-	deviceCreateInfo.ppEnabledLayerNames = enabledDeviceLayerNames;
+	deviceCreateInfo.queueCreateInfoCount = 1;
+	deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+	deviceCreateInfo.enabledLayerCount = 0;
+	deviceCreateInfo.ppEnabledLayerNames = NULL;
 	deviceCreateInfo.enabledExtensionCount = enabledDeviceExtensionCount;
 	deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensionNames;
-	deviceCreateInfo.pEnabledFeatures = NULL;
+	deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures;
 
 	VkDevice device = {};
-	result = vkCreateDevice(
-			physicalDevice,
-			&deviceCreateInfo,
-			DEFAULT_VK_ALLOCATION_CALLBACKS,
-			&device );
+	result = vkCreateDevice( physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &device );
 	if ( result != VK_SUCCESS )
 	{
 		printf("vkCreateDevice failed!\n");
@@ -317,11 +367,23 @@ bool InitializeGraphics(Arena &arena, XWindow window)
 	VkXcbSurfaceCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR };
 	createInfo.flags = 0;
 	VkSurfaceKHR surface;
-	vkCreateXcbSurfaceKHR(vkInstance, &createInfo, DEFAULT_VK_ALLOCATION_CALLBACKS, &surface);
+	vkCreateXcbSurfaceKHR(vkInstance, &createInfo, VULKAN_ALLOCATORS, &surface);
 #endif
 
 
 	return true;
+}
+
+void CleanupGraphics(GfxDevice &gfxDevice)
+{
+	vkDestroyDevice(gfxDevice.device, VULKAN_ALLOCATORS);
+
+	if ( gfxDevice.support.debugReportCallbacks )
+	{
+		vkDestroyDebugReportCallbackEXT( gfxDevice.instance, gfxDevice.debugReportCallback, VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyInstance(gfxDevice.instance, VULKAN_ALLOCATORS);
 }
 
 struct Application
@@ -341,7 +403,8 @@ int main(int argc, char **argv)
 	XWindow window = CreateXWindow();
 
 	// Initialize graphics
-	if ( !InitializeGraphics(arena, window) )
+	GfxDevice gfxDevice = {};
+	if ( !InitializeGraphics(arena, window, gfxDevice) )
 	{
 		printf("InitializeGraphics failed!\n");
 		return -1;
@@ -463,8 +526,10 @@ int main(int argc, char **argv)
 #endif
 	}
 
-	// Close window
+	CleanupGraphics(gfxDevice);
+
 	CloseXWindow(window);
+
 	return 1;
 }
 
