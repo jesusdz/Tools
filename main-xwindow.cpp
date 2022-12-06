@@ -7,6 +7,7 @@
 # error "Platform implementation for a Windowing system is missing"
 #endif
 
+#define VK_USE_PLATFORM_XCB_KHR
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
 
@@ -129,6 +130,11 @@ struct GfxDevice
 	VkInstance instance;
 	VkDevice device;
 
+	VkSurfaceKHR surface;
+
+	VkQueue gfxQueue;
+	VkQueue presentQueue;
+
 	struct
 	{
 		bool debugReportCallbacks;
@@ -137,7 +143,7 @@ struct GfxDevice
 	VkDebugReportCallbackEXT debugReportCallback;
 };
 
-bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
+bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -183,7 +189,7 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':'-', instanceLayers[i].layerName);
+		printf("%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
 	}
 
 	uint32_t instanceExtensionCount;
@@ -194,6 +200,7 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 	const char *wantedInstanceExtensionNames[] = {
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
 		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
 		//VK_EXT_DEBUG_UTILS_EXTENSION_NAME, // This one is newer, only supported from vulkan 1.1
 	};
@@ -216,7 +223,7 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':'-', instanceExtensions[i].extensionName);
+		printf("%c %s\n", enabled?'*':' ', instanceExtensions[i].extensionName);
 	}
 
 	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
@@ -248,19 +255,30 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT( instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.debugReportCallback) );
 	}
 
+
+	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.connection = xwindow.connection;
+	surfaceCreateInfo.window = xwindow.window;
+	VkSurfaceKHR surface;
+	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+
+
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, NULL ) );
 	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, physicalDevices ) );
 
-	bool suitableDeviceFound;
+	bool suitableDeviceFound = false;
 	VkPhysicalDevice physicalDevice;
 	uint32_t graphicsQueueFamilyIndex;
+	uint32_t presentQueueFamilyIndex;
 
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
 		VkPhysicalDevice device = physicalDevices[i];
 
+		// We only want dedicated GPUs
 		VkPhysicalDeviceProperties properties;
 		vkGetPhysicalDeviceProperties( device, &properties );
 		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
@@ -276,22 +294,32 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, queueFamilies );
 
 		uint32_t gfxFamilyIndex = -1;
+		uint32_t presentFamilyIndex = -1;
 		for ( uint32_t i = 0; i < queueFamilyCount; ++i )
 		{
+			VkBool32 presentSupport = VK_FALSE;
+			vkGetPhysicalDeviceSurfaceSupportKHR( device, i, surface, &presentSupport );
+			if ( presentSupport )
+			{
+				presentFamilyIndex = i;
+			}
+
 			if ( queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT )
 			{
 				gfxFamilyIndex = i;
-				break;
 			}
 		}
 
-		if ( gfxFamilyIndex != -1 )
-		{
-			suitableDeviceFound = true;
-			physicalDevice = device;
-			graphicsQueueFamilyIndex = gfxFamilyIndex;
-			break;
-		}
+		// We don't want a device that does not support both queue types
+		if ( gfxFamilyIndex == -1 || presentFamilyIndex == -1 )
+			continue;
+
+		// At this point, we know this device meets all the requirements
+		suitableDeviceFound = true;
+		physicalDevice = device;
+		graphicsQueueFamilyIndex = gfxFamilyIndex;
+		presentQueueFamilyIndex = presentFamilyIndex;
+		break;
 	}
 
 	if ( !suitableDeviceFound )
@@ -302,13 +330,15 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 
 	uint32_t queueCount = 1;
 	float queuePriorities[1] = { 1.0f };
-
-	VkDeviceQueueCreateInfo queueCreateInfo = {};
-	queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	//queueCreateInfo.flags = VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT;
-	queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-	queueCreateInfo.queueCount = queueCount;
-	queueCreateInfo.pQueuePriorities = queuePriorities;
+	VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
+	queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueCreateInfos[0].queueFamilyIndex = graphicsQueueFamilyIndex;
+	queueCreateInfos[0].queueCount = queueCount;
+	queueCreateInfos[0].pQueuePriorities = queuePriorities;
+	queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueCreateInfos[1].queueFamilyIndex = presentQueueFamilyIndex;
+	queueCreateInfos[1].queueCount = queueCount;
+	queueCreateInfos[1].pQueuePriorities = queuePriorities;
 
 	VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
 
@@ -339,19 +369,19 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':'-', deviceExtensions[i].extensionName);
+		printf("%c %s\n", enabled?'*':' ', deviceExtensions[i].extensionName);
 	}
 
 	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	deviceCreateInfo.queueCreateInfoCount = 1;
-	deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+	deviceCreateInfo.queueCreateInfoCount = ARRAY_COUNT(queueCreateInfos);
+	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
 	deviceCreateInfo.enabledLayerCount = 0;
 	deviceCreateInfo.ppEnabledLayerNames = NULL;
 	deviceCreateInfo.enabledExtensionCount = enabledDeviceExtensionCount;
 	deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensionNames;
 	deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures;
 
-	VkDevice device = {};
+	VkDevice device;
 	result = vkCreateDevice( physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &device );
 	if ( result != VK_SUCCESS )
 	{
@@ -362,20 +392,25 @@ bool InitializeGraphics(Arena &arena, XWindow window, GfxDevice &gfxDevice)
 	// Load all the remaining device-related Vulkan function pointers
 	volkLoadDevice(device);
 
+	VkQueue gfxQueue;
+	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &gfxQueue);
 
-#if 0
-	VkXcbSurfaceCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR };
-	createInfo.flags = 0;
-	VkSurfaceKHR surface;
-	vkCreateXcbSurfaceKHR(vkInstance, &createInfo, VULKAN_ALLOCATORS, &surface);
-#endif
+	VkQueue presentQueue;
+	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue);
 
 
+	gfxDevice.instance = instance;
+	gfxDevice.device = device;
+	gfxDevice.surface = surface;
+	gfxDevice.gfxQueue = gfxQueue;
+	gfxDevice.presentQueue = presentQueue;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	vkDestroySurfaceKHR(gfxDevice.instance, gfxDevice.surface, VULKAN_ALLOCATORS);
+
 	vkDestroyDevice(gfxDevice.device, VULKAN_ALLOCATORS);
 
 	if ( gfxDevice.support.debugReportCallbacks )
