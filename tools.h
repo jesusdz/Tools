@@ -2,8 +2,10 @@
 #include <stdlib.h> // atof
 #include <stdio.h>  // printf, FILE, etc
 
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Base types
+// Base types and definitions
 
 typedef char i8;
 typedef short int i16;
@@ -18,6 +20,8 @@ typedef unsigned long long int u64;
 typedef float f32;
 typedef double f64;
 typedef	unsigned char byte;
+
+#define internal static
 
 #define KB(x) (1024ul * x)
 #define MB(x) (1024ul * KB(x))
@@ -107,8 +111,6 @@ f32 StrToFloat(const String &s)
 
 #include<sys/mman.h>
 #include<sys/stat.h>
-#include<fcntl.h>
-#include<unistd.h>
 
 void* AllocateVirtualMemory(u32 size)
 {
@@ -160,6 +162,13 @@ Arena MakeSubArena(Arena &arena, u32 size)
 	subarena.base = arena.base + arena.used;
 	subarena.size = size;
 	subarena.used = 0;
+	return subarena;
+}
+
+Arena MakeSubArena(Arena &arena)
+{
+	u32 remainingSize = arena.size - arena.used;
+	Arena subarena = MakeSubArena(arena, remainingSize);
 	return subarena;
 }
 
