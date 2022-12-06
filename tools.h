@@ -19,9 +19,10 @@ typedef float f32;
 typedef double f64;
 typedef	unsigned char byte;
 
-#define KB(x) (1024 * x)
-#define MB(x) (1024 * KB(x))
-#define TB(x) (1024 * MB(x))
+#define KB(x) (1024ul * x)
+#define MB(x) (1024ul * KB(x))
+#define GB(x) (1024ul * MB(x))
+#define TB(x) (1024ul * GB(x))
 
 #define ASSERT(expression) assert(expression)
 #define ERROR(message) ASSERT( 0 && message )
@@ -102,6 +103,40 @@ f32 StrToFloat(const String &s)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Memory
 
+#if __APPLE__ || __linux__
+
+#include<sys/mman.h>
+#include<sys/stat.h>
+#include<fcntl.h>
+#include<unistd.h>
+
+void* AllocateVirtualMemory(u32 size)
+{
+	void* baseAddress = 0;
+	int prot = PROT_READ | PROT_WRITE;
+	int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+	int fd = -1;
+	off_t offset = 0;
+	void *allocatedMemory = mmap(baseAddress, size, prot, flags, fd, offset);
+	ASSERT( allocatedMemory != MAP_FAILED && "Failed to allocate memory." );
+	return allocatedMemory;
+}
+
+#else
+#	error "Missing platform implementation"
+#endif
+
+void MemSet(void *ptr, u32 size)
+{
+	byte *bytePtr = (byte*)ptr;
+	while (size-- > 0) *bytePtr++ = 0;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Arena
+
 struct Arena
 {
 	byte* base;
@@ -138,6 +173,8 @@ byte* PushSize(Arena &arena, u32 size)
 
 void ResetArena(Arena &arena)
 {
+	// This tells the OS we don't need these pages
+	//madvise(arena.base, arena.size, MADV_DONTNEED);
 	arena.used = 0;
 }
 
@@ -151,32 +188,6 @@ void PrintArenaUsage(Arena &arena)
 #define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer) )
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
-
-#if __APPLE__ || __linux__
-
-#include<sys/mman.h>
-
-void* AllocateVirtualMemory(u32 size)
-{
-	void* baseAddress = 0;
-	int prot = PROT_READ | PROT_WRITE;
-	int flags = MAP_ANONYMOUS | MAP_SHARED;
-	int fd = -1;
-	off_t offset = 0;
-	void *allocatedMemory = mmap(baseAddress, size, prot, flags, fd, offset);
-	ASSERT( allocatedMemory != MAP_FAILED && "Failed to allocate memory." );
-	return allocatedMemory;
-}
-
-#else
-#	error "Missing platform implementation"
-#endif
-
-void MemSet(void *ptr, u32 size)
-{
-	byte *bytePtr = (byte*)ptr;
-	while (size-- > 0) *bytePtr++ = 0;
-}
 
 
 
