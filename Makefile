@@ -1,4 +1,6 @@
-.PHONY: main main-xwindow clean
+.PHONY: default main main-xwindow clean
+
+default: main-xwindow
 
 main:
 	g++ -g -o main main.cpp

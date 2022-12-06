@@ -64,28 +64,12 @@ XWindow CreateXWindow()
 	// Flush the commands before continuing
 	xcb_flush(connection);
 
-#endif
-
-	// Vulkan
-
-#if 0
-	VkInstance vkInstance;
-
-	#define VK_ALLOCATOR 0
-	VkXcbSurfaceCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR };
-	createInfo.flags = 0;
-	VkSurfaceKHR surface;
-	vkCreateXcbSurfaceKHR(vkInstance, &createInfo, VK_ALLOCATOR, &surface);
-#endif
-
-
-#if defined(USE_XCB)
 	XWindow xwindow = {};
 	xwindow.connection = connection;
 	xwindow.window = window;
+	return xwindow;
 #endif
 
-	return xwindow;
 }
 
 void CloseXWindow(XWindow &window)
@@ -140,8 +124,10 @@ VkBool32 VulkanDebugReportCallback(
 		return false; \
 	}
 
-bool InitializeGraphics(XWindow window)
+bool InitializeGraphics(Arena &arena, XWindow window)
 {
+	Arena scratch = MakeSubArena(arena);
+
 	// Initialize Volk -- load basic Vulkan function pointers
 	VkResult result = volkInitialize();
 	if ( result != VK_SUCCESS )
@@ -157,18 +143,72 @@ bool InitializeGraphics(XWindow window)
 	applicationInfo.engineVersion = 0;
 	applicationInfo.apiVersion = 0;
 
-	// TODO: Check these layers are present first and enable them only if available
-	const char *requestedInstanceExtensionNames[] = {
+	uint32_t instanceLayerCount;
+	VK_CHECK_RESULT( vkEnumerateInstanceLayerProperties( &instanceLayerCount, NULL ) );
+	VkLayerProperties *instanceLayers = PushArray(scratch, VkLayerProperties, instanceLayerCount);
+	VK_CHECK_RESULT( vkEnumerateInstanceLayerProperties( &instanceLayerCount, instanceLayers ) );
+
+	const char *wantedInstanceLayerNames[] = {
+		"VK_LAYER_KHRONOS_validation"
+	};
+	const char *enabledInstanceLayerNames[ARRAY_COUNT(wantedInstanceLayerNames)];
+	uint32_t enabledInstanceLayerCount = 0;
+
+	printf("Instance layers:\n");
+	for (u32 i = 0; i < instanceLayerCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *iteratedLayerName = instanceLayers[i].layerName;
+		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceLayerNames); ++j)
+		{
+			const char *wantedLayerName = wantedInstanceLayerNames[j];
+			if ( StrEq( iteratedLayerName, wantedLayerName ) )
+			{
+				enabledInstanceLayerNames[enabledInstanceLayerCount++] = wantedLayerName;
+				enabled = true;
+			}
+		}
+
+		printf("%c %s\n", enabled?'*':'-', instanceLayers[i].layerName);
+	}
+
+	uint32_t instanceExtensionCount;
+	VK_CHECK_RESULT( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, NULL ) );
+	VkExtensionProperties *instanceExtensions = PushArray(scratch, VkExtensionProperties, instanceExtensionCount);
+	VK_CHECK_RESULT( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, instanceExtensions ) );
+
+	const char *wantedInstanceExtensionNames[] = {
 		VK_EXT_DEBUG_REPORT_EXTENSION_NAME 
 	};
-	uint32_t requestedInstanceExtensionCount = 1;
+	const char *enabledInstanceExtensionNames[ARRAY_COUNT(wantedInstanceExtensionNames)];
+	uint32_t enabledInstanceExtensionCount = 0;
+
+	printf("Instance extensions:\n");
+	for (u32 i = 0; i < instanceExtensionCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *iteratedExtensionName = instanceExtensions[i].extensionName;
+		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceExtensionNames); ++j)
+		{
+			const char *wantedExtensionName = wantedInstanceExtensionNames[j];
+			if ( StrEq( iteratedExtensionName, wantedExtensionName ) )
+			{
+				enabledInstanceExtensionNames[enabledInstanceExtensionCount++] = wantedExtensionName;
+				enabled = true;
+			}
+		}
+
+		printf("%c %s\n", enabled?'*':'-', instanceExtensions[i].extensionName);
+	}
 
 	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 	instanceCreateInfo.pApplicationInfo = &applicationInfo;
-	instanceCreateInfo.enabledLayerCount = 0;
-	instanceCreateInfo.ppEnabledLayerNames = NULL;
-	instanceCreateInfo.enabledExtensionCount = requestedInstanceExtensionCount;
-	instanceCreateInfo.ppEnabledExtensionNames = requestedInstanceExtensionNames;
+	instanceCreateInfo.enabledLayerCount = enabledInstanceLayerCount;
+	instanceCreateInfo.ppEnabledLayerNames = enabledInstanceLayerNames;
+	instanceCreateInfo.enabledExtensionCount = enabledInstanceExtensionCount;
+	instanceCreateInfo.ppEnabledExtensionNames = enabledInstanceExtensionNames;
 
 	VkInstance instance = {};
 	VK_CHECK_RESULT ( vkCreateInstance(
@@ -272,16 +312,36 @@ bool InitializeGraphics(XWindow window)
 	// Load all the remaining device-related Vulkan function pointers
 	volkLoadDevice(device);
 
+
+#if 0
+	VkXcbSurfaceCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR };
+	createInfo.flags = 0;
+	VkSurfaceKHR surface;
+	vkCreateXcbSurfaceKHR(vkInstance, &createInfo, DEFAULT_VK_ALLOCATION_CALLBACKS, &surface);
+#endif
+
+
 	return true;
 }
 
+struct Application
+{
+};
+
+internal Application app;
+
+
 int main(int argc, char **argv)
 {
+	u32 baseMemorySize = MB(64);
+	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
+	Arena arena = MakeArena(baseMemory, baseMemorySize);
+
 	// Create Window
 	XWindow window = CreateXWindow();
 
 	// Initialize graphics
-	if ( !InitializeGraphics(window) )
+	if ( !InitializeGraphics(arena, window) )
 	{
 		printf("InitializeGraphics failed!\n");
 		return -1;
