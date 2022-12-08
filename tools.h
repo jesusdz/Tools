@@ -232,3 +232,10 @@ u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
 
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Math
+
+inline u32 Min( u32 a, u32 b ) { return a < b ? a : b; }
+inline u32 Max( u32 a, u32 b ) { return a > b ? a : b; }
+inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); }
+
