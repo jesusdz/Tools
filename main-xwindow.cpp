@@ -19,6 +19,8 @@ struct XWindow
 	xcb_connection_t *connection;
 	xcb_window_t window;
 #endif
+	u32 width;
+	u32 height;
 };
 
 XWindow CreateXWindow()
@@ -39,10 +41,11 @@ XWindow CreateXWindow()
 	uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
 	uint32_t values[2] = {
 		screen->black_pixel,
-		XCB_EVENT_MASK_KEY_PRESS      | XCB_EVENT_MASK_KEY_RELEASE    |
-		XCB_EVENT_MASK_BUTTON_PRESS   | XCB_EVENT_MASK_BUTTON_RELEASE |
-		XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_EXPOSURE       |
-		XCB_EVENT_MASK_ENTER_WINDOW   | XCB_EVENT_MASK_LEAVE_WINDOW 
+		XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
+		XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
+		XCB_EVENT_MASK_POINTER_MOTION  |
+		XCB_EVENT_MASK_ENTER_WINDOW    | XCB_EVENT_MASK_LEAVE_WINDOW   |
+		XCB_EVENT_MASK_RESIZE_REDIRECT
 	};
 
 	// Create a window
@@ -65,9 +68,16 @@ XWindow CreateXWindow()
 	// Flush the commands before continuing
 	xcb_flush(connection);
 
+	// Get window info at this point
+	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( connection, window );
+	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( connection, cookie, NULL );
+	printf("Created window size (%u, %u)\n", reply->width, reply->height);
+
 	XWindow xwindow = {};
 	xwindow.connection = connection;
 	xwindow.window = window;
+	xwindow.width = reply->width;
+	xwindow.height = reply->height;
 	return xwindow;
 #endif
 
@@ -131,6 +141,11 @@ struct GfxDevice
 	VkDevice device;
 
 	VkSurfaceKHR surface;
+	VkSwapchainKHR swapchain;
+	VkImage swapchainImages[3];
+	u32 swapchainImageCount;
+	VkFormat swapchainImageFormat;
+	VkExtent2D swapchainExtent;
 
 	VkQueue gfxQueue;
 	VkQueue presentQueue;
@@ -147,6 +162,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 {
 	Arena scratch = MakeSubArena(arena);
 
+
 	// Initialize Volk -- load basic Vulkan function pointers
 	VkResult result = volkInitialize();
 	if ( result != VK_SUCCESS )
@@ -155,6 +171,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		return false;
 	}
 
+
+	// Instance creation
 	VkApplicationInfo applicationInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
 	applicationInfo.pApplicationName = "Vulkan application";
 	applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -237,9 +255,12 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkInstance instance = {};
 	VK_CHECK_RESULT ( vkCreateInstance( &instanceCreateInfo, VULKAN_ALLOCATORS, &instance ) );
 
+
 	// Load the instance-related Vulkan function pointers
 	volkLoadInstanceOnly(instance);
 
+
+	// Report callback
 	if ( vkCreateDebugReportCallbackEXT )
 	{
 		gfxDevice.support.debugReportCallbacks = true;
@@ -256,6 +277,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	}
 
 
+	// XCB Surface
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.connection = xwindow.connection;
@@ -264,6 +286,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
 
 
+	// List of physical devices
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, NULL ) );
 	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
@@ -273,11 +296,21 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	};
 
+
+	// Data to discover from the physical device selection
 	bool suitableDeviceFound = false;
+
 	VkPhysicalDevice physicalDevice;
 	uint32_t graphicsQueueFamilyIndex;
 	uint32_t presentQueueFamilyIndex;
 
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+	VkSurfaceFormatKHR surfaceFormat;
+	VkPresentModeKHR surfacePresentMode;
+	VkExtent2D surfaceExtent;
+
+
+	// Physical device selection
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
 		VkPhysicalDevice device = physicalDevices[i];
@@ -355,6 +388,63 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		if ( foundDeviceExtensionCount < ARRAY_COUNT(requiredDeviceExtensionNames) )
 			continue;
 
+		// Swapchain format
+		uint32_t surfaceFormatCount = 0;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &surfaceFormatCount, NULL);
+		if ( surfaceFormatCount == 0 )
+			continue;
+		VkSurfaceFormatKHR *surfaceFormats = PushArray( scratch2, VkSurfaceFormatKHR, surfaceFormatCount );
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &surfaceFormatCount, surfaceFormats);
+
+		surfaceFormat.format = VK_FORMAT_MAX_ENUM;
+		for ( u32 i = 0; i < surfaceFormatCount; ++i )
+		{
+			if ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
+				 surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
+			{
+				surfaceFormat = surfaceFormats[i];
+				break;
+			}
+		}
+		if ( surfaceFormat.format == VK_FORMAT_MAX_ENUM )
+			surfaceFormat = surfaceFormats[0];
+
+		// Swapchain present mode
+		uint32_t surfacePresentModeCount = 0;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &surfacePresentModeCount, NULL);
+		if ( surfacePresentModeCount == 0 )
+			continue;
+		VkPresentModeKHR *surfacePresentModes = PushArray( scratch2, VkPresentModeKHR, surfacePresentModeCount );
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &surfacePresentModeCount, surfacePresentModes);
+
+#if USE_SWAPCHAIN_MAILBOX_PRESENT_MODE
+		surfacePresentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+		for ( u32 i = 0; i < surfacePresentModeCount; ++i )
+		{
+			if ( surfacePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR )
+			{
+				surfacePresentMode = surfacePresentModes[i];
+			}
+		}
+		if ( surfacePresentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+			surfacePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+#else
+		surfacePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+#endif
+
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &surfaceCapabilities);
+
+		// Swapchain extension
+		if ( surfaceCapabilities.currentExtent.width != UINT32_MAX )
+		{
+			surfaceExtent = surfaceCapabilities.currentExtent;
+		}
+		else
+		{
+			surfaceExtent.width = Clamp( xwindow.width, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount );
+			surfaceExtent.height = Clamp( xwindow.height, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount );
+		}
+
 		// At this point, we know this device meets all the requirements
 		suitableDeviceFound = true;
 		physicalDevice = device;
@@ -363,12 +453,15 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		break;
 	}
 
+
 	if ( !suitableDeviceFound )
 	{
 		printf("Could not find any suitable GFX device.\n");
 		return false;
 	}
 
+
+	// Device creation
 	uint32_t queueCount = 1;
 	float queuePriorities[1] = { 1.0f };
 	VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
@@ -433,9 +526,12 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		return false;
 	}
 
+
 	// Load all the remaining device-related Vulkan function pointers
 	volkLoadDevice(device);
 
+
+	// Retrieve queues
 	VkQueue gfxQueue;
 	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &gfxQueue);
 
@@ -443,19 +539,72 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue);
 
 
+	// Swapchain creation
+	uint32_t imageCount = surfaceCapabilities.minImageCount + 1;
+	if ( surfaceCapabilities.maxImageCount > 0 )
+		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
+
+	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	swapchainCreateInfo.surface = surface;
+	swapchainCreateInfo.minImageCount = imageCount;
+	swapchainCreateInfo.imageFormat = surfaceFormat.format;
+	swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
+	swapchainCreateInfo.imageExtent = surfaceExtent;
+	swapchainCreateInfo.imageArrayLayers = 1;
+	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
+	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
+
+	uint32_t queueFamilyIndices[] = { graphicsQueueFamilyIndex, presentQueueFamilyIndex };
+
+	if ( graphicsQueueFamilyIndex != presentQueueFamilyIndex )
+	{
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		swapchainCreateInfo.queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
+		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+	else
+	{
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		swapchainCreateInfo.queueFamilyIndexCount = 0; // Optional
+		swapchainCreateInfo.pQueueFamilyIndices = NULL; // Optional
+	}
+
+	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Ignore, no compositing over other windows
+	swapchainCreateInfo.presentMode = surfacePresentMode;
+	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
+	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+
+	VkSwapchainKHR swapchain;
+	VK_CHECK_RESULT( vkCreateSwapchainKHR(device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain) );
+
+
+	// Get the swapchain images
+	vkGetSwapchainImagesKHR( device, swapchain, &gfxDevice.swapchainImageCount, NULL );
+	ASSERT( gfxDevice.swapchainImageCount <= ARRAY_COUNT(gfxDevice.swapchainImages) );
+	vkGetSwapchainImagesKHR( device, swapchain, &gfxDevice.swapchainImageCount, gfxDevice.swapchainImages );
+
+
+	// Fill GfxDevice
 	gfxDevice.instance = instance;
 	gfxDevice.device = device;
 	gfxDevice.surface = surface;
 	gfxDevice.gfxQueue = gfxQueue;
 	gfxDevice.presentQueue = presentQueue;
+	gfxDevice.swapchain = swapchain;
+	gfxDevice.swapchainImageFormat = surfaceFormat.format;
+	gfxDevice.swapchainExtent = surfaceExtent;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
-	vkDestroySurfaceKHR(gfxDevice.instance, gfxDevice.surface, VULKAN_ALLOCATORS);
+	vkDestroySwapchainKHR(gfxDevice.device, gfxDevice.swapchain, VULKAN_ALLOCATORS);
 
 	vkDestroyDevice(gfxDevice.device, VULKAN_ALLOCATORS);
+
+	vkDestroySurfaceKHR(gfxDevice.instance, gfxDevice.surface, VULKAN_ALLOCATORS);
 
 	if ( gfxDevice.support.debugReportCallbacks )
 	{
@@ -504,13 +653,11 @@ int main(int argc, char **argv)
 			printf("Event received.\n");
 			switch ( event->response_type & ~0x80 )
 			{
-
-				case XCB_EXPOSE:
+				case XCB_RESIZE_REQUEST:
 					{
-						xcb_expose_event_t *ev = (xcb_expose_event_t *)event;
+						xcb_resize_request_event_t *ev = (xcb_resize_request_event_t *)event;
 
-						printf ("Window %ld exposed. Region to be redrawn at location (%d,%d), with dimension (%d,%d)\n",
-								ev->window, ev->x, ev->y, ev->width, ev->height);
+						printf("Window %ld was resized. New size is (%d, %d)\n", ev->window, ev->width, ev->height);
 						break;
 					}
 
