@@ -212,11 +212,11 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	{
 		bool enabled = false;
 
-		const char *iteratedExtensionName = instanceExtensions[i].extensionName;
+		const char *availableExtensionName = instanceExtensions[i].extensionName;
 		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceExtensionNames); ++j)
 		{
 			const char *wantedExtensionName = wantedInstanceExtensionNames[j];
-			if ( StrEq( iteratedExtensionName, wantedExtensionName ) )
+			if ( StrEq( availableExtensionName, wantedExtensionName ) )
 			{
 				enabledInstanceExtensionNames[enabledInstanceExtensionCount++] = wantedExtensionName;
 				enabled = true;
@@ -269,6 +269,10 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
 	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, physicalDevices ) );
 
+	const char *requiredDeviceExtensionNames[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+
 	bool suitableDeviceFound = false;
 	VkPhysicalDevice physicalDevice;
 	uint32_t graphicsQueueFamilyIndex;
@@ -277,6 +281,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
 		VkPhysicalDevice device = physicalDevices[i];
+
+		Arena scratch2 = MakeSubArena(scratch);
 
 		// We only want dedicated GPUs
 		VkPhysicalDeviceProperties properties;
@@ -288,9 +294,10 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		vkGetPhysicalDeviceFeatures( device, &features );
 		// Check any needed features here
 
+		// Check the available queue families
 		uint32_t queueFamilyCount = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, NULL);
-		VkQueueFamilyProperties *queueFamilies = PushArray( scratch, VkQueueFamilyProperties, queueFamilyCount );
+		VkQueueFamilyProperties *queueFamilies = PushArray( scratch2, VkQueueFamilyProperties, queueFamilyCount );
 		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, queueFamilies );
 
 		uint32_t gfxFamilyIndex = -1;
@@ -312,6 +319,40 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 		// We don't want a device that does not support both queue types
 		if ( gfxFamilyIndex == -1 || presentFamilyIndex == -1 )
+			continue;
+
+		// Check if this physical device has all the required extensions
+		uint32_t deviceExtensionCount;
+		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( device, NULL, &deviceExtensionCount, NULL ) );
+		VkExtensionProperties *deviceExtensions = PushArray( scratch2, VkExtensionProperties, deviceExtensionCount );
+		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( device, NULL, &deviceExtensionCount, deviceExtensions ) );
+
+		uint32_t foundDeviceExtensionCount = 0;
+
+		for (u32 j = 0; j < ARRAY_COUNT(requiredDeviceExtensionNames); ++j)
+		{
+			const char *requiredExtensionName = requiredDeviceExtensionNames[j];
+			bool found = false;
+
+			for (u32 i = 0; i < deviceExtensionCount; ++i)
+			{
+				const char *availableExtensionName = deviceExtensions[i].extensionName;
+				if ( StrEq( availableExtensionName, requiredExtensionName ) )
+				{
+					foundDeviceExtensionCount++;
+					found = true;
+					break;
+				}
+			}
+
+			if ( !found )
+			{
+				break;
+			}
+		}
+
+		// We only want devices with all the required extensions
+		if ( foundDeviceExtensionCount < ARRAY_COUNT(requiredDeviceExtensionNames) )
 			continue;
 
 		// At this point, we know this device meets all the requirements
@@ -340,17 +381,14 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	queueCreateInfos[1].queueCount = queueCount;
 	queueCreateInfos[1].pQueuePriorities = queuePriorities;
 
-	VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
-
+#if 0
 	uint32_t deviceExtensionCount;
 	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, NULL ) );
 	VkExtensionProperties *deviceExtensions = PushArray(scratch, VkExtensionProperties, deviceExtensionCount);
 	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
 
-	const char *wantedDeviceExtensionNames[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	};
-	const char *enabledDeviceExtensionNames[ARRAY_COUNT(wantedDeviceExtensionNames)];
+	// We don't need this loop anymore unless we want to print this device extensions
+	const char *enabledDeviceExtensionNames[ARRAY_COUNT(requiredDeviceExtensionNames)];
 	uint32_t enabledDeviceExtensionCount = 0;
 
 	printf("Device extensions:\n");
@@ -358,19 +396,25 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	{
 		bool enabled = false;
 
-		const char *iteratedExtensionName = deviceExtensions[i].extensionName;
-		for (u32 j = 0; j < ARRAY_COUNT(wantedDeviceExtensionNames); ++j)
+		const char *availableExtensionName = deviceExtensions[i].extensionName;
+		for (u32 j = 0; j < ARRAY_COUNT(requiredDeviceExtensionNames); ++j)
 		{
-			const char *wantedExtensionName = wantedDeviceExtensionNames[j];
-			if ( StrEq( iteratedExtensionName, wantedExtensionName ) )
+			const char *requiredExtensionName = requiredDeviceExtensionNames[j];
+			if ( StrEq( availableExtensionName, requiredExtensionName ) )
 			{
-				enabledDeviceExtensionNames[enabledDeviceExtensionCount++] = wantedExtensionName;
+				enabledDeviceExtensionNames[enabledDeviceExtensionCount++] = requiredExtensionName;
 				enabled = true;
 			}
 		}
 
 		printf("%c %s\n", enabled?'*':' ', deviceExtensions[i].extensionName);
 	}
+#else
+	const char **enabledDeviceExtensionNames = requiredDeviceExtensionNames;
+	uint32_t enabledDeviceExtensionCount = ARRAY_COUNT(requiredDeviceExtensionNames);
+#endif
+
+	VkPhysicalDeviceFeatures physicalDeviceFeatures = {};
 
 	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	deviceCreateInfo.queueCreateInfoCount = ARRAY_COUNT(queueCreateInfos);
