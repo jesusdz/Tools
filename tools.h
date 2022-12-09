@@ -70,6 +70,23 @@ void StrCat(char *dst, const char *src)
 	StrCopy(dst, src);
 }
 
+bool StrEq(const String &s1, const String &s2)
+{
+	if ( s1.size != s2.size ) return false;
+
+	const char *str1 = s1.str;
+	const char *str2 = s2.str;
+	const char *str2end = s2.str + s2.size;
+
+	while ( *str1 == *str2 && str2 != str2end )
+	{
+		str1++;
+		str2++;
+	}
+
+	return str2 == str2end;
+}
+
 bool StrEq(const String &s11, const char *s2)
 {
 	const char *s1 = s11.str;
