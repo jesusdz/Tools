@@ -406,6 +406,7 @@ struct Stmt
 {
 	StmtType type;
 	Expr *expr;
+	Token *identifier;
 };
 
 struct StmtList
@@ -596,11 +597,12 @@ Stmt* AddExpressionStatement(Program &program, Expr *expr)
 	return statement;
 }
 
-Stmt* AddVarDeclaration(Program &program, Expr *expr)
+Stmt* AddVarDeclaration(Program &program, Token *tokenIdentifier, Expr *expr)
 {
 	Stmt *statement = AddStatement(program);
 	statement->type = STMT_VAR_DECL;
 	statement->expr = expr;
+	statement->identifier = tokenIdentifier;
 	return statement;
 }
 
@@ -740,6 +742,7 @@ Stmt* ParseStatement(ParseState &parseState, Program &program)
 Stmt* ParseVarDeclaration(ParseState &parseState, Program &program)
 {
 	ConsumeForced(parseState, TOKEN_IDENTIFIER, __FUNCTION__);
+	Token *tokenIdentifier = Consumed( parseState );
 
 	Expr *initExpr = 0;
 	if ( Consume(parseState, TOKEN_EQUAL) )
@@ -749,7 +752,7 @@ Stmt* ParseVarDeclaration(ParseState &parseState, Program &program)
 
 	ConsumeForced(parseState, TOKEN_SEMICOLON, __FUNCTION__);
 
-	Stmt *stmt = AddVarDeclaration(program, initExpr);
+	Stmt *stmt = AddVarDeclaration(program, tokenIdentifier, initExpr);
 	return stmt;
 }
 
@@ -830,12 +833,84 @@ Program Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Evaluator
 
-Value Evaluate(Expr *expr)
+bool Get(Environment &e, String name, Value &value)
+{
+	VarList *varlist = e.variables;
+
+	while ( varlist )
+	{
+		for ( u32 i = 0; i < varlist->varsCount; ++i )
+		{
+			if ( StrEq( name, varlist->vars[i].name ) )
+			{
+				value = varlist->vars[i].value;
+				return true;
+			}
+		}
+
+		varlist = varlist->next;
+	}
+
+	return false;
+}
+
+bool Add(Arena &arena, Environment &e, String name, Value value)
+{
+	VarList *varlist = e.variables;
+
+	if ( varlist )
+	{
+		while ( varlist->next )
+		{
+			for ( u32 i = 0; i < varlist->varsCount; ++i )
+			{
+				if ( StrEq( name, varlist->vars[i].name ) )
+				{
+					printf("A variable with the same name'%s' already exists in this environment.\n", name.str);
+					return false;
+				}
+			}
+
+			varlist = varlist->next;
+		}
+	}
+	else
+	{
+		varlist = PushStruct( arena, VarList );
+		varlist->varsCount = 0;
+		varlist->next = 0;
+		e.variables = varlist;
+	}
+
+	if ( varlist->varsCount == ARRAY_COUNT(varlist->vars) )
+	{
+		varlist->next = PushStruct( arena, VarList );
+		varlist = varlist->next;
+		varlist->varsCount = 0;
+		varlist->next = 0;
+	}
+
+	varlist->vars[ varlist->varsCount ].name = name;
+	varlist->vars[ varlist->varsCount ].value = value;
+	varlist->varsCount++;
+
+	return true;
+}
+
+Value Evaluate(Expr *expr, Environment &env)
 {
 	Value value = {};
 
 	switch (expr->type)
 	{
+		case EXPR_IDENTIFIER:
+		{
+			if ( !Get(env, expr->identifier.identifierToken->lexeme, value) )
+			{
+				printf("Could not find identifier %s\n", expr->identifier.identifierToken->lexeme);
+			}
+			break;
+		}
 		case EXPR_LITERAL:
 		{
 			value = expr->literal.literalToken->literal;
@@ -843,7 +918,7 @@ Value Evaluate(Expr *expr)
 		}
 		case EXPR_UNARY:
 		{
-			value = Evaluate( expr->unary.expr );
+			value = Evaluate( expr->unary.expr, env );
 			switch ( expr->unary.operatorToken->type )
 			{
 				case TOKEN_MINUS:
@@ -861,8 +936,8 @@ Value Evaluate(Expr *expr)
 		}
 		case EXPR_BINARY:
 		{
-			Value left = Evaluate( expr->binary.left );
-			Value right = Evaluate( expr->binary.right );
+			Value left = Evaluate( expr->binary.left, env );
+			Value right = Evaluate( expr->binary.right, env );
 			switch ( expr->binary.operatorToken->type )
 			{
 				case TOKEN_MINUS:
@@ -935,14 +1010,14 @@ Value Evaluate(Expr *expr)
 	return value;
 }
 
-void Execute(Stmt &stmt, Environment &env)
+void Execute( Arena &arena, Stmt &stmt, Environment &env)
 {
 	switch ( stmt.type )
 	{
 		case STMT_PRINT:
 		case STMT_EXPR:
 			{
-				Value val = Evaluate(stmt.expr);
+				Value val = Evaluate(stmt.expr, env);
 
 				printf("Evaluated value: ");
 				switch ( val.type )
@@ -966,21 +1041,26 @@ void Execute(Stmt &stmt, Environment &env)
 			break;
 		case STMT_VAR_DECL:
 			{
-				// TODO: Reserve space for the var
-				// TODO: If available, evaluate the init expression
+				Value val = Evaluate( stmt.expr, env );
+
+				if ( !Add( arena, env, stmt.identifier->lexeme, val ) )
+				{
+					printf("Error\n");
+				}
+				break;
 			}
 		default:
 			INVALID_CODE_PATH();
 	}
 }
 
-void Execute(Program &program, Environment &env)
+void Execute(Arena &arena, Program &program, Environment &env)
 {
 	for (StmtList *list = program.statements; list; list = list->next)
 	{
 		for (u32 i = 0; i < list->stmtsCount; ++i)
 		{
-			Execute( list->stmts[i], env );
+			Execute( arena, list->stmts[i], env );
 		}
 	}
 }
@@ -1025,7 +1105,7 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 		{
 			Environment env = {};
 
-			Execute(program, env);
+			Execute(arena, program, env);
 		}
 	}
 }
