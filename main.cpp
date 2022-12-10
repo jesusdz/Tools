@@ -34,6 +34,7 @@ enum ValueType
 	//VALUE_TYPE_INT,
 	VALUE_TYPE_FLOAT,
 	VALUE_TYPE_STRING,
+	VALUE_TYPE_NIL,
 };
 
 struct Value
@@ -171,6 +172,10 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenT
 	{
 		literal.type = VALUE_TYPE_BOOL;
 		literal.b = tokenType == TOKEN_TRUE;
+	}
+	else if ( tokenType == TOKEN_NIL )
+	{
+		literal.type = VALUE_TYPE_NIL;
 	}
 
 	AddToken(scanState, tokenList, tokenType, literal);
@@ -328,7 +333,8 @@ TokenList Scan(Arena &arena, ScanState &scanState, const char *script, u32 scrip
 // statement      -> exprStatement | printStatement
 // exprStatement  -> expression ";"
 // printStatement -> "print" "(" expression ")" ";"
-// expression     -> equality
+// expression     -> assignment
+// assignment     -> IDENTIFIER "=" assignment | equality
 // equality       -> comparison ( ( "!=" | "==") comparison )
 // comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )*
 // term           -> factor ( ( "-" | "+" ) factor )*
@@ -349,6 +355,7 @@ enum ExprType
 	EXPR_LITERAL,
 	EXPR_UNARY,
 	EXPR_BINARY,
+	EXPR_ASSIGNMENT,
 };
 
 struct Expr;
@@ -376,6 +383,12 @@ struct ExprBinary
 	Expr *right;
 };
 
+struct ExprAssignment
+{
+	Token *nameToken;
+	Expr *right;
+};
+
 struct Expr
 {
 	ExprType type;
@@ -385,6 +398,7 @@ struct Expr
 		ExprLiteral literal;
 		ExprUnary unary;
 		ExprBinary binary;
+		ExprAssignment assignment;
 	};
 };
 
@@ -704,16 +718,43 @@ Expr* ParseEquality(ParseState &parseState, Program &program)
 	return expr;
 }
 
+Expr* ParseAssignment(ParseState &parseState, Program &program)
+{
+	Expr *expr = ParseEquality(parseState, program);
+
+	if ( Consume(parseState, TOKEN_EQUAL) )
+	{
+		Expr *left = expr;
+		//Token *equals = Consumed(parseState);
+		Expr *right = ParseAssignment(parseState, program);
+
+		if (left->type == EXPR_IDENTIFIER)
+		{
+			Expr *exprAssign = AddExpression(program);
+			exprAssign->type = EXPR_ASSIGNMENT;
+			exprAssign->assignment.nameToken = left->identifier.identifierToken;
+			exprAssign->assignment.right = right;
+			return exprAssign;
+		}
+		else
+		{
+			printf("Invalid assignment target.\n");
+		}
+	}
+
+	return expr;
+}
+
 Expr* ParseExpression(ParseState &parseState, Program &program)
 {
-	return ParseEquality(parseState, program);
+	return ParseAssignment(parseState, program);
 }
 
 Stmt* ParseExpressionStatement(ParseState &parseState, Program &program)
 {
 	Expr *expr = ParseExpression(parseState, program);
 	ConsumeForced(parseState, TOKEN_SEMICOLON, __FUNCTION__);
-	Stmt *stmt = AddPrintStatement(program, expr);
+	Stmt *stmt = AddExpressionStatement(program, expr);
 	return stmt;
 }
 
@@ -833,27 +874,6 @@ Program Parse(Arena &arena, ParseState &parseState, TokenList &tokens)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Evaluator
 
-bool Get(Environment &e, String name, Value &value)
-{
-	VarList *varlist = e.variables;
-
-	while ( varlist )
-	{
-		for ( u32 i = 0; i < varlist->varsCount; ++i )
-		{
-			if ( StrEq( name, varlist->vars[i].name ) )
-			{
-				value = varlist->vars[i].value;
-				return true;
-			}
-		}
-
-		varlist = varlist->next;
-	}
-
-	return false;
-}
-
 bool Add(Arena &arena, Environment &e, String name, Value value)
 {
 	VarList *varlist = e.variables;
@@ -897,7 +917,49 @@ bool Add(Arena &arena, Environment &e, String name, Value value)
 	return true;
 }
 
-Value Evaluate(Expr *expr, Environment &env)
+bool Get(Environment &e, String name, Value &value)
+{
+	VarList *varlist = e.variables;
+
+	while ( varlist )
+	{
+		for ( u32 i = 0; i < varlist->varsCount; ++i )
+		{
+			if ( StrEq( name, varlist->vars[i].name ) )
+			{
+				value = varlist->vars[i].value;
+				return true;
+			}
+		}
+
+		varlist = varlist->next;
+	}
+
+	return false;
+}
+
+bool Set(Environment &e, String name, Value value)
+{
+	VarList *varlist = e.variables;
+
+	while ( varlist )
+	{
+		for ( u32 i = 0; i < varlist->varsCount; ++i )
+		{
+			if ( StrEq( name, varlist->vars[i].name ) )
+			{
+				varlist->vars[i].value = value;
+				return true;
+			}
+		}
+
+		varlist = varlist->next;
+	}
+
+	return false;
+}
+
+Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 {
 	Value value = {};
 
@@ -918,7 +980,7 @@ Value Evaluate(Expr *expr, Environment &env)
 		}
 		case EXPR_UNARY:
 		{
-			value = Evaluate( expr->unary.expr, env );
+			value = Evaluate( arena, expr->unary.expr, env );
 			switch ( expr->unary.operatorToken->type )
 			{
 				case TOKEN_MINUS:
@@ -936,8 +998,8 @@ Value Evaluate(Expr *expr, Environment &env)
 		}
 		case EXPR_BINARY:
 		{
-			Value left = Evaluate( expr->binary.left, env );
-			Value right = Evaluate( expr->binary.right, env );
+			Value left = Evaluate( arena, expr->binary.left, env );
+			Value right = Evaluate( arena, expr->binary.right, env );
 			switch ( expr->binary.operatorToken->type )
 			{
 				case TOKEN_MINUS:
@@ -1003,6 +1065,19 @@ Value Evaluate(Expr *expr, Environment &env)
 			}
 			break;
 		}
+		case EXPR_ASSIGNMENT:
+		{
+			Token *name = expr->assignment.nameToken;
+			Expr *right = expr->assignment.right;
+
+			Value value = Evaluate( arena, right, env );
+			if ( !Set( env, name->lexeme, value ) )
+			{
+				// TODO: Caution, the lexeme is a non-zero-terminated string...
+				printf("Could not find identifier %s\n", name->lexeme);
+			}
+			break;
+		}
 		default:
 			INVALID_CODE_PATH();
 	}
@@ -1014,10 +1089,17 @@ void Execute( Arena &arena, Stmt &stmt, Environment &env)
 {
 	switch ( stmt.type )
 	{
-		case STMT_PRINT:
 		case STMT_EXPR:
 			{
-				Value val = Evaluate(stmt.expr, env);
+				// Assignment statements are here by now
+				Evaluate( arena, stmt.expr, env );
+				break;
+			}
+		case STMT_PRINT:
+			{
+				Value val = Evaluate( arena, stmt.expr, env );
+				// TODO: In case there was an evaluation erro,
+				// this should not print anything
 
 				printf("Evaluated value: ");
 				switch ( val.type )
@@ -1033,6 +1115,9 @@ void Execute( Arena &arena, Stmt &stmt, Environment &env)
 						StrCopy(cstring, val.s);
 						printf("%s", cstring);
 						break;
+					case VALUE_TYPE_NIL:
+						printf("nil");
+						break;
 					default:
 						INVALID_CODE_PATH();
 				}
@@ -1041,7 +1126,13 @@ void Execute( Arena &arena, Stmt &stmt, Environment &env)
 			break;
 		case STMT_VAR_DECL:
 			{
-				Value val = Evaluate( stmt.expr, env );
+				Value val;
+				val.type = VALUE_TYPE_NIL;
+
+				if ( stmt.expr )
+				{
+					val = Evaluate( arena, stmt.expr, env );
+				}
 
 				if ( !Add( arena, env, stmt.identifier->lexeme, val ) )
 				{
