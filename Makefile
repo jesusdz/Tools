@@ -1,4 +1,4 @@
-.PHONY: default main main_xwindow clean
+.PHONY: default main main_xwindow shaders clean
 
 default: main_xwindow
 
@@ -8,5 +8,9 @@ main:
 main_xwindow:
 	g++ -g -o main_xwindow  main_xwindow.cpp -DVK_NO_PROTOTYPES -lxcb
 
+shaders:
+	glslc -fshader-stage=vertex shaders/vertex.glsl -o shaders/vertex.spv
+	glslc -fshader-stage=fragment shaders/fragment.glsl -o shaders/fragment.spv
+
 clean:
-	rm -f main main_xwindow
+	rm -f main main_xwindow shaders/*.spv
