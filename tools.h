@@ -32,6 +32,7 @@ typedef	unsigned char byte;
 #define ERROR(message) ASSERT( 0 && message )
 #define INVALID_CODE_PATH() ERROR("Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
+#define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
 
 
 
@@ -220,6 +221,12 @@ void PrintArenaUsage(Arena &arena)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Files
 
+struct FileOnMemory
+{
+	byte *data;
+	u32 size;
+};
+
 u32 GetFileSize(const char *filename)
 {
 	u32 size = 0;
@@ -233,7 +240,7 @@ u32 GetFileSize(const char *filename)
 	return size;
 }
 
-u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
+u32 ReadEntireFile(const char *filename, void *bytes, u32 bytesSize)
 {
 	u32 bytesRead = 0;
 	FILE *f = fopen(filename, "rb");
@@ -241,10 +248,41 @@ u32 ReadEntireFile(const char *filename, char *bytes, u32 bytesSize)
 	{
 		bytesRead = fread(bytes, sizeof(unsigned char), bytesSize, f);
 		ASSERT(bytesRead <= bytesSize);
-		bytes[bytesRead] = 0;
+		((byte*)bytes)[bytesRead] = 0; // TODO: Revisit this, it's dangerous to write beyond bytesSize
 		fclose(f);
 	}
 	return bytesRead;
+}
+
+FileOnMemory *PushFile( Arena& arena, const char *filename )
+{
+	FileOnMemory *file = 0;
+
+	u32 size = GetFileSize( filename );
+	if ( size > 0 )
+	{
+		Arena backupArena = arena;
+
+		byte *data = PushArray( arena, byte, size + 1 ); // +1 for final zero put by ReadEntireFile
+		u32 bytesRead = ReadEntireFile( filename, data, size );
+		if ( bytesRead == size )
+		{
+			file = PushStruct( arena, FileOnMemory );
+			file->data = data;
+			file->size = size;
+		}
+		else
+		{
+			arena = backupArena;
+			LOG(Error, "Could not read file: %s.\n", filename);
+		}
+	}
+	else
+	{
+		LOG(Error, "Could not get file size: %s.\n", filename);
+	}
+
+	return file;
 }
 
 
