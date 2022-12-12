@@ -1,12 +1,12 @@
-.PHONY: default main main-xwindow clean
+.PHONY: default main main_xwindow clean
 
-default: main-xwindow
+default: main_xwindow
 
 main:
 	g++ -g -o main main.cpp
 
-main-xwindow:
-	g++ -g -o main-xwindow  main-xwindow.cpp -DVK_NO_PROTOTYPES -lxcb
+main_xwindow:
+	g++ -g -o main_xwindow  main_xwindow.cpp -DVK_NO_PROTOTYPES -lxcb
 
 clean:
-	rm -f main main-xwindow
+	rm -f main main_xwindow
