@@ -71,7 +71,7 @@ XWindow CreateXWindow()
 	// Get window info at this point
 	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( connection, window );
 	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( connection, cookie, NULL );
-	printf("Created window size (%u, %u)\n", reply->width, reply->height);
+	LOG(Info, "Created window size (%u, %u)\n", reply->width, reply->height);
 
 	XWindow xwindow = {};
 	xwindow.connection = connection;
@@ -100,10 +100,10 @@ print_modifiers (uint32_t mask)
 		"Mod2", "Mod3", "Mod4", "Mod5",
 		"Button1", "Button2", "Button3", "Button4", "Button5"
 	};
-	printf ("Modifier mask: ");
+	LOG(Info, "Modifier mask: ");
 	for (mod = mods ; mask; mask >>= 1, mod++)
 		if (mask & 1)
-			printf(*mod);
+			LOG(Info, *mod);
 	putchar ('\n');
 }
 #endif
@@ -119,19 +119,20 @@ VkBool32 VulkanDebugReportCallback(
 		const char*                                 pMessage,
 		void*                                       pUserData)
 {
-	printf("VulkanDebugReportCallback was called.\n");
-	printf(" - pLayerPrefix: %s.\n", pLayerPrefix);
-	printf(" - pMessage: %s.\n", pMessage);
+	LOG(Warning, "VulkanDebugReportCallback was called.\n");
+	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
+	LOG(Warning, " - pMessage: %s.\n", pMessage);
 	return VK_FALSE;
 }
 
 #define VULKAN_ALLOCATORS NULL
+#define MAX_SWAPCHAIN_IMAGE_COUNT 3
 
 #define VK_CHECK_RESULT( call ) \
 	if ( call != VK_SUCCESS ) \
 	{ \
-		printf("Vulkan call failed:.\n"); \
-		printf(" - " #call "\n"); \
+		LOG(Error, "Vulkan call failed:.\n"); \
+		LOG(Error, " - " #call "\n"); \
 		return false; \
 	}
 
@@ -142,13 +143,18 @@ struct GfxDevice
 
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
-	VkImage swapchainImages[3];
+	VkImage swapchainImages[MAX_SWAPCHAIN_IMAGE_COUNT];
 	u32 swapchainImageCount;
 	VkFormat swapchainImageFormat;
 	VkExtent2D swapchainExtent;
+	VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
+	u32 swapchainImageViewCount;
 
 	VkQueue gfxQueue;
 	VkQueue presentQueue;
+
+	// TODO: Temporary stuff hardcoded here
+	VkPipelineLayout pipelineLayout;
 
 	struct
 	{
@@ -157,6 +163,23 @@ struct GfxDevice
 
 	VkDebugReportCallbackEXT debugReportCallback;
 };
+
+VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
+{
+	VkShaderModuleCreateInfo createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	createInfo.codeSize = size;
+	createInfo.pCode = reinterpret_cast<const uint32_t*>(data);
+
+	VkShaderModule shaderModule;
+	if ( vkCreateShaderModule(device, &createInfo, VULKAN_ALLOCATORS, &shaderModule) != VK_SUCCESS )
+	{
+		LOG(Error, "Error in CreateShaderModule.\n");
+		shaderModule = VK_NULL_HANDLE;
+	}
+
+	return shaderModule;
+}
 
 bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 {
@@ -167,7 +190,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkResult result = volkInitialize();
 	if ( result != VK_SUCCESS )
 	{
-		printf("The Vulkan loader was not found in the system.\n");
+		LOG(Error, "The Vulkan loader was not found in the system.\n");
 		return false;
 	}
 
@@ -191,7 +214,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	const char *enabledInstanceLayerNames[ARRAY_COUNT(wantedInstanceLayerNames)];
 	uint32_t enabledInstanceLayerCount = 0;
 
-	printf("Instance layers:\n");
+	LOG(Info, "Instance layers:\n");
 	for (u32 i = 0; i < instanceLayerCount; ++i)
 	{
 		bool enabled = false;
@@ -207,7 +230,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
+		LOG(Info, "%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
 	}
 
 	uint32_t instanceExtensionCount;
@@ -225,7 +248,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	const char *enabledInstanceExtensionNames[ARRAY_COUNT(wantedInstanceExtensionNames)];
 	uint32_t enabledInstanceExtensionCount = 0;
 
-	printf("Instance extensions:\n");
+	LOG(Info, "Instance extensions:\n");
 	for (u32 i = 0; i < instanceExtensionCount; ++i)
 	{
 		bool enabled = false;
@@ -241,7 +264,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':' ', instanceExtensions[i].extensionName);
+		LOG(Info, "%c %s\n", enabled?'*':' ', instanceExtensions[i].extensionName);
 	}
 
 	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
@@ -456,7 +479,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 	if ( !suitableDeviceFound )
 	{
-		printf("Could not find any suitable GFX device.\n");
+		LOG(Error, "Could not find any suitable GFX device.\n");
 		return false;
 	}
 
@@ -484,7 +507,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	const char *enabledDeviceExtensionNames[ARRAY_COUNT(requiredDeviceExtensionNames)];
 	uint32_t enabledDeviceExtensionCount = 0;
 
-	printf("Device extensions:\n");
+	LOG(Info, "Device extensions:\n");
 	for (u32 i = 0; i < deviceExtensionCount; ++i)
 	{
 		bool enabled = false;
@@ -500,7 +523,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 			}
 		}
 
-		printf("%c %s\n", enabled?'*':' ', deviceExtensions[i].extensionName);
+		LOG(Info, "%c %s\n", enabled?'*':' ', deviceExtensions[i].extensionName);
 	}
 #else
 	const char **enabledDeviceExtensionNames = requiredDeviceExtensionNames;
@@ -522,7 +545,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	result = vkCreateDevice( physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &device );
 	if ( result != VK_SUCCESS )
 	{
-		printf("vkCreateDevice failed!\n");
+		LOG(Error, "vkCreateDevice failed!\n");
 		return false;
 	}
 
@@ -586,6 +609,158 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	vkGetSwapchainImagesKHR( device, swapchain, &gfxDevice.swapchainImageCount, gfxDevice.swapchainImages );
 
 
+	// Create image views
+	gfxDevice.swapchainImageViewCount = gfxDevice.swapchainImageCount;
+	for ( u32 i = 0; i < gfxDevice.swapchainImageViewCount; ++i )
+	{
+		VkImageViewCreateInfo imageViewCreateInfo = {};
+		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCreateInfo.image = gfxDevice.swapchainImages[i];
+		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.format = surfaceFormat.format;
+		imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+		imageViewCreateInfo.subresourceRange.levelCount = 1;
+		imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+		imageViewCreateInfo.subresourceRange.layerCount = 1;
+
+		VK_CHECK_RESULT( vkCreateImageView(device, &imageViewCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainImageViews[i] ) );
+	}
+
+
+	// Create pipeline
+	// TODO: This shouldn't be part of the device initialization
+	// but let's put it here for now
+	FileOnMemory *vertexFile = PushFile( scratch, "shaders/vertex.spv" );
+	FileOnMemory *fragmentFile = PushFile( scratch, "shaders/fragment.spv" );
+
+	VkShaderModule vertexShaderModule = CreateShaderModule( device, vertexFile->data, vertexFile->size );
+	VkShaderModule fragmentShaderModule = CreateShaderModule( device, fragmentFile->data, fragmentFile->size );
+
+	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
+	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vertexShaderStageCreateInfo.module = vertexShaderModule;
+	vertexShaderStageCreateInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
+	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragmentShaderStageCreateInfo.module = fragmentShaderModule;
+	fragmentShaderStageCreateInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
+
+	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
+	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInputCreateInfo.vertexBindingDescriptionCount = 0;
+	vertexInputCreateInfo.pVertexBindingDescriptions = NULL; // Optional
+	vertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
+	vertexInputCreateInfo.pVertexAttributeDescriptions = NULL; // Optional
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
+	inputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssemblyCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
+
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {};
+	dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicStateCreateInfo.dynamicStateCount = ARRAY_COUNT(dynamicStates);
+	dynamicStateCreateInfo.pDynamicStates = dynamicStates;
+
+	VkViewport viewport = {};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float) surfaceExtent.width;
+	viewport.height = (float) surfaceExtent.height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+
+	VkRect2D scissor = {};
+	scissor.offset = {0, 0};
+	scissor.extent = surfaceExtent;
+
+	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {};
+	viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportStateCreateInfo.viewportCount = 1;
+	viewportStateCreateInfo.scissorCount = 1;
+
+	VkPipelineRasterizationStateCreateInfo rasterizedCreateInfo = {};
+	rasterizedCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizedCreateInfo.depthClampEnable = VK_FALSE;
+	rasterizedCreateInfo.rasterizerDiscardEnable = VK_FALSE;
+	rasterizedCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizedCreateInfo.lineWidth = 1.0f;
+	rasterizedCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizedCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizedCreateInfo.depthBiasEnable = VK_FALSE;
+	rasterizedCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
+	rasterizedCreateInfo.depthBiasClamp = 0.0f; // Optional
+	rasterizedCreateInfo.depthBiasSlopeFactor = 0.0f; // Optional
+
+	VkPipelineMultisampleStateCreateInfo multisamplingCreateInfo = {};
+	multisamplingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisamplingCreateInfo.sampleShadingEnable = VK_FALSE;
+	multisamplingCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisamplingCreateInfo.minSampleShading = 1.0f; // Optional
+	multisamplingCreateInfo.pSampleMask = nullptr; // Optional
+	multisamplingCreateInfo.alphaToCoverageEnable = VK_FALSE; // Optional
+	multisamplingCreateInfo.alphaToOneEnable = VK_FALSE; // Optional
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
+	colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	// Color replace
+	colorBlendAttachmentState.blendEnable = VK_FALSE;
+	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD; // Optional
+	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
+	// Alpha blending
+	colorBlendAttachmentState.blendEnable = VK_TRUE;
+	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	VkPipelineColorBlendStateCreateInfo colorBlendingCreateInfo = {};
+	colorBlendingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlendingCreateInfo.logicOpEnable = VK_FALSE;
+	colorBlendingCreateInfo.logicOp = VK_LOGIC_OP_COPY; // Optional
+	colorBlendingCreateInfo.attachmentCount = 1;
+	colorBlendingCreateInfo.pAttachments = &colorBlendAttachmentState;
+	colorBlendingCreateInfo.blendConstants[0] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[1] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutCreateInfo.setLayoutCount = 0; // Optional
+	pipelineLayoutCreateInfo.pSetLayouts = nullptr; // Optional
+	pipelineLayoutCreateInfo.pushConstantRangeCount = 0; // Optional
+	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr; // Optional
+
+	VkPipelineLayout pipelineLayout;
+	VK_CHECK_RESULT( vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
+
+	// TODO: Next step, create render passes
+
+	vkDestroyShaderModule(device, vertexShaderModule, VULKAN_ALLOCATORS);
+	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
+
+
 	// Fill GfxDevice
 	gfxDevice.instance = instance;
 	gfxDevice.device = device;
@@ -595,11 +770,19 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.swapchain = swapchain;
 	gfxDevice.swapchainImageFormat = surfaceFormat.format;
 	gfxDevice.swapchainExtent = surfaceExtent;
+	gfxDevice.pipelineLayout = pipelineLayout;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+
+	for ( u32 i = 0; i < gfxDevice.swapchainImageViewCount; ++i )
+	{
+		vkDestroyImageView(gfxDevice.device, gfxDevice.swapchainImageViews[i], VULKAN_ALLOCATORS);
+	}
+
 	vkDestroySwapchainKHR(gfxDevice.device, gfxDevice.swapchain, VULKAN_ALLOCATORS);
 
 	vkDestroyDevice(gfxDevice.device, VULKAN_ALLOCATORS);
@@ -612,6 +795,8 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	}
 
 	vkDestroyInstance(gfxDevice.instance, VULKAN_ALLOCATORS);
+
+	ZeroStruct( &gfxDevice );
 }
 
 struct Application
@@ -634,7 +819,7 @@ int main(int argc, char **argv)
 	GfxDevice gfxDevice = {};
 	if ( !InitializeGraphics(arena, window, gfxDevice) )
 	{
-		printf("InitializeGraphics failed!\n");
+		LOG(Error, "InitializeGraphics failed!\n");
 		return -1;
 	}
 	
@@ -650,14 +835,14 @@ int main(int argc, char **argv)
 #if defined(USE_XCB)
 		while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 		{
-			printf("Event received.\n");
+			LOG(Info, "Event received.\n");
 			switch ( event->response_type & ~0x80 )
 			{
 				case XCB_RESIZE_REQUEST:
 					{
 						xcb_resize_request_event_t *ev = (xcb_resize_request_event_t *)event;
 
-						printf("Window %ld was resized. New size is (%d, %d)\n", ev->window, ev->width, ev->height);
+						LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, ev->width, ev->height);
 						break;
 					}
 
@@ -668,15 +853,15 @@ int main(int argc, char **argv)
 
 						switch (ev->detail) {
 							case 4:
-								printf ("Wheel Button up in window %ld, at coordinates (%d,%d)\n",
+								LOG(Info, "Wheel Button up in window %ld, at coordinates (%d,%d)\n",
 										ev->event, ev->event_x, ev->event_y);
 								break;
 							case 5:
-								printf ("Wheel Button down in window %ld, at coordinates (%d,%d)\n",
+								LOG(Info, "Wheel Button down in window %ld, at coordinates (%d,%d)\n",
 										ev->event, ev->event_x, ev->event_y);
 								break;
 							default:
-								printf ("Button %d pressed in window %ld, at coordinates (%d,%d)\n",
+								LOG(Info, "Button %d pressed in window %ld, at coordinates (%d,%d)\n",
 										ev->detail, ev->event, ev->event_x, ev->event_y);
 						}
 						break;
@@ -687,7 +872,7 @@ int main(int argc, char **argv)
 						xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
 						print_modifiers(ev->state);
 
-						printf ("Button %d released in window %ld, at coordinates (%d,%d)\n",
+						LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
 								ev->detail, ev->event, ev->event_x, ev->event_y);
 						break;
 					}
@@ -696,7 +881,7 @@ int main(int argc, char **argv)
 					{
 						xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
 
-						printf ("Mouse moved in window %ld, at coordinates (%d,%d)\n",
+						LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
 								ev->event, ev->event_x, ev->event_y);
 						break;
 					}
@@ -704,7 +889,7 @@ int main(int argc, char **argv)
 					{
 						xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
 
-						printf ("Mouse entered window %ld, at coordinates (%d,%d)\n",
+						LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
 								ev->event, ev->event_x, ev->event_y);
 						break;
 					}
@@ -713,7 +898,7 @@ int main(int argc, char **argv)
 					{
 						xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
 
-						printf ("Mouse left window %ld, at coordinates (%d,%d)\n",
+						LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
 								ev->event, ev->event_x, ev->event_y);
 						break;
 					}
@@ -723,7 +908,7 @@ int main(int argc, char **argv)
 						xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
 						print_modifiers(ev->state);
 
-						printf ("Key pressed in window %ld\n", ev->event);
+						LOG(Info, "Key pressed in window %ld\n", ev->event);
 						break;
 					}
 
@@ -732,7 +917,7 @@ int main(int argc, char **argv)
 						xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
 						print_modifiers(ev->state);
 
-						printf ("Key released in window %ld\n", ev->event);
+						LOG(Info, "Key released in window %ld\n", ev->event);
 
 						if ( ev->detail == 9 ) // 9 is code for Escape
 						{
@@ -743,7 +928,7 @@ int main(int argc, char **argv)
 
 				default:
 					/* Unknown event type, ignore it */
-					printf("Unknown event: %d\n", event->response_type);
+					LOG(Info, "Unknown event: %d\n", event->response_type);
 					break;
 			}
 
