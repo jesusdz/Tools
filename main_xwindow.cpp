@@ -153,8 +153,9 @@ struct GfxDevice
 	VkQueue presentQueue;
 
 	// TODO: Temporary stuff hardcoded here
-	VkPipelineLayout pipelineLayout;
 	VkRenderPass renderPass;
+	VkPipelineLayout pipelineLayout;
+	VkPipeline graphicsPipeline;
 
 	struct
 	{
@@ -734,18 +735,18 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	viewportStateCreateInfo.viewportCount = 1;
 	viewportStateCreateInfo.scissorCount = 1;
 
-	VkPipelineRasterizationStateCreateInfo rasterizedCreateInfo = {};
-	rasterizedCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizedCreateInfo.depthClampEnable = VK_FALSE;
-	rasterizedCreateInfo.rasterizerDiscardEnable = VK_FALSE;
-	rasterizedCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizedCreateInfo.lineWidth = 1.0f;
-	rasterizedCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizedCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
-	rasterizedCreateInfo.depthBiasEnable = VK_FALSE;
-	rasterizedCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
-	rasterizedCreateInfo.depthBiasClamp = 0.0f; // Optional
-	rasterizedCreateInfo.depthBiasSlopeFactor = 0.0f; // Optional
+	VkPipelineRasterizationStateCreateInfo rasterizerCreateInfo = {};
+	rasterizerCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizerCreateInfo.depthClampEnable = VK_FALSE;
+	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
+	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizerCreateInfo.lineWidth = 1.0f;
+	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
+	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
+	rasterizerCreateInfo.depthBiasClamp = 0.0f; // Optional
+	rasterizerCreateInfo.depthBiasSlopeFactor = 0.0f; // Optional
 
 	VkPipelineMultisampleStateCreateInfo multisamplingCreateInfo = {};
 	multisamplingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -767,13 +768,13 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
 	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
 	// Alpha blending
-	colorBlendAttachmentState.blendEnable = VK_TRUE;
-	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
-	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+	//colorBlendAttachmentState.blendEnable = VK_TRUE;
+	//colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	//colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	//colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
+	//colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	//colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	//colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
 
 	VkPipelineColorBlendStateCreateInfo colorBlendingCreateInfo = {};
 	colorBlendingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -796,7 +797,27 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkPipelineLayout pipelineLayout;
 	VK_CHECK_RESULT( vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
 
-	// TODO: Next step, create render passes
+	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {};
+	graphicsPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	graphicsPipelineCreateInfo.stageCount = ARRAY_COUNT(shaderStages);
+	graphicsPipelineCreateInfo.pStages = shaderStages;
+	graphicsPipelineCreateInfo.pVertexInputState = &vertexInputCreateInfo;
+	graphicsPipelineCreateInfo.pInputAssemblyState = &inputAssemblyCreateInfo;
+	graphicsPipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
+	graphicsPipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
+	graphicsPipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
+	graphicsPipelineCreateInfo.pDepthStencilState = nullptr; // Optional
+	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
+	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
+	graphicsPipelineCreateInfo.layout = pipelineLayout;
+	graphicsPipelineCreateInfo.renderPass = renderPass;
+	graphicsPipelineCreateInfo.subpass = 0;
+	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
+
+	VkPipeline graphicsPipeline;
+	VkPipelineCache pipelineCache = VK_NULL_HANDLE;
+	VK_CHECK_RESULT( vkCreateGraphicsPipelines( device, pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &graphicsPipeline ) );
 
 	vkDestroyShaderModule(device, vertexShaderModule, VULKAN_ALLOCATORS);
 	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
@@ -811,13 +832,16 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.swapchain = swapchain;
 	gfxDevice.swapchainImageFormat = surfaceFormat.format;
 	gfxDevice.swapchainExtent = surfaceExtent;
-	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.renderPass = renderPass;
+	gfxDevice.pipelineLayout = pipelineLayout;
+	gfxDevice.graphicsPipeline = graphicsPipeline;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
+
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
 
 	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
