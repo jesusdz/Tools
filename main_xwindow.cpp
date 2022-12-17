@@ -152,6 +152,8 @@ struct GfxDevice
 	VkQueue gfxQueue;
 	VkQueue presentQueue;
 
+	VkCommandPool commandPool;
+
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
@@ -841,6 +843,18 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	}
 
 
+	// Command pool
+	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	commandPoolCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+	VkCommandPool commandPool;
+	VK_CHECK_RESULT( vkCreateCommandPool(device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &commandPool) );
+
+	// TODO: Create command buffer
+
+
 	// Fill GfxDevice
 	gfxDevice.instance = instance;
 	gfxDevice.device = device;
@@ -853,11 +867,14 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.renderPass = renderPass;
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
+	gfxDevice.commandPool = commandPool;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
+
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
 		vkDestroyFramebuffer( gfxDevice.device, gfxDevice.swapchainFramebuffers[i], VULKAN_ALLOCATORS );
