@@ -92,8 +92,7 @@ void CloseXWindow(XWindow &window)
 }
 
 #if defined(USE_XCB)
-void
-print_modifiers (uint32_t mask)
+void PrintModifiers (uint32_t mask)
 {
 	const char **mod, *mods[] = {
 		"Shift", "Lock", "Ctrl", "Alt",
@@ -155,6 +154,7 @@ struct GfxDevice
 
 	// TODO: Temporary stuff hardcoded here
 	VkPipelineLayout pipelineLayout;
+	VkRenderPass renderPass;
 
 	struct
 	{
@@ -632,11 +632,52 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	}
 
 
+	// Create render passes
+	VkAttachmentDescription colorAttachmentDesc = {};
+	colorAttachmentDesc.format = surfaceFormat.format;
+	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorAttachmentRef = {};
+	colorAttachmentRef.attachment = 0;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpassDesc = {};
+	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDesc.colorAttachmentCount = 1;
+	subpassDesc.pColorAttachments = &colorAttachmentRef;
+
+	VkRenderPassCreateInfo renderPassCreateInfo = {};
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = &colorAttachmentDesc;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpassDesc;
+
+	VkRenderPass renderPass = {};
+	VK_CHECK_RESULT( vkCreateRenderPass( device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &renderPass ) );
+
+
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
 	// but let's put it here for now
-	FileOnMemory *vertexFile = PushFile( scratch, "shaders/vertex.spv" );
-	FileOnMemory *fragmentFile = PushFile( scratch, "shaders/fragment.spv" );
+	const char *vertexShaderFilename = "shaders/vertex.spv";
+	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderFilename );
+	if ( !vertexFile ) {
+		LOG( Error, "Could not open shader file %s.\n", vertexShaderFilename );
+		return false;
+	}
+	const char *fragmentShaderFilename = "shaders/fragment.spv";
+	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderFilename );
+	if ( !fragmentFile ) {
+		LOG( Error, "Could not open shader file %s.\n", fragmentShaderFilename );
+		return false;
+	}
 
 	VkShaderModule vertexShaderModule = CreateShaderModule( device, vertexFile->data, vertexFile->size );
 	VkShaderModule fragmentShaderModule = CreateShaderModule( device, fragmentFile->data, fragmentFile->size );
@@ -771,12 +812,15 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.swapchainImageFormat = surfaceFormat.format;
 	gfxDevice.swapchainExtent = surfaceExtent;
 	gfxDevice.pipelineLayout = pipelineLayout;
+	gfxDevice.renderPass = renderPass;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+
+	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
 
 	for ( u32 i = 0; i < gfxDevice.swapchainImageViewCount; ++i )
 	{
@@ -835,7 +879,6 @@ int main(int argc, char **argv)
 #if defined(USE_XCB)
 		while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 		{
-			LOG(Info, "Event received.\n");
 			switch ( event->response_type & ~0x80 )
 			{
 				case XCB_RESIZE_REQUEST:
@@ -849,7 +892,7 @@ int main(int argc, char **argv)
 				case XCB_BUTTON_PRESS:
 					{
 						xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-						print_modifiers(ev->state);
+						PrintModifiers(ev->state);
 
 						switch (ev->detail) {
 							case 4:
@@ -870,7 +913,7 @@ int main(int argc, char **argv)
 				case XCB_BUTTON_RELEASE:
 					{
 						xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
-						print_modifiers(ev->state);
+						PrintModifiers(ev->state);
 
 						LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
 								ev->detail, ev->event, ev->event_x, ev->event_y);
@@ -906,7 +949,7 @@ int main(int argc, char **argv)
 				case XCB_KEY_PRESS:
 					{
 						xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-						print_modifiers(ev->state);
+						PrintModifiers(ev->state);
 
 						LOG(Info, "Key pressed in window %ld\n", ev->event);
 						break;
@@ -915,7 +958,7 @@ int main(int argc, char **argv)
 				case XCB_KEY_RELEASE:
 					{
 						xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
-						print_modifiers(ev->state);
+						PrintModifiers(ev->state);
 
 						LOG(Info, "Key released in window %ld\n", ev->event);
 
@@ -928,7 +971,7 @@ int main(int argc, char **argv)
 
 				default:
 					/* Unknown event type, ignore it */
-					LOG(Info, "Unknown event: %d\n", event->response_type);
+					LOG(Info, "Unknown window event: %d\n", event->response_type);
 					break;
 			}
 

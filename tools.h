@@ -274,12 +274,7 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 		else
 		{
 			arena = backupArena;
-			LOG(Error, "Could not read file: %s.\n", filename);
 		}
-	}
-	else
-	{
-		LOG(Error, "Could not get file size: %s.\n", filename);
 	}
 
 	return file;
