@@ -142,12 +142,12 @@ struct GfxDevice
 
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
-	VkImage swapchainImages[MAX_SWAPCHAIN_IMAGE_COUNT];
-	u32 swapchainImageCount;
-	VkFormat swapchainImageFormat;
+	VkFormat swapchainFormat;
 	VkExtent2D swapchainExtent;
+	u32 swapchainImageCount;
+	VkImage swapchainImages[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
-	u32 swapchainImageViewCount;
+	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
 	VkQueue gfxQueue;
 	VkQueue presentQueue;
@@ -611,8 +611,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 
 	// Create image views
-	gfxDevice.swapchainImageViewCount = gfxDevice.swapchainImageCount;
-	for ( u32 i = 0; i < gfxDevice.swapchainImageViewCount; ++i )
+	gfxDevice.swapchainImageCount = gfxDevice.swapchainImageCount;
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
 		VkImageViewCreateInfo imageViewCreateInfo = {};
 		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -823,6 +823,24 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
 
 
+	// Framebuffer
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
+	{
+		VkImageView attachments[] = { gfxDevice.swapchainImageViews[i] };
+
+		VkFramebufferCreateInfo framebufferCreateInfo = {};
+		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferCreateInfo.renderPass = renderPass;
+		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
+		framebufferCreateInfo.pAttachments = attachments;
+		framebufferCreateInfo.width = surfaceExtent.width;
+		framebufferCreateInfo.height = surfaceExtent.height;
+		framebufferCreateInfo.layers = 1;
+
+		VK_CHECK_RESULT( vkCreateFramebuffer( device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainFramebuffers[i]) );
+	}
+
+
 	// Fill GfxDevice
 	gfxDevice.instance = instance;
 	gfxDevice.device = device;
@@ -830,7 +848,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.gfxQueue = gfxQueue;
 	gfxDevice.presentQueue = presentQueue;
 	gfxDevice.swapchain = swapchain;
-	gfxDevice.swapchainImageFormat = surfaceFormat.format;
+	gfxDevice.swapchainFormat = surfaceFormat.format;
 	gfxDevice.swapchainExtent = surfaceExtent;
 	gfxDevice.renderPass = renderPass;
 	gfxDevice.pipelineLayout = pipelineLayout;
@@ -840,13 +858,18 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
+	{
+		vkDestroyFramebuffer( gfxDevice.device, gfxDevice.swapchainFramebuffers[i], VULKAN_ALLOCATORS );
+	}
+
 	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
 
 	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
 
-	for ( u32 i = 0; i < gfxDevice.swapchainImageViewCount; ++i )
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
 		vkDestroyImageView(gfxDevice.device, gfxDevice.swapchainImageViews[i], VULKAN_ALLOCATORS);
 	}
