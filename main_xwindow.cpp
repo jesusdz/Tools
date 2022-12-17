@@ -904,7 +904,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
-	// TODO: Wait for the GPU to finish all tasks before destroying resources
+	vkDeviceWaitIdle( gfxDevice.device );
 
 	vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphore, VULKAN_ALLOCATORS );
 	vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphore, VULKAN_ALLOCATORS );
