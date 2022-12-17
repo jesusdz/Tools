@@ -149,15 +149,20 @@ struct GfxDevice
 	VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
-	VkQueue gfxQueue;
-	VkQueue presentQueue;
+	VkSemaphore imageAvailableSemaphore;
+	VkSemaphore renderFinishedSemaphore;
+	VkFence inFlightFence;
 
-	VkCommandPool commandPool;
+	VkQueue graphicsQueue;
+	VkQueue presentQueue;
 
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
+
+	VkCommandPool commandPool;
+	VkCommandBuffer commandBuffer;
 
 	struct
 	{
@@ -558,8 +563,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 
 	// Retrieve queues
-	VkQueue gfxQueue;
-	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &gfxQueue);
+	VkQueue graphicsQueue;
+	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
 
 	VkQueue presentQueue;
 	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue);
@@ -852,14 +857,36 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkCommandPool commandPool;
 	VK_CHECK_RESULT( vkCreateCommandPool(device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &commandPool) );
 
-	// TODO: Create command buffer
+
+	// Command buffer
+	VkCommandBufferAllocateInfo commandBufferAllocInfo = {};
+	commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferAllocInfo.commandPool = commandPool;
+	commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferAllocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	VK_CHECK_RESULT( vkAllocateCommandBuffers( device, &commandBufferAllocInfo, &commandBuffer) );
+
+
+	// Synchronization objects
+	VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled
+
+	VkSemaphore imageAvailableSemaphore;
+	VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &imageAvailableSemaphore ) );
+	VkSemaphore renderFinishedSemaphore;
+	VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &renderFinishedSemaphore ) );
+	VkFence inFlightFence;
+	VK_CHECK_RESULT( vkCreateFence( device, &fenceCreateInfo, VULKAN_ALLOCATORS, &inFlightFence ) );
 
 
 	// Fill GfxDevice
 	gfxDevice.instance = instance;
 	gfxDevice.device = device;
 	gfxDevice.surface = surface;
-	gfxDevice.gfxQueue = gfxQueue;
+	gfxDevice.graphicsQueue = graphicsQueue;
 	gfxDevice.presentQueue = presentQueue;
 	gfxDevice.swapchain = swapchain;
 	gfxDevice.swapchainFormat = surfaceFormat.format;
@@ -868,11 +895,21 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
+	gfxDevice.commandBuffer = commandBuffer;
+	gfxDevice.imageAvailableSemaphore = imageAvailableSemaphore;
+	gfxDevice.renderFinishedSemaphore = renderFinishedSemaphore;
+	gfxDevice.inFlightFence = inFlightFence;
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	// TODO: Wait for the GPU to finish all tasks before destroying resources
+
+	vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphore, VULKAN_ALLOCATORS );
+	vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphore, VULKAN_ALLOCATORS );
+	vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFence, VULKAN_ALLOCATORS );
+
 	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
 
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
@@ -905,6 +942,101 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDestroyInstance(gfxDevice.instance, VULKAN_ALLOCATORS);
 
 	ZeroStruct( &gfxDevice );
+}
+
+bool RenderGraphics(GfxDevice &gfxDevice)
+{
+	// Swapchain sync
+	vkWaitForFences( gfxDevice.device, 1, &gfxDevice.inFlightFence, VK_TRUE, UINT64_MAX );
+	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFence );
+
+	uint32_t imageIndex;
+	vkAcquireNextImageKHR( gfxDevice.device, gfxDevice.swapchain, UINT64_MAX, gfxDevice.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+
+
+	// Record commands
+	VkCommandBuffer commandBuffer = gfxDevice.commandBuffer;
+
+	VkCommandBufferResetFlags resetFlags = 0;	
+	vkResetCommandBuffer( commandBuffer, resetFlags );
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.flags = 0; // Optional
+	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
+	VK_CHECK_RESULT( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
+
+	VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+
+	VkRenderPassBeginInfo renderPassBeginInfo = {};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = gfxDevice.renderPass;
+	renderPassBeginInfo.framebuffer = gfxDevice.swapchainFramebuffers[imageIndex];
+	renderPassBeginInfo.renderArea.offset = { 0, 0 };
+	renderPassBeginInfo.renderArea.extent = gfxDevice.swapchainExtent;
+	renderPassBeginInfo.clearValueCount = 1;
+	renderPassBeginInfo.pClearValues = &clearColor;
+
+	vkCmdBeginRenderPass( commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+
+	vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.graphicsPipeline );
+
+	VkViewport viewport = {};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = static_cast<float>(gfxDevice.swapchainExtent.width);
+	viewport.height = static_cast<float>(gfxDevice.swapchainExtent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.offset = {0, 0};
+	scissor.extent = gfxDevice.swapchainExtent;
+	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+	vkCmdEndRenderPass(commandBuffer);
+
+	VK_CHECK_RESULT( vkEndCommandBuffer( commandBuffer ) );
+
+
+	// Submit commands
+	VkSemaphore waitSemaphores[] = { gfxDevice.imageAvailableSemaphore };
+	VkSemaphore signalSemaphores[] = { gfxDevice.renderFinishedSemaphore };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
+	// NOTE: With the following, the render pass drawing on the swapchain image should have
+	// an external subpass dependency to handle the case of waiting for this stage before
+	// the initial render pass transition.
+	//VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
+	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitDstStageMask = waitStages;
+	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	submitInfo.pSignalSemaphores = signalSemaphores;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	VK_CHECK_RESULT( vkQueueSubmit( gfxDevice.graphicsQueue, 1, &submitInfo, gfxDevice.inFlightFence ) );
+
+
+	// Presentation
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	presentInfo.pWaitSemaphores = signalSemaphores;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = &gfxDevice.swapchain;
+	presentInfo.pImageIndices = &imageIndex;
+	presentInfo.pResults = NULL; // Optional
+
+	VK_CHECK_RESULT( vkQueuePresentKHR( gfxDevice.presentQueue, &presentInfo ) );
+
+
+	return true;
 }
 
 struct Application
@@ -1041,6 +1173,8 @@ int main(int argc, char **argv)
 
 			free(event);
 		}
+
+		RenderGraphics(gfxDevice);
 #endif
 	}
 
