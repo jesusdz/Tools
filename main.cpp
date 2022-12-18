@@ -12,7 +12,7 @@
 
 // Enum values
 #define ENUM_ENTRY(entryName) entryName,
-enum TokenType {
+enum TokenId {
 #include "token_list.h"
 };
 #undef ENUM_ENTRY
@@ -53,7 +53,7 @@ typedef Value Literal;
 
 struct Token
 {
-	TokenType type;
+	TokenId type;
 	String lexeme;
 	Literal literal;
 	i32 line;
@@ -76,7 +76,7 @@ struct ScanState
 	u32 scriptSize;
 };
 
-const char* TokenName(TokenType type)
+const char* TokenName(TokenId type)
 {
 	return TokenNames[type];
 }
@@ -142,10 +142,10 @@ String ScannedString(const ScanState &scanState)
 	return scannedString;
 }
 
-void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenType, Literal literal)
+void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId, Literal literal)
 {
 	Token newToken = {};
-	newToken.type = tokenType;
+	newToken.type = tokenId;
 	newToken.lexeme = ScannedString(scanState);
 	newToken.literal = literal;
 	newToken.line = scanState.line;
@@ -154,31 +154,31 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenT
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
-void AddToken(const ScanState &scanState, TokenList &tokenList, TokenType tokenType)
+void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId)
 {
 	Literal literal = {};
 
-	if ( tokenType == TOKEN_STRING )
+	if ( tokenId == TOKEN_STRING )
 	{
 		literal.type = VALUE_TYPE_STRING;
 		literal.s = ScannedString(scanState);
 	}
-	else if ( tokenType == TOKEN_NUMBER )
+	else if ( tokenId == TOKEN_NUMBER )
 	{
 		literal.type = VALUE_TYPE_FLOAT;
 		literal.f = StrToFloat( ScannedString(scanState) );
 	}
-	else if ( tokenType == TOKEN_TRUE || tokenType == TOKEN_FALSE )
+	else if ( tokenId == TOKEN_TRUE || tokenId == TOKEN_FALSE )
 	{
 		literal.type = VALUE_TYPE_BOOL;
-		literal.b = tokenType == TOKEN_TRUE;
+		literal.b = tokenId == TOKEN_TRUE;
 	}
-	else if ( tokenType == TOKEN_NIL )
+	else if ( tokenId == TOKEN_NIL )
 	{
 		literal.type = VALUE_TYPE_NIL;
 	}
 
-	AddToken(scanState, tokenList, tokenType, literal);
+	AddToken(scanState, tokenList, tokenId, literal);
 }
 
 void ReportError(ScanState &scanState, const char *message)
@@ -470,11 +470,11 @@ bool IsAtEnd(const ParseState &parseState)
 	return currentToken.type == TOKEN_EOF;
 }
 
-bool Consume(ParseState &parseState, TokenType tokenType)
+bool Consume(ParseState &parseState, TokenId tokenId)
 {
 	TokenList &tokenList = *parseState.tokenList;
 	Token &currentToken = tokenList.tokens[ parseState.current ];
-	if ( currentToken.type == tokenType )
+	if ( currentToken.type == tokenId )
 	{
 		parseState.current++;
 		return true;
@@ -485,13 +485,13 @@ bool Consume(ParseState &parseState, TokenType tokenType)
 	}
 }
 
-void ConsumeForced(ParseState &parseState, TokenType tokenType, const char *context)
+void ConsumeForced(ParseState &parseState, TokenId tokenId, const char *context)
 {
-	if ( !Consume(parseState, tokenType) )
+	if ( !Consume(parseState, tokenId) )
 	{
 		char errorMessage[1024];
 		StrCopy(errorMessage, "Expected token ");
-		StrCat(errorMessage, TokenNames[tokenType]);
+		StrCat(errorMessage, TokenNames[tokenId]);
 		StrCat(errorMessage, " not found in context: ");
 		StrCat(errorMessage, context);
 		ReportError( parseState, errorMessage );
@@ -969,7 +969,7 @@ Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 		{
 			if ( !Get(env, expr->identifier.identifierToken->lexeme, value) )
 			{
-				printf("Could not find identifier %s\n", expr->identifier.identifierToken->lexeme);
+				printf("Could not find identifier %s\n", expr->identifier.identifierToken->lexeme.str);
 			}
 			break;
 		}
@@ -1074,7 +1074,7 @@ Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 			if ( !Set( env, name->lexeme, value ) )
 			{
 				// TODO: Caution, the lexeme is a non-zero-terminated string...
-				printf("Could not find identifier %s\n", name->lexeme);
+				printf("Could not find identifier %s\n", name->lexeme.str);
 			}
 			break;
 		}
@@ -1219,10 +1219,14 @@ void RunPrompt(Arena &arena)
 	{
 		printf("> ");
 
-		ssize_t lineSize; // number of characters, includes \n
-		lineSize = getline(&line, &lineLen, stdin);
+		//ssize_t lineSize; // number of characters, includes \n
+		//lineSize = getline(&line, &lineLen, stdin);
+		char lineBuf[1024];
+		line = fgets(lineBuf, ARRAY_COUNT(lineBuf), stdin);
+		lineLen = strlen(line);
 
-		line[--lineSize] = 0; // remove trailing \n
+		//line[--lineSize] = 0; // remove trailing \n
+		line[--lineLen] = 0; // remove trailing \n
 
 		if ( StrEq( "", line ) )
 		{
@@ -1237,11 +1241,12 @@ void RunPrompt(Arena &arena)
 		else
 		{
 			ResetArena(arena);
-			Run(arena, line, lineSize);
+			//Run(arena, line, lineSize);
+			Run(arena, line, lineLen);
 		}
 	}
 
-	free(line);
+	//free(line);
 }
 
 int main(int argc, char **argv)

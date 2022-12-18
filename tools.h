@@ -2,6 +2,11 @@
 #include <stdlib.h> // atof
 #include <stdio.h>  // printf, FILE, etc
 
+#if _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#endif
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -29,8 +34,7 @@ typedef	unsigned char byte;
 #define TB(x) (1024ul * GB(x))
 
 #define ASSERT(expression) assert(expression)
-#define ERROR(message) ASSERT( 0 && message )
-#define INVALID_CODE_PATH() ERROR("Invalid code path")
+#define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
 
@@ -142,6 +146,15 @@ void* AllocateVirtualMemory(u32 size)
 	return allocatedMemory;
 }
 
+#elif _WIN32
+
+void* AllocateVirtualMemory(u32 size)
+{
+	// TODO: Use Windows specific VirtualAlloc function
+	void *data = malloc( size );
+	return data;
+}
+
 #else
 #	error "Missing platform implementation"
 #endif
@@ -166,6 +179,8 @@ struct Arena
 
 Arena MakeArena(byte* base, u32 size)
 {
+	ASSERT(base != NULL && "MakeArena needs a non-null base pointer.");
+	ASSERT(size > 0 && "MakeArena needs a greater-than-zero size.");
 	Arena arena = {};
 	arena.base = base;
 	arena.size = size;
