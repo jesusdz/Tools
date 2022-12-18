@@ -45,7 +45,7 @@ XWindow CreateXWindow()
 		XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
 		XCB_EVENT_MASK_POINTER_MOTION  |
 		XCB_EVENT_MASK_ENTER_WINDOW    | XCB_EVENT_MASK_LEAVE_WINDOW   |
-		XCB_EVENT_MASK_RESIZE_REDIRECT
+		XCB_EVENT_MASK_STRUCTURE_NOTIFY
 	};
 
 	// Create a window
@@ -138,21 +138,28 @@ VkBool32 VulkanDebugReportCallback(
 struct GfxDevice
 {
 	VkInstance instance;
+	VkPhysicalDevice physicalDevice;
 	VkDevice device;
 
 	VkSurfaceKHR surface;
+
 	VkSwapchainKHR swapchain;
 	VkFormat swapchainFormat;
 	VkExtent2D swapchainExtent;
+	VkColorSpaceKHR swapchainColorSpace;
+	VkPresentModeKHR swapchainPresentMode;
 	u32 swapchainImageCount;
 	VkImage swapchainImages[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
+	bool shouldRecreateSwapchain;
 
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
 	VkFence inFlightFence;
 
+	uint32_t graphicsQueueFamilyIndex;
+	uint32_t presentQueueFamilyIndex;
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 
@@ -187,6 +194,123 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	}
 
 	return shaderModule;
+}
+
+bool CreateSwapchain(GfxDevice &gfxDevice, XWindow &xwindow)
+{
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gfxDevice.physicalDevice, gfxDevice.surface, &surfaceCapabilities);
+
+	// Swapchain extent
+	if ( surfaceCapabilities.currentExtent.width != 0xFFFFFFFF )
+	{
+		gfxDevice.swapchainExtent = surfaceCapabilities.currentExtent;
+	}
+	else
+	{
+		gfxDevice.swapchainExtent.width = Clamp( xwindow.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
+		gfxDevice.swapchainExtent.height = Clamp( xwindow.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
+	}
+
+	// We want to update the XWindow size just in case the swapchain recreation was
+	// requested from the Vulkan driver before being notified by the window manager.
+	xwindow.width = gfxDevice.swapchainExtent.width;
+	xwindow.height = gfxDevice.swapchainExtent.height;
+
+
+	// Image count
+	uint32_t imageCount = surfaceCapabilities.minImageCount + 1;
+	if ( surfaceCapabilities.maxImageCount > 0 )
+		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
+
+
+	// Swapchain
+	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	swapchainCreateInfo.surface = gfxDevice.surface;
+	swapchainCreateInfo.minImageCount = imageCount;
+	swapchainCreateInfo.imageFormat = gfxDevice.swapchainFormat;
+	swapchainCreateInfo.imageColorSpace = gfxDevice.swapchainColorSpace;
+	swapchainCreateInfo.imageExtent = gfxDevice.swapchainExtent; // TODO: Calculate extent each time
+	swapchainCreateInfo.imageArrayLayers = 1;
+	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
+	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
+
+	uint32_t queueFamilyIndices[] = {
+		gfxDevice.graphicsQueueFamilyIndex,
+		gfxDevice.presentQueueFamilyIndex
+	};
+
+	if ( gfxDevice.graphicsQueueFamilyIndex != gfxDevice.presentQueueFamilyIndex )
+	{
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		swapchainCreateInfo.queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
+		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+	else
+	{
+		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		swapchainCreateInfo.queueFamilyIndexCount = 0; // Optional
+		swapchainCreateInfo.pQueueFamilyIndices = NULL; // Optional
+	}
+
+	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Ignore, no compositing over other windows
+	swapchainCreateInfo.presentMode = gfxDevice.swapchainPresentMode;
+	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
+	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+
+	VkSwapchainKHR swapchain;
+	VK_CHECK_RESULT( vkCreateSwapchainKHR(gfxDevice.device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchain) );
+
+
+	// Get the swapchain images
+	vkGetSwapchainImagesKHR( gfxDevice.device, gfxDevice.swapchain, &gfxDevice.swapchainImageCount, NULL );
+	ASSERT( gfxDevice.swapchainImageCount <= ARRAY_COUNT(gfxDevice.swapchainImages) );
+	vkGetSwapchainImagesKHR( gfxDevice.device, gfxDevice.swapchain, &gfxDevice.swapchainImageCount, gfxDevice.swapchainImages );
+
+
+	// Create image views
+	gfxDevice.swapchainImageCount = gfxDevice.swapchainImageCount;
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
+	{
+		VkImageViewCreateInfo imageViewCreateInfo = {};
+		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCreateInfo.image = gfxDevice.swapchainImages[i];
+		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.format = gfxDevice.swapchainFormat;
+		imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+		imageViewCreateInfo.subresourceRange.levelCount = 1;
+		imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+		imageViewCreateInfo.subresourceRange.layerCount = 1;
+
+		VK_CHECK_RESULT( vkCreateImageView(gfxDevice.device, &imageViewCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainImageViews[i] ) );
+	}
+
+
+	// Framebuffer
+	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
+	{
+		VkImageView attachments[] = { gfxDevice.swapchainImageViews[i] };
+
+		VkFramebufferCreateInfo framebufferCreateInfo = {};
+		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferCreateInfo.renderPass = gfxDevice.renderPass;
+		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
+		framebufferCreateInfo.pAttachments = attachments;
+		framebufferCreateInfo.width = gfxDevice.swapchainExtent.width;
+		framebufferCreateInfo.height = gfxDevice.swapchainExtent.height;
+		framebufferCreateInfo.layers = 1;
+
+		VK_CHECK_RESULT( vkCreateFramebuffer( gfxDevice.device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainFramebuffers[i]) );
+	}
+
+	return true;
 }
 
 bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
@@ -335,10 +459,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	uint32_t graphicsQueueFamilyIndex;
 	uint32_t presentQueueFamilyIndex;
 
-	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	VkSurfaceFormatKHR surfaceFormat;
 	VkPresentModeKHR surfacePresentMode;
-	VkExtent2D surfaceExtent;
 
 
 	// Physical device selection
@@ -463,19 +585,6 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		surfacePresentMode = VK_PRESENT_MODE_FIFO_KHR;
 #endif
 
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &surfaceCapabilities);
-
-		// Swapchain extension
-		if ( surfaceCapabilities.currentExtent.width != UINT32_MAX )
-		{
-			surfaceExtent = surfaceCapabilities.currentExtent;
-		}
-		else
-		{
-			surfaceExtent.width = Clamp( xwindow.width, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount );
-			surfaceExtent.height = Clamp( xwindow.height, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount );
-		}
-
 		// At this point, we know this device meets all the requirements
 		suitableDeviceFound = true;
 		physicalDevice = device;
@@ -483,7 +592,6 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 		presentQueueFamilyIndex = presentFamilyIndex;
 		break;
 	}
-
 
 	if ( !suitableDeviceFound )
 	{
@@ -568,76 +676,6 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 	VkQueue presentQueue;
 	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue);
-
-
-	// Swapchain creation
-	uint32_t imageCount = surfaceCapabilities.minImageCount + 1;
-	if ( surfaceCapabilities.maxImageCount > 0 )
-		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
-
-	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
-	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-	swapchainCreateInfo.surface = surface;
-	swapchainCreateInfo.minImageCount = imageCount;
-	swapchainCreateInfo.imageFormat = surfaceFormat.format;
-	swapchainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
-	swapchainCreateInfo.imageExtent = surfaceExtent;
-	swapchainCreateInfo.imageArrayLayers = 1;
-	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
-	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
-
-	uint32_t queueFamilyIndices[] = { graphicsQueueFamilyIndex, presentQueueFamilyIndex };
-
-	if ( graphicsQueueFamilyIndex != presentQueueFamilyIndex )
-	{
-		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-		swapchainCreateInfo.queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
-		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
-	}
-	else
-	{
-		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		swapchainCreateInfo.queueFamilyIndexCount = 0; // Optional
-		swapchainCreateInfo.pQueueFamilyIndices = NULL; // Optional
-	}
-
-	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Ignore, no compositing over other windows
-	swapchainCreateInfo.presentMode = surfacePresentMode;
-	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
-	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
-	swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-
-	VkSwapchainKHR swapchain;
-	VK_CHECK_RESULT( vkCreateSwapchainKHR(device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain) );
-
-
-	// Get the swapchain images
-	vkGetSwapchainImagesKHR( device, swapchain, &gfxDevice.swapchainImageCount, NULL );
-	ASSERT( gfxDevice.swapchainImageCount <= ARRAY_COUNT(gfxDevice.swapchainImages) );
-	vkGetSwapchainImagesKHR( device, swapchain, &gfxDevice.swapchainImageCount, gfxDevice.swapchainImages );
-
-
-	// Create image views
-	gfxDevice.swapchainImageCount = gfxDevice.swapchainImageCount;
-	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
-	{
-		VkImageViewCreateInfo imageViewCreateInfo = {};
-		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		imageViewCreateInfo.image = gfxDevice.swapchainImages[i];
-		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		imageViewCreateInfo.format = surfaceFormat.format;
-		imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-		imageViewCreateInfo.subresourceRange.levelCount = 1;
-		imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-		imageViewCreateInfo.subresourceRange.layerCount = 1;
-
-		VK_CHECK_RESULT( vkCreateImageView(device, &imageViewCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainImageViews[i] ) );
-	}
 
 
 	// Create render passes
@@ -820,22 +858,18 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
 
 
-	// Framebuffer
-	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
-	{
-		VkImageView attachments[] = { gfxDevice.swapchainImageViews[i] };
+	// Swapchain creation
+	gfxDevice.physicalDevice = physicalDevice;
+	gfxDevice.device = device;
+	gfxDevice.surface = surface;
+	gfxDevice.swapchainFormat = surfaceFormat.format;
+	gfxDevice.swapchainColorSpace = surfaceFormat.colorSpace;
+	gfxDevice.swapchainPresentMode = surfacePresentMode;
+	gfxDevice.graphicsQueueFamilyIndex = graphicsQueueFamilyIndex;
+	gfxDevice.presentQueueFamilyIndex = presentQueueFamilyIndex;
+	gfxDevice.renderPass = renderPass;
 
-		VkFramebufferCreateInfo framebufferCreateInfo = {};
-		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebufferCreateInfo.renderPass = renderPass;
-		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
-		framebufferCreateInfo.pAttachments = attachments;
-		framebufferCreateInfo.width = surfaceExtent.width;
-		framebufferCreateInfo.height = surfaceExtent.height;
-		framebufferCreateInfo.layers = 1;
-
-		VK_CHECK_RESULT( vkCreateFramebuffer( device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainFramebuffers[i]) );
-	}
+	CreateSwapchain( gfxDevice, xwindow );
 
 
 	// Command pool
@@ -874,14 +908,8 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 
 	// Fill GfxDevice
 	gfxDevice.instance = instance;
-	gfxDevice.device = device;
-	gfxDevice.surface = surface;
 	gfxDevice.graphicsQueue = graphicsQueue;
 	gfxDevice.presentQueue = presentQueue;
-	gfxDevice.swapchain = swapchain;
-	gfxDevice.swapchainFormat = surfaceFormat.format;
-	gfxDevice.swapchainExtent = surfaceExtent;
-	gfxDevice.renderPass = renderPass;
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
@@ -892,26 +920,12 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	return true;
 }
 
-void CleanupGraphics(GfxDevice &gfxDevice)
+void CleanupSwapchain(GfxDevice &gfxDevice)
 {
-	vkDeviceWaitIdle( gfxDevice.device );
-
-	vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphore, VULKAN_ALLOCATORS );
-	vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphore, VULKAN_ALLOCATORS );
-	vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFence, VULKAN_ALLOCATORS );
-
-	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
-
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
 		vkDestroyFramebuffer( gfxDevice.device, gfxDevice.swapchainFramebuffers[i], VULKAN_ALLOCATORS );
 	}
-
-	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
-
-	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
-
-	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
 
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
@@ -919,6 +933,25 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	}
 
 	vkDestroySwapchainKHR(gfxDevice.device, gfxDevice.swapchain, VULKAN_ALLOCATORS);
+}
+
+void CleanupGraphics(GfxDevice &gfxDevice)
+{
+	vkDeviceWaitIdle( gfxDevice.device );
+
+	CleanupSwapchain( gfxDevice );
+
+	vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphore, VULKAN_ALLOCATORS );
+	vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphore, VULKAN_ALLOCATORS );
+	vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFence, VULKAN_ALLOCATORS );
+
+	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
+
+	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
+
+	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+
+	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
 
 	vkDestroyDevice(gfxDevice.device, VULKAN_ALLOCATORS);
 
@@ -934,14 +967,29 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	ZeroStruct( &gfxDevice );
 }
 
-bool RenderGraphics(GfxDevice &gfxDevice)
+bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 {
+	// TODO: create as many fences as swap images to improve synchronization
+
 	// Swapchain sync
 	vkWaitForFences( gfxDevice.device, 1, &gfxDevice.inFlightFence, VK_TRUE, UINT64_MAX );
-	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFence );
 
 	uint32_t imageIndex;
-	vkAcquireNextImageKHR( gfxDevice.device, gfxDevice.swapchain, UINT64_MAX, gfxDevice.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+	VkResult acquireResult = vkAcquireNextImageKHR( gfxDevice.device, gfxDevice.swapchain, UINT64_MAX, gfxDevice.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+
+	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		vkDeviceWaitIdle(gfxDevice.device);
+		CleanupSwapchain(gfxDevice);
+		return CreateSwapchain(gfxDevice, xwindow);
+	}
+	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+	{
+		LOG( Error, "vkAcquireNextImageKHR failed.\n" );
+		return false;
+	}
+
+	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFence );
 
 
 	// Record commands
@@ -1023,7 +1071,20 @@ bool RenderGraphics(GfxDevice &gfxDevice)
 	presentInfo.pImageIndices = &imageIndex;
 	presentInfo.pResults = NULL; // Optional
 
-	VK_CHECK_RESULT( vkQueuePresentKHR( gfxDevice.presentQueue, &presentInfo ) );
+	VkResult presentResult = vkQueuePresentKHR( gfxDevice.presentQueue, &presentInfo );
+
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR || gfxDevice.shouldRecreateSwapchain)
+	{
+		gfxDevice.shouldRecreateSwapchain = false;
+		vkDeviceWaitIdle(gfxDevice.device);
+		CleanupSwapchain(gfxDevice);
+		CreateSwapchain(gfxDevice, xwindow);
+	}
+	else if (presentResult != VK_SUCCESS)
+	{
+		LOG( Error, "vkQueuePresentKHR failed.\n" );
+		return false;
+	}
 
 
 	return true;
@@ -1067,11 +1128,17 @@ int main(int argc, char **argv)
 		{
 			switch ( event->response_type & ~0x80 )
 			{
-				case XCB_RESIZE_REQUEST:
+				case XCB_CONFIGURE_NOTIFY:
 					{
-						xcb_resize_request_event_t *ev = (xcb_resize_request_event_t *)event;
+						const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
 
-						LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, ev->width, ev->height);
+						if ( window.width != ev->width || window.height != ev->height )
+						{
+							window.width = ev->width;
+							window.height = ev->height;
+							LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
+							gfxDevice.shouldRecreateSwapchain = true;
+						}
 						break;
 					}
 
@@ -1110,10 +1177,12 @@ int main(int argc, char **argv)
 					{
 						xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
 
-						LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
-								ev->event, ev->event_x, ev->event_y);
+						// NOTE: This is commented out to avoid excessive verbosity
+						//LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
+						//		ev->event, ev->event_x, ev->event_y);
 						break;
 					}
+
 				case XCB_ENTER_NOTIFY:
 					{
 						xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
@@ -1164,7 +1233,7 @@ int main(int argc, char **argv)
 			free(event);
 		}
 
-		RenderGraphics(gfxDevice);
+		RenderGraphics(gfxDevice, window);
 #endif
 	}
 
