@@ -1212,20 +1212,14 @@ void RunFile(Arena &arena, const char* filename)
 
 void RunPrompt(Arena &arena)
 {
-	char* line = NULL;
-	size_t lineLen = 0; // used buffer size
+	char line[1024];
 
 	for (;;)
 	{
 		printf("> ");
 
-		//ssize_t lineSize; // number of characters, includes \n
-		//lineSize = getline(&line, &lineLen, stdin);
-		char lineBuf[1024];
-		line = fgets(lineBuf, ARRAY_COUNT(lineBuf), stdin);
-		lineLen = strlen(line);
-
-		//line[--lineSize] = 0; // remove trailing \n
+		fgets(line, ARRAY_COUNT(line), stdin);
+		u32 lineLen = StrLen(line);
 		line[--lineLen] = 0; // remove trailing \n
 
 		if ( StrEq( "", line ) )
@@ -1241,12 +1235,9 @@ void RunPrompt(Arena &arena)
 		else
 		{
 			ResetArena(arena);
-			//Run(arena, line, lineSize);
 			Run(arena, line, lineLen);
 		}
 	}
-
-	//free(line);
 }
 
 int main(int argc, char **argv)

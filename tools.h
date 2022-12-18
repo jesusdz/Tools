@@ -55,6 +55,13 @@ String MakeString(const char *str, u32 size)
 	return string;
 }
 
+u32 StrLen(char *str)
+{
+	u32 len = 0;
+	while (*str++) ++len;
+	return len;
+}
+
 void StrCopy(char *dst, const String& src_string)
 {
 	u32 size = src_string.size;
