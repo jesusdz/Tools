@@ -126,6 +126,7 @@ VkBool32 VulkanDebugReportCallback(
 
 #define VULKAN_ALLOCATORS NULL
 #define MAX_SWAPCHAIN_IMAGE_COUNT 3
+#define MAX_FRAMES_IN_FLIGHT 2
 
 #define VK_CHECK_RESULT( call ) \
 	if ( call != VK_SUCCESS ) \
@@ -154,14 +155,16 @@ struct GfxDevice
 	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 	bool shouldRecreateSwapchain;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
-	VkFence inFlightFence;
+	VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
+	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
+	VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
 
 	uint32_t graphicsQueueFamilyIndex;
 	uint32_t presentQueueFamilyIndex;
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
+
+	u32 currentFrame;
 
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
@@ -169,7 +172,7 @@ struct GfxDevice
 	VkPipeline graphicsPipeline;
 
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
 
 	struct
 	{
@@ -887,10 +890,9 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	commandBufferAllocInfo.commandPool = commandPool;
 	commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	commandBufferAllocInfo.commandBufferCount = 1;
+	commandBufferAllocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-	VkCommandBuffer commandBuffer;
-	VK_CHECK_RESULT( vkAllocateCommandBuffers( device, &commandBufferAllocInfo, &commandBuffer) );
+	VK_CHECK_RESULT( vkAllocateCommandBuffers( device, &commandBufferAllocInfo, gfxDevice.commandBuffers) );
 
 
 	// Synchronization objects
@@ -898,12 +900,12 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled
 
-	VkSemaphore imageAvailableSemaphore;
-	VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &imageAvailableSemaphore ) );
-	VkSemaphore renderFinishedSemaphore;
-	VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &renderFinishedSemaphore ) );
-	VkFence inFlightFence;
-	VK_CHECK_RESULT( vkCreateFence( device, &fenceCreateInfo, VULKAN_ALLOCATORS, &inFlightFence ) );
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.imageAvailableSemaphores[i] ) );
+		VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.renderFinishedSemaphores[i] ) );
+		VK_CHECK_RESULT( vkCreateFence( device, &fenceCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.inFlightFences[i] ) );
+	}
 
 
 	// Fill GfxDevice
@@ -913,10 +915,6 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
-	gfxDevice.commandBuffer = commandBuffer;
-	gfxDevice.imageAvailableSemaphore = imageAvailableSemaphore;
-	gfxDevice.renderFinishedSemaphore = renderFinishedSemaphore;
-	gfxDevice.inFlightFence = inFlightFence;
 	return true;
 }
 
@@ -941,9 +939,12 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 
 	CleanupSwapchain( gfxDevice );
 
-	vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphore, VULKAN_ALLOCATORS );
-	vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphore, VULKAN_ALLOCATORS );
-	vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFence, VULKAN_ALLOCATORS );
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphores[i], VULKAN_ALLOCATORS );
+		vkDestroySemaphore( gfxDevice.device, gfxDevice.renderFinishedSemaphores[i], VULKAN_ALLOCATORS );
+		vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFences[i], VULKAN_ALLOCATORS );
+	}
 
 	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
 
@@ -970,12 +971,13 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 {
 	// TODO: create as many fences as swap images to improve synchronization
+	u32 frameIndex = gfxDevice.currentFrame;
 
 	// Swapchain sync
-	vkWaitForFences( gfxDevice.device, 1, &gfxDevice.inFlightFence, VK_TRUE, UINT64_MAX );
+	vkWaitForFences( gfxDevice.device, 1, &gfxDevice.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX );
 
 	uint32_t imageIndex;
-	VkResult acquireResult = vkAcquireNextImageKHR( gfxDevice.device, gfxDevice.swapchain, UINT64_MAX, gfxDevice.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+	VkResult acquireResult = vkAcquireNextImageKHR( gfxDevice.device, gfxDevice.swapchain, UINT64_MAX, gfxDevice.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
@@ -989,11 +991,11 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 		return false;
 	}
 
-	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFence );
+	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFences[frameIndex] );
 
 
 	// Record commands
-	VkCommandBuffer commandBuffer = gfxDevice.commandBuffer;
+	VkCommandBuffer commandBuffer = gfxDevice.commandBuffers[frameIndex];
 
 	VkCommandBufferResetFlags resetFlags = 0;	
 	vkResetCommandBuffer( commandBuffer, resetFlags );
@@ -1041,8 +1043,8 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 
 
 	// Submit commands
-	VkSemaphore waitSemaphores[] = { gfxDevice.imageAvailableSemaphore };
-	VkSemaphore signalSemaphores[] = { gfxDevice.renderFinishedSemaphore };
+	VkSemaphore waitSemaphores[] = { gfxDevice.imageAvailableSemaphores[frameIndex] };
+	VkSemaphore signalSemaphores[] = { gfxDevice.renderFinishedSemaphores[frameIndex] };
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
 	// NOTE: With the following, the render pass drawing on the swapchain image should have
 	// an external subpass dependency to handle the case of waiting for this stage before
@@ -1058,7 +1060,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &commandBuffer;
 
-	VK_CHECK_RESULT( vkQueueSubmit( gfxDevice.graphicsQueue, 1, &submitInfo, gfxDevice.inFlightFence ) );
+	VK_CHECK_RESULT( vkQueueSubmit( gfxDevice.graphicsQueue, 1, &submitInfo, gfxDevice.inFlightFences[frameIndex] ) );
 
 
 	// Presentation
@@ -1086,6 +1088,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 		return false;
 	}
 
+	gfxDevice.currentFrame = ( gfxDevice.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 
 	return true;
 }
