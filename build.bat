@@ -10,8 +10,8 @@ REM set CommonCompilerFlags=-DHANDMADE_INTERNAL=1 -DHANDMADE_SLOW=1 -DHANDMADE_W
 REM set CommonLinkerFlags=-STACK:0x100000,0x100000 -incremental:no -opt:ref user32.lib gdi32.lib winmm.lib bcrypt.lib kernel32.lib
 
 REM Flags
-set CommonCompilerFlags=-Zi
-set CommonLinkerFlags=-incremental:no -opt:ref -nologo
+set CommonCompilerFlags=-Zi -Fo".\build"\ -Fd"build\vcxxx.pdb"
+set CommonLinkerFlags=-incremental:no -opt:ref -nologo -PDB:".\build\program.pdb" -OUT:".\build\main.exe"
 
 REM Flags for preprocessor pass
 REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
@@ -23,4 +23,3 @@ cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS main.cpp /link %CommonLinkerF
 REM Vulkan window
 REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS main_xwindow.cpp /link %CommonLinkerFlags%
 
-popd
