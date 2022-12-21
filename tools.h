@@ -2,7 +2,22 @@
 #include <stdlib.h> // atof
 #include <stdio.h>  // printf, FILE, etc
 
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Platform definitions
+
 #if _WIN32
+#	define PLATFORM_WINDOWS 1
+#elif __linux__
+#	define PLATFORM_LINUX 1
+#elif __APPLE__
+#	define PLATFORM_APPLE 1
+#else
+#	error "Unsupported platform"
+#endif
+
+#if PLATFORM_WINDOWS
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #endif
@@ -136,7 +151,7 @@ f32 StrToFloat(const String &s)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Memory
 
-#if __APPLE__ || __linux__
+#if PLATFORM_LINUX || PLATFORM_APPLE
 
 #include<sys/mman.h>
 #include<sys/stat.h>
@@ -153,7 +168,7 @@ void* AllocateVirtualMemory(u32 size)
 	return allocatedMemory;
 }
 
-#elif _WIN32
+#elif PLATFORM_WINDOWS
 
 void* AllocateVirtualMemory(u32 size)
 {
@@ -162,8 +177,6 @@ void* AllocateVirtualMemory(u32 size)
 	return data;
 }
 
-#else
-#	error "Missing platform implementation"
 #endif
 
 void MemSet(void *ptr, u32 size)

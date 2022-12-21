@@ -1,23 +1,30 @@
 #include "tools.h"
 
-//#define USE_XCB
-#if defined(USE_XCB)
-#include <xcb/xcb.h>
+
+#if PLATFORM_LINUX
+#	define USE_XCB 1
+#elif PLATFORM_WINDOWS
+#	define USE_WINAPI 1
 #endif
 
-//#define VK_USE_PLATFORM_XCB_KHR
-#define VK_USE_PLATFORM_WIN32_KHR
+
+#if USE_XCB
+#	include <xcb/xcb.h>
+#	define VK_USE_PLATFORM_XCB_KHR
+#elif USE_WINAPI
+#	define VK_USE_PLATFORM_WIN32_KHR
+#endif
+
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
 
-//#include <unistd.h> // linux only
 
 struct XWindow
 {
-#if defined(USE_XCB)
+#if USE_XCB
 	xcb_connection_t *connection;
 	xcb_window_t window;
-#elif defined(_WIN32)
+#elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
 #endif
@@ -25,7 +32,7 @@ struct XWindow
 	u32 height;
 };
 
-#if _WIN32
+#if USE_WINAPI
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 #endif
 
@@ -33,7 +40,7 @@ XWindow CreateXWindow()
 {
 	// X11
 
-#if defined(USE_XCB)
+#if USE_XCB
 
 	// Connect to the X server
 	xcb_connection_t *connection = xcb_connect(NULL, NULL);
@@ -88,7 +95,7 @@ XWindow CreateXWindow()
 
 #endif
 
-#if _WIN32
+#if USE_WINAPI
 
 	// Register the window class.
 	const char CLASS_NAME[]  = "Sample Window Class";
@@ -133,13 +140,13 @@ XWindow CreateXWindow()
 
 void CloseXWindow(XWindow &window)
 {
-#if defined(USE_XCB)
+#if USE_XCB
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
 #endif
 }
 
-#if defined(USE_XCB)
+#if USE_XCB
 void PrintModifiers (uint32_t mask)
 {
 	const char **mod, *mods[] = {
@@ -427,7 +434,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 #if USE_XCB
 		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
 #endif
-#if _WIN32
+#if USE_WINAPI
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
 		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
@@ -1163,7 +1170,7 @@ struct Application
 internal Application app;
 
 
-#if _WIN32
+#if USE_WINAPI
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
@@ -1199,7 +1206,7 @@ int main(int argc, char **argv)
 	}
 	
 	// Input loop
-#if defined(USE_XCB)
+#if USE_XCB
 	xcb_generic_event_t *event;
 #endif
 
@@ -1207,7 +1214,7 @@ int main(int argc, char **argv)
 
 	while ( !gGlobalExit )
 	{
-#if defined(USE_XCB)
+#if USE_XCB
 
 		while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 		{
@@ -1322,7 +1329,7 @@ int main(int argc, char **argv)
 
 #endif
 
-#if _WIN32
+#if USE_WINAPI
 
 		MSG msg = { };
 		while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )
