@@ -11,7 +11,7 @@ REM set CommonLinkerFlags=-STACK:0x100000,0x100000 -incremental:no -opt:ref user
 REM Flags
 set CommonCompilerFlags=-Zi
 set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
-set CommonLinkerFlags=-incremental:no -opt:ref -nologo
+set CommonLinkerFlags=-incremental:no -opt:ref -nologo user32.lib
 
 REM Flags for preprocessor pass
 REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
@@ -24,3 +24,12 @@ REM Vulkan window
 cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_xwindow.cpp /link %CommonLinkerFlags%
 
 popd
+
+pushd shaders
+
+REM Build shaders
+glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
+glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+
+popd
+
