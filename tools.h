@@ -172,8 +172,7 @@ void* AllocateVirtualMemory(u32 size)
 
 void* AllocateVirtualMemory(u32 size)
 {
-	// TODO: Use Windows specific VirtualAlloc function
-	void *data = malloc( size );
+	void *data = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 	return data;
 }
 
