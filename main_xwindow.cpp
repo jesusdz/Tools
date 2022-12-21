@@ -1325,8 +1325,6 @@ int main(int argc, char **argv)
 			free(event);
 		}
 
-		RenderGraphics(gfxDevice, window);
-
 #endif
 
 #if USE_WINAPI
@@ -1338,13 +1336,20 @@ int main(int argc, char **argv)
 			{
 				gGlobalExit = true;
 			}
-
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-
+			else
+			{
+				TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			}
 		}
 
 #endif
+
+		if ( !gGlobalExit )
+		{
+			RenderGraphics(gfxDevice, window);
+		}
+
 	}
 
 	CleanupGraphics(gfxDevice);
