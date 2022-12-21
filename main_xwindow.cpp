@@ -1,27 +1,33 @@
 #include "tools.h"
 
-#define USE_XCB
+//#define USE_XCB
 #if defined(USE_XCB)
 #include <xcb/xcb.h>
-#else
-# error "Platform implementation for a Windowing system is missing"
 #endif
 
-#define VK_USE_PLATFORM_XCB_KHR
+//#define VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_WIN32_KHR
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
 
-#include <unistd.h>
+//#include <unistd.h> // linux only
 
 struct XWindow
 {
 #if defined(USE_XCB)
 	xcb_connection_t *connection;
 	xcb_window_t window;
+#elif defined(_WIN32)
+	HINSTANCE hInstance;
+	HWND hWnd;
 #endif
 	u32 width;
 	u32 height;
 };
+
+#if _WIN32
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+#endif
 
 XWindow CreateXWindow()
 {
@@ -79,6 +85,48 @@ XWindow CreateXWindow()
 	xwindow.width = reply->width;
 	xwindow.height = reply->height;
 	return xwindow;
+
+#endif
+
+#if _WIN32
+
+	// Register the window class.
+	const char CLASS_NAME[]  = "Sample Window Class";
+	HINSTANCE hInstance = GetModuleHandle(NULL);
+
+	WNDCLASS wc = { };
+	wc.lpfnWndProc   = WindowProc;
+	wc.hInstance     = hInstance;
+	wc.lpszClassName = CLASS_NAME;
+	RegisterClass(&wc);
+
+	HWND hWnd = CreateWindowEx(
+			0,                              // Optional window styles.
+			CLASS_NAME,                     // Window class
+			"Learn to Program Windows",     // Window text
+			WS_OVERLAPPEDWINDOW,            // Window style
+
+			// Size and position
+			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+
+			NULL,       // Parent window
+			NULL,       // Menu
+			hInstance,  // Instance handle
+			NULL        // Additional application data
+			);
+
+	if (hWnd == NULL)
+	{
+		// TODO: Handle error
+	}
+
+	ShowWindow(hWnd, SW_SHOW);
+
+	XWindow window = {};
+	window.hInstance = hInstance;
+	window.hWnd = hWnd;
+	return window;
+
 #endif
 
 }
@@ -376,7 +424,12 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	const char *wantedInstanceExtensionNames[] = {
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 		VK_KHR_SURFACE_EXTENSION_NAME,
+#if USE_XCB
 		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#endif
+#if _WIN32
+		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#endif
 		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
 		//VK_EXT_DEBUG_UTILS_EXTENSION_NAME, // This one is newer, only supported from vulkan 1.1
 	};
@@ -435,13 +488,23 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	}
 
 
+#if USE_XCB
 	// XCB Surface
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.connection = xwindow.connection;
 	surfaceCreateInfo.window = xwindow.window;
-	VkSurfaceKHR surface;
+	VkSurfaceKHR surface = {};
 	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+#else
+	// WIN32 Surface
+	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.hinstance = xwindow.hInstance;
+	surfaceCreateInfo.hwnd = xwindow.hWnd;
+	VkSurfaceKHR surface = {};
+	VK_CHECK_RESULT( vkCreateWin32SurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+#endif
 
 
 	// List of physical devices
@@ -1100,6 +1163,24 @@ struct Application
 internal Application app;
 
 
+#if _WIN32
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch (uMsg)
+    {
+    case WM_DESTROY:
+
+		// This inserts a WM_QUIT message in the queue, which will in turn cause
+		// GetMessage to return zero. We will exit the main loop when that happens.
+		// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
+        PostQuitMessage(0);
+
+        return 0;
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	u32 baseMemorySize = MB(64);
@@ -1127,6 +1208,7 @@ int main(int argc, char **argv)
 	while ( !gGlobalExit )
 	{
 #if defined(USE_XCB)
+
 		while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 		{
 			switch ( event->response_type & ~0x80 )
@@ -1237,6 +1319,24 @@ int main(int argc, char **argv)
 		}
 
 		RenderGraphics(gfxDevice, window);
+
+#endif
+
+#if _WIN32
+
+		MSG msg = { };
+		while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )
+		{
+			if ( LOWORD( msg.message ) == WM_QUIT )
+			{
+				gGlobalExit = true;
+			}
+
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+
+		}
+
 #endif
 	}
 
