@@ -77,7 +77,7 @@ XWindow CreateXWindow()
 
 	// Map the window to the screen
 	xcb_map_window(connection, window);
-	
+
 	// Flush the commands before continuing
 	xcb_flush(connection);
 
@@ -143,6 +143,8 @@ void CloseXWindow(XWindow &window)
 #if USE_XCB
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
+#elif USE_WINAPI
+	DestroyWindow(window.hWnd);
 #endif
 }
 
@@ -1067,7 +1069,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 	// Record commands
 	VkCommandBuffer commandBuffer = gfxDevice.commandBuffers[frameIndex];
 
-	VkCommandBufferResetFlags resetFlags = 0;	
+	VkCommandBufferResetFlags resetFlags = 0;
 	vkResetCommandBuffer( commandBuffer, resetFlags );
 
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
@@ -1174,15 +1176,67 @@ internal Application app;
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
-    {
-    case WM_DESTROY:
+	{
+		case WM_SIZE:
+			{
+				int width = LOWORD(lParam);  // Macro to get the low-order word.
+				int height = HIWORD(lParam); // Macro to get the high-order word.
+				LOG( Info, "Window resized (%d, %d)\n", width, height );
 
-		// This inserts a WM_QUIT message in the queue, which will in turn cause
-		// GetMessage to return zero. We will exit the main loop when that happens.
-		// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-        PostQuitMessage(0);
+				// Respond to the message:
+				// TODO: Modify window size
+				break;
+			}
 
-        return 0;
+		case WM_LBUTTONDOWN:
+		case WM_LBUTTONUP:
+		case WM_RBUTTONDOWN:
+		case WM_RBUTTONUP:
+			{
+				// MK_CONTROL	The CTRL key is down.
+				// MK_LBUTTON	The left mouse button is down.
+				// MK_MBUTTON	The middle mouse button is down.
+				// MK_RBUTTON	The right mouse button is down.
+				// MK_SHIFT	The SHIFT key is down.
+				// MK_XBUTTON1	The XBUTTON1 button is down.
+				// MK_XBUTTON2	The XBUTTON2 button is down.
+				// if (wParam & MK_CONTROL) { ... }
+
+				bool left = uMsg == WM_LBUTTONUP || uMsg == WM_LBUTTONDOWN;
+				bool down = uMsg == WM_LBUTTONDOWN || uMsg == WM_RBUTTONDOWN;
+				int xPos = GET_X_LPARAM(lParam);
+				int yPos = GET_Y_LPARAM(lParam);
+
+				UINT button = GET_XBUTTON_WPARAM(wParam);
+				LOG( Info, "Mouse %s button %s at position (%d, %d)\n", left ? "LEFT" : "RIGHT", down ? "DOWN" : "UP", xPos, yPos );
+				break;
+			}
+
+		case WM_MOUSEMOVE:
+			{
+				int xPos = GET_X_LPARAM(lParam);
+				int yPos = GET_Y_LPARAM(lParam);
+				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
+				break;
+			}
+
+		case WM_MOUSEHOVER:
+		case WM_MOUSELEAVE:
+			{
+				// These events are disabled by default. See documentation if needed:
+				// https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
+				LOG( Info, "Mouse %s the window\n", uMsg == WM_MOUSEHOVER ? "entered" : "left" );
+				break;
+			}
+
+		case WM_DESTROY:
+			{
+				// This inserts a WM_QUIT message in the queue, which will in turn cause
+				// GetMessage to return zero. We will exit the main loop when that happens.
+				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
+				PostQuitMessage(0);
+				return 0;
+			}
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
@@ -1204,7 +1258,7 @@ int main(int argc, char **argv)
 		LOG(Error, "InitializeGraphics failed!\n");
 		return -1;
 	}
-	
+
 	// Input loop
 #if USE_XCB
 	xcb_generic_event_t *event;
