@@ -1,170 +1,6 @@
 #include "tools.h"
 
 
-#if PLATFORM_LINUX
-#	define USE_XCB 1
-#elif PLATFORM_WINDOWS
-#	define USE_WINAPI 1
-#endif
-
-
-#if USE_XCB
-#	include <xcb/xcb.h>
-#	define VK_USE_PLATFORM_XCB_KHR
-#elif USE_WINAPI
-#	define VK_USE_PLATFORM_WIN32_KHR
-#endif
-
-#define VOLK_IMPLEMENTATION
-#include "volk/volk.h"
-
-
-struct XWindow
-{
-#if USE_XCB
-	xcb_connection_t *connection;
-	xcb_window_t window;
-#elif USE_WINAPI
-	HINSTANCE hInstance;
-	HWND hWnd;
-#endif
-	u32 width;
-	u32 height;
-};
-
-#if USE_WINAPI
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-#endif
-
-XWindow CreateXWindow()
-{
-	// X11
-
-#if USE_XCB
-
-	// Connect to the X server
-	xcb_connection_t *connection = xcb_connect(NULL, NULL);
-
-	// Get the first screen
-	const xcb_setup_t *setup = xcb_get_setup(connection);
-	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-	xcb_screen_t * screen = iter.data;
-
-	// Configure events to capture
-	uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-	uint32_t values[2] = {
-		screen->black_pixel,
-		XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
-		XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
-		XCB_EVENT_MASK_POINTER_MOTION  |
-		XCB_EVENT_MASK_ENTER_WINDOW    | XCB_EVENT_MASK_LEAVE_WINDOW   |
-		XCB_EVENT_MASK_STRUCTURE_NOTIFY
-	};
-
-	// Create a window
-	xcb_window_t window = xcb_generate_id(connection);
-	xcb_create_window(
-		connection,                    // xcb connection
-		XCB_COPY_FROM_PARENT,          // depth
-		window,                        // window id
-		screen->root,                  // parent window
-		0, 0,                          // x, y
-		150, 150,                      // width, height
-		0,                             // bnorder_width
-		XCB_WINDOW_CLASS_INPUT_OUTPUT, // class
-		screen->root_visual,           // visual
-		mask, values);                 // value_mask, value_list
-
-	// Map the window to the screen
-	xcb_map_window(connection, window);
-
-	// Flush the commands before continuing
-	xcb_flush(connection);
-
-	// Get window info at this point
-	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( connection, window );
-	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( connection, cookie, NULL );
-	LOG(Info, "Created window size (%u, %u)\n", reply->width, reply->height);
-
-	XWindow xwindow = {};
-	xwindow.connection = connection;
-	xwindow.window = window;
-	xwindow.width = reply->width;
-	xwindow.height = reply->height;
-	return xwindow;
-
-#endif
-
-#if USE_WINAPI
-
-	// Register the window class.
-	const char CLASS_NAME[]  = "Sample Window Class";
-	HINSTANCE hInstance = GetModuleHandle(NULL);
-
-	WNDCLASS wc = { };
-	wc.lpfnWndProc   = WindowProc;
-	wc.hInstance     = hInstance;
-	wc.lpszClassName = CLASS_NAME;
-	RegisterClass(&wc);
-
-	HWND hWnd = CreateWindowEx(
-			0,                              // Optional window styles.
-			CLASS_NAME,                     // Window class
-			"Learn to Program Windows",     // Window text
-			WS_OVERLAPPEDWINDOW,            // Window style
-
-			// Size and position
-			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-
-			NULL,       // Parent window
-			NULL,       // Menu
-			hInstance,  // Instance handle
-			NULL        // Additional application data
-			);
-
-	if (hWnd == NULL)
-	{
-		// TODO: Handle error
-	}
-
-	ShowWindow(hWnd, SW_SHOW);
-
-	XWindow window = {};
-	window.hInstance = hInstance;
-	window.hWnd = hWnd;
-	return window;
-
-#endif
-
-}
-
-void CloseXWindow(XWindow &window)
-{
-#if USE_XCB
-	xcb_destroy_window(window.connection, window.window);
-	xcb_disconnect(window.connection);
-#elif USE_WINAPI
-	DestroyWindow(window.hWnd);
-#endif
-}
-
-#if USE_XCB
-void PrintModifiers (uint32_t mask)
-{
-	const char **mod, *mods[] = {
-		"Shift", "Lock", "Ctrl", "Alt",
-		"Mod2", "Mod3", "Mod4", "Mod5",
-		"Button1", "Button2", "Button3", "Button4", "Button5"
-	};
-	LOG(Info, "Modifier mask: ");
-	for (mod = mods ; mask; mask >>= 1, mod++)
-		if (mask & 1)
-			LOG(Info, *mod);
-	putchar ('\n');
-}
-#endif
-
-
 VkBool32 VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
 		VkDebugReportObjectTypeEXT                  objectType,
@@ -256,7 +92,7 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	return shaderModule;
 }
 
-bool CreateSwapchain(GfxDevice &gfxDevice, XWindow &xwindow)
+bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 {
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gfxDevice.physicalDevice, gfxDevice.surface, &surfaceCapabilities);
@@ -268,14 +104,14 @@ bool CreateSwapchain(GfxDevice &gfxDevice, XWindow &xwindow)
 	}
 	else
 	{
-		gfxDevice.swapchainExtent.width = Clamp( xwindow.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
-		gfxDevice.swapchainExtent.height = Clamp( xwindow.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
+		gfxDevice.swapchainExtent.width = Clamp( window.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
+		gfxDevice.swapchainExtent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
 	}
 
-	// We want to update the XWindow size just in case the swapchain recreation was
+	// We want to update the Window size just in case the swapchain recreation was
 	// requested from the Vulkan driver before being notified by the window manager.
-	xwindow.width = gfxDevice.swapchainExtent.width;
-	xwindow.height = gfxDevice.swapchainExtent.height;
+	window.width = gfxDevice.swapchainExtent.width;
+	window.height = gfxDevice.swapchainExtent.height;
 
 
 	// Image count
@@ -373,7 +209,7 @@ bool CreateSwapchain(GfxDevice &gfxDevice, XWindow &xwindow)
 	return true;
 }
 
-bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
+bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -501,16 +337,16 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	// XCB Surface
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.connection = xwindow.connection;
-	surfaceCreateInfo.window = xwindow.window;
+	surfaceCreateInfo.connection = window.connection;
+	surfaceCreateInfo.window = window.window;
 	VkSurfaceKHR surface = {};
 	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
 #else
 	// WIN32 Surface
 	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.hinstance = xwindow.hInstance;
-	surfaceCreateInfo.hwnd = xwindow.hWnd;
+	surfaceCreateInfo.hinstance = window.hInstance;
+	surfaceCreateInfo.hwnd = window.hWnd;
 	VkSurfaceKHR surface = {};
 	VK_CHECK_RESULT( vkCreateWin32SurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
 #endif
@@ -944,7 +780,7 @@ bool InitializeGraphics(Arena &arena, XWindow xwindow, GfxDevice &gfxDevice)
 	gfxDevice.presentQueueFamilyIndex = presentQueueFamilyIndex;
 	gfxDevice.renderPass = renderPass;
 
-	CreateSwapchain( gfxDevice, xwindow );
+	CreateSwapchain( gfxDevice, window );
 
 
 	// Command pool
@@ -1040,7 +876,7 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	ZeroStruct( &gfxDevice );
 }
 
-bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
+bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 {
 	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfxDevice.currentFrame;
@@ -1055,7 +891,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 	{
 		vkDeviceWaitIdle(gfxDevice.device);
 		CleanupSwapchain(gfxDevice);
-		return CreateSwapchain(gfxDevice, xwindow);
+		return CreateSwapchain(gfxDevice, window);
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 	{
@@ -1152,7 +988,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 		gfxDevice.shouldRecreateSwapchain = false;
 		vkDeviceWaitIdle(gfxDevice.device);
 		CleanupSwapchain(gfxDevice);
-		CreateSwapchain(gfxDevice, xwindow);
+		CreateSwapchain(gfxDevice, window);
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
@@ -1165,82 +1001,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, XWindow &xwindow)
 	return true;
 }
 
-struct Application
-{
-};
 
-internal Application app;
-
-
-#if USE_WINAPI
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-	{
-		case WM_SIZE:
-			{
-				int width = LOWORD(lParam);  // Macro to get the low-order word.
-				int height = HIWORD(lParam); // Macro to get the high-order word.
-				LOG( Info, "Window resized (%d, %d)\n", width, height );
-
-				// Respond to the message:
-				// TODO: Modify window size
-				break;
-			}
-
-		case WM_LBUTTONDOWN:
-		case WM_LBUTTONUP:
-		case WM_RBUTTONDOWN:
-		case WM_RBUTTONUP:
-			{
-				// MK_CONTROL	The CTRL key is down.
-				// MK_LBUTTON	The left mouse button is down.
-				// MK_MBUTTON	The middle mouse button is down.
-				// MK_RBUTTON	The right mouse button is down.
-				// MK_SHIFT	The SHIFT key is down.
-				// MK_XBUTTON1	The XBUTTON1 button is down.
-				// MK_XBUTTON2	The XBUTTON2 button is down.
-				// if (wParam & MK_CONTROL) { ... }
-
-				bool left = uMsg == WM_LBUTTONUP || uMsg == WM_LBUTTONDOWN;
-				bool down = uMsg == WM_LBUTTONDOWN || uMsg == WM_RBUTTONDOWN;
-				int xPos = GET_X_LPARAM(lParam);
-				int yPos = GET_Y_LPARAM(lParam);
-
-				UINT button = GET_XBUTTON_WPARAM(wParam);
-				LOG( Info, "Mouse %s button %s at position (%d, %d)\n", left ? "LEFT" : "RIGHT", down ? "DOWN" : "UP", xPos, yPos );
-				break;
-			}
-
-		case WM_MOUSEMOVE:
-			{
-				int xPos = GET_X_LPARAM(lParam);
-				int yPos = GET_Y_LPARAM(lParam);
-				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
-				break;
-			}
-
-		case WM_MOUSEHOVER:
-		case WM_MOUSELEAVE:
-			{
-				// These events are disabled by default. See documentation if needed:
-				// https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
-				LOG( Info, "Mouse %s the window\n", uMsg == WM_MOUSEHOVER ? "entered" : "left" );
-				break;
-			}
-
-		case WM_DESTROY:
-			{
-				// This inserts a WM_QUIT message in the queue, which will in turn cause
-				// GetMessage to return zero. We will exit the main loop when that happens.
-				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				PostQuitMessage(0);
-				return 0;
-			}
-    }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
-#endif
 
 int main(int argc, char **argv)
 {
@@ -1249,7 +1010,7 @@ int main(int argc, char **argv)
 	Arena arena = MakeArena(baseMemory, baseMemorySize);
 
 	// Create Window
-	XWindow window = CreateXWindow();
+	Window window = CreateWindow();
 
 	// Initialize graphics
 	GfxDevice gfxDevice = {};
@@ -1260,144 +1021,22 @@ int main(int argc, char **argv)
 	}
 
 	// Input loop
-#if USE_XCB
-	xcb_generic_event_t *event;
-#endif
 
 	bool gGlobalExit = false;
 
 	while ( !gGlobalExit )
 	{
-#if USE_XCB
+		ProcessWindowEvents(window);
 
-		while ( (event = xcb_poll_for_event(window.connection)) != 0 )
+		if ( window.flags & WindowFlags_Resized )
 		{
-			switch ( event->response_type & ~0x80 )
-			{
-				case XCB_CONFIGURE_NOTIFY:
-					{
-						const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
-
-						if ( window.width != ev->width || window.height != ev->height )
-						{
-							window.width = ev->width;
-							window.height = ev->height;
-							LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
-							gfxDevice.shouldRecreateSwapchain = true;
-						}
-						break;
-					}
-
-				case XCB_BUTTON_PRESS:
-					{
-						xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-						PrintModifiers(ev->state);
-
-						switch (ev->detail) {
-							case 4:
-								LOG(Info, "Wheel Button up in window %ld, at coordinates (%d,%d)\n",
-										ev->event, ev->event_x, ev->event_y);
-								break;
-							case 5:
-								LOG(Info, "Wheel Button down in window %ld, at coordinates (%d,%d)\n",
-										ev->event, ev->event_x, ev->event_y);
-								break;
-							default:
-								LOG(Info, "Button %d pressed in window %ld, at coordinates (%d,%d)\n",
-										ev->detail, ev->event, ev->event_x, ev->event_y);
-						}
-						break;
-					}
-
-				case XCB_BUTTON_RELEASE:
-					{
-						xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
-						PrintModifiers(ev->state);
-
-						LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
-								ev->detail, ev->event, ev->event_x, ev->event_y);
-						break;
-					}
-
-				case XCB_MOTION_NOTIFY:
-					{
-						xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-
-						// NOTE: This is commented out to avoid excessive verbosity
-						//LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
-						//		ev->event, ev->event_x, ev->event_y);
-						break;
-					}
-
-				case XCB_ENTER_NOTIFY:
-					{
-						xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
-
-						LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
-								ev->event, ev->event_x, ev->event_y);
-						break;
-					}
-
-				case XCB_LEAVE_NOTIFY:
-					{
-						xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
-
-						LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
-								ev->event, ev->event_x, ev->event_y);
-						break;
-					}
-
-				case XCB_KEY_PRESS:
-					{
-						xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-						PrintModifiers(ev->state);
-
-						LOG(Info, "Key pressed in window %ld\n", ev->event);
-						break;
-					}
-
-				case XCB_KEY_RELEASE:
-					{
-						xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
-						PrintModifiers(ev->state);
-
-						LOG(Info, "Key released in window %ld\n", ev->event);
-
-						if ( ev->detail == 9 ) // 9 is code for Escape
-						{
-							gGlobalExit = true;
-						}
-						break;
-					}
-
-				default:
-					/* Unknown event type, ignore it */
-					LOG(Info, "Unknown window event: %d\n", event->response_type);
-					break;
-			}
-
-			free(event);
+			gfxDevice.shouldRecreateSwapchain = true;
 		}
 
-#endif
-
-#if USE_WINAPI
-
-		MSG msg = { };
-		while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )
+		if ( window.flags & WindowFlags_Exiting )
 		{
-			if ( LOWORD( msg.message ) == WM_QUIT )
-			{
-				gGlobalExit = true;
-			}
-			else
-			{
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
-			}
+			gGlobalExit = true;
 		}
-
-#endif
 
 		if ( !gGlobalExit )
 		{
@@ -1408,7 +1047,7 @@ int main(int argc, char **argv)
 
 	CleanupGraphics(gfxDevice);
 
-	CloseXWindow(window);
+	CloseWindow(window);
 
 	return 1;
 }
