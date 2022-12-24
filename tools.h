@@ -371,9 +371,10 @@ struct Window
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 #endif
 
-Window CreateWindow()
+bool InitializeWindow(Window &window)
 {
-	// X11
+	const int WINDOW_WIDTH = 640;
+	const int WINDOW_HEIGHT = 480;
 
 #if USE_XCB
 
@@ -404,7 +405,7 @@ Window CreateWindow()
 		xcbWindow,                     // window id
 		screen->root,                  // parent window
 		0, 0,                          // x, y
-		150, 150,                      // width, height
+		WINDOW_WIDTH, WINDOW_HEIGHT,   // width, height
 		0,                             // bnorder_width
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, // class
 		screen->root_visual,           // visual
@@ -421,12 +422,10 @@ Window CreateWindow()
 	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL );
 	LOG(Info, "Created window size (%u, %u)\n", reply->width, reply->height);
 
-	Window window = {};
 	window.connection = xcbConnection;
 	window.window = xcbWindow;
 	window.width = reply->width;
 	window.height = reply->height;
-	return window;
 
 #endif
 
@@ -440,46 +439,53 @@ Window CreateWindow()
 	wc.lpfnWndProc   = WindowProc;
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
-	RegisterClass(&wc);
+	ATOM atom = RegisterClassA(&wc);
 
-	HWND hWnd = CreateWindowEx(
+	if (atom == 0)
+	{
+		// TODO: Handle error
+		return false;
+	}
+
+	HWND hWnd = CreateWindowExA(
 			0,                              // Optional window styles.
 			CLASS_NAME,                     // Window class
 			"Learn to Program Windows",     // Window text
 			WS_OVERLAPPEDWINDOW,            // Window style
-
-			// Size and position
-			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-
-			NULL,       // Parent window
-			NULL,       // Menu
-			hInstance,  // Instance handle
-			NULL        // Additional application data
+			CW_USEDEFAULT, CW_USEDEFAULT,   // Position
+			WINDOW_WIDTH, WINDOW_HEIGHT,    // Size
+			NULL,                           // Parent window
+			NULL,                           // Menu
+			hInstance,                      // Instance handle
+			NULL                            // Additional application data
 			);
 
 	if (hWnd == NULL)
 	{
 		// TODO: Handle error
+		return false;
 	}
 
 	ShowWindow(hWnd, SW_SHOW);
 
-	Window window = {};
 	window.hInstance = hInstance;
 	window.hWnd = hWnd;
-	return window;
 
 #endif
 
+	return true;
 }
 
-void CloseWindow(Window &window)
+void CleanupWindow(Window &window)
 {
 #if USE_XCB
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
 #elif USE_WINAPI
-	DestroyWindow(window.hWnd);
+	if ( !DestroyWindow(window.hWnd) )
+	{
+		LOG(Warning, "Error in DestroyWindow.\n");
+	}
 #endif
 }
 

@@ -1010,7 +1010,12 @@ int main(int argc, char **argv)
 	Arena arena = MakeArena(baseMemory, baseMemorySize);
 
 	// Create Window
-	Window window = CreateWindow();
+	Window window = {};
+	if ( !InitializeWindow(window) )
+	{
+		LOG(Error, "InitializeWindow failed!\n");
+		return -1;
+	}
 
 	// Initialize graphics
 	GfxDevice gfxDevice = {};
@@ -1047,7 +1052,7 @@ int main(int argc, char **argv)
 
 	CleanupGraphics(gfxDevice);
 
-	CloseWindow(window);
+	CleanupWindow(window);
 
 	return 1;
 }
