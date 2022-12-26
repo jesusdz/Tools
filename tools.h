@@ -185,6 +185,14 @@ void MemSet(void *ptr, u32 size)
 	while (size-- > 0) *bytePtr++ = 0;
 }
 
+void MemCopy(void *dst, const void *src, u32 size)
+{
+	const byte *pSrc = (byte*) src;
+	const byte *pEnd = pSrc + size;
+	byte *pDst = (byte*) dst;
+	while (pSrc != pEnd) *pDst++ = *pSrc++;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
