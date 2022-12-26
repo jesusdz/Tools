@@ -1,6 +1,39 @@
 #include "tools.h"
 
 
+struct float2
+{
+	union { float x, r; };
+	union { float y, g; };
+};
+
+struct float3
+{
+	union { float x, r; };
+	union { float y, g; };
+	union { float z, b; };
+};
+
+struct float4
+{
+	union { float x, r; };
+	union { float y, g; };
+	union { float z, b; };
+	union { float w, a; };
+};
+
+struct Vertex
+{
+	float2 pos;
+	float3 color;
+};
+
+static const Vertex vertices[] = {
+	{{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}
+};
+
 VkBool32 VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
 		VkDebugReportObjectTypeEXT                  objectType,
@@ -66,6 +99,9 @@ struct GfxDevice
 
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
+
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
 
 	struct
 	{
@@ -653,12 +689,28 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
 
+	// TODO: Like I said before, vertex description shouldn't go here
+	VkVertexInputBindingDescription bindingDescription = {};
+	bindingDescription.binding = 0;
+	bindingDescription.stride = sizeof(Vertex);
+	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	VkVertexInputAttributeDescription attributeDescriptions[2] = {};
+	attributeDescriptions[0].binding = 0;
+	attributeDescriptions[0].location = 0;
+	attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+	attributeDescriptions[0].offset = offsetof(Vertex, pos);
+	attributeDescriptions[1].binding = 0;
+	attributeDescriptions[1].location = 1;
+	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attributeDescriptions[1].offset = offsetof(Vertex, color);
+
 	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
 	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputCreateInfo.vertexBindingDescriptionCount = 0;
-	vertexInputCreateInfo.pVertexBindingDescriptions = NULL; // Optional
-	vertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
-	vertexInputCreateInfo.pVertexAttributeDescriptions = NULL; // Optional
+	vertexInputCreateInfo.vertexBindingDescriptionCount = 1;
+	vertexInputCreateInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
+	vertexInputCreateInfo.vertexAttributeDescriptionCount = ARRAY_COUNT(attributeDescriptions);
+	vertexInputCreateInfo.pVertexAttributeDescriptions = attributeDescriptions; // Optional
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
 	inputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -783,6 +835,59 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	CreateSwapchain( gfxDevice, window );
 
 
+	// Vertex buffers
+	VkBufferCreateInfo vertexBufferCreateInfo = {};
+	vertexBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	vertexBufferCreateInfo.size = sizeof(vertices);
+	vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	vertexBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer vertexBuffer;
+	VK_CHECK_RESULT( vkCreateBuffer(device, &vertexBufferCreateInfo, VULKAN_ALLOCATORS, &vertexBuffer) );
+
+
+	// Memory for the vertex buffer
+	VkMemoryRequirements vertexBufferMemoryRequirements = {};
+	vkGetBufferMemoryRequirements(device, vertexBuffer, &vertexBufferMemoryRequirements);
+
+	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
+
+	uint32_t memoryTypeIndex = -1;
+	VkMemoryPropertyFlags requiredMemoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
+	{
+		if ( (vertexBufferMemoryRequirements.memoryTypeBits & (1 << i)) &&
+			((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
+		{
+			memoryTypeIndex = i;
+		}
+	}
+	if( memoryTypeIndex == -1 )
+	{
+		LOG(Error, "Could not find a proper memory type for the vertex buffer.\n");
+		return false;
+	}
+
+	VkMemoryAllocateInfo memoryAllocateInfo = {};
+	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocateInfo.allocationSize = vertexBufferMemoryRequirements.size;
+	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
+
+	VkDeviceMemory vertexBufferMemory;
+	VK_CHECK_RESULT( vkAllocateMemory(device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &vertexBufferMemory) );
+
+	VkDeviceSize offset = 0;
+	VK_CHECK_RESULT( vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, offset) );
+
+
+	// Fill vertex buffer memory
+	void* data;
+	VK_CHECK_RESULT( vkMapMemory(device, vertexBufferMemory, 0, vertexBufferMemoryRequirements.size, 0, &data) );
+	MemCopy(data, vertices, (size_t) vertexBufferMemoryRequirements.size);
+	vkUnmapMemory(device, vertexBufferMemory);
+
+
 	// Command pool
 	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -823,6 +928,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
+	gfxDevice.vertexBuffer = vertexBuffer;
+	gfxDevice.vertexBufferMemory = vertexBufferMemory;
 	return true;
 }
 
@@ -846,6 +953,9 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDeviceWaitIdle( gfxDevice.device );
 
 	CleanupSwapchain( gfxDevice );
+
+	vkDestroyBuffer( gfxDevice.device, gfxDevice.vertexBuffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfxDevice.device, gfxDevice.vertexBufferMemory, VULKAN_ALLOCATORS );
 
 	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
 	{
@@ -943,7 +1053,11 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	scissor.extent = gfxDevice.swapchainExtent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+	VkBuffer vertexBuffers[] = { gfxDevice.vertexBuffer };
+	VkDeviceSize offsets[] = { 0 };
+	vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
+
+	vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 
