@@ -358,6 +358,8 @@ inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Windows
 
+#if defined(TOOLS_WINDOW)
+
 #if PLATFORM_LINUX
 #	define USE_XCB 1
 #elif PLATFORM_WINDOWS
@@ -744,3 +746,6 @@ void ProcessWindowEvents(Window &window)
 
 #endif
 }
+
+#endif // #if defined(TOOLS_WINDOW)
+

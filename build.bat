@@ -18,7 +18,7 @@ REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
 REM set CommonLinkerFlags=
 
 REM Interpreter
-REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_interpreter.cpp /link %CommonLinkerFlags%
 
 REM Vulkan window
 cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_xwindow.cpp /link %CommonLinkerFlags%

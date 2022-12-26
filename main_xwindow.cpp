@@ -1,3 +1,4 @@
+#define TOOLS_WINDOW
 #include "tools.h"
 
 

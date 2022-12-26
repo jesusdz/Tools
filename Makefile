@@ -1,9 +1,9 @@
-.PHONY: default main main_xwindow shaders clean
+.PHONY: default main_interpreter main_xwindow shaders clean
 
 default: main_xwindow
 
-main:
-	g++ -g -o main main.cpp
+main_interpreter:
+	g++ -g -o main_interpreter main_interpreter.cpp
 
 main_xwindow:
 	g++ -g -o main_xwindow  main_xwindow.cpp -DVK_NO_PROTOTYPES -lxcb
@@ -13,4 +13,5 @@ shaders:
 	glslc -fshader-stage=fragment shaders/fragment.glsl -o shaders/fragment.spv
 
 clean:
-	rm -f main main_xwindow shaders/*.spv
+	rm -f main_interpreter main_xwindow shaders/*.spv
+
