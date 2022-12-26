@@ -1149,6 +1149,8 @@ int main(int argc, char **argv)
 
 	CleanupWindow(window);
 
+	PrintArenaUsage(arena);
+
 	return 1;
 }
 

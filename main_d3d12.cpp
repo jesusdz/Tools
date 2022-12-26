@@ -151,6 +151,8 @@ int main()
 
 	CleanupWindow(window);
 
+	PrintArenaUsage(arena);
+
 	return 0;
 }
 
