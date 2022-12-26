@@ -21,15 +21,19 @@ REM Interpreter
 REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_interpreter.cpp /link %CommonLinkerFlags%
 
 REM Vulkan window
-cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_xwindow.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_vulkan.cpp /link %CommonLinkerFlags%
+
+REM Vulkan window
+set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib
+cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_d3d12.cpp /link %CommonLinkerFlags%
 
 popd
 
 pushd shaders
 
 REM Build shaders
-glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
-glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+REM glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
+REM glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
 
 popd
 

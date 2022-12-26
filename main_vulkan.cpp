@@ -1099,10 +1099,6 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 
 int main(int argc, char **argv)
 {
-	u32 baseMemorySize = MB(64);
-	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
-	Arena arena = MakeArena(baseMemory, baseMemorySize);
-
 	// Create Window
 	Window window = {};
 	if ( !InitializeWindow(window) )
@@ -1110,6 +1106,11 @@ int main(int argc, char **argv)
 		LOG(Error, "InitializeWindow failed!\n");
 		return -1;
 	}
+
+	// Allocate base memory
+	u32 baseMemorySize = MB(64);
+	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
+	Arena arena = MakeArena(baseMemory, baseMemorySize);
 
 	// Initialize graphics
 	GfxDevice gfxDevice = {};

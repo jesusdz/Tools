@@ -468,6 +468,7 @@ bool InitializeWindow(Window &window)
 	HINSTANCE hInstance = GetModuleHandle(NULL);
 
 	WNDCLASS wc = { };
+	wc.style         = CS_HREDRAW | CS_VREDRAW;
 	wc.lpfnWndProc   = WindowProc;
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
