@@ -283,15 +283,14 @@ u32 GetFileSize(const char *filename)
 	return size;
 }
 
-u32 ReadEntireFile(const char *filename, void *bytes, u32 bytesSize)
+u32 ReadEntireFile(const char *filename, void *buffer, u32 bufferSize)
 {
 	u32 bytesRead = 0;
 	FILE *f = fopen(filename, "rb");
 	if ( f )
 	{
-		bytesRead = fread(bytes, sizeof(unsigned char), bytesSize, f);
-		ASSERT(bytesRead <= bytesSize);
-		((byte*)bytes)[bytesRead] = 0; // TODO: Revisit this, it's dangerous to write beyond bytesSize
+		bytesRead = fread(buffer, sizeof(unsigned char), bufferSize - 1, f);
+		((byte*)buffer)[bytesRead] = 0;
 		fclose(f);
 	}
 	return bytesRead;
@@ -301,21 +300,23 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 {
 	FileOnMemory *file = 0;
 
-	u32 size = GetFileSize( filename );
-	if ( size > 0 )
+	u32 fileSize = GetFileSize( filename );
+	if ( fileSize > 0 )
 	{
 		Arena backupArena = arena;
 
-		byte *data = PushArray( arena, byte, size + 1 ); // +1 for final zero put by ReadEntireFile
-		u32 bytesRead = ReadEntireFile( filename, data, size );
-		if ( bytesRead == size )
+		u32 bufferSize = fileSize + 1; // +1 for final zero put by ReadEntireFile
+		byte *fileData = PushArray( arena, byte, bufferSize );
+		u32 bytesRead = ReadEntireFile( filename, fileData, bufferSize );
+		if ( bytesRead == fileSize )
 		{
 			file = PushStruct( arena, FileOnMemory );
-			file->data = data;
-			file->size = size;
+			file->data = fileData;
+			file->size = fileSize;
 		}
 		else
 		{
+			// TODO: Log error here?
 			arena = backupArena;
 		}
 	}
@@ -513,15 +514,17 @@ void CleanupWindow(Window &window)
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
 #elif USE_WINAPI
-	if ( !DestroyWindow(window.hWnd) )
-	{
-		LOG(Warning, "Error in DestroyWindow.\n");
-	}
+	// TODO: Unless destroying the window programmatically,
+	// window destruction was already handled.
+	//if ( !DestroyWindow(window.hWnd) )
+	//{
+	//	LOG(Warning, "Error in DestroyWindow.\n");
+	//}
 #endif
 }
 
 #if USE_WINAPI
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
 	{
@@ -560,6 +563,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				break;
 			}
 
+		case WM_KEYDOWN:
+		case WM_KEYUP:
+			{
+				WPARAM virtualKeyCode = wParam;
+				if (virtualKeyCode == VK_ESCAPE)
+				{
+					// TODO: Do not hardcode this here.
+					DestroyWindow(hWnd);
+				}
+				break;
+			}
+
 		case WM_MOUSEMOVE:
 			{
 				int xPos = GET_X_LPARAM(lParam);
@@ -577,6 +592,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				break;
 			}
 
+		case WM_CLOSE:
+			{
+				// If we want to show a dialog to ask the user for confirmation before
+				// closing the window, it should be done here. Zero should be returned
+				// to indicate that we handled this message.
+				// Otherwise, the following call to DefWindowProc will internally call
+				// DestroyWindow, which will send the WM_DESTROY message.
+				break;
+			}
+
 		case WM_DESTROY:
 			{
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
@@ -586,7 +611,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				return 0;
 			}
     }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    return DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
 #endif
 
@@ -710,6 +735,7 @@ void ProcessWindowEvents(Window &window)
 
 					LOG(Info, "Key released in window %ld\n", ev->event);
 
+					// TODO: Do not hardcode this here.
 					if ( ev->detail == 9 ) // 9 is code for Escape
 					{
 						window.flags |= WindowFlags_Exiting;

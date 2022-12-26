@@ -1204,8 +1204,9 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 void RunFile(Arena &arena, const char* filename)
 {
 	u32 fileSize = GetFileSize(filename);
-	char* bytes = PushArray(arena, char, fileSize);
-	u32 bytesRead = ReadEntireFile(filename, bytes, fileSize);
+	u32 bufferSize = fileSize + 1;
+	char* bytes = PushArray(arena, char, bufferSize);
+	u32 bytesRead = ReadEntireFile(filename, bytes, bufferSize);
 	ASSERT(bytesRead == fileSize);
 	Run(arena, bytes, bytesRead);
 }
