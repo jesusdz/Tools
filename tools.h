@@ -328,6 +328,27 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math
 
+struct float2
+{
+	union { float x, r; };
+	union { float y, g; };
+};
+
+struct float3
+{
+	union { float x, r; };
+	union { float y, g; };
+	union { float z, b; };
+};
+
+struct float4
+{
+	union { float x, r; };
+	union { float y, g; };
+	union { float z, b; };
+	union { float w, a; };
+};
+
 inline u32 Min( u32 a, u32 b ) { return a < b ? a : b; }
 inline u32 Max( u32 a, u32 b ) { return a > b ? a : b; }
 inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); }

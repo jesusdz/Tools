@@ -1,27 +1,6 @@
 #include "tools.h"
 
 
-struct float2
-{
-	union { float x, r; };
-	union { float y, g; };
-};
-
-struct float3
-{
-	union { float x, r; };
-	union { float y, g; };
-	union { float z, b; };
-};
-
-struct float4
-{
-	union { float x, r; };
-	union { float y, g; };
-	union { float z, b; };
-	union { float w, a; };
-};
-
 struct Vertex
 {
 	float2 pos;
