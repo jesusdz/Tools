@@ -10,8 +10,7 @@ REM set CommonLinkerFlags=-STACK:0x100000,0x100000 -incremental:no -opt:ref user
 
 REM Flags
 set CommonCompilerFlags=-Zi
-set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
-set CommonLinkerFlags=-incremental:no -opt:ref -nologo user32.lib
+set CommonLinkerFlags=-incremental:no -opt:ref -nologo
 
 REM Flags for preprocessor pass
 REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
@@ -21,10 +20,12 @@ REM Interpreter
 REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_interpreter.cpp /link %CommonLinkerFlags%
 
 REM Vulkan window
+REM set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
+REM set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_vulkan.cpp /link %CommonLinkerFlags%
 
 REM Vulkan window
-set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib
+set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
 cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_d3d12.cpp /link %CommonLinkerFlags%
 
 popd

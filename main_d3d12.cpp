@@ -26,6 +26,8 @@ using Microsoft::WRL::ComPtr;
 #include <d3d12sdklayers.h>
 //#include <D3dx12.h>
 
+#include <stdint.h>
+
 /*
 NOTE:
 When using runtime compiled HLSL shaders using any of the D3DCompiler functions, do not

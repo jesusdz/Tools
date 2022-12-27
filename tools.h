@@ -375,9 +375,6 @@ inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); 
 #	define VK_USE_PLATFORM_WIN32_KHR
 #endif
 
-#define VOLK_IMPLEMENTATION
-#include "volk/volk.h"
-
 
 enum WindowFlags
 {

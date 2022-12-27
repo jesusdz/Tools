@@ -1,6 +1,9 @@
 #define TOOLS_WINDOW
 #include "tools.h"
 
+#define VOLK_IMPLEMENTATION
+#include "volk/volk.h"
+
 
 struct Vertex
 {
