@@ -24,7 +24,7 @@ using Microsoft::WRL::ComPtr;
 #include <dxgi1_6.h>        // DirectX graphics infrastructure (adapters, presentation, etc)
 #include <d3dcompiler.h>    // Utilities to compile HLSL code at runtime
 #include <d3d12sdklayers.h>
-//#include <D3dx12.h>
+//#include <d3dx12.h>
 
 #include <stdint.h>
 
@@ -167,14 +167,15 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 	// Command queue
 	ComPtr<ID3D12CommandQueue> commandQueue;
+	{
+		D3D12_COMMAND_QUEUE_DESC desc = {};
+		desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+		desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		desc.NodeMask = 0;
 
-	D3D12_COMMAND_QUEUE_DESC desc = {};
-	desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-	desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-	desc.NodeMask = 0;
-
-	ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
+		ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
+	}
 
 
 	// Query tearing support
@@ -204,7 +205,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	// Create the swapchain
 	uint32_t width = 0;
 	uint32_t height = 0;
-	uint32_t bufferCount = 3;
+	uint32_t bufferCount = FRAME_COUNT;
 	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
 	swapChainDesc.Width = width;
 	swapChainDesc.Height = height;
@@ -234,9 +235,38 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	ComPtr<IDXGISwapChain4> swapChain;
 	ThrowIfFailed(swapChain1.As(&swapChain));
 
+
+	// Descriptor heap
+	ComPtr<ID3D12DescriptorHeap> descriptorHeap;
+	D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	{
+		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+		desc.NumDescriptors = FRAME_COUNT;
+		desc.Type = descriptorHeapType;
+
+		ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap)));
+	}
+
+
+	// Render target views (RTV)
+	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT] = {};
+	{
+		UINT rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(descriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+		for (int i = 0; i < FRAME_COUNT; ++i)
+		{
+			ThrowIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffers[i])));
+			device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, rtvHandle);
+			rtvHandle.ptr += rtvDescriptorSize;
+		}
+	}
+
+
+	// Populate device
 	gfxDevice.g_Device = device;
 	gfxDevice.g_SwapChain = swapChain;
-	//ComPtr<ID3D12Resource> g_BackBuffers[FRAME_COUNT];
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_BackBuffers[i] = backBuffers[i]; }
 	gfxDevice.g_CommandQueue = commandQueue;
 	//ComPtr<ID3D12GraphicsCommandList> g_CommandList;
 	//ComPtr<ID3D12CommandAllocator> g_CommandAllocators[FRAME_COUNT];
