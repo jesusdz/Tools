@@ -26,7 +26,7 @@ Currently, there are the following *in-progress* projects:
 
 To the greatest extent possible, the projects and tools here present will not have heavy external dependencies. At most, dependencies will be included within this repository itself and will consist of lightweight source code files compiled along with the projects.
 
-This is the list of the currently used references:
+This is the list of the currently used dependencies:
 
 * Volk: https://github.com/zeux/volk
 
@@ -36,7 +36,21 @@ This is the list of the currently used references:
 So far the current code is being tested on Windows and Linux platforms.
 
 
+## Interesting links
+
+Here are some interesting links that I have been looking while writing some code:
+
+* [Crafting interpreters online book](https://craftinginterpreters.com/contents.html)
+* [Creating windows on Windows](https://learn.microsoft.com/en-us/windows/win32/learnwin32/your-first-windows-program)
+* [Creating windows on Linux](https://www.codeproject.com/articles/1089819/an-introduction-to-xcb-programming)
+* [Vulkan tutorial](https://vulkan-tutorial.com/)
+* [D3D12 tutorial](https://www.3dgep.com/category/graphics-programming/directx/)
+* [Handmade Math](https://github.com/HandmadeMath/HandmadeMath)
+* [Untangling Lifetimes: The Arena Allocator](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator)
+* [My personal gists](https://gist.github.com/jesusdz)
+
+
 ## License
 
-All code here present is available to anybody free of charge without any legal obligation under the Unlicense terms (no terms basically). However, if these tools or part of them are included in third projects, attribution will be happily appreciated.
+All code here present is available to anybody free of charge without any legal obligation under the [Unlicense](./LICENSE) terms (no terms basically). However, if these tools or part of them are included in third projects, attribution will be happily appreciated.
 
