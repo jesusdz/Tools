@@ -77,7 +77,35 @@ struct GfxDevice
 	bool g_Fullscreen = false;
 };
 
+
 #define ThrowIfFailed(hRes) if( FAILED( hRes ) ) { return false; }
+
+
+uint64_t Signal(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue)
+{
+	uint64_t fenceValueForSignal = ++fenceValue;
+	ThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValueForSignal));
+	return fenceValueForSignal;
+}
+
+
+void WaitForFenceValue(ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fenceEvent, u64 duration = UINT64_MAX)
+{
+	if (fence->GetCompletedValue() < fenceValue)
+	{
+		HRESULT hRes = fence->SetEventOnCompletion(fenceValue, fenceEvent);
+		ASSERT(hRes && "ID3D12Fence::SetEventOnCompletion() failed.");
+		::WaitForSingleObject(fenceEvent, static_cast<DWORD>(duration));
+	}
+}
+
+
+void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue, HANDLE fenceEvent )
+{
+	uint64_t fenceValueForSignal = Signal(commandQueue, fence, fenceValue);
+	WaitForFenceValue(fence, fenceValueForSignal, fenceEvent);
+}
+
 
 bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 {
@@ -88,6 +116,8 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
 	debugInterface->EnableDebugLayer();
 
+
+	// Create a DXGI factory
 	ComPtr<IDXGIFactory4> dxgiFactory;
 	UINT createFactoryFlags = 0;
 #if defined(_DEBUG)
@@ -95,6 +125,8 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 #endif
 	ThrowIfFailed(CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory)));
 
+
+	// Graphics adapter selection
 	ComPtr<IDXGIAdapter1> dxgiAdapter1;
 	ComPtr<IDXGIAdapter4> dxgiAdapter4;
 
@@ -125,8 +157,11 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 		}
 	}
 
+
+	// Device creation
 	ComPtr<ID3D12Device2> device;
 	ThrowIfFailed(D3D12CreateDevice(dxgiAdapter4.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+
 
 	// Enable debug messages in debug mode.
 #if defined(_DEBUG)
@@ -164,6 +199,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 		ThrowIfFailed(pInfoQueue->PushStorageFilter(&NewFilter));
 	}
 #endif
+
 
 	// Command queue
 	ComPtr<ID3D12CommandQueue> commandQueue;
@@ -283,6 +319,20 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	}
 
 
+	// Create fence
+	ComPtr<ID3D12Fence> fence;
+	ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+
+	// Fence event
+	HANDLE fenceEvent;
+	fenceEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+	ASSERT(fenceEvent && "Failed to create fence event.");
+
+
+	// Flush the GPU
+	// TODO
+
+
 	// Populate device
 	gfxDevice.g_Device = device;
 	gfxDevice.g_SwapChain = swapChain;
@@ -292,13 +342,13 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	gfxDevice.g_CommandQueue = commandQueue;
 	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_CommandAllocators[i] = commandAllocators[i]; }
 	gfxDevice.g_CommandList = commandList;
-	gfxDevice.g_CurrentBackBufferIndex = 0;
+	gfxDevice.g_CurrentBackBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
 	// Synchronization objects
-	//ComPtr<ID3D12Fence> g_Fence;
-	//uint64_t g_FenceValue = 0;
-	//uint64_t g_FrameFenceValues[FRAME_COUNT];
-	//HANDLE g_FenceEvent;
+	gfxDevice.g_Fence = fence;
+	gfxDevice.g_FenceValue = 0;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_FrameFenceValues[i] = 0; }
+	gfxDevice.g_FenceEvent = fenceEvent;
 
 	//bool g_VSync = true;
 	gfxDevice.g_TearingSupported = allowTearing;
