@@ -237,22 +237,22 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 
 	// Descriptor heap
-	ComPtr<ID3D12DescriptorHeap> descriptorHeap;
+	ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
 	D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	{
 		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
 		desc.NumDescriptors = FRAME_COUNT;
 		desc.Type = descriptorHeapType;
 
-		ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap)));
+		ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvDescriptorHeap)));
 	}
 
 
 	// Render target views (RTV)
 	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT] = {};
+	UINT rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	{
-		UINT rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(descriptorHeap->GetCPUDescriptorHandleForHeapStart());
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 		for (int i = 0; i < FRAME_COUNT; ++i)
 		{
@@ -263,16 +263,36 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	}
 
 
+	// Command allocators
+	ComPtr<ID3D12CommandAllocator> commandAllocators[FRAME_COUNT];
+	{
+		D3D12_COMMAND_LIST_TYPE type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		for (u32 i = 0; i < FRAME_COUNT; ++i)
+		{
+			ThrowIfFailed(device->CreateCommandAllocator(type, IID_PPV_ARGS(&commandAllocators[i])));
+		}
+	}
+
+
+	// Command list
+	ComPtr<ID3D12GraphicsCommandList> commandList;
+	{
+		D3D12_COMMAND_LIST_TYPE type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		ThrowIfFailed(device->CreateCommandList(0, type, commandAllocators[0].Get(), nullptr, IID_PPV_ARGS(&commandList)));
+		ThrowIfFailed(commandList->Close()); // For conveniency, so the first command in the render loop can be Reset
+	}
+
+
 	// Populate device
 	gfxDevice.g_Device = device;
 	gfxDevice.g_SwapChain = swapChain;
+	gfxDevice.g_RTVDescriptorHeap = rtvDescriptorHeap;
+	gfxDevice.g_RTVDescriptorSize = rtvDescriptorSize;
 	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_BackBuffers[i] = backBuffers[i]; }
 	gfxDevice.g_CommandQueue = commandQueue;
-	//ComPtr<ID3D12GraphicsCommandList> g_CommandList;
-	//ComPtr<ID3D12CommandAllocator> g_CommandAllocators[FRAME_COUNT];
-	//ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap; // Render Target Views (RTV)
-	//UINT g_RTVDescriptorSize;
-	//UINT g_CurrentBackBufferIndex;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_CommandAllocators[i] = commandAllocators[i]; }
+	gfxDevice.g_CommandList = commandList;
+	gfxDevice.g_CurrentBackBufferIndex = 0;
 
 	// Synchronization objects
 	//ComPtr<ID3D12Fence> g_Fence;
