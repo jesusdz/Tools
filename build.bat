@@ -1,7 +1,9 @@
 @echo off
 
 IF NOT EXIST build mkdir build
+
 pushd build
+
 del /Q *.* > NUL 2> NUL
 
 REM set CommonCompilerFlags=-diagnostics:column -WL -O2 -nologo -fp:fast -fp:except- -Gm- -GR- -EHa- -Zo -Oi -WX -W4 -wd4201 -wd4100 -wd4189 -wd4505 -wd4127 -FC -Z7 -GS- -Gs9999999
@@ -9,7 +11,7 @@ REM set CommonCompilerFlags=-DHANDMADE_INTERNAL=1 -DHANDMADE_SLOW=1 -DHANDMADE_W
 REM set CommonLinkerFlags=-STACK:0x100000,0x100000 -incremental:no -opt:ref user32.lib gdi32.lib winmm.lib bcrypt.lib kernel32.lib
 
 REM Flags
-set CommonCompilerFlags=-Zi
+set CommonCompilerFlags=-Zi -D_CRT_SECURE_NO_WARNINGS
 set CommonLinkerFlags=-incremental:no -opt:ref -nologo
 
 REM Flags for preprocessor pass
@@ -17,16 +19,16 @@ REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
 REM set CommonLinkerFlags=
 
 REM Interpreter
-REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_interpreter.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% ..\main_interpreter.cpp /link %CommonLinkerFlags%
 
 REM Vulkan window
 REM set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
 REM set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-REM cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_vulkan.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% ..\main_vulkan.cpp /link %CommonLinkerFlags%
 
-REM Vulkan window
+REM D3D12 window
 set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
-cl %CommonCompilerFlags% -D_CRT_SECURE_NO_WARNINGS ..\main_d3d12.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
 
 popd
 

@@ -166,7 +166,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 #endif
 
 	// Command queue
-	ComPtr<ID3D12CommandQueue> d3d12CommandQueue;
+	ComPtr<ID3D12CommandQueue> commandQueue;
 
 	D3D12_COMMAND_QUEUE_DESC desc = {};
 	desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -174,7 +174,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
 	desc.NodeMask = 0;
 
-	ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3d12CommandQueue)));
+	ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
 
 
 	// Query tearing support
@@ -202,13 +202,68 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 
 	// Create the swapchain
-	// TODO
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t bufferCount = 3;
+	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
+	swapChainDesc.Width = width;
+	swapChainDesc.Height = height;
+	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	swapChainDesc.Stereo = FALSE;
+	swapChainDesc.SampleDesc = { 1, 0 };
+	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swapChainDesc.BufferCount = bufferCount;
+	swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+	// It is recommended to always allow tearing if tearing support is available.
+	swapChainDesc.Flags = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+
+	ComPtr<IDXGISwapChain1> swapChain1;
+	ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(
+				commandQueue.Get(),
+				window.hWnd,
+				&swapChainDesc,
+				nullptr,
+				nullptr,
+				&swapChain1));
+
+	// Disable the Alt+Enter fullscreen toggle feature. Switching to fullscreen will be handled manually.
+	ThrowIfFailed(dxgiFactory->MakeWindowAssociation(window.hWnd, DXGI_MWA_NO_ALT_ENTER));
+
+	ComPtr<IDXGISwapChain4> swapChain;
+	ThrowIfFailed(swapChain1.As(&swapChain));
+
+	gfxDevice.g_Device = device;
+	gfxDevice.g_SwapChain = swapChain;
+	//ComPtr<ID3D12Resource> g_BackBuffers[FRAME_COUNT];
+	gfxDevice.g_CommandQueue = commandQueue;
+	//ComPtr<ID3D12GraphicsCommandList> g_CommandList;
+	//ComPtr<ID3D12CommandAllocator> g_CommandAllocators[FRAME_COUNT];
+	//ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap; // Render Target Views (RTV)
+	//UINT g_RTVDescriptorSize;
+	//UINT g_CurrentBackBufferIndex;
+
+	// Synchronization objects
+	//ComPtr<ID3D12Fence> g_Fence;
+	//uint64_t g_FenceValue = 0;
+	//uint64_t g_FrameFenceValues[FRAME_COUNT];
+	//HANDLE g_FenceEvent;
+
+	//bool g_VSync = true;
+	gfxDevice.g_TearingSupported = allowTearing;
+	//bool g_Fullscreen = false;
 
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+}
+
+void RenderGraphics(GfxDevice &gfxDevice)
+{
+	// IDXGISwapChain::Present
 }
 
 int main()
@@ -243,6 +298,8 @@ int main()
 		{
 			break;
 		}
+
+		RenderGraphics(gfxDevice);
 	}
 
 	CleanupGraphics(gfxDevice);
