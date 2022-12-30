@@ -357,6 +357,51 @@ inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); 
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Time
+
+struct Clock
+{
+#if PLATFORM_WINDOWS
+	LARGE_INTEGER counter;
+#else
+#	error "Missing implementation"
+#endif
+};
+
+#if PLATFORM_WINDOWS
+internal LONGLONG Win32GetPerformanceCounterFrequency()
+{
+	LARGE_INTEGER PerfCountFrequencyResult;
+	QueryPerformanceFrequency(&PerfCountFrequencyResult);
+	return PerfCountFrequencyResult.QuadPart;
+}
+
+// TODO: Investigate... is there any problem in computing this at static init time?
+internal LONGLONG gPerformanceCounterFrequency = Win32GetPerformanceCounterFrequency();
+#endif
+
+Clock GetClock()
+{
+#if PLATFORM_WINDOWS
+	Clock clock;
+	QueryPerformanceCounter(&clock.counter);
+	return clock;
+#endif
+}
+
+float GetSecondsElapsed(Clock start, Clock end)
+{
+#if PLATFORM_WINDOWS
+	float elapsedSeconds = (
+			(float)(end.counter.QuadPart - start.counter.QuadPart) /
+			(float)gPerformanceCounterFrequency );
+	return elapsedSeconds;
+#endif
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Windows
 
 #if defined(TOOLS_WINDOW)

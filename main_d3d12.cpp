@@ -329,10 +329,6 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	ASSERT(fenceEvent && "Failed to create fence event.");
 
 
-	// Flush the GPU
-	// TODO
-
-
 	// Populate device
 	gfxDevice.g_Device = device;
 	gfxDevice.g_SwapChain = swapChain;
@@ -363,7 +359,29 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 
 void RenderGraphics(GfxDevice &gfxDevice)
 {
+	static Clock clock0 = GetClock();
+
+	// Clear the back buffer
+	// TODO
+
 	// IDXGISwapChain::Present
+	// TODO
+
+	Clock clock1 = GetClock();
+	float deltaSeconds = GetSecondsElapsed(clock0, clock1);
+	clock0 = clock1;
+
+	static float elapsedSeconds = 0.0f;
+	static u64 frameCount = 0;
+	elapsedSeconds += deltaSeconds;
+	frameCount++;
+	if ( elapsedSeconds > 1.0f )
+	{
+		float framesPerSecond = frameCount / elapsedSeconds;
+		LOG(Info, "FPS: %f\n", framesPerSecond);
+		elapsedSeconds = 0.0f;
+		frameCount = 0;
+	}
 }
 
 int main()
