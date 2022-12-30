@@ -79,6 +79,7 @@ struct GfxDevice
 
 
 #define ThrowIfFailed(hRes) if( FAILED( hRes ) ) { return false; }
+#define NoThrowIfFailed(hRes) hRes
 
 
 uint64_t Signal(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue)
@@ -94,7 +95,7 @@ void WaitForFenceValue(ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fe
 	if (fence->GetCompletedValue() < fenceValue)
 	{
 		HRESULT hRes = fence->SetEventOnCompletion(fenceValue, fenceEvent);
-		ASSERT(hRes && "ID3D12Fence::SetEventOnCompletion() failed.");
+		ASSERT(hRes == S_OK && "ID3D12Fence::SetEventOnCompletion() failed.");
 		::WaitForSingleObject(fenceEvent, static_cast<DWORD>(duration));
 	}
 }
@@ -359,14 +360,61 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 
 void RenderGraphics(GfxDevice &gfxDevice)
 {
+	// Get this frame resources
+	u32 frameIndex = gfxDevice.g_CurrentBackBufferIndex;
+	ComPtr<ID3D12CommandAllocator> commandAllocator = gfxDevice.g_CommandAllocators[frameIndex];
+	ComPtr<ID3D12Resource> backBuffer = gfxDevice.g_BackBuffers[frameIndex];
+
+	// Get the command list ready to work
+	commandAllocator->Reset();
+	gfxDevice.g_CommandList->Reset(commandAllocator.Get(), nullptr);
+
+	// Clear the render target
+	{
+		D3D12_RESOURCE_BARRIER barrier = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+		barrier.Transition.pResource = backBuffer.Get();
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+		gfxDevice.g_CommandList->ResourceBarrier(1, &barrier);
+
+		FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
+
+		D3D12_CPU_DESCRIPTOR_HANDLE rtv = gfxDevice.g_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+		rtv.ptr += gfxDevice.g_CurrentBackBufferIndex * gfxDevice.g_RTVDescriptorSize;
+
+		gfxDevice.g_CommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
+	}
+
+	// Present
+	{
+		D3D12_RESOURCE_BARRIER barrier = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+		barrier.Transition.pResource = backBuffer.Get();
+		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+
+		gfxDevice.g_CommandList->ResourceBarrier(1, &barrier);
+
+		NoThrowIfFailed(gfxDevice.g_CommandList->Close());
+
+		ID3D12CommandList* const commandLists[] = { gfxDevice.g_CommandList.Get() };
+		gfxDevice.g_CommandQueue->ExecuteCommandLists(ARRAY_COUNT(commandLists), commandLists);
+
+		UINT syncInterval = gfxDevice.g_VSync ? 1 : 0;
+		UINT presentFlags = gfxDevice.g_TearingSupported && !gfxDevice.g_VSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
+		NoThrowIfFailed(gfxDevice.g_SwapChain->Present(syncInterval, presentFlags));
+
+		gfxDevice.g_FrameFenceValues[gfxDevice.g_CurrentBackBufferIndex] =
+			Signal(gfxDevice.g_CommandQueue, gfxDevice.g_Fence, gfxDevice.g_FenceValue);
+
+		gfxDevice.g_CurrentBackBufferIndex = gfxDevice.g_SwapChain->GetCurrentBackBufferIndex();
+
+		WaitForFenceValue(gfxDevice.g_Fence, gfxDevice.g_FrameFenceValues[gfxDevice.g_CurrentBackBufferIndex], gfxDevice.g_FenceEvent);
+	}
+
 	static Clock clock0 = GetClock();
-
-	// Clear the back buffer
-	// TODO
-
-	// IDXGISwapChain::Present
-	// TODO
-
 	Clock clock1 = GetClock();
 	float deltaSeconds = GetSecondsElapsed(clock0, clock1);
 	clock0 = clock1;
