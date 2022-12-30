@@ -2,16 +2,17 @@
 
 This repository contains a couple of projects in a very early stage and a set of general purpose tools contained in `tools.h`.
 
-In `tools.h` one can find the following utilities:
+In `tools.h` one can find macros, types, and functions for the following stuff:
 
-* Platform definitions and utility macros
-* Base sized types atlases
-* Functions to work with strings and memory
-* Memory utilities
+* Platform identification
+* Aliases for sized types
+* Strings
+* Memory
   - Linear memory arena allocators
   - Virtual memory allocation abstraction
-* File reading functions
-* Mathematics types and functions
+* File reading
+* Mathematics
+* Clock / timing
 * Window creation
 * Input handling (mouse and keyboard)
 
