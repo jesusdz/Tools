@@ -483,7 +483,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
 			if ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
-				 surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
+					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
 			{
 				surfaceFormat = surfaceFormats[i];
 				break;
@@ -841,7 +841,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
 	{
 		if ( (vertexBufferMemoryRequirements.memoryTypeBits & (1 << i)) &&
-			((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
+				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
 		{
 			memoryTypeIndex = i;
 		}
@@ -1094,6 +1094,25 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	}
 
 	gfxDevice.currentFrame = ( gfxDevice.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
+
+
+	static Clock clock0 = GetClock();
+	Clock clock1 = GetClock();
+	float deltaSeconds = GetSecondsElapsed(clock0, clock1);
+	clock0 = clock1;
+
+	static float elapsedSeconds = 0.0f;
+	static u64 frameCount = 0;
+	elapsedSeconds += deltaSeconds;
+	frameCount++;
+	if ( elapsedSeconds > 1.0f )
+	{
+		float framesPerSecond = frameCount / elapsedSeconds;
+		LOG(Info, "FPS: %f\n", framesPerSecond);
+		elapsedSeconds = 0.0f;
+		frameCount = 0;
+	}
+
 
 	return true;
 }

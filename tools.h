@@ -21,6 +21,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <WindowsX.h>
+#elif PLATFORM_LINUX
+#include <time.h>
 #endif
 
 
@@ -363,16 +365,21 @@ struct Clock
 {
 #if PLATFORM_WINDOWS
 	LARGE_INTEGER counter;
+#elif PLATFORM_LINUX
+	timespec timeSpec;
 #else
 #	error "Missing implementation"
 #endif
 };
 
+#define SECONDS_FROM_NANOSECONDS( ns ) ((float)(ns) / 1000000000.0f)
+
 #if PLATFORM_WINDOWS
 internal LONGLONG Win32GetPerformanceCounterFrequency()
 {
 	LARGE_INTEGER PerfCountFrequencyResult;
-	QueryPerformanceFrequency(&PerfCountFrequencyResult);
+	BOOL res = QueryPerformanceFrequency(&PerfCountFrequencyResult);
+	ASSERT(res && "QueryPerformanceFrequency() failed!");
 	return PerfCountFrequencyResult.QuadPart;
 }
 
@@ -382,21 +389,40 @@ internal LONGLONG gPerformanceCounterFrequency = Win32GetPerformanceCounterFrequ
 
 Clock GetClock()
 {
-#if PLATFORM_WINDOWS
 	Clock clock;
+#if PLATFORM_WINDOWS
 	QueryPerformanceCounter(&clock.counter);
-	return clock;
+#elif PLATFORM_LINUX
+	clock_gettime(CLOCK_MONOTONIC, &clock.timeSpec);
 #endif
+	return clock;
 }
 
 float GetSecondsElapsed(Clock start, Clock end)
 {
+	f32 elapsedSeconds;
 #if PLATFORM_WINDOWS
-	float elapsedSeconds = (
+	ASSERT( start.counter.QuadPart <= end.counter.QuadPart );
+	elapsedSeconds = (
 			(float)(end.counter.QuadPart - start.counter.QuadPart) /
 			(float)gPerformanceCounterFrequency );
 	return elapsedSeconds;
+#elif PLATFORM_LINUX
+	ASSERT( start.timeSpec.tv_sec < end.timeSpec.tv_sec || (
+				start.timeSpec.tv_sec == end.timeSpec.tv_sec &&
+				start.timeSpec.tv_nsec <= end.timeSpec.tv_nsec ) );
+	if ( start.timeSpec.tv_sec == end.timeSpec.tv_sec )
+	{
+		elapsedSeconds = SECONDS_FROM_NANOSECONDS( end.timeSpec.tv_nsec - start.timeSpec.tv_nsec );
+	}
+	else
+	{
+		elapsedSeconds = end.timeSpec.tv_sec - start.timeSpec.tv_sec - 1;
+		elapsedSeconds += 1.0f - SECONDS_FROM_NANOSECONDS( start.timeSpec.tv_nsec );
+		elapsedSeconds += SECONDS_FROM_NANOSECONDS( end.timeSpec.tv_nsec );
+	}
 #endif
+	return elapsedSeconds;
 }
 
 
