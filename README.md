@@ -2,9 +2,13 @@
 
 This repository contains a couple of projects in a very early stage and a set of general purpose tools contained in `tools.h`.
 
+
+## tools.h
+
 In `tools.h` one can find macros, types, and functions for the following stuff:
 
 * Platform identification
+* Assertions, debugging, errors, logging
 * Aliases for sized types
 * Strings
 * Memory
@@ -15,6 +19,9 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 * Clock / timing
 * Window creation
 * Input handling (mouse and keyboard)
+
+
+## Projects
 
 Currently, there are the following *in-progress* projects:
 
