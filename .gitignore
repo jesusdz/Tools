@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+# Compiled shaders
+*.spv
+
+# Vim swap files
+*.swp
+
+# Build directory
+build/
+
