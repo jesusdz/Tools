@@ -815,30 +815,27 @@ void ParseDeclaration(ParseState &parseState, Program &program)
 	}
 }
 
-#define MAX_LEXEME_SIZE 128
-
 #if 0
 void PrintExpr(Expr* expr, u32 level = 0)
 {
 	for (u32 i = 0; i < level; ++i) printf("  ");
 	u32 space = 16 - level*2;
 
-	char lexeme[MAX_LEXEME_SIZE] = {};
 	if (expr->type == EXPR_LITERAL)
 	{
-		StrCopy(lexeme, expr->literal.literalToken->lexeme);
-		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->literal.literalToken->type] );
+		String lexeme = expr->literal.literalToken->lexeme;
+		printf("%.&s%*s(%s)\n", lexeme.size, lexeme.str, space, "", TokenNames[expr->literal.literalToken->type] );
 	}
 	else if (expr->type == EXPR_UNARY)
 	{
-		StrCopy(lexeme, expr->unary.operatorToken->lexeme);
-		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->unary.operatorToken->type] );
+		String lexeme = expr->unary.operatorToken->lexeme;
+		printf("%.*s%*s(%s)\n", lexeme.size, lexeme.str, space, "", TokenNames[expr->unary.operatorToken->type] );
 		PrintExpr(expr->unary.expr, level+1);
 	}
 	else if (expr->type == EXPR_BINARY)
 	{
-		StrCopy(lexeme, expr->binary.operatorToken->lexeme);
-		printf("%s%*s(%s)\n", lexeme, space, "", TokenNames[expr->binary.operatorToken->type] );
+		String lexeme = expr->binary.operatorToken->lexeme;
+		printf("%.*s%*s(%s)\n", lexeme.size, lexeme.str, space, "", TokenNames[expr->binary.operatorToken->type] );
 		PrintExpr(expr->binary.left, level+1);
 		PrintExpr(expr->binary.right, level+1);
 	}
@@ -969,7 +966,7 @@ Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 		{
 			if ( !Get(env, expr->identifier.identifierToken->lexeme, value) )
 			{
-				printf("Could not find identifier %s\n", expr->identifier.identifierToken->lexeme.str);
+				printf("Could not find identifier %.*s\n", expr->identifier.identifierToken->lexeme.size, expr->identifier.identifierToken->lexeme.str);
 			}
 			break;
 		}
@@ -1073,8 +1070,7 @@ Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 			Value value = Evaluate( arena, right, env );
 			if ( !Set( env, name->lexeme, value ) )
 			{
-				// TODO: Caution, the lexeme is a non-zero-terminated string...
-				printf("Could not find identifier %s\n", name->lexeme.str);
+				printf("Could not find identifier %.*s\n", name->lexeme.size, name->lexeme.str);
 			}
 			break;
 		}
@@ -1167,13 +1163,10 @@ void Execute(Arena &arena, Program &program, Environment &env)
 void PrintTokenList(const TokenList &tokenList)
 {
 	printf("List of tokens:\n");
-	char lexeme[MAX_LEXEME_SIZE] = {};
 	for (u32 i = 0; i < tokenList.count; ++i)
 	{
 		const Token& token = tokenList.tokens[i];
-		ASSERT(token.lexeme.size < MAX_LEXEME_SIZE);
-		StrCopy(lexeme, token.lexeme);
-		printf("%s\t: %s\n", TokenNames[token.type], lexeme);
+		printf("%s\t: %.*s\n", TokenNames[token.type], token.lexeme.size, token.lexeme.str);
 	}
 }
 #endif
