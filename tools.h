@@ -567,6 +567,21 @@ bool InitializeWindow(Window &window)
 		return false;
 	}
 
+	RECT rect;
+	if ( !GetClientRect(hWnd, &rect) )
+	{
+		// TODO: Handle error
+		return false;
+	}
+	window.width = rect.right - rect.left;
+	window.height = rect.bottom - rect.top;
+
+	if ( !SetPropA(hWnd, "WindowPointer", &window) )
+	{
+		// TODO: Handle error
+		return false;
+	}
+
 	ShowWindow(hWnd, SW_SHOW);
 
 	window.hInstance = hInstance;
@@ -603,8 +618,17 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				int height = HIWORD(lParam); // Macro to get the high-order word.
 				LOG( Info, "Window resized (%d, %d)\n", width, height );
 
-				// Respond to the message:
-				// TODO: Modify window size
+				Window *window = (Window*)GetPropA(hWnd, "WindowPointer");
+
+				if ( window )
+				{
+					if ( window->width != width || window->height != height )
+					{
+						window->width = Max(width, 1);
+						window->height = Max(height, 1);
+						window->flags |= WindowFlags_Resized;
+					}
+				}
 				break;
 			}
 

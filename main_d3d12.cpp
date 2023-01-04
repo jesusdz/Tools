@@ -51,30 +51,30 @@ struct Vertex
 
 struct GfxDevice
 {
-	ComPtr<ID3D12Device2> g_Device;
-	ComPtr<IDXGISwapChain4> g_SwapChain;
-	ComPtr<ID3D12Resource> g_BackBuffers[FRAME_COUNT];
-	ComPtr<ID3D12CommandQueue> g_CommandQueue;
-	ComPtr<ID3D12GraphicsCommandList> g_CommandList;
-	ComPtr<ID3D12CommandAllocator> g_CommandAllocators[FRAME_COUNT];
-	ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap; // Render Target Views (RTV)
-	UINT g_RTVDescriptorSize;
-	UINT g_CurrentBackBufferIndex;
+	ComPtr<ID3D12Device2> device;
+	ComPtr<IDXGISwapChain4> swapChain;
+	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT];
+	ComPtr<ID3D12CommandQueue> commandQueue;
+	ComPtr<ID3D12GraphicsCommandList> commandList;
+	ComPtr<ID3D12CommandAllocator> commandAllocators[FRAME_COUNT];
+	ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap; // Render Target Views (RTV)
+	UINT rtvDescriptorSize;
+	UINT currentBackbufferIndex;
 
 	// Synchronization objects
-	ComPtr<ID3D12Fence> g_Fence;
-	uint64_t g_FenceValue = 0;
-	uint64_t g_FrameFenceValues[FRAME_COUNT];
-	HANDLE g_FenceEvent;
+	ComPtr<ID3D12Fence> fence;
+	uint64_t fenceValue = 0;
+	uint64_t frameFenceValues[FRAME_COUNT];
+	HANDLE fenceEvent;
 
 	// By default, enable V-Sync.
 	// Can be toggled with the V key.
-	bool g_VSync = true;
-	bool g_TearingSupported = false;
+	bool vsyncEnabled = true;
+	bool allowTearing = false;
 
 	// By default, use windowed mode.
 	// Can be toggled with the Alt+Enter or F11
-	bool g_Fullscreen = false;
+	bool fullscreen = false;
 };
 
 
@@ -108,6 +108,135 @@ void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, u
 }
 
 
+HRESULT D3D12CreateDXGIFactory(ComPtr<IDXGIFactory4> &dxgiFactory)
+{
+	UINT createFactoryFlags = 0;
+#if defined(_DEBUG)
+	createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
+#endif
+	HRESULT res = CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory));
+	return res;
+}
+
+
+bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
+{
+	// Create a DXGI factory
+	ComPtr<IDXGIFactory4> dxgiFactory;
+	ThrowIfFailed(D3D12CreateDXGIFactory(dxgiFactory));
+
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t bufferCount = FRAME_COUNT;
+	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
+	swapChainDesc.Width = width;
+	swapChainDesc.Height = height;
+	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	swapChainDesc.Stereo = FALSE;
+	swapChainDesc.SampleDesc = { 1, 0 };
+	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swapChainDesc.BufferCount = bufferCount;
+	swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
+	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+	// It is recommended to always allow tearing if tearing support is available.
+	swapChainDesc.Flags = gfxDevice.allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+
+	ComPtr<IDXGISwapChain1> swapChain1;
+	ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(
+				gfxDevice.commandQueue.Get(),
+				window.hWnd,
+				&swapChainDesc,
+				nullptr,
+				nullptr,
+				&swapChain1));
+
+	// Disable the Alt+Enter fullscreen toggle feature. Switching to fullscreen will be handled manually.
+	ThrowIfFailed(dxgiFactory->MakeWindowAssociation(window.hWnd, DXGI_MWA_NO_ALT_ENTER));
+
+	ComPtr<IDXGISwapChain4> swapChain;
+	ThrowIfFailed(swapChain1.As(&swapChain));
+
+
+	// Descriptor heap
+	ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
+	D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	{
+		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+		desc.NumDescriptors = FRAME_COUNT;
+		desc.Type = descriptorHeapType;
+
+		ThrowIfFailed(gfxDevice.device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvDescriptorHeap)));
+	}
+
+
+	// Render target views (RTV)
+	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT] = {};
+	UINT rtvDescriptorSize = gfxDevice.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	{
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+		for (int i = 0; i < FRAME_COUNT; ++i)
+		{
+			ThrowIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffers[i])));
+			gfxDevice.device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, rtvHandle);
+			rtvHandle.ptr += rtvDescriptorSize;
+		}
+	}
+
+
+	// Populate device
+	gfxDevice.swapChain = swapChain;
+	gfxDevice.rtvDescriptorHeap = rtvDescriptorHeap;
+	gfxDevice.rtvDescriptorSize = rtvDescriptorSize;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.backBuffers[i] = backBuffers[i]; }
+	gfxDevice.currentBackbufferIndex = swapChain->GetCurrentBackBufferIndex();
+
+	return true;
+}
+
+
+bool RecreateSwapchain(GfxDevice &gfxDevice, Window &window)
+{
+	Flush(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue, gfxDevice.fenceEvent);
+
+	for ( u32 i = 0; i < FRAME_COUNT; ++i )
+	{
+		gfxDevice.backBuffers[i].Reset();
+		gfxDevice.frameFenceValues[i] = gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex];
+	}
+
+	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+	ThrowIfFailed(gfxDevice.swapChain->GetDesc(&swapChainDesc));
+	ThrowIfFailed(gfxDevice.swapChain->ResizeBuffers(
+				FRAME_COUNT,
+				window.width, window.height,
+				swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
+
+
+	// Render target views (RTV)
+	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT] = {};
+	UINT rtvDescriptorSize = gfxDevice.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	{
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(gfxDevice.rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+		for (int i = 0; i < FRAME_COUNT; ++i)
+		{
+			ThrowIfFailed(gfxDevice.swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffers[i])));
+			gfxDevice.device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, rtvHandle);
+			rtvHandle.ptr += rtvDescriptorSize;
+		}
+	}
+
+
+	gfxDevice.rtvDescriptorSize = rtvDescriptorSize;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.backBuffers[i] = backBuffers[i]; }
+	gfxDevice.currentBackbufferIndex = gfxDevice.swapChain->GetCurrentBackBufferIndex();
+
+	return true;
+}
+
+
 bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 {
 	// Always enable the debug layer before doing anything DX12 related
@@ -120,11 +249,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 	// Create a DXGI factory
 	ComPtr<IDXGIFactory4> dxgiFactory;
-	UINT createFactoryFlags = 0;
-#if defined(_DEBUG)
-	createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
-#endif
-	ThrowIfFailed(CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory)));
+	ThrowIfFailed(D3D12CreateDXGIFactory(dxgiFactory));
 
 
 	// Graphics adapter selection
@@ -239,65 +364,13 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	}
 
 
-	// Create the swapchain
-	uint32_t width = 0;
-	uint32_t height = 0;
-	uint32_t bufferCount = FRAME_COUNT;
-	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-	swapChainDesc.Width = width;
-	swapChainDesc.Height = height;
-	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swapChainDesc.Stereo = FALSE;
-	swapChainDesc.SampleDesc = { 1, 0 };
-	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swapChainDesc.BufferCount = bufferCount;
-	swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
-	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-	// It is recommended to always allow tearing if tearing support is available.
-	swapChainDesc.Flags = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
-
-	ComPtr<IDXGISwapChain1> swapChain1;
-	ThrowIfFailed(dxgiFactory->CreateSwapChainForHwnd(
-				commandQueue.Get(),
-				window.hWnd,
-				&swapChainDesc,
-				nullptr,
-				nullptr,
-				&swapChain1));
-
-	// Disable the Alt+Enter fullscreen toggle feature. Switching to fullscreen will be handled manually.
-	ThrowIfFailed(dxgiFactory->MakeWindowAssociation(window.hWnd, DXGI_MWA_NO_ALT_ENTER));
-
-	ComPtr<IDXGISwapChain4> swapChain;
-	ThrowIfFailed(swapChain1.As(&swapChain));
+	gfxDevice.device = device;
+	gfxDevice.commandQueue = commandQueue;
+	gfxDevice.allowTearing = allowTearing;
 
 
-	// Descriptor heap
-	ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
-	D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	{
-		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-		desc.NumDescriptors = FRAME_COUNT;
-		desc.Type = descriptorHeapType;
-
-		ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvDescriptorHeap)));
-	}
-
-
-	// Render target views (RTV)
-	ComPtr<ID3D12Resource> backBuffers[FRAME_COUNT] = {};
-	UINT rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	{
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-		for (int i = 0; i < FRAME_COUNT; ++i)
-		{
-			ThrowIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffers[i])));
-			device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, rtvHandle);
-			rtvHandle.ptr += rtvDescriptorSize;
-		}
-	}
+	// Create the swapChain
+	CreateSwapchain(gfxDevice, window);
 
 
 	// Command allocators
@@ -331,43 +404,37 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 
 	// Populate device
-	gfxDevice.g_Device = device;
-	gfxDevice.g_SwapChain = swapChain;
-	gfxDevice.g_RTVDescriptorHeap = rtvDescriptorHeap;
-	gfxDevice.g_RTVDescriptorSize = rtvDescriptorSize;
-	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_BackBuffers[i] = backBuffers[i]; }
-	gfxDevice.g_CommandQueue = commandQueue;
-	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_CommandAllocators[i] = commandAllocators[i]; }
-	gfxDevice.g_CommandList = commandList;
-	gfxDevice.g_CurrentBackBufferIndex = swapChain->GetCurrentBackBufferIndex();
+	gfxDevice.commandQueue = commandQueue;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.commandAllocators[i] = commandAllocators[i]; }
+	gfxDevice.commandList = commandList;
 
 	// Synchronization objects
-	gfxDevice.g_Fence = fence;
-	gfxDevice.g_FenceValue = 0;
-	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.g_FrameFenceValues[i] = 0; }
-	gfxDevice.g_FenceEvent = fenceEvent;
+	gfxDevice.fence = fence;
+	gfxDevice.fenceValue = 0;
+	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.frameFenceValues[i] = 0; }
+	gfxDevice.fenceEvent = fenceEvent;
 
-	//bool g_VSync = true;
-	gfxDevice.g_TearingSupported = allowTearing;
-	//bool g_Fullscreen = false;
+	//bool vsyncEnabled = true;
+	//bool fullscreen = false;
 
 	return true;
 }
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	Flush(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue, gfxDevice.fenceEvent);
 }
 
 void RenderGraphics(GfxDevice &gfxDevice)
 {
 	// Get this frame resources
-	u32 frameIndex = gfxDevice.g_CurrentBackBufferIndex;
-	ComPtr<ID3D12CommandAllocator> commandAllocator = gfxDevice.g_CommandAllocators[frameIndex];
-	ComPtr<ID3D12Resource> backBuffer = gfxDevice.g_BackBuffers[frameIndex];
+	u32 frameIndex = gfxDevice.currentBackbufferIndex;
+	ComPtr<ID3D12CommandAllocator> commandAllocator = gfxDevice.commandAllocators[frameIndex];
+	ComPtr<ID3D12Resource> backBuffer = gfxDevice.backBuffers[frameIndex];
 
 	// Get the command list ready to work
 	commandAllocator->Reset();
-	gfxDevice.g_CommandList->Reset(commandAllocator.Get(), nullptr);
+	gfxDevice.commandList->Reset(commandAllocator.Get(), nullptr);
 
 	// Clear the render target
 	{
@@ -377,14 +444,14 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
-		gfxDevice.g_CommandList->ResourceBarrier(1, &barrier);
+		gfxDevice.commandList->ResourceBarrier(1, &barrier);
 
 		FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
 
-		D3D12_CPU_DESCRIPTOR_HANDLE rtv = gfxDevice.g_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-		rtv.ptr += gfxDevice.g_CurrentBackBufferIndex * gfxDevice.g_RTVDescriptorSize;
+		D3D12_CPU_DESCRIPTOR_HANDLE rtv = gfxDevice.rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+		rtv.ptr += gfxDevice.currentBackbufferIndex * gfxDevice.rtvDescriptorSize;
 
-		gfxDevice.g_CommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
+		gfxDevice.commandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 	}
 
 	// Present
@@ -395,23 +462,23 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 
-		gfxDevice.g_CommandList->ResourceBarrier(1, &barrier);
+		gfxDevice.commandList->ResourceBarrier(1, &barrier);
 
-		NoThrowIfFailed(gfxDevice.g_CommandList->Close());
+		NoThrowIfFailed(gfxDevice.commandList->Close());
 
-		ID3D12CommandList* const commandLists[] = { gfxDevice.g_CommandList.Get() };
-		gfxDevice.g_CommandQueue->ExecuteCommandLists(ARRAY_COUNT(commandLists), commandLists);
+		ID3D12CommandList* const commandLists[] = { gfxDevice.commandList.Get() };
+		gfxDevice.commandQueue->ExecuteCommandLists(ARRAY_COUNT(commandLists), commandLists);
 
-		UINT syncInterval = gfxDevice.g_VSync ? 1 : 0;
-		UINT presentFlags = gfxDevice.g_TearingSupported && !gfxDevice.g_VSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
-		NoThrowIfFailed(gfxDevice.g_SwapChain->Present(syncInterval, presentFlags));
+		UINT syncInterval = gfxDevice.vsyncEnabled ? 1 : 0;
+		UINT presentFlags = gfxDevice.allowTearing && !gfxDevice.vsyncEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
+		NoThrowIfFailed(gfxDevice.swapChain->Present(syncInterval, presentFlags));
 
-		gfxDevice.g_FrameFenceValues[gfxDevice.g_CurrentBackBufferIndex] =
-			Signal(gfxDevice.g_CommandQueue, gfxDevice.g_Fence, gfxDevice.g_FenceValue);
+		gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex] =
+			Signal(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue);
 
-		gfxDevice.g_CurrentBackBufferIndex = gfxDevice.g_SwapChain->GetCurrentBackBufferIndex();
+		gfxDevice.currentBackbufferIndex = gfxDevice.swapChain->GetCurrentBackBufferIndex();
 
-		WaitForFenceValue(gfxDevice.g_Fence, gfxDevice.g_FrameFenceValues[gfxDevice.g_CurrentBackBufferIndex], gfxDevice.g_FenceEvent);
+		WaitForFenceValue(gfxDevice.fence, gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex], gfxDevice.fenceEvent);
 	}
 
 	static Clock clock0 = GetClock();
@@ -460,6 +527,10 @@ int main()
 	{
 		ProcessWindowEvents(window);
 
+		if (window.flags & WindowFlags_Resized)
+		{
+			RecreateSwapchain(gfxDevice, window);
+		}
 		if (window.flags & WindowFlags_Exiting)
 		{
 			break;
