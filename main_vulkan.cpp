@@ -1,6 +1,12 @@
 #define TOOLS_WINDOW
 #include "tools.h"
 
+#if USE_XCB
+#	define VK_USE_PLATFORM_XCB_KHR
+#elif USE_WINAPI
+#	define VK_USE_PLATFORM_WIN32_KHR
+#endif
+
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
 

@@ -162,9 +162,9 @@ f32 StrToFloat(const String &s)
 void* AllocateVirtualMemory(u32 size)
 {
 	void* baseAddress = 0;
-	int prot = PROT_READ | PROT_WRITE;
-	int flags = MAP_PRIVATE | MAP_ANONYMOUS;
-	int fd = -1;
+	i32 prot = PROT_READ | PROT_WRITE;
+	i32 flags = MAP_PRIVATE | MAP_ANONYMOUS;
+	i32 fd = -1;
 	off_t offset = 0;
 	void *allocatedMemory = mmap(baseAddress, size, prot, flags, fd, offset);
 	ASSERT( allocatedMemory != MAP_FAILED && "Failed to allocate memory." );
@@ -428,7 +428,7 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Windows
+// Window and input
 
 #if defined(TOOLS_WINDOW)
 
@@ -441,11 +441,68 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 #if USE_XCB
 #	include <xcb/xcb.h>
-#	define VK_USE_PLATFORM_XCB_KHR
-#elif USE_WINAPI
-#	define VK_USE_PLATFORM_WIN32_KHR
 #endif
 
+
+enum Key
+{
+	KEY_NULL,
+	KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN,
+	KEY_ESCAPE,
+	KEY_SPACE,
+	KEY_RETURN,
+	KEY_TAB,
+	KEY_CONTROL,
+	KEY_SHIFT,
+	KEY_ALT,
+	KEY_0, KEY_1, KEY_2,
+	KEY_3, KEY_4, KEY_5,
+	KEY_6, KEY_7, KEY_8, KEY_9, 
+	KEY_A, KEY_B, KEY_C, KEY_D,
+	KEY_E, KEY_F, KEY_G, KEY_H,
+	KEY_I, KEY_J, KEY_K, KEY_L,
+	KEY_M, KEY_N, KEY_O, KEY_P,
+	KEY_Q, KEY_R, KEY_S, KEY_T,
+	KEY_U, KEY_V, KEY_W, KEY_X,
+	KEY_Y, KEY_Z,
+	KEY_COUNT,
+};
+
+enum MouseButton
+{
+	MOUSE_BUTTON_LEFT,
+	MOUSE_BUTTON_RIGHT,
+	MOUSE_BUTTON_MIDDLE,
+	MOUSE_BUTTON_COUNT,
+};
+
+enum KeyState
+{
+	KEY_STATE_IDLE,
+	KEY_STATE_PRESS,
+	KEY_STATE_PRESSED,
+	KEY_STATE_RELEASE,
+};
+
+enum ButtonState
+{
+	BUTTON_STATE_IDLE,
+	BUTTON_STATE_PRESS,
+	BUTTON_STATE_PRESSED,
+	BUTTON_STATE_RELEASE,
+};
+
+struct Keyboard
+{
+	KeyState keys[KEY_COUNT];
+};
+
+struct Mouse
+{
+	u32 x, y;
+	u32 dx, dy;
+	ButtonState buttons[MOUSE_BUTTON_COUNT];
+};
 
 enum WindowFlags
 {
@@ -465,16 +522,265 @@ struct Window
 	u32 width;
 	u32 height;
 	u32 flags;
+
+	Keyboard keyboard;
+	Mouse mouse;
 };
 
-#if USE_WINAPI
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+
+#if USE_XCB
+void PrintModifiers(uint32_t mask)
+{
+	const char **mod, *mods[] = {
+		"Shift", "Lock", "Ctrl", "Alt",
+		"Mod2", "Mod3", "Mod4", "Mod5",
+		"Button1", "Button2", "Button3", "Button4", "Button5"
+	};
+	LOG(Info, "Modifier mask: ");
+	for (mod = mods ; mask; mask >>= 1, mod++)
+		if (mask & 1)
+			LOG(Info, *mod);
+	putchar ('\n');
+}
 #endif
 
-bool InitializeWindow(Window &window)
+
+
+#if USE_XCB
+
+void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
-	const int WINDOW_WIDTH = 640;
-	const int WINDOW_HEIGHT = 480;
+	switch ( event->response_type & ~0x80 )
+	{
+		case XCB_CONFIGURE_NOTIFY:
+			{
+				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
+
+				if ( window.width != ev->width || window.height != ev->height )
+				{
+					window.width = ev->width;
+					window.height = ev->height;
+					LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
+					window.flags |= WindowFlags_Resized;
+				}
+				break;
+			}
+
+		case XCB_BUTTON_PRESS:
+			{
+				xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
+				PrintModifiers(ev->state);
+
+				switch (ev->detail) {
+					case 4:
+						LOG(Info, "Wheel Button up in window %ld, at coordinates (%d,%d)\n",
+								ev->event, ev->event_x, ev->event_y);
+						break;
+					case 5:
+						LOG(Info, "Wheel Button down in window %ld, at coordinates (%d,%d)\n",
+								ev->event, ev->event_x, ev->event_y);
+						break;
+					default:
+						LOG(Info, "Button %d pressed in window %ld, at coordinates (%d,%d)\n",
+								ev->detail, ev->event, ev->event_x, ev->event_y);
+				}
+				break;
+			}
+
+		case XCB_BUTTON_RELEASE:
+			{
+				xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
+				PrintModifiers(ev->state);
+
+				LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
+						ev->detail, ev->event, ev->event_x, ev->event_y);
+				break;
+			}
+
+		case XCB_MOTION_NOTIFY:
+			{
+				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
+
+				// NOTE: This is commented out to avoid excessive verbosity
+				//LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
+				//		ev->event, ev->event_x, ev->event_y);
+				break;
+			}
+
+		case XCB_ENTER_NOTIFY:
+			{
+				xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
+
+				LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
+						ev->event, ev->event_x, ev->event_y);
+				break;
+			}
+
+		case XCB_LEAVE_NOTIFY:
+			{
+				xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
+
+				LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
+						ev->event, ev->event_x, ev->event_y);
+				break;
+			}
+
+		case XCB_KEY_PRESS:
+			{
+				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
+				PrintModifiers(ev->state);
+
+				LOG(Info, "Key pressed in window %ld\n", ev->event);
+				break;
+			}
+
+		case XCB_KEY_RELEASE:
+			{
+				xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
+				PrintModifiers(ev->state);
+
+				LOG(Info, "Key released in window %ld\n", ev->event);
+
+				// TODO: Do not hardcode this here.
+				if ( ev->detail == 9 ) // 9 is code for Escape
+				{
+					window.flags |= WindowFlags_Exiting;
+				}
+				break;
+			}
+
+		default:
+			/* Unknown event type, ignore it */
+			LOG(Info, "Unknown window event: %d\n", event->response_type);
+			break;
+	}
+}
+
+#elif USE_WINAPI
+
+#include "win32_key_mappings.h"
+
+LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	Window *window = (Window*)GetPropA(hWnd, "WindowPointer");
+
+    switch (uMsg)
+	{
+		case WM_KEYDOWN:
+		case WM_KEYUP:
+			{
+				WPARAM virtualKeyCode = wParam;
+				ASSERT( virtualKeyCode < 0xFF );
+				u32 mapping = Win32KeyMappings[ virtualKeyCode ];
+				ASSERT( mapping < KEY_COUNT );
+				KeyState keyState = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+
+				ASSERT(window);
+				window->keyboard.keys[ mapping ] = keyState;
+				break;
+			}
+
+		case WM_LBUTTONDOWN:
+			//int xPos = GET_X_LPARAM(lParam);
+			//int yPos = GET_Y_LPARAM(lParam);
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
+			break;
+		case WM_LBUTTONUP:
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
+			break;
+		case WM_RBUTTONDOWN:
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
+			break;
+		case WM_RBUTTONUP:
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
+			break;
+		case WM_MBUTTONDOWN:
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
+			break;
+		case WM_MBUTTONUP:
+			ASSERT(window);
+			window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
+			break;
+
+		case WM_MOUSEMOVE:
+			{
+				i32 xPos = GET_X_LPARAM(lParam);
+				i32 yPos = GET_Y_LPARAM(lParam);
+				ASSERT(window);
+				window->mouse.dx = xPos - window->mouse.x;
+				window->mouse.dy = yPos - window->mouse.y;
+				window->mouse.x = xPos;
+				window->mouse.y = yPos;
+				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
+				break;
+			}
+
+		case WM_MOUSEHOVER:
+		case WM_MOUSELEAVE:
+			{
+				// These events are disabled by default. See documentation if needed:
+				// https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
+				//LOG( Info, "Mouse %s the window\n", uMsg == WM_MOUSEHOVER ? "entered" : "left" );
+				break;
+			}
+
+		case WM_SIZE:
+			{
+				ASSERT(window);
+
+				i32 width = LOWORD(lParam);
+				i32 height = HIWORD(lParam);
+				if ( window->width != width || window->height != height )
+				{
+					window->width = Max(width, 1);
+					window->height = Max(height, 1);
+					window->flags |= WindowFlags_Resized;
+				}
+				break;
+			}
+
+		case WM_CLOSE:
+			{
+				// If we want to show a dialog to ask the user for confirmation before
+				// closing the window, it should be done here. Zero should be returned
+				// to indicate that we handled this message.
+				// Otherwise, the following call to DefWindowProc will internally call
+				// DestroyWindow, which will send the WM_DESTROY message.
+				break;
+			}
+
+		case WM_DESTROY:
+			{
+				// This inserts a WM_QUIT message in the queue, which will in turn cause
+				// GetMessage to return zero. We will exit the main loop when that happens.
+				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
+				PostQuitMessage(0);
+				return 0;
+			}
+    }
+    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+
+#endif
+
+
+
+bool InitializeWindow(
+		Window &window,
+		u32 width = 640,
+		u32 height = 480,
+		const char *title = "Example window"
+		)
+{
+	ZeroStruct(&window);
+	window.width = width;
+	window.height = height;
 
 #if USE_XCB
 
@@ -505,7 +811,7 @@ bool InitializeWindow(Window &window)
 		xcbWindow,                     // window id
 		screen->root,                  // parent window
 		0, 0,                          // x, y
-		WINDOW_WIDTH, WINDOW_HEIGHT,   // width, height
+		width, height,                 // width, height
 		0,                             // bnorder_width
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, // class
 		screen->root_visual,           // visual
@@ -537,7 +843,7 @@ bool InitializeWindow(Window &window)
 
 	WNDCLASS wc = { };
 	wc.style         = CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc   = WindowProc;
+	wc.lpfnWndProc   = Win32WindowProc;
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
 	ATOM atom = RegisterClassA(&wc);
@@ -551,10 +857,10 @@ bool InitializeWindow(Window &window)
 	HWND hWnd = CreateWindowExA(
 			0,                              // Optional window styles.
 			CLASS_NAME,                     // Window class
-			"Learn to Program Windows",     // Window text
+			title,                          // Window text
 			WS_OVERLAPPEDWINDOW,            // Window style
 			CW_USEDEFAULT, CW_USEDEFAULT,   // Position
-			WINDOW_WIDTH, WINDOW_HEIGHT,    // Size
+			width, height,                  // Size
 			NULL,                           // Parent window
 			NULL,                           // Menu
 			hInstance,                      // Instance handle
@@ -598,133 +904,9 @@ void CleanupWindow(Window &window)
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
 #elif USE_WINAPI
-	// TODO: Unless destroying the window programmatically,
-	// window destruction was already handled.
-	//if ( !DestroyWindow(window.hWnd) )
-	//{
-	//	LOG(Warning, "Error in DestroyWindow.\n");
-	//}
+	DestroyWindow(window.hWnd);
 #endif
 }
-
-#if USE_WINAPI
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-	{
-		case WM_SIZE:
-			{
-				int width = LOWORD(lParam);  // Macro to get the low-order word.
-				int height = HIWORD(lParam); // Macro to get the high-order word.
-				LOG( Info, "Window resized (%d, %d)\n", width, height );
-
-				Window *window = (Window*)GetPropA(hWnd, "WindowPointer");
-
-				if ( window )
-				{
-					if ( window->width != width || window->height != height )
-					{
-						window->width = Max(width, 1);
-						window->height = Max(height, 1);
-						window->flags |= WindowFlags_Resized;
-					}
-				}
-				break;
-			}
-
-		case WM_LBUTTONDOWN:
-		case WM_LBUTTONUP:
-		case WM_RBUTTONDOWN:
-		case WM_RBUTTONUP:
-			{
-				// MK_CONTROL	The CTRL key is down.
-				// MK_LBUTTON	The left mouse button is down.
-				// MK_MBUTTON	The middle mouse button is down.
-				// MK_RBUTTON	The right mouse button is down.
-				// MK_SHIFT	The SHIFT key is down.
-				// MK_XBUTTON1	The XBUTTON1 button is down.
-				// MK_XBUTTON2	The XBUTTON2 button is down.
-				// if (wParam & MK_CONTROL) { ... }
-
-				bool left = uMsg == WM_LBUTTONUP || uMsg == WM_LBUTTONDOWN;
-				bool down = uMsg == WM_LBUTTONDOWN || uMsg == WM_RBUTTONDOWN;
-				int xPos = GET_X_LPARAM(lParam);
-				int yPos = GET_Y_LPARAM(lParam);
-
-				UINT button = GET_XBUTTON_WPARAM(wParam);
-				LOG( Info, "Mouse %s button %s at position (%d, %d)\n", left ? "LEFT" : "RIGHT", down ? "DOWN" : "UP", xPos, yPos );
-				break;
-			}
-
-		case WM_KEYDOWN:
-		case WM_KEYUP:
-			{
-				WPARAM virtualKeyCode = wParam;
-				if (virtualKeyCode == VK_ESCAPE)
-				{
-					// TODO: Do not hardcode this here.
-					DestroyWindow(hWnd);
-				}
-				break;
-			}
-
-		case WM_MOUSEMOVE:
-			{
-				int xPos = GET_X_LPARAM(lParam);
-				int yPos = GET_Y_LPARAM(lParam);
-				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
-				break;
-			}
-
-		case WM_MOUSEHOVER:
-		case WM_MOUSELEAVE:
-			{
-				// These events are disabled by default. See documentation if needed:
-				// https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
-				LOG( Info, "Mouse %s the window\n", uMsg == WM_MOUSEHOVER ? "entered" : "left" );
-				break;
-			}
-
-		case WM_CLOSE:
-			{
-				// If we want to show a dialog to ask the user for confirmation before
-				// closing the window, it should be done here. Zero should be returned
-				// to indicate that we handled this message.
-				// Otherwise, the following call to DefWindowProc will internally call
-				// DestroyWindow, which will send the WM_DESTROY message.
-				break;
-			}
-
-		case WM_DESTROY:
-			{
-				// This inserts a WM_QUIT message in the queue, which will in turn cause
-				// GetMessage to return zero. We will exit the main loop when that happens.
-				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				PostQuitMessage(0);
-				return 0;
-			}
-    }
-    return DefWindowProc(hWnd, uMsg, wParam, lParam);
-}
-#endif
-
-
-
-#if USE_XCB
-void PrintModifiers (uint32_t mask)
-{
-	const char **mod, *mods[] = {
-		"Shift", "Lock", "Ctrl", "Alt",
-		"Mod2", "Mod3", "Mod4", "Mod5",
-		"Button1", "Button2", "Button3", "Button4", "Button5"
-	};
-	LOG(Info, "Modifier mask: ");
-	for (mod = mods ; mask; mask >>= 1, mod++)
-		if (mask & 1)
-			LOG(Info, *mod);
-	putchar ('\n');
-}
-#endif
 
 
 
@@ -732,122 +914,34 @@ void ProcessWindowEvents(Window &window)
 {
 	window.flags = 0;
 
-#if USE_XCB
-	xcb_generic_event_t *event;
+	// Transition key states
+	for ( u32 i = 0; i < KEY_COUNT; ++i ) {
+		if ( window.keyboard.keys[i] == KEY_STATE_PRESS ) {
+			window.keyboard.keys[i] = KEY_STATE_PRESSED;
+		} else if ( window.keyboard.keys[i] == KEY_STATE_RELEASE ) {
+			window.keyboard.keys[i] = KEY_STATE_IDLE;
+		}
+	}
 
+	// Transition mouse button states
+	for ( u32 i = 0; i < MOUSE_BUTTON_COUNT; ++i ) {
+		if ( window.mouse.buttons[i] == BUTTON_STATE_PRESS ) {
+			window.mouse.buttons[i] = BUTTON_STATE_PRESSED;
+		} else if ( window.mouse.buttons[i] == BUTTON_STATE_RELEASE ) {
+			window.mouse.buttons[i] = BUTTON_STATE_IDLE;
+		}
+	}
+
+#if USE_XCB
+
+	xcb_generic_event_t *event;
 	while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 	{
-		switch ( event->response_type & ~0x80 )
-		{
-			case XCB_CONFIGURE_NOTIFY:
-				{
-					const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
-
-					if ( window.width != ev->width || window.height != ev->height )
-					{
-						window.width = ev->width;
-						window.height = ev->height;
-						LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
-						window.flags |= WindowFlags_Resized;
-					}
-					break;
-				}
-
-			case XCB_BUTTON_PRESS:
-				{
-					xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-					PrintModifiers(ev->state);
-
-					switch (ev->detail) {
-						case 4:
-							LOG(Info, "Wheel Button up in window %ld, at coordinates (%d,%d)\n",
-									ev->event, ev->event_x, ev->event_y);
-							break;
-						case 5:
-							LOG(Info, "Wheel Button down in window %ld, at coordinates (%d,%d)\n",
-									ev->event, ev->event_x, ev->event_y);
-							break;
-						default:
-							LOG(Info, "Button %d pressed in window %ld, at coordinates (%d,%d)\n",
-									ev->detail, ev->event, ev->event_x, ev->event_y);
-					}
-					break;
-				}
-
-			case XCB_BUTTON_RELEASE:
-				{
-					xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
-					PrintModifiers(ev->state);
-
-					LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
-							ev->detail, ev->event, ev->event_x, ev->event_y);
-					break;
-				}
-
-			case XCB_MOTION_NOTIFY:
-				{
-					xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-
-					// NOTE: This is commented out to avoid excessive verbosity
-					//LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
-					//		ev->event, ev->event_x, ev->event_y);
-					break;
-				}
-
-			case XCB_ENTER_NOTIFY:
-				{
-					xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
-
-					LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
-							ev->event, ev->event_x, ev->event_y);
-					break;
-				}
-
-			case XCB_LEAVE_NOTIFY:
-				{
-					xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
-
-					LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
-							ev->event, ev->event_x, ev->event_y);
-					break;
-				}
-
-			case XCB_KEY_PRESS:
-				{
-					xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-					PrintModifiers(ev->state);
-
-					LOG(Info, "Key pressed in window %ld\n", ev->event);
-					break;
-				}
-
-			case XCB_KEY_RELEASE:
-				{
-					xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
-					PrintModifiers(ev->state);
-
-					LOG(Info, "Key released in window %ld\n", ev->event);
-
-					// TODO: Do not hardcode this here.
-					if ( ev->detail == 9 ) // 9 is code for Escape
-					{
-						window.flags |= WindowFlags_Exiting;
-					}
-					break;
-				}
-
-			default:
-				/* Unknown event type, ignore it */
-				LOG(Info, "Unknown window event: %d\n", event->response_type);
-				break;
-		}
-
+		XcbWindowProc(window, event);
 		free(event);
 	}
 
-#endif
-
-#if USE_WINAPI
+#elif USE_WINAPI
 
 	MSG msg = { };
 	while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )

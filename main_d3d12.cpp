@@ -535,6 +535,10 @@ int main()
 		{
 			break;
 		}
+		if (window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS)
+		{
+			break;
+		}
 
 		RenderGraphics(gfxDevice);
 	}
