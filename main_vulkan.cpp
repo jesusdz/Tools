@@ -1165,6 +1165,10 @@ int main(int argc, char **argv)
 		{
 			gGlobalExit = true;
 		}
+		if ( window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
+		{
+			gGlobalExit = true;
+		}
 
 		if ( !gGlobalExit )
 		{

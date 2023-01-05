@@ -549,21 +549,30 @@ void PrintModifiers(uint32_t mask)
 
 #if USE_XCB
 
+#include "xcb_key_mappings.h"
+
 void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
-	switch ( event->response_type & ~0x80 )
-	{
-		case XCB_CONFIGURE_NOTIFY:
-			{
-				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
+	u32 eventType = event->response_type & ~0x80;
 
-				if ( window.width != ev->width || window.height != ev->height )
-				{
-					window.width = ev->width;
-					window.height = ev->height;
-					LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
-					window.flags |= WindowFlags_Resized;
-				}
+	switch ( eventType )
+	{
+		case XCB_KEY_PRESS:
+		case XCB_KEY_RELEASE:
+			{
+				// NOTE: xcb_key_release_event_t is an alias of xcb_key_press_event_t
+				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
+				PrintModifiers(ev->state);
+
+				LOG(Info, "Key pressed in window %ld\n", ev->event);
+
+				u32 keyCode = ev->detail;
+				ASSERT( keyCode < ARRAY_COUNT(XcbKeyMappings) );
+				u32 mapping = XcbKeyMappings[ keyCode ];
+				ASSERT( mapping < KEY_COUNT );
+				KeyState keyState = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+
+				window.keyboard.keys[ mapping ] = keyState;
 				break;
 			}
 
@@ -626,26 +635,16 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				break;
 			}
 
-		case XCB_KEY_PRESS:
+		case XCB_CONFIGURE_NOTIFY:
 			{
-				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-				PrintModifiers(ev->state);
+				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
 
-				LOG(Info, "Key pressed in window %ld\n", ev->event);
-				break;
-			}
-
-		case XCB_KEY_RELEASE:
-			{
-				xcb_key_release_event_t *ev = (xcb_key_release_event_t *)event;
-				PrintModifiers(ev->state);
-
-				LOG(Info, "Key released in window %ld\n", ev->event);
-
-				// TODO: Do not hardcode this here.
-				if ( ev->detail == 9 ) // 9 is code for Escape
+				if ( window.width != ev->width || window.height != ev->height )
 				{
-					window.flags |= WindowFlags_Exiting;
+					window.width = ev->width;
+					window.height = ev->height;
+					LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
+					window.flags |= WindowFlags_Resized;
 				}
 				break;
 			}
@@ -670,9 +669,9 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_KEYDOWN:
 		case WM_KEYUP:
 			{
-				WPARAM virtualKeyCode = wParam;
-				ASSERT( virtualKeyCode < 0xFF );
-				u32 mapping = Win32KeyMappings[ virtualKeyCode ];
+				WPARAM keyCode = wParam;
+				ASSERT( keyCode < ARRAY_COUNT(Win32KeyMappings) );
+				u32 mapping = Win32KeyMappings[ keyCode ];
 				ASSERT( mapping < KEY_COUNT );
 				KeyState keyState = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
 
