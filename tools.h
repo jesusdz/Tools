@@ -515,6 +515,7 @@ struct Window
 #if USE_XCB
 	xcb_connection_t *connection;
 	xcb_window_t window;
+	xcb_intern_atom_reply_t *closeReply;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
@@ -529,7 +530,7 @@ struct Window
 
 
 
-#if USE_XCB
+#if USE_XCB && 0
 void PrintModifiers(uint32_t mask)
 {
 	const char **mod, *mods[] = {
@@ -562,89 +563,76 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 			{
 				// NOTE: xcb_key_release_event_t is an alias of xcb_key_press_event_t
 				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-				PrintModifiers(ev->state);
-
-				LOG(Info, "Key pressed in window %ld\n", ev->event);
-
 				u32 keyCode = ev->detail;
 				ASSERT( keyCode < ARRAY_COUNT(XcbKeyMappings) );
 				u32 mapping = XcbKeyMappings[ keyCode ];
 				ASSERT( mapping < KEY_COUNT );
-				KeyState keyState = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-
-				window.keyboard.keys[ mapping ] = keyState;
+				KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+				window.keyboard.keys[ mapping ] = state;
 				break;
 			}
 
 		case XCB_BUTTON_PRESS:
-			{
-				xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-				PrintModifiers(ev->state);
-
-				switch (ev->detail) {
-					case 4:
-						LOG(Info, "Wheel Button up in window %ld, at coordinates (%d,%d)\n",
-								ev->event, ev->event_x, ev->event_y);
-						break;
-					case 5:
-						LOG(Info, "Wheel Button down in window %ld, at coordinates (%d,%d)\n",
-								ev->event, ev->event_x, ev->event_y);
-						break;
-					default:
-						LOG(Info, "Button %d pressed in window %ld, at coordinates (%d,%d)\n",
-								ev->detail, ev->event, ev->event_x, ev->event_y);
-				}
-				break;
-			}
-
 		case XCB_BUTTON_RELEASE:
 			{
-				xcb_button_release_event_t *ev = (xcb_button_release_event_t *)event;
-				PrintModifiers(ev->state);
-
-				LOG(Info, "Button %d released in window %ld, at coordinates (%d,%d)\n",
-						ev->detail, ev->event, ev->event_x, ev->event_y);
+				// NOTE: xcb_button_release_event_t is an alias of xcb_button_press_event_t
+				xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
+				ButtonState state = eventType == XCB_BUTTON_PRESS ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
+				switch (ev->detail) {
+					case 1: window.mouse.buttons[ MOUSE_BUTTON_LEFT ] = state; break;
+					case 2: window.mouse.buttons[ MOUSE_BUTTON_MIDDLE ] = state; break;
+					case 3: window.mouse.buttons[ MOUSE_BUTTON_RIGHT ] = state; break;
+					//case 4: // wheel up
+					//case 5: // wheel down
+					default:;
+				}
 				break;
 			}
 
 		case XCB_MOTION_NOTIFY:
 			{
 				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-
-				// NOTE: This is commented out to avoid excessive verbosity
-				//LOG(Info, "Mouse moved in window %ld, at coordinates (%d,%d)\n",
-				//		ev->event, ev->event_x, ev->event_y);
+				window.mouse.dx = ev->event_x - window.mouse.x;
+				window.mouse.dy = ev->event_y - window.mouse.y;
+				window.mouse.x = ev->event_x;
+				window.mouse.y = ev->event_y;
 				break;
 			}
 
 		case XCB_ENTER_NOTIFY:
 			{
 				xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
-
-				LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
-						ev->event, ev->event_x, ev->event_y);
+				//LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
+				//		ev->event, ev->event_x, ev->event_y);
 				break;
 			}
 
 		case XCB_LEAVE_NOTIFY:
 			{
 				xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
-
-				LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
-						ev->event, ev->event_x, ev->event_y);
+				//LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
+				//		ev->event, ev->event_x, ev->event_y);
 				break;
 			}
 
 		case XCB_CONFIGURE_NOTIFY:
 			{
 				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
-
 				if ( window.width != ev->width || window.height != ev->height )
 				{
 					window.width = ev->width;
 					window.height = ev->height;
-					LOG(Info, "Window %ld was resized. New size is (%d, %d)\n", ev->window, window.width, window.height);
 					window.flags |= WindowFlags_Resized;
+				}
+				break;
+			}
+
+		case XCB_CLIENT_MESSAGE:
+			{
+				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
+				if ( ev->data.data32[0] == window.closeReply->atom )
+				{
+					window.flags |= WindowFlags_Exiting;
 				}
 				break;
 			}
@@ -669,14 +657,13 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_KEYDOWN:
 		case WM_KEYUP:
 			{
+				ASSERT(window);
 				WPARAM keyCode = wParam;
 				ASSERT( keyCode < ARRAY_COUNT(Win32KeyMappings) );
 				u32 mapping = Win32KeyMappings[ keyCode ];
 				ASSERT( mapping < KEY_COUNT );
-				KeyState keyState = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-
-				ASSERT(window);
-				window->keyboard.keys[ mapping ] = keyState;
+				KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+				window->keyboard.keys[ mapping ] = state;
 				break;
 			}
 
@@ -709,9 +696,9 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
 		case WM_MOUSEMOVE:
 			{
+				ASSERT(window);
 				i32 xPos = GET_X_LPARAM(lParam);
 				i32 yPos = GET_Y_LPARAM(lParam);
-				ASSERT(window);
 				window->mouse.dx = xPos - window->mouse.x;
 				window->mouse.dy = yPos - window->mouse.y;
 				window->mouse.x = xPos;
@@ -732,7 +719,6 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_SIZE:
 			{
 				ASSERT(window);
-
 				i32 width = LOWORD(lParam);
 				i32 height = HIWORD(lParam);
 				if ( window->width != width || window->height != height )
@@ -816,6 +802,20 @@ bool InitializeWindow(
 		screen->root_visual,           // visual
 		mask, values);                 // value_mask, value_list
 
+	// Handle close event
+	xcb_intern_atom_cookie_t protocolCookie = xcb_intern_atom_unchecked(
+		xcbConnection, 1,
+		12, "WM_PROTOCOLS");
+	xcb_intern_atom_reply_t *protocolReply = xcb_intern_atom_reply(
+		xcbConnection, protocolCookie, 0);
+	xcb_intern_atom_cookie_t closeCookie = xcb_intern_atom_unchecked(
+		xcbConnection, 0,
+		16, "WM_DELETE_WINDOW");
+	xcb_intern_atom_reply_t *closeReply = xcb_intern_atom_reply(
+		xcbConnection, closeCookie, 0);
+	xcb_change_property(xcbConnection, XCB_PROP_MODE_REPLACE, xcbWindow, protocolReply->atom, 4, 32, 1, &closeReply->atom);
+	free(protocolReply);
+
 	// Map the window to the screen
 	xcb_map_window(xcbConnection, xcbWindow);
 
@@ -825,10 +825,10 @@ bool InitializeWindow(
 	// Get window info at this point
 	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( xcbConnection, xcbWindow );
 	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL );
-	LOG(Info, "Created window size (%u, %u)\n", reply->width, reply->height);
 
 	window.connection = xcbConnection;
 	window.window = xcbWindow;
+	window.closeReply = closeReply;
 	window.width = reply->width;
 	window.height = reply->height;
 
