@@ -548,6 +548,32 @@ void PrintModifiers(uint32_t mask)
 
 
 
+#if USE_WINAPI
+
+void Win32ReportError()
+{
+	DWORD errorCode = ::GetLastError();
+
+	LPVOID messageBuffer;
+	FormatMessage(
+			FORMAT_MESSAGE_ALLOCATE_BUFFER |
+			FORMAT_MESSAGE_FROM_SYSTEM |
+			FORMAT_MESSAGE_IGNORE_INSERTS,
+			NULL,
+			errorCode,
+			MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
+			(LPTSTR)&messageBuffer,
+			0, NULL );
+
+	LOG(Error, "Error: %s\n", (char*)messageBuffer);
+
+	LocalFree( messageBuffer );
+}
+
+#endif
+
+
+
 #if USE_XCB
 
 #include "xcb_key_mappings.h"
@@ -860,17 +886,17 @@ bool InitializeWindow(
 	const char CLASS_NAME[]  = "Sample Window Class";
 	HINSTANCE hInstance = GetModuleHandle(NULL);
 
-	WNDCLASS wc = { };
+	WNDCLASS wc = {};
 	wc.style         = CS_HREDRAW | CS_VREDRAW;
 	wc.lpfnWndProc   = Win32WindowProc;
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
 	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	ATOM atom = RegisterClassA(&wc);
+	ATOM classAtom = RegisterClassA(&wc);
 
-	if (atom == 0)
+	if (classAtom == 0)
 	{
-		// TODO: Handle error
+		Win32ReportError();
 		return false;
 	}
 
@@ -895,13 +921,13 @@ bool InitializeWindow(
 
 	if (hWnd == NULL)
 	{
-		// TODO: Handle error
+		Win32ReportError();
 		return false;
 	}
 
 	if ( !SetPropA(hWnd, "WindowPointer", &window) )
 	{
-		// TODO: Handle error
+		Win32ReportError();
 		return false;
 	}
 
