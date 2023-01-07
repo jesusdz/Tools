@@ -1,4 +1,4 @@
-// NOTE: these mappings have been achieved with the 'xev' command
+// Xcb key code mappings have been achieved with the 'xev' command
 internal Key XcbKeyMappings[] = {
 KEY_NULL, // 0
 KEY_NULL, // 1

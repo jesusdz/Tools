@@ -1,3 +1,4 @@
+// Window virtual key codes taken from: https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
 internal Key Win32KeyMappings[] = {
 KEY_NULL, // -						0x00	Undefined
 KEY_NULL, // VK_LBUTTON				0x01	Left mouse button
@@ -254,4 +255,5 @@ KEY_NULL, // VK_ZOOM				0xFB	Zoom key
 KEY_NULL, // VK_NONAME				0xFC	Reserved
 KEY_NULL, // VK_PA1					0xFD	PA1 key
 KEY_NULL, // VK_OEM_CLEAR			0xFE	Clear key
+KEY_NULL, // -						0xFF	Unassigned
 };
