@@ -515,7 +515,7 @@ struct Window
 #if USE_XCB
 	xcb_connection_t *connection;
 	xcb_window_t window;
-	xcb_intern_atom_reply_t *closeReply;
+	xcb_atom_t closeAtom;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
@@ -630,7 +630,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_CLIENT_MESSAGE:
 			{
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
-				if ( ev->data.data32[0] == window.closeReply->atom )
+				if ( ev->data.data32[0] == window.closeAtom )
 				{
 					window.flags |= WindowFlags_Exiting;
 				}
@@ -804,17 +804,27 @@ bool InitializeWindow(
 
 	// Handle close event
 	xcb_intern_atom_cookie_t protocolCookie = xcb_intern_atom_unchecked(
-		xcbConnection, 1,
-		12, "WM_PROTOCOLS");
+			xcbConnection, 1,
+			12, "WM_PROTOCOLS");
 	xcb_intern_atom_reply_t *protocolReply = xcb_intern_atom_reply(
-		xcbConnection, protocolCookie, 0);
+			xcbConnection, protocolCookie, 0);
 	xcb_intern_atom_cookie_t closeCookie = xcb_intern_atom_unchecked(
-		xcbConnection, 0,
-		16, "WM_DELETE_WINDOW");
+			xcbConnection, 0,
+			16, "WM_DELETE_WINDOW");
 	xcb_intern_atom_reply_t *closeReply = xcb_intern_atom_reply(
-		xcbConnection, closeCookie, 0);
-	xcb_change_property(xcbConnection, XCB_PROP_MODE_REPLACE, xcbWindow, protocolReply->atom, 4, 32, 1, &closeReply->atom);
+			xcbConnection, closeCookie, 0);
+	u8 dataFormat = 32;
+	u32 dataLength = 1;
+	void *data = &closeReply->atom;
+	xcb_change_property(
+			xcbConnection,
+			XCB_PROP_MODE_REPLACE,
+			xcbWindow,
+			protocolReply->atom, XCB_ATOM_ATOM,
+			dataFormat, dataLength, data);
+	xcb_atom_t closeAtom = closeReply->atom;
 	free(protocolReply);
+	free(closeReply);
 
 	// Map the window to the screen
 	xcb_map_window(xcbConnection, xcbWindow);
@@ -828,7 +838,7 @@ bool InitializeWindow(
 
 	window.connection = xcbConnection;
 	window.window = xcbWindow;
-	window.closeReply = closeReply;
+	window.closeAtom = closeAtom;
 	window.width = reply->width;
 	window.height = reply->height;
 
