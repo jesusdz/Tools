@@ -855,6 +855,7 @@ bool InitializeWindow(
 	wc.lpfnWndProc   = Win32WindowProc;
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
+	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
 	ATOM atom = RegisterClassA(&wc);
 
 	if (atom == 0)
