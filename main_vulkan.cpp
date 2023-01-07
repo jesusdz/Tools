@@ -1148,11 +1148,8 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	// Input loop
-
-	bool gGlobalExit = false;
-
-	while ( !gGlobalExit )
+	// Application loop
+	while ( 1 )
 	{
 		ProcessWindowEvents(window);
 
@@ -1160,21 +1157,16 @@ int main(int argc, char **argv)
 		{
 			gfxDevice.shouldRecreateSwapchain = true;
 		}
-
 		if ( window.flags & WindowFlags_Exiting )
 		{
-			gGlobalExit = true;
+			break;
 		}
 		if ( window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
 		{
-			gGlobalExit = true;
+			break;
 		}
 
-		if ( !gGlobalExit )
-		{
-			RenderGraphics(gfxDevice, window);
-		}
-
+		RenderGraphics(gfxDevice, window);
 	}
 
 	CleanupGraphics(gfxDevice);
