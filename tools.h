@@ -874,13 +874,19 @@ bool InitializeWindow(
 		return false;
 	}
 
+	// Given the desired client window size, get the full size
+	RECT windowRect = { 0, 0, (int)width, (int)height };
+	AdjustWindowRect( &windowRect, WS_OVERLAPPEDWINDOW, FALSE );
+	int fullWidth = windowRect.right - windowRect.left;
+	int fullHeight = windowRect.bottom - windowRect.top;
+
 	HWND hWnd = CreateWindowExA(
 			0,                              // Optional window styles.
 			CLASS_NAME,                     // Window class
 			title,                          // Window text
 			WS_OVERLAPPEDWINDOW,            // Window style
 			CW_USEDEFAULT, CW_USEDEFAULT,   // Position
-			width, height,                  // Size
+			fullWidth, fullHeight,          // Size
 			NULL,                           // Parent window
 			NULL,                           // Menu
 			hInstance,                      // Instance handle
@@ -892,15 +898,6 @@ bool InitializeWindow(
 		// TODO: Handle error
 		return false;
 	}
-
-	RECT rect;
-	if ( !GetClientRect(hWnd, &rect) )
-	{
-		// TODO: Handle error
-		return false;
-	}
-	window.width = rect.right - rect.left;
-	window.height = rect.bottom - rect.top;
 
 	if ( !SetPropA(hWnd, "WindowPointer", &window) )
 	{
