@@ -59,6 +59,36 @@ typedef	unsigned char byte;
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// System helpers
+
+#if PLATFORM_WINDOWS
+
+void Win32ReportError()
+{
+	DWORD errorCode = ::GetLastError();
+	if ( errorCode != ERROR_SUCCESS )
+	{
+		LPVOID messageBuffer;
+		FormatMessage(
+				FORMAT_MESSAGE_ALLOCATE_BUFFER |
+				FORMAT_MESSAGE_FROM_SYSTEM |
+				FORMAT_MESSAGE_IGNORE_INSERTS,
+				NULL,
+				errorCode,
+				MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
+				(LPTSTR)&messageBuffer,
+				0, NULL );
+
+		LOG(Error, "Error: %s\n", (char*)messageBuffer);
+		LocalFree( messageBuffer );
+	}
+}
+
+#endif
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Strings
 
 struct String
@@ -326,6 +356,42 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	return file;
 }
 
+u64 GetFileLastWriteTimestamp(const char* filepath)
+{
+	u64 ts = 0;
+
+#if PLATFORM_WINDOWS
+	union Filetime2u64 {
+		FILETIME filetime;
+		u64      u64time;
+	} conversor;
+
+	WIN32_FILE_ATTRIBUTE_DATA Data;
+	if( GetFileAttributesExA(filepath, GetFileExInfoStandard, &Data) )
+	{
+		conversor.filetime = Data.ftLastWriteTime;
+		ts = conversor.u64time;
+	}
+	else
+	{
+		Win32ReportError();
+	}
+#else
+	// NOTE: This has not been tested in unix-like systems
+	struct stat attrib;
+	if ( stat(filepath, &attrib) == 0 )
+	{
+		ts = attrib.st_mtime;
+	}
+	else
+	{
+		// TODO: Handle error
+	}
+#endif
+
+	return ts;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -544,32 +610,6 @@ void PrintModifiers(uint32_t mask)
 			LOG(Info, *mod);
 	putchar ('\n');
 }
-#endif
-
-
-
-#if USE_WINAPI
-
-void Win32ReportError()
-{
-	DWORD errorCode = ::GetLastError();
-
-	LPVOID messageBuffer;
-	FormatMessage(
-			FORMAT_MESSAGE_ALLOCATE_BUFFER |
-			FORMAT_MESSAGE_FROM_SYSTEM |
-			FORMAT_MESSAGE_IGNORE_INSERTS,
-			NULL,
-			errorCode,
-			MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
-			(LPTSTR)&messageBuffer,
-			0, NULL );
-
-	LOG(Error, "Error: %s\n", (char*)messageBuffer);
-
-	LocalFree( messageBuffer );
-}
-
 #endif
 
 
