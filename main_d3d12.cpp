@@ -423,6 +423,8 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
 	Flush(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue, gfxDevice.fenceEvent);
+
+	::CloseHandle(gfxDevice.fenceEvent);
 }
 
 void RenderGraphics(GfxDevice &gfxDevice)
