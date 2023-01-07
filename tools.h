@@ -808,6 +808,9 @@ bool InitializeWindow(
 	// Connect to the X server
 	xcb_connection_t *xcbConnection = xcb_connect(NULL, NULL);
 
+	// TODO: Verify errors with:
+	// int xcb_connection_has_error(xcb_connection_t *c)
+
 	// Get the first screen
 	const xcb_setup_t *setup = xcb_get_setup(xcbConnection);
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
@@ -837,6 +840,8 @@ bool InitializeWindow(
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, // class
 		screen->root_visual,           // visual
 		mask, values);                 // value_mask, value_list
+
+	// TODO: Use xcb_create_window_checked to check errors here instead
 
 	// Handle close event
 	xcb_intern_atom_cookie_t protocolCookie = xcb_intern_atom_unchecked(

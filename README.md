@@ -51,6 +51,7 @@ Here are some interesting links that I have been looking while writing some code
 * [Crafting interpreters online book](https://craftinginterpreters.com/contents.html)
 * [Creating windows on Windows](https://learn.microsoft.com/en-us/windows/win32/learnwin32/your-first-windows-program)
 * [Creating windows on Linux](https://www.codeproject.com/articles/1089819/an-introduction-to-xcb-programming)
+* [XCB Documentation](https://xcb.freedesktop.org/manual/index.html)
 * [Vulkan tutorial](https://vulkan-tutorial.com/)
 * [D3D12 tutorial](https://www.3dgep.com/category/graphics-programming/directx/)
 * [Handmade Math](https://github.com/HandmadeMath/HandmadeMath)
