@@ -71,9 +71,6 @@ struct GfxDevice
 	// Can be toggled with the V key.
 	bool vsyncEnabled = true;
 	bool allowTearing = false;
-
-	// By default, use windowed mode.
-	// Can be toggled with the Alt+Enter or F11
 	bool fullscreen = false;
 };
 
@@ -438,6 +435,9 @@ void RenderGraphics(GfxDevice &gfxDevice)
 	commandAllocator->Reset();
 	gfxDevice.commandList->Reset(commandAllocator.Get(), nullptr);
 
+	// NOTE: This allows retrieving the command allocator from the command list later (if we need it)
+	//NoThrowIfFailed(commandList->SetPrivateDataInterface(__uuidof(ID3D12CommandAllocator), commandAllocator.Get()));
+
 	// Clear the render target
 	{
 		D3D12_RESOURCE_BARRIER barrier = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
@@ -467,6 +467,11 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		gfxDevice.commandList->ResourceBarrier(1, &barrier);
 
 		NoThrowIfFailed(gfxDevice.commandList->Close());
+
+		// NOTE: Here we have the command allocator backing this command list
+		//ID3D12CommandAllocator* commandAllocator;
+		//UINT dataSize = sizeof(commandAllocator);
+		//NoThrowIfFailed(commandList->GetPrivateData(__uuidof(ID3D12CommandAllocator), &dataSize, &commandAllocator));
 
 		ID3D12CommandList* const commandLists[] = { gfxDevice.commandList.Get() };
 		gfxDevice.commandQueue->ExecuteCommandLists(ARRAY_COUNT(commandLists), commandLists);
