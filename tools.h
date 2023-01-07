@@ -667,6 +667,11 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				break;
 			}
 
+		case WM_SYSCHAR:
+			// If this message is not handled the default window procedure will
+			// play a system notification sound when Alt+Enter is pressed.
+			break;
+
 		case WM_LBUTTONDOWN:
 			//int xPos = GET_X_LPARAM(lParam);
 			//int yPos = GET_Y_LPARAM(lParam);
@@ -735,8 +740,9 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// If we want to show a dialog to ask the user for confirmation before
 				// closing the window, it should be done here. Zero should be returned
 				// to indicate that we handled this message.
-				// Otherwise, the following call to DefWindowProc will internally call
-				// DestroyWindow, which will send the WM_DESTROY message.
+				// Otherwise, calling DefWindowProc will internally call DestroyWindow
+				// and will internally send the WM_DESTROY message.
+				DestroyWindow(hWnd);
 				break;
 			}
 
@@ -746,10 +752,14 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
 				PostQuitMessage(0);
-				return 0;
+				break;
 			}
+
+		default:
+			return DefWindowProc(hWnd, uMsg, wParam, lParam);
     }
-    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+
+	return 0;
 }
 
 #endif
