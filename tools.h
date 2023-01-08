@@ -310,6 +310,7 @@ struct FileOnMemory
 	u64 size;
 };
 
+// TODO: Return some error code to handle failure
 u64 GetFileSize(const char *filename)
 {
 	u64 size = 0;
@@ -380,6 +381,7 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	return file;
 }
 
+// TODO: Return some error code to handle failure
 u64 GetFileLastWriteTimestamp(const char* filename)
 {
 	u64 ts = 0;
