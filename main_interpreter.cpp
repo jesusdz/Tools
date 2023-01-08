@@ -1197,11 +1197,17 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 void RunFile(Arena &arena, const char* filename)
 {
 	u32 fileSize = GetFileSize(filename);
-	u32 bufferSize = fileSize + 1;
-	char* bytes = PushArray(arena, char, bufferSize);
-	u32 bytesRead = ReadEntireFile(filename, bytes, bufferSize);
-	ASSERT(bytesRead == fileSize);
-	Run(arena, bytes, bytesRead);
+	char* bytes = PushArray(arena, char, fileSize + 1);
+	bool ok = ReadEntireFile(filename, bytes, fileSize);
+	bytes[fileSize] = 0;
+	if ( ok )
+	{
+		Run(arena, bytes, fileSize);
+	}
+	else
+	{
+		LOG(Error, "ReadEntireFile() failed reading %s\n", filename);
+	}
 }
 
 void RunPrompt(Arena &arena)

@@ -342,25 +342,36 @@ u64 GetFileSize(const char *filename)
 	return size;
 }
 
-u64 ReadEntireFile(const char *filename, void *buffer, u64 bufferSize)
+bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 {
+	bool ok = false;
 #if PLATFORM_WINDOWS
-	DWORD bytesRead = 0;
 	HANDLE file = CreateFileA( filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
-	BOOL result = ReadFile( file, buffer, bufferSize, &bytesRead, NULL );
-	// TODO: Handle errors
+	if ( file == INVALID_HANDLE_VALUE  )
+	{
+		Win32ReportError();
+	}
+	else
+	{
+		DWORD bytesRead = 0;
+		ok = ReadFile( file, buffer, bytesToRead, &bytesRead, NULL );
+		if ( !ok && bytesToRead == bytesRead )
+		{
+			Win32ReportError();
+		}
+	}
 #elif PLATFORM_LINUX
-	u32 bytesRead = 0;
 	// TODO: Change this by system implementations
 	FILE *f = fopen(filename, "rb");
 	if ( f )
 	{
-		bytesRead = fread(buffer, sizeof(unsigned char), bufferSize - 1, f);
-		((byte*)buffer)[bytesRead] = 0;
+		u32 bytesRead = 0;
+		bytesRead = fread(buffer, sizeof(unsigned char), bytesToRead, f);
+		// TODO: Handle error
 		fclose(f);
 	}
 #endif
-	return bytesRead;
+	return ok;
 }
 
 FileOnMemory *PushFile( Arena& arena, const char *filename )
@@ -372,11 +383,12 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	{
 		Arena backupArena = arena;
 
-		u64 bufferSize = fileSize + 1; // +1 for final zero put by ReadEntireFile
+		u64 bufferSize = fileSize + 1; // +1 for final zero
 		byte *fileData = PushArray( arena, byte, bufferSize );
-		u64 bytesRead = ReadEntireFile( filename, fileData, bufferSize );
-		if ( bytesRead == fileSize )
+		bool ok = ReadEntireFile( filename, fileData, fileSize );
+		if ( ok )
 		{
+			fileData[fileSize] = 0; // final zero
 			file = PushStruct( arena, FileOnMemory );
 			file->data = fileData;
 			file->size = fileSize;
