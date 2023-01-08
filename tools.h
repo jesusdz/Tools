@@ -315,22 +315,15 @@ u64 GetFileSize(const char *filename)
 	u64 size = 0;
 #if PLATFORM_WINDOWS
 	WIN32_FILE_ATTRIBUTE_DATA Data;
-	if( GetFileAttributesExA(filepath, GetFileExInfoStandard, &Data) )
+	if( GetFileAttributesExA(filename, GetFileExInfoStandard, &Data) )
 	{
-		size |= Data.nFileSizeLow << 0;
-		size |= Data.nFileSizeHigh << 32;
+		size = (u64)Data.nFileSizeLow;
+		size |= (u64)Data.nFileSizeHigh << 32;
 	}
 	else
 	{
 		Win32ReportError();
 	}
-	//FILE *f = fopen(filename, "rb");
-	//if ( f )
-	//{
-	//	fseek(f, 0, SEEK_END);
-	//	size = ftell(f);
-	//	fclose(f);
-	//}
 #elif PLATFORM_LINUX
 	struct stat attrib;
 	if ( stat(filename, &attrib) == 0 )
@@ -387,7 +380,7 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	return file;
 }
 
-u64 GetFileLastWriteTimestamp(const char* filepath)
+u64 GetFileLastWriteTimestamp(const char* filename)
 {
 	u64 ts = 0;
 
@@ -398,7 +391,7 @@ u64 GetFileLastWriteTimestamp(const char* filepath)
 	} conversor;
 
 	WIN32_FILE_ATTRIBUTE_DATA Data;
-	if( GetFileAttributesExA(filepath, GetFileExInfoStandard, &Data) )
+	if( GetFileAttributesExA(filename, GetFileExInfoStandard, &Data) )
 	{
 		conversor.filetime = Data.ftLastWriteTime;
 		ts = conversor.u64time;
@@ -409,7 +402,7 @@ u64 GetFileLastWriteTimestamp(const char* filepath)
 	}
 #elif PLATFORM_LINUX
 	struct stat attrib;
-	if ( stat(filepath, &attrib) == 0 )
+	if ( stat(filename, &attrib) == 0 )
 	{
 		ts = attrib.st_mtime;
 	}
