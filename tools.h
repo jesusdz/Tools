@@ -1,8 +1,3 @@
-#include <assert.h> // assert
-#include <stdlib.h> // atof
-#include <stdio.h>  // printf, FILE, etc
-
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform definitions
@@ -22,9 +17,18 @@
 #include <Windows.h>
 #include <WindowsX.h>
 #elif PLATFORM_LINUX
-#include <time.h>
+#include <time.h> // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h>
 #endif
+
+#include <assert.h> // assert
+#include <stdlib.h> // atof
+#include <stdio.h>  // printf, FILE, etc
+// TODO: Remove C runtime library includes. But first...
+// TODO: Remove calls to fopen, fread, fclose, etc.
+// TODO: Remove calls to printf.
+// TODO: Custom version of assert.
+// TODO: Custom version of atof?
 
 
 
@@ -38,7 +42,6 @@ typedef int i32;
 typedef long long int i64;
 typedef unsigned char u8;
 typedef unsigned short int u16;
-typedef unsigned int u32;
 typedef unsigned int u32;
 typedef unsigned long long int u64;
 typedef float f32;
@@ -341,7 +344,13 @@ u64 GetFileSize(const char *filename)
 
 u64 ReadEntireFile(const char *filename, void *buffer, u64 bufferSize)
 {
-	u64 bytesRead = 0;
+#if PLATFORM_WINDOWS
+	DWORD bytesRead = 0;
+	HANDLE file = CreateFileA( filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
+	BOOL result = ReadFile( file, buffer, bufferSize, &bytesRead, NULL );
+	// TODO: Handle errors
+#elif PLATFORM_LINUX
+	u32 bytesRead = 0;
 	// TODO: Change this by system implementations
 	FILE *f = fopen(filename, "rb");
 	if ( f )
@@ -350,6 +359,7 @@ u64 ReadEntireFile(const char *filename, void *buffer, u64 bufferSize)
 		((byte*)buffer)[bytesRead] = 0;
 		fclose(f);
 	}
+#endif
 	return bytesRead;
 }
 
