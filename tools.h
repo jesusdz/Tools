@@ -23,6 +23,7 @@
 #include <WindowsX.h>
 #elif PLATFORM_LINUX
 #include <time.h>
+#include <sys/stat.h>
 #endif
 
 
@@ -82,6 +83,13 @@ void Win32ReportError()
 		LOG(Error, "Error: %s\n", (char*)messageBuffer);
 		LocalFree( messageBuffer );
 	}
+}
+
+#elif PLATFORM_LINUX
+
+void LinuxReportError()
+{
+	// TODO: Handle errno
 }
 
 #endif
@@ -305,6 +313,7 @@ struct FileOnMemory
 u32 GetFileSize(const char *filename)
 {
 	u32 size = 0;
+#if PLATFORM_WINDOWS
 	FILE *f = fopen(filename, "rb");
 	if ( f )
 	{
@@ -312,12 +321,24 @@ u32 GetFileSize(const char *filename)
 		size = ftell(f);
 		fclose(f);
 	}
+#elif PLATFORM_LINUX
+	struct stat attrib;
+	if ( stat(filename, &attrib) == 0 )
+	{
+		size = attrib.st_size;
+	}
+	else
+	{
+		LinuxReportError();
+	}
+#endif
 	return size;
 }
 
 u32 ReadEntireFile(const char *filename, void *buffer, u32 bufferSize)
 {
 	u32 bytesRead = 0;
+	// TODO: Change this by system implementations
 	FILE *f = fopen(filename, "rb");
 	if ( f )
 	{
@@ -376,8 +397,7 @@ u64 GetFileLastWriteTimestamp(const char* filepath)
 	{
 		Win32ReportError();
 	}
-#else
-	// NOTE: This has not been tested in unix-like systems
+#elif PLATFORM_LINUX
 	struct stat attrib;
 	if ( stat(filepath, &attrib) == 0 )
 	{
@@ -385,7 +405,7 @@ u64 GetFileLastWriteTimestamp(const char* filepath)
 	}
 	else
 	{
-		// TODO: Handle error
+		LinuxReportError();
 	}
 #endif
 
