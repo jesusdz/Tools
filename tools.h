@@ -367,7 +367,16 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	{
 		u32 bytesRead = 0;
 		bytesRead = fread(buffer, sizeof(unsigned char), bytesToRead, f);
-		// TODO: Handle error
+		ok = bytesRead == bytesToRead;
+		if ( !ok )
+		{
+			// The C standard library provides no way two know the type
+			// of error generated more than ferror / feof. We don't take
+			// feof into account, as for now we read entire files passing
+			// the exact file size, so EOF shouldn't be reached. If the
+			// number of bytes read differ, we assume an error occurred.
+			LOG(Error, "fread() failed reading %s\n", filename);
+		}
 		fclose(f);
 	}
 #endif
