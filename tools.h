@@ -307,20 +307,30 @@ void PrintArenaUsage(Arena &arena)
 struct FileOnMemory
 {
 	byte *data;
-	u32 size;
+	u64 size;
 };
 
-u32 GetFileSize(const char *filename)
+u64 GetFileSize(const char *filename)
 {
-	u32 size = 0;
+	u64 size = 0;
 #if PLATFORM_WINDOWS
-	FILE *f = fopen(filename, "rb");
-	if ( f )
+	WIN32_FILE_ATTRIBUTE_DATA Data;
+	if( GetFileAttributesExA(filepath, GetFileExInfoStandard, &Data) )
 	{
-		fseek(f, 0, SEEK_END);
-		size = ftell(f);
-		fclose(f);
+		size |= Data.nFileSizeLow << 0;
+		size |= Data.nFileSizeHigh << 32;
 	}
+	else
+	{
+		Win32ReportError();
+	}
+	//FILE *f = fopen(filename, "rb");
+	//if ( f )
+	//{
+	//	fseek(f, 0, SEEK_END);
+	//	size = ftell(f);
+	//	fclose(f);
+	//}
 #elif PLATFORM_LINUX
 	struct stat attrib;
 	if ( stat(filename, &attrib) == 0 )
@@ -335,9 +345,9 @@ u32 GetFileSize(const char *filename)
 	return size;
 }
 
-u32 ReadEntireFile(const char *filename, void *buffer, u32 bufferSize)
+u64 ReadEntireFile(const char *filename, void *buffer, u64 bufferSize)
 {
-	u32 bytesRead = 0;
+	u64 bytesRead = 0;
 	// TODO: Change this by system implementations
 	FILE *f = fopen(filename, "rb");
 	if ( f )
@@ -353,14 +363,14 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 {
 	FileOnMemory *file = 0;
 
-	u32 fileSize = GetFileSize( filename );
+	u64 fileSize = GetFileSize( filename );
 	if ( fileSize > 0 )
 	{
 		Arena backupArena = arena;
 
-		u32 bufferSize = fileSize + 1; // +1 for final zero put by ReadEntireFile
+		u64 bufferSize = fileSize + 1; // +1 for final zero put by ReadEntireFile
 		byte *fileData = PushArray( arena, byte, bufferSize );
-		u32 bytesRead = ReadEntireFile( filename, fileData, bufferSize );
+		u64 bytesRead = ReadEntireFile( filename, fileData, bufferSize );
 		if ( bytesRead == fileSize )
 		{
 			file = PushStruct( arena, FileOnMemory );
