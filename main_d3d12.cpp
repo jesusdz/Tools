@@ -63,7 +63,7 @@ struct GfxDevice
 
 	// Synchronization objects
 	ComPtr<ID3D12Fence> fence;
-	uint64_t fenceValue = 0;
+	uint64_t fenceValue = 0; // TODO: Find out if this must be removed
 	uint64_t frameFenceValues[FRAME_COUNT];
 	HANDLE fenceEvent;
 
@@ -427,9 +427,8 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 void RenderGraphics(GfxDevice &gfxDevice)
 {
 	// Get this frame resources
-	u32 frameIndex = gfxDevice.currentBackbufferIndex;
-	ComPtr<ID3D12CommandAllocator> commandAllocator = gfxDevice.commandAllocators[frameIndex];
-	ComPtr<ID3D12Resource> backBuffer = gfxDevice.backBuffers[frameIndex];
+	ComPtr<ID3D12CommandAllocator> commandAllocator = gfxDevice.commandAllocators[gfxDevice.currentBackbufferIndex];
+	ComPtr<ID3D12Resource> backBuffer = gfxDevice.backBuffers[gfxDevice.currentBackbufferIndex];
 
 	// Get the command list ready to work
 	commandAllocator->Reset();
@@ -445,7 +444,6 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-
 		gfxDevice.commandList->ResourceBarrier(1, &barrier);
 
 		FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
@@ -463,7 +461,6 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-
 		gfxDevice.commandList->ResourceBarrier(1, &barrier);
 
 		NoThrowIfFailed(gfxDevice.commandList->Close());
@@ -484,7 +481,6 @@ void RenderGraphics(GfxDevice &gfxDevice)
 			Signal(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue);
 
 		gfxDevice.currentBackbufferIndex = gfxDevice.swapChain->GetCurrentBackBufferIndex();
-
 		WaitForFenceValue(gfxDevice.fence, gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex], gfxDevice.fenceEvent);
 	}
 
