@@ -29,6 +29,7 @@
 // TODO: Remove calls to printf.
 // TODO: Custom version of assert.
 // TODO: Custom version of atof?
+// TODO: Implement static assert
 
 
 
@@ -42,7 +43,7 @@ typedef int i32;
 typedef long long int i64;
 typedef unsigned char u8;
 typedef unsigned short int u16;
-typedef unsigned int u32;
+typedef unsigned int u32; // TODO: Check type size on windows (32 or 64?)
 typedef unsigned long long int u64;
 typedef float f32;
 typedef double f64;
@@ -474,9 +475,17 @@ struct float4
 	union { float w, a; };
 };
 
-inline u32 Min( u32 a, u32 b ) { return a < b ? a : b; }
-inline u32 Max( u32 a, u32 b ) { return a > b ? a : b; }
-inline u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); }
+struct float4x4
+{
+	union {
+		f32 mat[4][4];
+		struct { float4 x, y, z, w; };
+	};
+};
+
+#define Min( a, b ) ( a < b ? a : b )
+#define Max( a, b ) ( a > b ? a : b )
+#define Clamp( v, min, max ) Min( Max( v, min ), max )
 
 
 

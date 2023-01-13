@@ -43,12 +43,6 @@ https://blogs.msdn.microsoft.com/chuckw/2012/05/07/hlsl-fxc-and-d3dcompile/
 
 static const UINT FRAME_COUNT = 2;
 
-struct Vertex
-{
-	float3 position;
-	float4 color;
-};
-
 struct GfxDevice
 {
 	ComPtr<ID3D12Device2> device;
@@ -63,7 +57,7 @@ struct GfxDevice
 
 	// Synchronization objects
 	ComPtr<ID3D12Fence> fence;
-	uint64_t fenceValue = 0; // TODO: Find out if this must be removed
+	uint64_t fenceValue = 0;
 	uint64_t frameFenceValues[FRAME_COUNT];
 	HANDLE fenceEvent;
 
@@ -72,6 +66,45 @@ struct GfxDevice
 	bool vsyncEnabled = true;
 	bool allowTearing = false;
 	bool fullscreen = false;
+
+	// Vertex buffer
+	ComPtr<ID3D12Resource> vertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
+	// Index buffer
+	ComPtr<ID3D12Resource> indexBuffer;
+	D3D12_INDEX_BUFFER_VIEW indexBufferView;
+
+	// Depth buffer: only one?
+	ComPtr<ID3D12Resource> depthBuffer;
+	ComPtr<ID3D12DescriptorHeap> depthStencilViewHeap;
+
+	// Root signature
+	ComPtr<ID3D12RootSignature> rootSignature;
+
+	// Pipeline state object (PSO)
+	ComPtr<ID3D12PipelineState> pipelineState;
+
+	D3D12_VIEWPORT viewport;
+	D3D12_RECT scissorRect;
+
+	f32 fov;
+	float4x4 modelMatrix;
+	float4x4 viewMatrix;
+	float4x4 projectionMatrix;
+
+	bool contentLoaded;
+};
+
+struct Vertex
+{
+	float2 Position;
+	float3 Color;
+};
+
+static const Vertex vertices[] = {
+	{{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
 
@@ -410,8 +443,65 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	for (u32 i = 0; i < FRAME_COUNT; ++i) { gfxDevice.frameFenceValues[i] = 0; }
 	gfxDevice.fenceEvent = fenceEvent;
 
-	//bool vsyncEnabled = true;
-	//bool fullscreen = false;
+
+	// New stuff
+	gfxDevice.scissorRect = {0, 0, LONG_MAX, LONG_MAX};
+	gfxDevice.viewport = {0.0f, 0.0f, (float)window.width, (float)window.height};
+	gfxDevice.fov = 45.0f;
+	gfxDevice.contentLoaded = false;
+
+	u32 bufferSize = sizeof(vertices);
+
+	ComPtr<ID3D12Resource> intermediateVertexBuffer;
+	D3D12_HEAP_PROPERTIES intermediateHeapProperties =
+		device->GetCustomHeapProperties(0, D3D12_HEAP_TYPE_UPLOAD);
+	D3D12_RESOURCE_DESC iResourceDesc = {};
+	iResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	iResourceDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+	iResourceDesc.Width = bufferSize;
+	iResourceDesc.Height = 1;
+	iResourceDesc.DepthOrArraySize = 1;
+	iResourceDesc.MipLevels = 1;
+	iResourceDesc.SampleDesc.Count = 1;
+	iResourceDesc.SampleDesc.Quality = 0;
+	iResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	iResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+	ThrowIfFailed(device->CreateCommittedResource(
+				&intermediateHeapProperties,
+				D3D12_HEAP_FLAG_NONE,
+				&iResourceDesc,
+				D3D12_RESOURCE_STATE_GENERIC_READ,
+				NULL,
+				IID_PPV_ARGS(&intermediateVertexBuffer)));
+
+	D3D12_HEAP_PROPERTIES destinationHeapProperties =
+		device->GetCustomHeapProperties(0, D3D12_HEAP_TYPE_DEFAULT);
+	D3D12_RESOURCE_DESC dResourceDesc = {};
+	dResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	dResourceDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+	dResourceDesc.Width = bufferSize;
+	dResourceDesc.Height = 1;
+	dResourceDesc.DepthOrArraySize = 1;
+	dResourceDesc.MipLevels = 1;
+	dResourceDesc.SampleDesc.Count = 1;
+	dResourceDesc.SampleDesc.Quality = 0;
+	dResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	dResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+	ThrowIfFailed(device->CreateCommittedResource(
+				&destinationHeapProperties,
+				D3D12_HEAP_FLAG_NONE,
+				&dResourceDesc,
+				D3D12_RESOURCE_STATE_COPY_DEST,
+				NULL,
+				IID_PPV_ARGS(&gfxDevice.vertexBuffer)));
+
+	D3D12_SUBRESOURCE_DATA subresourceData = {};
+	subresourceData.pData = &vertices;
+	subresourceData.RowPitch = bufferSize;
+	subresourceData.SlicePitch = bufferSize;
+ 
+ 	// TODO Upload subresources
+	//commandList->
 
 	return true;
 }

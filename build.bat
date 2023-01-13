@@ -28,6 +28,7 @@ REM cl %CommonCompilerFlags% ..\main_vulkan.cpp /link %CommonLinkerFlags%
 
 REM D3D12 window
 set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
+REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
 cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
 
 popd
