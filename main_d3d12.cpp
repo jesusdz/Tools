@@ -79,11 +79,9 @@ struct GfxDevice
 #define NoThrowIfFailed(hRes) hRes
 
 
-uint64_t Signal(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue)
+void SendFenceValue(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t fenceValue)
 {
-	uint64_t fenceValueForSignal = ++fenceValue;
-	ThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValueForSignal));
-	return fenceValueForSignal;
+	NoThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValue));
 }
 
 
@@ -98,10 +96,10 @@ void WaitForFenceValue(ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fe
 }
 
 
-void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue, HANDLE fenceEvent )
+void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fenceEvent )
 {
-	uint64_t fenceValueForSignal = Signal(commandQueue, fence, fenceValue);
-	WaitForFenceValue(fence, fenceValueForSignal, fenceEvent);
+	SendFenceValue(commandQueue, fence, fenceValue);
+	WaitForFenceValue(fence, fenceValue, fenceEvent);
 }
 
 
@@ -195,6 +193,7 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 
 bool RecreateSwapchain(GfxDevice &gfxDevice, Window &window)
 {
+	++gfxDevice.fenceValue;
 	Flush(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue, gfxDevice.fenceEvent);
 
 	for ( u32 i = 0; i < FRAME_COUNT; ++i )
@@ -419,6 +418,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
+	++gfxDevice.fenceValue;
 	Flush(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue, gfxDevice.fenceEvent);
 
 	::CloseHandle(gfxDevice.fenceEvent);
@@ -477,9 +477,12 @@ void RenderGraphics(GfxDevice &gfxDevice)
 		UINT presentFlags = gfxDevice.allowTearing && !gfxDevice.vsyncEnabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
 		NoThrowIfFailed(gfxDevice.swapChain->Present(syncInterval, presentFlags));
 
-		gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex] =
-			Signal(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue);
+		// After present, send a new fence value
+		++gfxDevice.fenceValue;
+		SendFenceValue(gfxDevice.commandQueue, gfxDevice.fence, gfxDevice.fenceValue);
+		gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex] = gfxDevice.fenceValue;
 
+		// Update backbuffer index and wait until it's ready
 		gfxDevice.currentBackbufferIndex = gfxDevice.swapChain->GetCurrentBackBufferIndex();
 		WaitForFenceValue(gfxDevice.fence, gfxDevice.frameFenceValues[gfxDevice.currentBackbufferIndex], gfxDevice.fenceEvent);
 	}
