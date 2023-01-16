@@ -381,7 +381,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 		{
 			Win32ReportError();
 		}
-		// TODO: Close file
+		CloseHandle( file );
 	}
 #elif PLATFORM_LINUX
 	int fd = open(filename, O_RDONLY);
