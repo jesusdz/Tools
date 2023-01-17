@@ -1,5 +1,5 @@
 /*
- * tool.h
+ * tools.h
  * Author: Jesus Diaz Garcia
  *
  * Single file library with several utilities among the following:
@@ -334,10 +334,9 @@ struct FileOnMemory
 	u64 size;
 };
 
-// TODO: Return some error code to handle failure
-u64 GetFileSize(const char *filename)
+bool GetFileSize(const char *filename, u64 &size)
 {
-	u64 size = 0;
+	bool ok = true;
 #if PLATFORM_WINDOWS
 	WIN32_FILE_ATTRIBUTE_DATA Data;
 	if( GetFileAttributesExA(filename, GetFileExInfoStandard, &Data) )
@@ -348,6 +347,7 @@ u64 GetFileSize(const char *filename)
 	else
 	{
 		Win32ReportError();
+		ok = false;
 	}
 #elif PLATFORM_LINUX
 	struct stat attrib;
@@ -358,9 +358,10 @@ u64 GetFileSize(const char *filename)
 	else
 	{
 		LinuxReportError();
+		ok = false;
 	}
 #endif
-	return size;
+	return ok;
 }
 
 bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
@@ -415,15 +416,12 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 {
 	FileOnMemory *file = 0;
 
-	u64 fileSize = GetFileSize( filename );
-	if ( fileSize > 0 )
+	u64 fileSize;
+	if ( GetFileSize( filename, fileSize ) && fileSize > 0 );
 	{
 		Arena backupArena = arena;
-
-		u64 bufferSize = fileSize + 1; // +1 for final zero
-		byte *fileData = PushArray( arena, byte, bufferSize );
-		bool ok = ReadEntireFile( filename, fileData, fileSize );
-		if ( ok )
+		byte *fileData = PushArray( arena, byte, fileSize + 1 );
+		if ( ReadEntireFile( filename, fileData, fileSize ) )
 		{
 			fileData[fileSize] = 0; // final zero
 			file = PushStruct( arena, FileOnMemory );
@@ -440,10 +438,9 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	return file;
 }
 
-// TODO: Return some error code to handle failure
-u64 GetFileLastWriteTimestamp(const char* filename)
+bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 {
-	u64 ts = 0;
+	bool ok = true;
 
 #if PLATFORM_WINDOWS
 	union Filetime2u64 {
@@ -460,6 +457,7 @@ u64 GetFileLastWriteTimestamp(const char* filename)
 	else
 	{
 		Win32ReportError();
+		ok = false;
 	}
 #elif PLATFORM_LINUX
 	struct stat attrib;
@@ -470,10 +468,11 @@ u64 GetFileLastWriteTimestamp(const char* filename)
 	else
 	{
 		LinuxReportError();
+		ok = false;
 	}
 #endif
 
-	return ts;
+	return ok;
 }
 
 

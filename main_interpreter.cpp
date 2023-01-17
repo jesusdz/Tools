@@ -1196,17 +1196,25 @@ void Run(Arena &arena, const char *script, u32 scriptSize)
 
 void RunFile(Arena &arena, const char* filename)
 {
-	u32 fileSize = GetFileSize(filename);
-	char* bytes = PushArray(arena, char, fileSize + 1);
-	bool ok = ReadEntireFile(filename, bytes, fileSize);
-	bytes[fileSize] = 0;
-	if ( ok )
+	u64 fileSize;
+	if ( GetFileSize(filename, fileSize) && fileSize > 0 )
 	{
-		Run(arena, bytes, fileSize);
+		Arena backupArena = arena;
+		char* bytes = PushArray(arena, char, fileSize + 1);
+		if ( ReadEntireFile(filename, bytes, fileSize) )
+		{
+			bytes[fileSize] = 0;
+			Run(arena, bytes, fileSize);
+		}
+		else
+		{
+			arena = backupArena;
+			LOG(Error, "ReadEntireFile() failed reading %s\n", filename);
+		}
 	}
 	else
 	{
-		LOG(Error, "ReadEntireFile() failed reading %s\n", filename);
+		LOG(Error, "GetFileSize() failed reading %s\n", filename);
 	}
 }
 
