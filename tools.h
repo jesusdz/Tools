@@ -1,3 +1,22 @@
+/*
+ * tool.h
+ * Author: Jesus Diaz Garcia
+ *
+ * Single file library with several utilities among the following:
+ * - Platform identification
+ * - Assertions, debugging, errors, logging
+ * - Aliases for sized types
+ * - Strings
+ * - Memory allocators
+ * - File reading
+ * - Mathematics
+ * - Clock / timing
+ * - Window creation
+ * - Input handling (mouse and keyboard)
+ */
+
+#ifndef TOOLS_H
+#define TOOLS_H
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform definitions
@@ -19,13 +38,14 @@
 #elif PLATFORM_LINUX
 #include <time.h> // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include <assert.h> // assert
 #include <stdlib.h> // atof
 #include <stdio.h>  // printf, FILE, etc
 // TODO: Remove C runtime library includes. But first...
-// TODO: Remove calls to fopen, fread, fclose, etc.
 // TODO: Remove calls to printf.
 // TODO: Custom version of assert.
 // TODO: Custom version of atof?
@@ -360,25 +380,32 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 		{
 			Win32ReportError();
 		}
+		// TODO: Close file
 	}
 #elif PLATFORM_LINUX
-	// TODO: Change this by system implementations
-	FILE *f = fopen(filename, "rb");
-	if ( f )
+	int fd = open(filename, O_RDONLY);
+	if ( fd == -1 )
 	{
-		u32 bytesRead = 0;
-		bytesRead = fread(buffer, sizeof(unsigned char), bytesToRead, f);
-		ok = bytesRead == bytesToRead;
-		if ( !ok )
+		LinuxReportError();
+	}
+	else
+	{
+		while ( bytesToRead > 0 )
 		{
-			// The C standard library provides no way two know the type
-			// of error generated more than ferror / feof. We don't take
-			// feof into account, as for now we read entire files passing
-			// the exact file size, so EOF shouldn't be reached. If the
-			// number of bytes read differ, we assume an error occurred.
-			LOG(Error, "fread() failed reading %s\n", filename);
+			u32 bytesRead = read(fd, buffer, bytesToRead);
+			if ( bytesRead > 0 )
+			{
+				bytesToRead -= bytesRead;
+				buffer = (byte*)buffer + bytesRead;
+			}
+			else
+			{
+				LinuxReportError();
+				break;
+			}
 		}
-		fclose(f);
+		ok = (bytesToRead == 0);
+		close(fd);
 	}
 #endif
 	return ok;
@@ -1114,4 +1141,6 @@ void ProcessWindowEvents(Window &window)
 }
 
 #endif // #if defined(TOOLS_WINDOW)
+
+#endif // #ifdef TOOLS_H
 
