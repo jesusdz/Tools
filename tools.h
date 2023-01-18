@@ -37,9 +37,12 @@
 #include <WindowsX.h>
 #elif PLATFORM_LINUX
 #include <time.h> // TODO: Find out if this header belongs to the C runtime library...
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include <sys/stat.h> // stat
+#include <fcntl.h>    // open
+#include <unistd.h>   // read, close
+#include <string.h>   // strerror_r
+#include <errno.h>    // errno
+#include <sys/mman.h>  // mmap
 #endif
 
 #include <stdlib.h> // atof
@@ -128,9 +131,11 @@ void Win32ReportError()
 
 #elif PLATFORM_LINUX
 
-void LinuxReportError()
+void LinuxReportError(const char *context)
 {
-	// TODO: Handle errno
+	char buffer[1024] = {};
+	const char *errorString = strerror_r(errno, buffer, ARRAY_COUNT(buffer));
+	LOG(Error, "Error (%s): %s\n", context, errorString);
 }
 
 #endif
@@ -234,9 +239,6 @@ f32 StrToFloat(const String &s)
 // Memory
 
 #if PLATFORM_LINUX || PLATFORM_APPLE
-
-#include<sys/mman.h>
-#include<sys/stat.h>
 
 void* AllocateVirtualMemory(u32 size)
 {
@@ -374,7 +376,7 @@ bool GetFileSize(const char *filename, u64 &size)
 	}
 	else
 	{
-		LinuxReportError();
+		LinuxReportError("stat");
 		ok = false;
 	}
 #endif
@@ -404,7 +406,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	int fd = open(filename, O_RDONLY);
 	if ( fd == -1 )
 	{
-		LinuxReportError();
+		LinuxReportError("open");
 	}
 	else
 	{
@@ -418,7 +420,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 			}
 			else
 			{
-				LinuxReportError();
+				LinuxReportError("read");
 				break;
 			}
 		}
@@ -484,7 +486,7 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	}
 	else
 	{
-		LinuxReportError();
+		LinuxReportError("stat");
 		ok = false;
 	}
 #endif
@@ -628,13 +630,13 @@ void XcbReportError( int xcbErrorCode, const char *context )
 		"XCB_CONN_CLOSED_INVALID_SCREEN",   // 6
 		"XCB_CONN_CLOSED_FDPASSING_FAILED", // 7
 	};
-	LOG(Error, "Xcb error at %s: %s\n", context, xcbErrorMessages[xcbErrorCode]);
+	LOG(Error, "Xcb error (%s): %s\n", context, xcbErrorMessages[xcbErrorCode]);
 }
 
 void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, const char *context )
 {
 	// TODO: Find a better way to report XCB generic errors
-	LOG(Error, "Xcb generic error at %s\n", context);
+	LOG(Error, "Xcb generic error (%s)\n", context);
 }
 
 #endif
