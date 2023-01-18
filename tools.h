@@ -42,32 +42,16 @@
 #include <unistd.h>
 #endif
 
-#include <assert.h> // assert
 #include <stdlib.h> // atof
 #include <stdio.h>  // printf, FILE, etc
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
-// TODO: Custom version of assert.
 // TODO: Custom version of atof?
-// TODO: Implement static assert
 
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Base types and definitions
-
-typedef char i8;
-typedef short int i16;
-typedef int i32;
-typedef int i32;
-typedef long long int i64;
-typedef unsigned char u8;
-typedef unsigned short int u16;
-typedef unsigned int u32; // TODO: Check type size on windows (32 or 64?)
-typedef unsigned long long int u64;
-typedef float f32;
-typedef double f64;
-typedef	unsigned char byte;
+// Useful defines
 
 #define internal static
 
@@ -76,10 +60,43 @@ typedef	unsigned char byte;
 #define GB(x) (1024ul * MB(x))
 #define TB(x) (1024ul * GB(x))
 
-#define ASSERT(expression) assert(expression)
+#define ASSERT(expression) if ( !(expression) ) { *((int*)0) = 0; }
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
+
+#define CT_ASSERT3(expression, line) static int ct_assert_##line[(expression) ? 1 : 0]
+#define CT_ASSERT2(expression, line) CT_ASSERT3(expression, line)
+#define CT_ASSERT(expression) CT_ASSERT2(expression, __LINE__)
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Sized types
+
+typedef char i8;
+typedef short int i16;
+typedef int i32;
+typedef long long int i64;
+typedef unsigned char u8;
+typedef unsigned short int u16;
+typedef unsigned int u32;
+typedef unsigned long long int u64;
+typedef float f32;
+typedef double f64;
+typedef	unsigned char byte;
+
+CT_ASSERT(sizeof(i8) == 1);
+CT_ASSERT(sizeof(i16) == 2);
+CT_ASSERT(sizeof(i32) == 4);
+CT_ASSERT(sizeof(i64) == 8);
+CT_ASSERT(sizeof(u8) == 1);
+CT_ASSERT(sizeof(u16) == 2);
+CT_ASSERT(sizeof(u32) == 4);
+CT_ASSERT(sizeof(u64) == 8);
+CT_ASSERT(sizeof(f32) == 4);
+CT_ASSERT(sizeof(f64) == 8);
+CT_ASSERT(sizeof(byte) == 1);
 
 
 
