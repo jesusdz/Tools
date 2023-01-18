@@ -36,17 +36,17 @@
 #include <Windows.h>
 #include <WindowsX.h>
 #elif PLATFORM_LINUX
-#include <time.h> // TODO: Find out if this header belongs to the C runtime library...
+#include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
 #include <fcntl.h>    // open
 #include <unistd.h>   // read, close
 #include <string.h>   // strerror_r
 #include <errno.h>    // errno
-#include <sys/mman.h>  // mmap
+#include <sys/mman.h> // mmap
 #endif
 
 #include <stdlib.h> // atof
-#include <stdio.h>  // printf, FILE, etc
+#include <stdio.h>  // printf
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
 // TODO: Custom version of atof?
@@ -333,9 +333,9 @@ void ResetArena(Arena &arena)
 
 void PrintArenaUsage(Arena &arena)
 {
-	printf("Memory Arena Usage:\n");
-	printf("- size: %u B / %u kB\n", arena.size, arena.size/1024);
-	printf("- used: %u B / %u kB\n", arena.used, arena.used/1024);
+	LOG(Info, "Memory Arena Usage:\n");
+	LOG(Info, "- size: %u B / %u kB\n", arena.size, arena.size/1024);
+	LOG(Info, "- used: %u B / %u kB\n", arena.used, arena.used/1024);
 }
 
 #define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer) )
