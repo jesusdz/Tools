@@ -615,7 +615,30 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 #if USE_XCB
 #	include <xcb/xcb.h>
+
+void XcbReportError( int xcbErrorCode, const char *context )
+{
+	static const char *xcbErrorMessages[] = {
+		"NO_ERROR",
+		"XCB_CONN_ERROR",                   // 1
+		"XCB_CONN_CLOSED_EXT_NOTSUPPORTED", // 2
+		"XCB_CONN_CLOSED_MEM_INSUFFICIENT", // 3
+		"XCB_CONN_CLOSED_REQ_LEN_EXCEED",   // 4
+		"XCB_CONN_CLOSED_PARSE_ERR",        // 5
+		"XCB_CONN_CLOSED_INVALID_SCREEN",   // 6
+		"XCB_CONN_CLOSED_FDPASSING_FAILED", // 7
+	};
+	LOG(Error, "Xcb error at %s: %s\n", context, xcbErrorMessages[xcbErrorCode]);
+}
+
+void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, const char *context )
+{
+	// TODO: Find a better way to report XCB generic errors
+	LOG(Error, "Xcb generic error at %s\n", context);
+}
+
 #endif
+
 
 
 enum Key
@@ -824,7 +847,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	Window *window = (Window*)GetPropA(hWnd, "WindowPointer");
+	Window *window = (Window*)GetPropA(hWnd, "WindowPtr");
 
 	switch (uMsg)
 	{
@@ -956,8 +979,13 @@ bool InitializeWindow(
 	// Connect to the X server
 	xcb_connection_t *xcbConnection = xcb_connect(NULL, NULL);
 
-	// TODO: Verify errors with:
-	// int xcb_connection_has_error(xcb_connection_t *c)
+	int xcbConnError = xcb_connection_has_error(xcbConnection);
+	if ( xcbConnError > 0 )
+	{
+		XcbReportError(xcbConnError, "xcb_connect");
+		xcb_disconnect(xcbConnection);
+		return false;
+	}
 
 	// Get the first screen
 	const xcb_setup_t *setup = xcb_get_setup(xcbConnection);
@@ -977,7 +1005,7 @@ bool InitializeWindow(
 
 	// Create a window
 	xcb_window_t xcbWindow = xcb_generate_id(xcbConnection);
-	xcb_create_window(
+	xcb_void_cookie_t createWindowCookie = xcb_create_window_checked(
 		xcbConnection,                 // xcb connection
 		XCB_COPY_FROM_PARENT,          // depth
 		xcbWindow,                     // window id
@@ -989,23 +1017,29 @@ bool InitializeWindow(
 		screen->root_visual,           // visual
 		mask, values);                 // value_mask, value_list
 
-	// TODO: Use xcb_create_window_checked to check errors here instead
+	xcb_generic_error_t *createWindowError = xcb_request_check(xcbConnection, createWindowCookie);
+	if ( createWindowError )
+	{
+		XcbReportGenericError(xcbConnection, createWindowError, "xcb_create_window_checked");
+		xcb_destroy_window(xcbConnection, xcbWindow);
+		xcb_disconnect(xcbConnection);
+		return false;
+	}
 
 	// Handle close event
-	xcb_intern_atom_cookie_t protocolCookie = xcb_intern_atom_unchecked(
-			xcbConnection, 1,
-			12, "WM_PROTOCOLS");
-	xcb_intern_atom_reply_t *protocolReply = xcb_intern_atom_reply(
-			xcbConnection, protocolCookie, 0);
-	xcb_intern_atom_cookie_t closeCookie = xcb_intern_atom_unchecked(
-			xcbConnection, 0,
-			16, "WM_DELETE_WINDOW");
-	xcb_intern_atom_reply_t *closeReply = xcb_intern_atom_reply(
-			xcbConnection, closeCookie, 0);
+	// TODO: Handle xcb_intern_atom errors
+	xcb_intern_atom_cookie_t protocolCookie = // handle error
+		xcb_intern_atom_unchecked( xcbConnection, 1, 12, "WM_PROTOCOLS");
+	xcb_intern_atom_reply_t *protocolReply =
+		xcb_intern_atom_reply( xcbConnection, protocolCookie, 0);
+	xcb_intern_atom_cookie_t closeCookie = // handle error
+		xcb_intern_atom_unchecked( xcbConnection, 0, 16, "WM_DELETE_WINDOW");
+	xcb_intern_atom_reply_t *closeReply =
+		xcb_intern_atom_reply( xcbConnection, closeCookie, 0);
 	u8 dataFormat = 32;
 	u32 dataLength = 1;
 	void *data = &closeReply->atom;
-	xcb_change_property(
+	xcb_change_property( // handle error
 			xcbConnection,
 			XCB_PROP_MODE_REPLACE,
 			xcbWindow,
@@ -1016,14 +1050,22 @@ bool InitializeWindow(
 	free(closeReply);
 
 	// Map the window to the screen
-	xcb_map_window(xcbConnection, xcbWindow);
+	xcb_void_cookie_t mapWindowCookie = xcb_map_window_checked(xcbConnection, xcbWindow);
+	xcb_generic_error_t *mapWindowError = xcb_request_check(xcbConnection, mapWindowCookie);
+	if ( mapWindowError )
+	{
+		XcbReportGenericError(xcbConnection, mapWindowError, "xcb_map_window_checked");
+		xcb_destroy_window(xcbConnection, xcbWindow);
+		xcb_disconnect(xcbConnection);
+		return false;
+	}
 
 	// Flush the commands before continuing
 	xcb_flush(xcbConnection);
 
 	// Get window info at this point
-	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( xcbConnection, xcbWindow );
-	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL );
+	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( xcbConnection, xcbWindow ); // handle error
+	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL ); // handle error
 
 	window.connection = xcbConnection;
 	window.window = xcbWindow;
@@ -1078,7 +1120,7 @@ bool InitializeWindow(
 		return false;
 	}
 
-	if ( !SetPropA(hWnd, "WindowPointer", &window) )
+	if ( !SetPropA(hWnd, "WindowPtr", &window) )
 	{
 		Win32ReportError();
 		return false;
