@@ -1,5 +1,7 @@
 @echo off
 
+REM TODO: Improve this .bat file so its easier to change among compiled targets
+
 IF NOT EXIST build mkdir build
 
 pushd build
@@ -27,9 +29,12 @@ REM set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 REM cl %CommonCompilerFlags% ..\main_vulkan.cpp /link %CommonLinkerFlags%
 
 REM D3D12 window
-set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
+REM set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
 REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
-cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
+
+REM My atof
+cl %CommonCompilerFlags% ..\main_atof.cpp /link %CommonLinkerFlags%
 
 popd
 
