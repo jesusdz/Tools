@@ -45,11 +45,9 @@
 #include <sys/mman.h> // mmap
 #endif
 
-#include <stdlib.h> // atof
 #include <stdio.h>  // printf
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
-// TODO: Custom version of atof?
 
 
 
@@ -224,12 +222,54 @@ bool StrEq(const char *s1, const char *s2)
 	return *s1 == *s2;
 }
 
+f32 StrToFloat(const char *str)
+{
+	i32 integer = 0;
+
+	// scan sign
+	i32 sign = 1.0f;
+	if (*str == '-') {
+		sign = -1.0f;
+		str++;
+	}
+
+	// scan integer part
+	while (*str >= '0' && *str <= '9') {
+		integer = (integer << 3) + (integer << 1); // x10
+		integer += *str++ - '0';
+	}
+
+	switch (*str++) {
+		case '.': break;
+		case ' ':
+		case '\n':
+		case '\0': return integer;
+		default: return 0.0f;
+	}
+
+	// scan decimal part
+	u32 tenPower = 1;
+	while (*str >= '0' && *str <= '9') {
+		tenPower = (tenPower << 3) + (tenPower << 1);
+		integer = (integer << 3) + (integer << 1); // x10
+		integer += *str++ - '0';
+	}
+
+	switch (*str++) {
+		case ' ':
+		case 'f':
+		case '\n':
+		case '\0': return sign * integer / (f32)tenPower;
+		default: return 0.0f;
+	}
+}
+
 f32 StrToFloat(const String &s)
 {
-	char buf[256] = {};
-	ASSERT(s.size + 1 < ARRAY_COUNT(buf));
-	StrCopy(buf, s);
-	f32 number = atof(buf);
+	char str[256] = {};
+	ASSERT(s.size < ARRAY_COUNT(str));
+	StrCopy(str, s);
+	f32 number = StrToFloat(str);
 	return number;
 }
 
