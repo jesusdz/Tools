@@ -1,9 +1,12 @@
 @echo off
 
-REM TODO: Improve this .bat file so its easier to change among compiled targets
-
 IF NOT EXIST build mkdir build
 
+:: Target to build
+set target=%1
+if [%target%]==[] set target=main_interpreter.cpp
+
+:: Build binaries
 pushd build
 
 del /Q *.* > NUL 2> NUL
@@ -20,29 +23,44 @@ REM Flags for preprocessor pass
 REM set CommonCompilerFlags=-P -Fipreprocessed.cpp
 REM set CommonLinkerFlags=
 
-REM Interpreter
-REM cl %CommonCompilerFlags% ..\main_interpreter.cpp /link %CommonLinkerFlags%
+if "%target%" == "main_interpreter.cpp" (
 
-REM Vulkan window
-REM set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
-REM set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-REM cl %CommonCompilerFlags% ..\main_vulkan.cpp /link %CommonLinkerFlags%
+	set CommonCompilerFlags=%CommonCompilerFlags%
+	set CommonLinkerFlags=%CommonLinkerFlags%
 
-REM D3D12 window
-REM set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
-REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
-REM cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
+) else if "%target%" == "main_vulkan.cpp" (
 
-REM My atof
-cl %CommonCompilerFlags% ..\main_atof.cpp /link %CommonLinkerFlags%
+	set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
+	set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
+
+) else if "%target%" == "main_d3d12.cpp" (
+
+	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
+	REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
+
+) else if "%target%" == "main_atof.cpp" (
+
+	set CommonCompilerFlags=%CommonCompilerFlags%
+	set CommonLinkerFlags=%CommonLinkerFlags%
+
+) else (
+
+	echo Invalid target: %target%
+	popd
+	exit /b
+)
+
+cl %CommonCompilerFlags% ..\%target% /link %CommonLinkerFlags%
 
 popd
 
+:: Build shaders
 pushd shaders
 
-REM Build shaders
-REM glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
-REM glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+if "%target%"=="main_vulkan.cpp" (
+	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
+	glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+)
 
 popd
 

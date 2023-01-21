@@ -985,7 +985,7 @@ Value Evaluate(Arena &arena, Expr *expr, Environment &env)
 					value.f = -value.f;
 					break;
 				case TOKEN_NOT:
-					assert( value.type == VALUE_TYPE_BOOL );
+					ASSERT( value.type == VALUE_TYPE_BOOL );
 					value.b = !value.b;
 					break;
 				default:
