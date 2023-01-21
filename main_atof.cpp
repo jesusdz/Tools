@@ -5,7 +5,14 @@
 
 f32 myatof(const char *str)
 {
-	u32 integer = 0;
+	i32 integer = 0;
+
+	// scan sign
+	i32 sign = 1.0f;
+	if (*str == '-') {
+		sign = -1.0f;
+		str++;
+	}
 
 	// scan integer part
 	while (*str >= '0' && *str <= '9') {
@@ -37,7 +44,7 @@ f32 myatof(const char *str)
 		case 'f':
 		case '\n':
 		case '\0':
-			return integer / (f32)tenPower;
+			return sign * integer / (f32)tenPower;
 		default:
 			return 0.0f;
 	}
@@ -45,7 +52,10 @@ f32 myatof(const char *str)
 
 int main()
 {
-	const char *numbers [] = { "0", "0.0f", "10.54", "10.54f", ".43", ".43f", "5.f" };
+	const char *numbers [] = {
+		"0", "0.0f", "10.54", "10.54f", ".43", ".43f", "5.f",
+		"-0", "-0.0f", "-10.54", "-10.54f", "-.43", "-.43f", "-5.f"
+	};
 
 #if TEST_FUNCTIONALITY
 	LOG(Info, "Functional test:\n");
@@ -61,7 +71,7 @@ int main()
 #if TEST_PERFORMANCE
 	LOG(Info, "Performance test:\n");
 
-	float sum = 0.0f;
+	f32 sum = 0.0f;
 
 	Clock c0 = GetClock();
 	for ( u32 j = 0; j < 999999; ++j )
@@ -85,8 +95,9 @@ int main()
 
 	Clock c2 = GetClock();
 
-	LOG(Info, "- atof: %f seconds\n", GetSecondsElapsed(c0, c1));
-	LOG(Info, "- myatof: %f seconds\n", GetSecondsElapsed(c1, c2));
+	LOG(Info, "- atof: %f seconds\n", GetSecondsElapsed(c0, c1), sum);
+	LOG(Info, "- myatof: %f seconds\n", GetSecondsElapsed(c1, c2), sum);
+	// NOTE: The last unused argument 'sum' is to avoid optimizing the loops
 #endif
 
 	return 0;

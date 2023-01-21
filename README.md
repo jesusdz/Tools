@@ -28,6 +28,7 @@ Currently, there are the following *in-progress* projects:
 * `main_interpreter`: Implementation of a scripted language interpreter. Following the contents of the *Crafting interpreters* book (by Robert Nystrom).
 * `main_vulkan`: Implementation of a graphics application template using the Vulkan graphics API.
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
+* `main_atof`: Custom implementation of the atof (ASCII to float) function.
 
 
 ## Dependencies
