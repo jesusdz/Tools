@@ -657,6 +657,7 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 #if USE_XCB
 #	include <xcb/xcb.h>
+#	include <stdlib.h> // free
 
 void XcbReportError( int xcbErrorCode, const char *context )
 {

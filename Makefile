@@ -13,5 +13,5 @@ shaders:
 	glslc -fshader-stage=fragment shaders/fragment.glsl -o shaders/fragment.spv
 
 clean:
-	rm -f main_interpreter main_vulkan shaders/*.spv
+	rm -f main_interpreter main_vulkan main_atof shaders/*.spv
 
