@@ -20,11 +20,10 @@
 #include <wrl.h>
 using Microsoft::WRL::ComPtr;
 
-#include <d3d12.h>          // D3D12 interface
+#include "d3dx12.h"
 #include <dxgi1_6.h>        // DirectX graphics infrastructure (adapters, presentation, etc)
 #include <d3dcompiler.h>    // Utilities to compile HLSL code at runtime
 #include <d3d12sdklayers.h>
-//#include <d3dx12.h>
 
 #include <stdint.h>
 
@@ -71,8 +70,8 @@ struct GfxDevice
 	ComPtr<ID3D12Resource> vertexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
 	// Index buffer
-	ComPtr<ID3D12Resource> indexBuffer;
-	D3D12_INDEX_BUFFER_VIEW indexBufferView;
+	//ComPtr<ID3D12Resource> indexBuffer;
+	//D3D12_INDEX_BUFFER_VIEW indexBufferView;
 
 	// Depth buffer: only one?
 	ComPtr<ID3D12Resource> depthBuffer;
@@ -450,7 +449,8 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	gfxDevice.fov = 45.0f;
 	gfxDevice.contentLoaded = false;
 
-	u32 bufferSize = sizeof(vertices);
+	// Upload vertex buffer
+	u32 vertexBufferSize = sizeof(vertices);
 
 	ComPtr<ID3D12Resource> intermediateVertexBuffer;
 	D3D12_HEAP_PROPERTIES intermediateHeapProperties =
@@ -458,7 +458,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	D3D12_RESOURCE_DESC iResourceDesc = {};
 	iResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	iResourceDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-	iResourceDesc.Width = bufferSize;
+	iResourceDesc.Width = vertexBufferSize;
 	iResourceDesc.Height = 1;
 	iResourceDesc.DepthOrArraySize = 1;
 	iResourceDesc.MipLevels = 1;
@@ -479,7 +479,7 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 	D3D12_RESOURCE_DESC dResourceDesc = {};
 	dResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	dResourceDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-	dResourceDesc.Width = bufferSize;
+	dResourceDesc.Width = vertexBufferSize;
 	dResourceDesc.Height = 1;
 	dResourceDesc.DepthOrArraySize = 1;
 	dResourceDesc.MipLevels = 1;
@@ -497,11 +497,38 @@ bool InitializeGraphics(Arena &arena, Window &window, GfxDevice &gfxDevice)
 
 	D3D12_SUBRESOURCE_DATA subresourceData = {};
 	subresourceData.pData = &vertices;
-	subresourceData.RowPitch = bufferSize;
-	subresourceData.SlicePitch = bufferSize;
+	subresourceData.RowPitch = vertexBufferSize;
+	subresourceData.SlicePitch = vertexBufferSize;
  
- 	// TODO Upload subresources
-	//commandList->
+	UpdateSubresources(commandList.Get(),
+		gfxDevice.vertexBuffer.Get(), intermediateVertexBuffer.Get(),
+		0, 0, 1, &subresourceData);
+
+	// Vertex buffer view
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
+	vertexBufferView.BufferLocation = gfxDevice.vertexBuffer->GetGPUVirtualAddress();
+	vertexBufferView.SizeInBytes = vertexBufferSize;
+	vertexBufferView.StrideInBytes = sizeof(Vertex);
+	gfxDevice.vertexBufferView = vertexBufferView;
+
+	// Upload index buffer
+	//ComPtr<ID3D12Resource> intermediateIndexBuffer;
+	//UpdateBufferResource(commandList.Get(), &gfxDevice.indexBuffer, &intermediateIndexBuffer, ARRAY_COUNT(indices), sizeof(WORD), indices);
+	// TODO: Move all the previous vertex buffer upload stuff into a new function
+	// and reuse the function to upload an index buffer... but for now, we will
+	// go forward without indices
+
+
+	// Depth stencil view
+	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+	dsvHeapDesc.NumDescriptors = 1;
+	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	ThrowIfFailed(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&gfxDevice.depthStencilViewHeap)));
+
+
+	// Load the shaders
+	// TODO
 
 	return true;
 }

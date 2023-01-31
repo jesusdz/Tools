@@ -4,7 +4,7 @@ IF NOT EXIST build mkdir build
 
 :: Target to build
 set target=%1
-if [%target%]==[] set target=main_interpreter.cpp
+if [%target%]==[] set target=main_d3d12.cpp
 
 :: Build binaries
 pushd build
@@ -35,7 +35,7 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_d3d12.cpp" (
 
-	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib user32.lib
+	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib
 	REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
 
 ) else if "%target%" == "main_atof.cpp" (
