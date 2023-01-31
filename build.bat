@@ -57,9 +57,16 @@ popd
 :: Build shaders
 pushd shaders
 
+del *.spv *.dxil *.pdb
+
 if "%target%"=="main_vulkan.cpp" (
 	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
 	glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+)
+
+if "%target%"=="main_d3d12.cpp" (
+	dxc -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.dxil vertex.hlsl
+	dxc -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.dxil fragment.hlsl
 )
 
 popd
