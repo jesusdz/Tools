@@ -35,8 +35,8 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_d3d12.cpp" (
 
-	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib
-	REM set CommonLinkerFlags=%CommonLinkerFlags% d3dcompiler_47.lib
+	set CommonCompilerFlags=%CommonCompilerFlags% /EHsc
+	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib d3dcompiler.lib
 
 ) else if "%target%" == "main_atof.cpp" (
 
@@ -57,7 +57,7 @@ popd
 :: Build shaders
 pushd shaders
 
-del *.spv *.dxil *.pdb
+del /Q *.spv *.dxil *.pdb
 
 if "%target%"=="main_vulkan.cpp" (
 	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
@@ -65,8 +65,8 @@ if "%target%"=="main_vulkan.cpp" (
 )
 
 if "%target%"=="main_d3d12.cpp" (
-	dxc -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.dxil vertex.hlsl
-	dxc -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.dxil fragment.hlsl
+	dxc -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hlsl
+	dxc -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.cso fragment.hlsl
 )
 
 popd
