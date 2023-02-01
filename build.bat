@@ -35,7 +35,7 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_d3d12.cpp" (
 
-	set CommonCompilerFlags=%CommonCompilerFlags% /EHsc
+	set CommonCompilerFlags=%CommonCompilerFlags%
 	set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib d3dcompiler.lib
 
 ) else if "%target%" == "main_atof.cpp" (

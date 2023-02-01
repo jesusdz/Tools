@@ -20,12 +20,11 @@
 #include <wrl.h>
 using Microsoft::WRL::ComPtr;
 
+#define D3DX12_NO_STATE_OBJECT_HELPERS
 #include "d3dx12.h"
+
 #include <dxgi1_6.h>        // DirectX graphics infrastructure (adapters, presentation, etc)
 #include <d3dcompiler.h>    // Utilities to compile HLSL code at runtime
-#include <d3d12sdklayers.h>
-
-#include <stdint.h>
 
 /*
 NOTE:
@@ -56,8 +55,8 @@ struct GfxDevice
 
 	// Synchronization objects
 	ComPtr<ID3D12Fence> fence;
-	uint64_t fenceValue = 0;
-	uint64_t frameFenceValues[FRAME_COUNT];
+	u64 fenceValue = 0;
+	u64 frameFenceValues[FRAME_COUNT];
 	HANDLE fenceEvent;
 
 	// By default, enable V-Sync.
@@ -111,13 +110,13 @@ static const Vertex vertices[] = {
 #define NoThrowIfFailed(hRes) hRes
 
 
-void SendFenceValue(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t fenceValue)
+void SendFenceValue(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, u64 fenceValue)
 {
 	NoThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValue));
 }
 
 
-void WaitForFenceValue(ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fenceEvent, u64 duration = UINT64_MAX)
+void WaitForFenceValue(ComPtr<ID3D12Fence> fence, u64 fenceValue, HANDLE fenceEvent, u64 duration = UINT64_MAX)
 {
 	if (fence->GetCompletedValue() < fenceValue)
 	{
@@ -128,7 +127,7 @@ void WaitForFenceValue(ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fe
 }
 
 
-void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t fenceValue, HANDLE fenceEvent )
+void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, u64 fenceValue, HANDLE fenceEvent )
 {
 	SendFenceValue(commandQueue, fence, fenceValue);
 	WaitForFenceValue(fence, fenceValue, fenceEvent);
@@ -152,9 +151,9 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 	ComPtr<IDXGIFactory4> dxgiFactory;
 	ThrowIfFailed(D3D12CreateDXGIFactory(dxgiFactory));
 
-	uint32_t width = 0;
-	uint32_t height = 0;
-	uint32_t bufferCount = FRAME_COUNT;
+	u32 width = 0;
+	u32 height = 0;
+	u32 bufferCount = FRAME_COUNT;
 	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
 	swapChainDesc.Width = width;
 	swapChainDesc.Height = height;
