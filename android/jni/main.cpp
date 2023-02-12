@@ -11,10 +11,9 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
 
-#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "native-activity", __VA_ARGS__))
-#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "native-activity", __VA_ARGS__))
+#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "tools", __VA_ARGS__))
+#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "tools", __VA_ARGS__))
 
-#if 0
 /**
  * Our saved state data.
  */
@@ -140,12 +139,14 @@ static int engine_init_display(struct engine* engine) {
 static void engine_draw_frame(struct engine* engine) {
     if (engine->display == NULL) {
         // No display.
+		LOGW("No display");
         return;
     }
 
     // Just fill the screen with a color.
-    glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
-                 ((float)engine->state.y)/engine->height, 1);
+    //glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
+    //             ((float)engine->state.y)/engine->height, 1);
+	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     eglSwapBuffers(engine->display, engine->surface);
@@ -232,7 +233,6 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
             break;
     }
 }
-#endif
 
 /**
  * This is the main entry point of a native application that is using
@@ -241,8 +241,8 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
  */
 void android_main(struct android_app* state) {
 
-	LOGI("Hello native activity!");
-#if 0
+	LOGW("Hello native activity!");
+
     struct engine engine;
 
     memset(&engine, 0, sizeof(engine));
@@ -317,5 +317,4 @@ void android_main(struct android_app* state) {
             engine_draw_frame(&engine);
         }
     }
-#endif
 }
