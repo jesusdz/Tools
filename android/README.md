@@ -8,6 +8,8 @@ Download and unzip the following files:
 * [Commandline tools](https://developer.android.com/studio) (at the bottom of the page)
 * [Android NDK](https://developer.android.com/ndk/downloads)
 * [Android SDK Platform tools](https://developer.android.com/studio/releases/platform-tools)
+* [System.loadLibrary() couldn't find native librery](https://stackoverflow.com/questions/27421134/system-loadlibrary-couldnt-find-native-library-in-my-case)
+* [AAPT2](https://developer.android.com/studio/command-line/aapt2)
 
 ## Java
 
