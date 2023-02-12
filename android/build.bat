@@ -112,8 +112,8 @@ REM ------------------------------------------------------
 REM Compile java code from 'src' to 'obj' directory
 REM  -source 1.7 -target 1.7
 REM  -source 1.7 -target 1.7
-call %JAVA_HOME%\bin\javac -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
-call %JAVA_HOME%\bin\javac -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
+call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
+call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
 
 
 REM ------------------------------------------------------
