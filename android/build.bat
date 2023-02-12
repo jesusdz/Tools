@@ -34,6 +34,9 @@ REM set OUT_LIB_DIR=lib\armeabi-v7a
 REM set OUT_LIB_DIR=lib\x86
 REM set OUT_LIB_DIR=lib\x86_64
 
+REM We avoid backslashes for the AAPT command
+set AAPT_LIB_DIR=%OUT_LIB_DIR:\=/%
+
 
 
 REM ######################################################
@@ -107,9 +110,10 @@ call %BUILD_TOOLS%\aapt package -v -f -m  -S res -J src -M AndroidManifest.xml -
 
 REM ------------------------------------------------------
 REM Compile java code from 'src' to 'obj' directory
-
-call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
-call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
+REM  -source 1.7 -target 1.7
+REM  -source 1.7 -target 1.7
+call %JAVA_HOME%\bin\javac -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
+call %JAVA_HOME%\bin\javac -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
 
 
 REM ------------------------------------------------------
@@ -131,29 +135,10 @@ call %BUILD_TOOLS%\aapt package -v -f -M AndroidManifest.xml -S res -I %ANDROID_
 REM ------------------------------------------------------
 REM Add the native activity and other libs to the APK
 
-call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk %OUT_LIB_DIR%\libgame.so
-call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk %OUT_LIB_DIR%\liblog.so
-call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk %OUT_LIB_DIR%\libmyapplication.so
+call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libgame.so"
 
-REM copy "%TOOLCHAIN_LIB_DIR%\libc++_shared.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\libc++_shared.so"
-
-REM mkdir lib\arm64 2>nul
-REM copy %OUT_LIB_DIR%\*.* lib\arm64
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "lib\arm64\libgame.so"
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "lib\arm64\libc++_shared.so"
-
-REM copy "%TOOLCHAIN_LIB_DIR%\33\libc++.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\libc++.so"
-REM copy "%TOOLCHAIN_LIB_DIR%\33\libandroid.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\libandroid.so"
-REM copy "%TOOLCHAIN_LIB_DIR%\33\liblog.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\liblog.so"
-REM copy "%TOOLCHAIN_LIB_DIR%\33\libEGL.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\libEGL.so"
-REM copy "%TOOLCHAIN_LIB_DIR%\33\libGLESv1_CM.so" %OUT_LIB_DIR%\
-REM call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%OUT_LIB_DIR%\libGLESv1_CM.so"
-
+copy "%TOOLCHAIN_LIB_DIR%\libc++_shared.so" %OUT_LIB_DIR%\
+call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libc++_shared.so"
 
 
 REM ------------------------------------------------------
