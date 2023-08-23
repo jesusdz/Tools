@@ -40,7 +40,7 @@ We can add the `%ANDROID_SDK_ROOT\cmdline-tools\latest\bin%` to our `PATH` envir
 
 Now, let's install the latest build tools (that include `aapt`, `aapt2`, `zipalign`...):
 ```
-sdkmanager --install "build-tools;33.0.1"
+sdkmanager --install "build-tools;33.0.2"
 ```
 
 Now, the platform tools (which contains `adb`):
