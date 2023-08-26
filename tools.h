@@ -23,6 +23,8 @@
 
 #if _WIN32
 #	define PLATFORM_WINDOWS 1
+#elif __ANDROID__
+#	define PLATFORM_ANDROID 1
 #elif __linux__
 #	define PLATFORM_LINUX 1
 #elif __APPLE__
@@ -35,7 +37,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <WindowsX.h>
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
 #include <fcntl.h>    // open
@@ -44,6 +46,13 @@
 #include <errno.h>    // errno
 #include <sys/mman.h> // mmap
 #endif
+
+#if PLATFORM_ANDROID
+#include <android/sensor.h>
+#include <android/log.h>
+#include <android_native_app_glue.h>
+#endif
+
 
 #include <stdio.h>  // printf
 // TODO: Remove C runtime library includes. But first...
@@ -61,7 +70,11 @@
 #define GB(x) (1024ul * MB(x))
 #define TB(x) (1024ul * GB(x))
 
+#if PLATFORM_ANDROID
+#define ASSERT(expression) if ( !(expression) ) { __builtin_trap(); }
+#else
 #define ASSERT(expression) if ( !(expression) ) { *((int*)0) = 0; }
+#endif
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
@@ -127,7 +140,7 @@ void Win32ReportError()
 	}
 }
 
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 
 void LinuxReportError(const char *context)
 {
@@ -278,7 +291,7 @@ f32 StrToFloat(const String &s)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Memory
 
-#if PLATFORM_LINUX || PLATFORM_APPLE
+#if PLATFORM_LINUX || PLATFORM_ANDROID || PLATFORM_APPLE
 
 void* AllocateVirtualMemory(u32 size)
 {
@@ -408,7 +421,7 @@ bool GetFileSize(const char *filename, u64 &size)
 		Win32ReportError();
 		ok = false;
 	}
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	struct stat attrib;
 	if ( stat(filename, &attrib) == 0 )
 	{
@@ -442,7 +455,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 		}
 		CloseHandle( file );
 	}
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	int fd = open(filename, O_RDONLY);
 	if ( fd == -1 )
 	{
@@ -476,7 +489,7 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 	FileOnMemory *file = 0;
 
 	u64 fileSize;
-	if ( GetFileSize( filename, fileSize ) && fileSize > 0 );
+	if ( GetFileSize( filename, fileSize ) && fileSize > 0 )
 	{
 		Arena backupArena = arena;
 		byte *fileData = PushArray( arena, byte, fileSize + 1 );
@@ -518,7 +531,7 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 		Win32ReportError();
 		ok = false;
 	}
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	struct stat attrib;
 	if ( stat(filename, &attrib) == 0 )
 	{
@@ -581,7 +594,7 @@ struct Clock
 {
 #if PLATFORM_WINDOWS
 	LARGE_INTEGER counter;
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	timespec timeSpec;
 #else
 #	error "Missing implementation"
@@ -608,7 +621,7 @@ Clock GetClock()
 	Clock clock;
 #if PLATFORM_WINDOWS
 	QueryPerformanceCounter(&clock.counter);
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	clock_gettime(CLOCK_MONOTONIC, &clock.timeSpec);
 #endif
 	return clock;
@@ -623,7 +636,7 @@ float GetSecondsElapsed(Clock start, Clock end)
 			(float)(end.counter.QuadPart - start.counter.QuadPart) /
 			(float)gPerformanceCounterFrequency );
 	return elapsedSeconds;
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	ASSERT( start.timeSpec.tv_sec < end.timeSpec.tv_sec || (
 				start.timeSpec.tv_sec == end.timeSpec.tv_sec &&
 				start.timeSpec.tv_nsec <= end.timeSpec.tv_nsec ) );
@@ -650,6 +663,8 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 #if PLATFORM_LINUX
 #	define USE_XCB 1
+#elif PLATFORM_ANDROID
+#	define USE_ANDROID 1
 #elif PLATFORM_WINDOWS
 #	define USE_WINAPI 1
 #endif
@@ -756,6 +771,8 @@ struct Window
 	xcb_connection_t *connection;
 	xcb_window_t window;
 	xcb_atom_t closeAtom;
+#elif USE_ANDROID
+	ANativeWindow *window;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
@@ -1221,6 +1238,10 @@ void ProcessWindowEvents(Window &window)
 		XcbWindowProc(window, event);
 		free(event);
 	}
+
+#elif USE_ANDROID
+
+	// TODO: Event handling on Android
 
 #elif USE_WINAPI
 

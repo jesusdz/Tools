@@ -1,11 +1,20 @@
+//#define USE_VULKAN 1
+#define USE_OPENGL 1
+
+#if USE_VULKAN
+#include "main_vulkan.cpp"
+#endif
+
 #include <initializer_list>
 #include <jni.h>
 #include <errno.h>
 #include <cassert>
 #include <string.h>
 
+#if USE_OPENGL
 #include <EGL/egl.h>
 #include <GLES/gl.h>
+#endif
 
 #include <android/sensor.h>
 #include <android/log.h>
@@ -17,8 +26,7 @@
 /**
  * Our saved state data.
  */
-struct saved_state {
-    float angle;
+struct SavedState {
     int32_t x;
     int32_t y;
 };
@@ -26,26 +34,30 @@ struct saved_state {
 /**
  * Shared state for our app.
  */
-struct engine {
+struct Engine {
     struct android_app* app;
 
     ASensorManager* sensorManager;
     const ASensor* accelerometerSensor;
     ASensorEventQueue* sensorEventQueue;
 
-    int animating;
+#if USE_OPENGL
     EGLDisplay display;
     EGLSurface surface;
     EGLContext context;
+#endif
     int32_t width;
     int32_t height;
-    struct saved_state state;
+    SavedState state;
 };
 
 /**
- * Initialize an EGL context for the current display.
+ * Initialize a graphics context for the current display.
  */
-static int engine_init_display(struct engine* engine) {
+static int engine_init_display(Engine* engine)
+{
+#if USE_OPENGL
+
     // initialize OpenGL ES and EGL
 
     /*
@@ -117,7 +129,6 @@ static int engine_init_display(struct engine* engine) {
     engine->surface = surface;
     engine->width = w;
     engine->height = h;
-    engine->state.angle = 0;
 
     // Check openGL on the system
     auto opengl_info = {GL_VENDOR, GL_RENDERER, GL_VERSION, GL_EXTENSIONS};
@@ -129,6 +140,7 @@ static int engine_init_display(struct engine* engine) {
     glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
     glEnable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
+#endif
 
     return 0;
 }
@@ -136,7 +148,9 @@ static int engine_init_display(struct engine* engine) {
 /**
  * Just the current frame in the display.
  */
-static void engine_draw_frame(struct engine* engine) {
+static void engine_draw_frame(Engine* engine) {
+
+#if USE_OPENGL
     if (engine->display == NULL) {
         // No display.
 		LOGW("No display");
@@ -144,18 +158,19 @@ static void engine_draw_frame(struct engine* engine) {
     }
 
     // Just fill the screen with a color.
-    //glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
-    //             ((float)engine->state.y)/engine->height, 1);
 	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     eglSwapBuffers(engine->display, engine->surface);
+#endif
 }
 
 /**
- * Tear down the EGL context currently associated with the display.
+ * Tear down the graphics context currently associated with the display.
  */
-static void engine_term_display(struct engine* engine) {
+static void engine_term_display(Engine* engine)
+{
+#if USE_OPENGL
     if (engine->display != EGL_NO_DISPLAY) {
         eglMakeCurrent(engine->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (engine->context != EGL_NO_CONTEXT) {
@@ -166,19 +181,18 @@ static void engine_term_display(struct engine* engine) {
         }
         eglTerminate(engine->display);
     }
-    engine->animating = 0;
     engine->display = EGL_NO_DISPLAY;
     engine->context = EGL_NO_CONTEXT;
     engine->surface = EGL_NO_SURFACE;
+#endif
 }
 
 /**
  * Process the next input event.
  */
 static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
-    struct engine* engine = (struct engine*)app->userData;
+    Engine* engine = (Engine*)app->userData;
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
-        engine->animating = 1;
         engine->state.x = AMotionEvent_getX(event, 0);
         engine->state.y = AMotionEvent_getY(event, 0);
         return 1;
@@ -190,13 +204,13 @@ static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) 
  * Process the next main command.
  */
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
-    struct engine* engine = (struct engine*)app->userData;
+    Engine* engine = (Engine*)app->userData;
     switch (cmd) {
         case APP_CMD_SAVE_STATE:
             // The system has asked us to save our current state.  Do so.
-            engine->app->savedState = malloc(sizeof(struct saved_state));
-            *((struct saved_state*)engine->app->savedState) = engine->state;
-            engine->app->savedStateSize = sizeof(struct saved_state);
+            engine->app->savedState = malloc(sizeof(SavedState));
+            *((SavedState*)engine->app->savedState) = engine->state;
+            engine->app->savedStateSize = sizeof(SavedState);
             break;
         case APP_CMD_INIT_WINDOW:
             // The window is being shown, get it ready.
@@ -227,8 +241,6 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
                 ASensorEventQueue_disableSensor(engine->sensorEventQueue,
                                                 engine->accelerometerSensor);
             }
-            // Also stop animating.
-            engine->animating = 0;
             engine_draw_frame(engine);
             break;
     }
@@ -239,17 +251,41 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
  * android_native_app_glue.  It runs in its own thread, with its own
  * event loop for receiving input events and doing other things.
  */
-void android_main(struct android_app* state) {
+void android_main(struct android_app* app) {
 
 	LOGW("Hello native activity!");
 
-    struct engine engine;
+#if USE_VULKAN
+	// Create Window
+	Window window = {};
+	window.window = app->window;
+#if 0
+	if ( !InitializeWindow(window) )
+	{
+		LOG(Error, "InitializeWindow failed!\n");
+		return -1;
+	}
+#endif
 
-    memset(&engine, 0, sizeof(engine));
-    state->userData = &engine;
-    state->onAppCmd = engine_handle_cmd;
-    state->onInputEvent = engine_handle_input;
-    engine.app = state;
+	// Allocate base memory
+	u32 baseMemorySize = MB(64);
+	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
+	Arena arena = MakeArena(baseMemory, baseMemorySize);
+
+	// Initialize graphics
+	GfxDevice gfxDevice = {};
+	if ( !InitializeGraphics(arena, window, gfxDevice) )
+	{
+		LOG(Error, "InitializeGraphics failed!\n");
+		return;
+	}
+#endif
+
+    Engine engine = {};
+    app->userData = &engine;
+    app->onAppCmd = engine_handle_cmd;
+    app->onInputEvent = engine_handle_input;
+    engine.app = app;
 
     // Prepare to monitor accelerometer
     engine.sensorManager = ASensorManager_getInstanceForPackage("com.tools.application");
@@ -258,33 +294,31 @@ void android_main(struct android_app* state) {
                                         ASENSOR_TYPE_ACCELEROMETER);
     engine.sensorEventQueue = ASensorManager_createEventQueue(
                                     engine.sensorManager,
-                                    state->looper, LOOPER_ID_USER,
+                                    app->looper, LOOPER_ID_USER,
                                     NULL, NULL);
 
-    if (state->savedState != NULL) {
+    if (app->savedState != NULL) {
         // We are starting with a previous saved state; restore from it.
-        engine.state = *(struct saved_state*)state->savedState;
+        engine.state = *(SavedState*)app->savedState;
     }
 
-    // loop waiting for stuff to do.
-
-    while (1) {
+    // Application loop
+    while ( 1 )
+	{
         // Read all pending events.
         int ident;
         int events;
         struct android_poll_source* source;
 
-        // If not animating, we will block forever waiting for events.
-        // If animating, we loop until all events are read, then continue
-        // to draw the next frame of animation.
-        while ((ident=ALooper_pollAll(engine.animating ? 0 : -1, NULL, &events,
-                                      (void**)&source)) >= 0) {
-
+		const int kWaitForever = -1;
+        while ((ident=ALooper_pollAll(kWaitForever, NULL, &events, (void**)&source)) >= 0)
+		{
             // Process this event.
             if (source != NULL) {
-                source->process(state, source);
+                source->process(app, source);
             }
 
+#if USE_OPENGL
             // If a sensor has data, process it now.
             if (ident == LOOPER_ID_USER) {
                 if (engine.accelerometerSensor != NULL) {
@@ -299,22 +333,32 @@ void android_main(struct android_app* state) {
             }
 
             // Check if we are exiting.
-            if (state->destroyRequested != 0) {
+            if (app->destroyRequested != 0) {
                 engine_term_display(&engine);
                 return;
             }
+#endif
         }
 
-        if (engine.animating) {
-            // Done with events; draw next animation frame.
-            engine.state.angle += .01f;
-            if (engine.state.angle > 1) {
-                engine.state.angle = 0;
-            }
+#if USE_VULKAN
+		ProcessWindowEvents(window);
 
-            // Drawing is throttled to the screen update rate, so there
-            // is no need to do timing here.
-            engine_draw_frame(&engine);
-        }
+		if ( window.flags & WindowFlags_Resized )
+		{
+			gfxDevice.shouldRecreateSwapchain = true;
+		}
+		if ( window.flags & WindowFlags_Exiting )
+		{
+			break;
+		}
+		if ( window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
+		{
+			break;
+		}
+
+		RenderGraphics(gfxDevice, window);
+#else
+		engine_draw_frame(&engine);
+#endif
     }
 }

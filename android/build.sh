@@ -30,6 +30,8 @@ TOOLCHAIN_LIB_DIR=${TOOLCHAIN}/sysroot/usr/lib/aarch64-linux-android
 NATIVE_APP_GLUE_DIR=${NDK}/sources/android/native_app_glue
 OUT_LIB_DIR=lib/arm64-v8a
 
+INCLUDES=-I"../../"
+
 # Tools
 GCC="${TOOLCHAIN}/bin/clang -target ${TARGET} -march=armv8-a --sysroot=${TOOLCHAIN}/sysroot"
 GXX="${TOOLCHAIN}/bin/clang++ -target ${TARGET} -march=armv8-a --sysroot=${TOOLCHAIN}/sysroot"
@@ -78,8 +80,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "main.o:"
-	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC -c ../jni/main.cpp -o main.o
-	${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC -c ../jni/main.cpp -o main.o
+	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC ${INCLUDES} -c ../jni/main.cpp -o main.o
+	${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC ${INCLUDES} -c ../jni/main.cpp -o main.o
 	echo ""
 
 	echo "libgame.so:"
@@ -103,7 +105,7 @@ if [[ ${target} = "apk" ]]; then
 
     # ----------------------------------------------------
     # Start with a fresh bin directory
-	rmdir -rf bin
+	rm -rf bin
 	mkdir bin
 
 	# ----------------------------------------------------

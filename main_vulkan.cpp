@@ -2,10 +2,19 @@
 #include "tools.h"
 
 #if USE_XCB
-#	define VK_USE_PLATFORM_XCB_KHR
+#	define VK_USE_PLATFORM_XCB_KHR 1
+#elif USE_ANDROID
+#	define VK_USE_PLATFORM_ANDROID_KHR 1
 #elif USE_WINAPI
-#	define VK_USE_PLATFORM_WIN32_KHR
+#	define VK_USE_PLATFORM_WIN32_KHR 1
+#else
+#	error "Configure the proper platform for Vulkan"
 #endif
+
+// This extension removes a VK_ERROR_INCOMPATIBLE_DRIVER when calling vkCreateInstance
+// on some platforms implementing Vulkan on top of another API.
+// An example of this could be Apple machines with MoltenVK on top of Metal.
+#define USE_VK_EXT_PORTABILITY_ENUMERATION 0
 
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
@@ -292,12 +301,15 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	VK_CHECK_RESULT( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, instanceExtensions ) );
 
 	const char *wantedInstanceExtensionNames[] = {
+#if USE_VK_EXT_PORTABILITY_ENUMERATION
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-		VK_KHR_SURFACE_EXTENSION_NAME,
-#if USE_XCB
-		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
 #endif
-#if USE_WINAPI
+		VK_KHR_SURFACE_EXTENSION_NAME,
+#if VK_USE_PLATFORM_XCB_KHR
+		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#elif VK_USE_PLATFORM_ANDROID_KHR
+		VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+#elif VK_USE_PLATFORM_WIN32_KHR
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
 		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
@@ -327,7 +339,9 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 	instanceCreateInfo.pApplicationInfo = &applicationInfo;
+#if USE_VK_EXT_PORTABILITY_ENUMERATION
 	instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 	instanceCreateInfo.enabledLayerCount = enabledInstanceLayerCount;
 	instanceCreateInfo.ppEnabledLayerNames = enabledInstanceLayerNames;
 	instanceCreateInfo.enabledExtensionCount = enabledInstanceExtensionCount;
@@ -358,7 +372,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	}
 
 
-#if USE_XCB
+#if VK_USE_PLATFORM_XCB_KHR
 	// XCB Surface
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
@@ -366,8 +380,13 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	surfaceCreateInfo.window = window.window;
 	VkSurfaceKHR surface = {};
 	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
-#else
-	// WIN32 Surface
+#elif VK_USE_PLATFORM_ANDROID_KHR
+	VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.window = window.window; // ANativeWindow
+	VkSurfaceKHR surface = {};
+	VK_CHECK_RESULT( vkCreateAndroidSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+#elif VK_USE_PLATFORM_WIN32_KHR
 	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.hinstance = window.hInstance;
