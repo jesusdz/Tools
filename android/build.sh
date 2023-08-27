@@ -48,8 +48,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "libgame.so:"
-	echo ${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
-	${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lvulkan -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	echo ${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
 	echo ""
 
 	echo "Popd..."
@@ -124,20 +124,11 @@ fi
 # Install APK into the device
 ##########################################################
 
-if [[ ${target} = "deploy" ]]; then
-	echo Building the APK
+if [[ ${target} = "install" ]]; then
+	echo Installing application
 	# -k argument would keep the data and cache directories
 	${ADB} uninstall com.tools.game
 	${ADB} install -r bin/NativeActivity.apk
-fi
-
-
-##########################################################
-# Push data files
-##########################################################
-
-if [[ ${target} = "push" ]]; then
-	echo Pushing data files
 	${ADB} shell mkdir -p /sdcard/Android/data/com.tools.game/files/
 	${ADB} push ../shaders/*.spv /sdcard/Android/data/com.tools.game/files/
 fi

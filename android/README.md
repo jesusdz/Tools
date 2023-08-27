@@ -89,6 +89,6 @@ Client:
 (pc) lldb.sh
 (lldb) platform select remote-android
 (lldb) platform connect connect://YTLNLJEYTGVGJBH6:9999
-(lldb) platform attach --pid <pid-number> // fails with "Operation not permitted"
+(lldb) platform process attach --pid <pid-number> // fails with "Operation not permitted"
 ```
 
