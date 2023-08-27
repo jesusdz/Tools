@@ -1,27 +1,21 @@
-//#define USE_VULKAN 1
-#define USE_OPENGL 1
+#define USE_VULKAN 1
+//#define USE_OPENGL 1
 
 #if USE_VULKAN
 #include "main_vulkan.cpp"
-#endif
-
-#include <initializer_list>
-#include <jni.h>
-#include <errno.h>
-#include <cassert>
-#include <string.h>
-
-#if USE_OPENGL
+#elif USE_OPENGL
+#include <android/sensor.h>
+#include <android/log.h>
+#include <android_native_app_glue.h>
 #include <EGL/egl.h>
 #include <GLES/gl.h>
 #endif
 
-#include <android/sensor.h>
-#include <android/log.h>
-#include <android_native_app_glue.h>
-
-#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "tools", __VA_ARGS__))
-#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "tools", __VA_ARGS__))
+#include <jni.h>
+#include <initializer_list>
+#include <errno.h>
+#include <cassert>
+#include <string.h>
 
 /**
  * Our saved state data.
@@ -45,6 +39,10 @@ struct Engine {
     EGLDisplay display;
     EGLSurface surface;
     EGLContext context;
+#elif USE_VULKAN
+	Arena arena;
+	Window window;
+	GfxDevice gfxDevice;
 #endif
     int32_t width;
     int32_t height;
@@ -117,7 +115,7 @@ static int engine_init_display(Engine* engine)
     context = eglCreateContext(display, config, NULL, NULL);
 
     if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
-        LOGW("Unable to eglMakeCurrent");
+        LOG(Warning, "Unable to eglMakeCurrent");
         return -1;
     }
 
@@ -134,12 +132,25 @@ static int engine_init_display(Engine* engine)
     auto opengl_info = {GL_VENDOR, GL_RENDERER, GL_VERSION, GL_EXTENSIONS};
     for (auto name : opengl_info) {
         auto info = glGetString(name);
-        LOGI("OpenGL Info: %s", info);
+        LOG(Info, "OpenGL Info: %s", info);
     }
     // Initialize GL state.
     glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
     glEnable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
+
+#elif USE_VULKAN
+
+	LOG(Info, "before InitializeGraphics!");
+	engine->window.window = engine->app->window;
+
+	// Initialize graphics
+	if ( !InitializeGraphics(engine->arena, engine->window, engine->gfxDevice) )
+	{
+		LOG(Error, "InitializeGraphics failed!");
+		return -1;
+	}
+
 #endif
 
     return 0;
@@ -151,9 +162,10 @@ static int engine_init_display(Engine* engine)
 static void engine_draw_frame(Engine* engine) {
 
 #if USE_OPENGL
+
     if (engine->display == NULL) {
         // No display.
-		LOGW("No display");
+		LOG(Warning, "No display");
         return;
     }
 
@@ -162,6 +174,11 @@ static void engine_draw_frame(Engine* engine) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     eglSwapBuffers(engine->display, engine->surface);
+
+#elif USE_VULKAN
+
+	RenderGraphics(engine->gfxDevice, engine->window);
+
 #endif
 }
 
@@ -184,6 +201,10 @@ static void engine_term_display(Engine* engine)
     engine->display = EGL_NO_DISPLAY;
     engine->context = EGL_NO_CONTEXT;
     engine->surface = EGL_NO_SURFACE;
+#elif USE_VULKAN
+
+	CleanupGraphics(engine->gfxDevice);
+
 #endif
 }
 
@@ -214,9 +235,13 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
             break;
         case APP_CMD_INIT_WINDOW:
             // The window is being shown, get it ready.
-            if (engine->app->window != NULL) {
-                engine_init_display(engine);
-                engine_draw_frame(engine);
+            if (engine->app->window != NULL)
+			{
+                int status = engine_init_display(engine);
+				if ( status == 0 )
+				{
+					engine_draw_frame(engine);
+				}
             }
             break;
         case APP_CMD_TERM_WINDOW:
@@ -253,14 +278,13 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
  */
 void android_main(struct android_app* app) {
 
-	LOGW("Hello native activity!");
+	LOG(Info, "Hello native activity!");
+
+    Engine engine = {};
 
 #if USE_VULKAN
-	// Create Window
-	Window window = {};
-	window.window = app->window;
 #if 0
-	if ( !InitializeWindow(window) )
+	if ( !InitializeWindow(engine.window) )
 	{
 		LOG(Error, "InitializeWindow failed!\n");
 		return -1;
@@ -270,25 +294,17 @@ void android_main(struct android_app* app) {
 	// Allocate base memory
 	u32 baseMemorySize = MB(64);
 	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
-	Arena arena = MakeArena(baseMemory, baseMemorySize);
+	engine.arena = MakeArena(baseMemory, baseMemorySize);
 
-	// Initialize graphics
-	GfxDevice gfxDevice = {};
-	if ( !InitializeGraphics(arena, window, gfxDevice) )
-	{
-		LOG(Error, "InitializeGraphics failed!\n");
-		return;
-	}
 #endif
 
-    Engine engine = {};
     app->userData = &engine;
     app->onAppCmd = engine_handle_cmd;
     app->onInputEvent = engine_handle_input;
     engine.app = app;
 
     // Prepare to monitor accelerometer
-    engine.sensorManager = ASensorManager_getInstanceForPackage("com.tools.application");
+    engine.sensorManager = ASensorManager_getInstanceForPackage("com.tools.game");
     engine.accelerometerSensor = ASensorManager_getDefaultSensor(
                                         engine.sensorManager,
                                         ASENSOR_TYPE_ACCELEROMETER);
@@ -325,9 +341,11 @@ void android_main(struct android_app* app) {
                     ASensorEvent event;
                     while (ASensorEventQueue_getEvents(engine.sensorEventQueue,
                                                        &event, 1) > 0) {
-                        LOGI("accelerometer: x=%f y=%f z=%f",
+						#if 0
+                        LOG(Info, "accelerometer: x=%f y=%f z=%f",
                              event.acceleration.x, event.acceleration.y,
                              event.acceleration.z);
+						#endif
                     }
                 }
             }
@@ -340,23 +358,24 @@ void android_main(struct android_app* app) {
 #endif
         }
 
+
 #if USE_VULKAN
-		ProcessWindowEvents(window);
+		ProcessWindowEvents(engine.window);
 
-		if ( window.flags & WindowFlags_Resized )
+		if ( engine.window.flags & WindowFlags_Resized )
 		{
-			gfxDevice.shouldRecreateSwapchain = true;
+			engine.gfxDevice.shouldRecreateSwapchain = true;
 		}
-		if ( window.flags & WindowFlags_Exiting )
+		if ( engine.window.flags & WindowFlags_Exiting )
 		{
 			break;
 		}
-		if ( window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
+		if ( engine.window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
 		{
 			break;
 		}
 
-		RenderGraphics(gfxDevice, window);
+		RenderGraphics(engine.gfxDevice, engine.window);
 #else
 		engine_draw_frame(&engine);
 #endif

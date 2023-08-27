@@ -71,13 +71,26 @@
 #define TB(x) (1024ul * GB(x))
 
 #if PLATFORM_ANDROID
-#define ASSERT(expression) if ( !(expression) ) { __builtin_trap(); }
+#define Info ANDROID_LOG_INFO
+#define Warning ANDROID_LOG_WARN
+#define Error ANDROID_LOG_ERROR
+#define LOG(channel, fmt, ...) ((void)__android_log_print(channel, "tools", fmt, ##__VA_ARGS__))
 #else
-#define ASSERT(expression) if ( !(expression) ) { *((int*)0) = 0; }
+#define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
 #endif
+
+#if PLATFORM_ANDROID
+#define QUIT_ABNORMALLY() __builtin_trap();
+#else
+#define QUIT_ABNORMALLY() *((int*)0) = 0;
+#endif
+
+#define ASSERT(expression) if ( !(expression) ) { \
+		LOG(Error, "assertion failed( " #expression " )" ); \
+		QUIT_ABNORMALLY(); \
+	}
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
-#define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
 
 #define CT_ASSERT3(expression, line) static int ct_assert_##line[(expression) ? 1 : 0]
 #define CT_ASSERT2(expression, line) CT_ASSERT3(expression, line)

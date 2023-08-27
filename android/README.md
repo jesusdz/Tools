@@ -15,6 +15,10 @@ Download and unzip the following files:
 * [System.loadLibrary() couldn't find native librery](https://stackoverflow.com/questions/27421134/system-loadlibrary-couldnt-find-native-library-in-my-case)
 * [AAPT2](https://developer.android.com/studio/command-line/aapt2)
 * [AAPT Issue](https://stackoverflow.com/questions/23522153/manually-aapt-add-native-library-so-to-apk)
+* [Debugging C++ of an APK using lldb from the console](https://stackoverflow.com/questions/53448796/debugging-c-code-of-an-android-app-using-lldb-from-the-console)
+* [Debugging C++ of an APK using lldb from the console 2](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
+* [lldb-server manual page](https://lldb.llvm.org/man/lldb-server.html)
+* [lldb manual page](https://lldb.llvm.org/man/lldb.html)
 
 ## Java
 
@@ -52,5 +56,39 @@ And finally, install the latest NDK and an SDK:
 ```
 sdkmanager --install "ndk;25.2.9519653"
 sdkmanager --install "platforms;android-33"
+```
+
+## Debugging an APK
+
+- Make sure your APK is debuggable:
+  - Open your `AndroidManifest.xml` file.
+  - The `application` tag needs the `android:debuggable="true"` attribute.
+- Make the APK and install it in your device.
+- Open the Developer Settings:
+  - Press *Select debug app* and select your app here.
+  - Enable the *Wait for debugger* option.
+
+## Commands
+
+```
+adb shell pm dump com.tools.game | grep versionCode
+
+Server:
+(pc) LLDB_SERVER_DIR=${TOOLCHAIN}/lib64/clang/14.0.7/lib/linux/aarch64
+(pc) pushd ${LLDB_SERVER_DIR}
+(pc) ${ADB} push lldb-server /data/local/tmp
+(pc) popd
+(pc) adb shell
+(device) cd /data/local/tmp
+(device) ./lldb-server platform --listen "*:9999" --server
+
+Client:
+(pc) adb devices // Note down the name of the device
+(pc) adb shell pidof com.tools.game // Note down the pid of the process
+(pc) adb forward tcp:9999 tcp:9999
+(pc) lldb.sh
+(lldb) platform select remote-android
+(lldb) platform connect connect://YTLNLJEYTGVGJBH6:9999
+(lldb) platform attach --pid <pid-number> // fails with "Operation not permitted"
 ```
 

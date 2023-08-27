@@ -1,48 +1,6 @@
 #!/bin/sh
 
-##########################################################
-# Environment variables
-##########################################################
-
-# Check JAVA_HOME environment var exists
-if [ -z ${JAVA_HOME} ]; then
-	echo "Could not find environment var JAVA_HOME"
-	exit -1
-fi
-
-# Check ANDROID_SDK_ROOT environment var exists
-if [ -z ${ANDROID_SDK_ROOT} ]; then
-	echo "Could not find environment var ANDROID_SDK_ROOT"
-	exit -1
-fi
-
-# Directories
-ANDROID_HOME=${ANDROID_SDK_ROOT}
-BUILD_TOOLS=${ANDROID_HOME}/build-tools/33.0.2
-PLATFORM_TOOLS=${ANDROID_HOME}/platform-tools
-ANDROID_PLATFORM_DIR=${ANDROID_HOME}/platforms/android-33
-APPLICATION_REL_PATH=com/tools/game
-HOST=linux-x86_64
-TARGET=aarch64-linux-android33
-NDK=${ANDROID_HOME}/ndk/25.2.9519653
-TOOLCHAIN=${NDK}/toolchains/llvm/prebuilt/${HOST}
-TOOLCHAIN_LIB_DIR=${TOOLCHAIN}/sysroot/usr/lib/aarch64-linux-android
-NATIVE_APP_GLUE_DIR=${NDK}/sources/android/native_app_glue
-OUT_LIB_DIR=lib/arm64-v8a
-
-INCLUDES=-I"../../"
-
-# Tools
-GCC="${TOOLCHAIN}/bin/clang -target ${TARGET} -march=armv8-a --sysroot=${TOOLCHAIN}/sysroot"
-GXX="${TOOLCHAIN}/bin/clang++ -target ${TARGET} -march=armv8-a --sysroot=${TOOLCHAIN}/sysroot"
-AR="${TOOLCHAIN}/bin/llvm-ar"
-ADB=${PLATFORM_TOOLS}/adb
-AAPT=${BUILD_TOOLS}/aapt
-JAVAC=${JAVA_HOME}/bin/javac
-D8=${BUILD_TOOLS}/d8
-KEYTOOL=${JAVA_HOME}/bin/keytool
-APKSIGNER=${BUILD_TOOLS}/apksigner
-ZIPALIGN=${BUILD_TOOLS}/zipalign
+source ./environment.sh
 
 
 ##########################################################
@@ -69,9 +27,14 @@ if [[ ${target} = "build" ]]; then
 	pushd obj
 	echo ""
 
+	INCLUDES="-I../../"
+	GCC_FLAGS="-fPIC"
+	GCC_FLAGS="${GCC_FLAGS} -g -O0" # With debug info
+	GXX_FLAGS="${GCC_FLAGS} -std=gnu++11"
+
 	echo "android_native_app_glue.o:"
-	echo ${GCC} -fPIC -c ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c -o android_native_app_glue.o
-	${GCC} -fPIC -c ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c -o android_native_app_glue.o
+	echo ${GCC} ${GCC_FLAGS} -c ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c -o android_native_app_glue.o
+	${GCC} ${GCC_FLAGS} -c ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c -o android_native_app_glue.o
 	echo ""
 
 	echo "android_native_app_glue.a:"
@@ -80,13 +43,13 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "main.o:"
-	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC ${INCLUDES} -c ../jni/main.cpp -o main.o
-	${GXX} -I${NATIVE_APP_GLUE_DIR} -std=gnu++11 -fPIC ${INCLUDES} -c ../jni/main.cpp -o main.o
+	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ../jni/main.cpp -o main.o
+	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ../jni/main.cpp -o main.o
 	echo ""
 
 	echo "libgame.so:"
 	echo ${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
-	${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lvulkan -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
 	echo ""
 
 	echo "Popd..."
@@ -166,6 +129,17 @@ if [[ ${target} = "deploy" ]]; then
 	# -k argument would keep the data and cache directories
 	${ADB} uninstall com.tools.game
 	${ADB} install -r bin/NativeActivity.apk
+fi
+
+
+##########################################################
+# Push data files
+##########################################################
+
+if [[ ${target} = "push" ]]; then
+	echo Pushing data files
+	${ADB} shell mkdir -p /sdcard/Android/data/com.tools.game/files/
+	${ADB} push ../shaders/*.spv /sdcard/Android/data/com.tools.game/files/
 fi
 
 

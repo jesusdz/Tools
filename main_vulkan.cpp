@@ -49,7 +49,11 @@ VkBool32 VulkanDebugReportCallback(
 }
 
 #define VULKAN_ALLOCATORS NULL
+#if PLATFORM_ANDROID
+#define MAX_SWAPCHAIN_IMAGE_COUNT 5
+#else
 #define MAX_SWAPCHAIN_IMAGE_COUNT 3
+#endif
 #define MAX_FRAMES_IN_FLIGHT 2
 
 #define VK_CHECK_RESULT( call ) \
@@ -373,7 +377,6 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 
 #if VK_USE_PLATFORM_XCB_KHR
-	// XCB Surface
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.connection = window.connection;
@@ -425,11 +428,13 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 		Arena scratch2 = MakeSubArena(scratch);
 
+		#if !PLATFORM_ANDROID
 		// We only want dedicated GPUs
 		VkPhysicalDeviceProperties properties;
 		vkGetPhysicalDeviceProperties( device, &properties );
 		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
 			continue;
+		#endif
 
 		VkPhysicalDeviceFeatures features;
 		vkGetPhysicalDeviceFeatures( device, &features );
@@ -667,13 +672,19 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
 	// but let's put it here for now
+#if PLATFORM_ANDROID
+	// TODO: Implement functions to get the base path for asset data per platform
+	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/vertex.spv";
+	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/fragment.spv";
+#else
 	const char *vertexShaderFilename = "shaders/vertex.spv";
+	const char *fragmentShaderFilename = "shaders/fragment.spv";
+#endif
 	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderFilename );
 	if ( !vertexFile ) {
 		LOG( Error, "Could not open shader file %s.\n", vertexShaderFilename );
 		return false;
 	}
-	const char *fragmentShaderFilename = "shaders/fragment.spv";
 	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderFilename );
 	if ( !fragmentFile ) {
 		LOG( Error, "Could not open shader file %s.\n", fragmentShaderFilename );
