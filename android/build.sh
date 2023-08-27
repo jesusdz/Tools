@@ -130,7 +130,7 @@ if [[ ${target} = "install" ]]; then
 	${ADB} uninstall com.tools.game
 	${ADB} install -r bin/NativeActivity.apk
 	${ADB} shell mkdir -p /sdcard/Android/data/com.tools.game/files/
-	${ADB} push ../shaders/*.spv /sdcard/Android/data/com.tools.game/files/
+	${ADB} push ../shaders/ /sdcard/Android/data/com.tools.game/files/
 fi
 
 

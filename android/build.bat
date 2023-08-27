@@ -47,7 +47,7 @@ set target=%1
 if [%target%] == [] goto build
 if "%target%" == "build" goto build
 if "%target%" == "apk" goto apk
-if "%target%" == "deploy" goto deploy
+if "%target%" == "install" goto install
 if "%target%" == "clean" goto clean
 if "%target%" == "cleanall" goto cleanall
 
@@ -67,20 +67,25 @@ mkdir %OUT_LIB_DIR% 2> nul
 
 pushd obj
 
+set INCLUDES="-I../../"
+set GCC_FLAGS=-fPIC
+set GCC_FLAGS=%GCC_FLAGS% -g -O0
+set GXX_FLAGS=%GCC_FLAGS% -std=gnu++11
+
 REM Have a look at this compile arguments
 REM /Users/thomas/Documents/android-ndk-r5b/toolchains/arm-eabi-4.4.0/prebuilt/darwin-x86/bin/arm-eabi-g++ --sysroot=/Users/thomas/Documents/android-ndk-r5b/platforms/android-8/arch-arm -march=armv7-a -mfloat-abi=softfp -mfpu=neon -Wl,--fix-cortex-a8 -fno-exceptions -fno-rtti -nostdlib -fpic -shared -o GLmove.so -O3
 
-echo %GCC% -fPIC -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
-call %GCC% -fPIC -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
+echo %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
+call %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
 
 echo %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 call %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 
-echo %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\jni\main.cpp -o main.o
-call %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\jni\main.cpp -o main.o
+echo %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c ..\jni\main.cpp -o main.o
+call %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c ..\jni\main.cpp -o main.o
 
-echo %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
-call %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
+echo %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
+call %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
 
 popd
 
@@ -161,9 +166,11 @@ exit /b 0
 REM ######################################################
 REM Install APK into the device
 REM ######################################################
-: deploy
-
+: install
+REM -k argument would keep the data and cache directories
 call %PLATFORM_TOOLS%\adb install -r bin\NativeActivity.apk
+call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/Android/data/com.tools.game/files/
+call %PLATFORM_TOOLS%\adb push ..\shaders\ /sdcard/Android/data/com.tools.game/files/
 exit /b 0
 
 
@@ -174,7 +181,9 @@ REM Clean APK and compilation data
 REM ######################################################
 : cleanall
 echo Cleaning APK data...
-rmdir /Q /S bin 2> nul
+rmdir /Q /S intermediates bin 2> nul
+del src\com\tools\game\R.java
+del Tools.keystore
 
 : clean
 echo Cleaning compilation data...

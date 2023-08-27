@@ -674,8 +674,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	// but let's put it here for now
 #if PLATFORM_ANDROID
 	// TODO: Implement functions to get the base path for asset data per platform
-	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/vertex.spv";
-	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/fragment.spv";
+	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/vertex.spv";
+	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/fragment.spv";
 #else
 	const char *vertexShaderFilename = "shaders/vertex.spv";
 	const char *fragmentShaderFilename = "shaders/fragment.spv";
