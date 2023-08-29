@@ -19,6 +19,7 @@ Download and unzip the following files:
 * [Debugging C++ of an APK using lldb from the console 2](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
 * [lldb-server manual page](https://lldb.llvm.org/man/lldb-server.html)
 * [lldb manual page](https://lldb.llvm.org/man/lldb.html)
+* [Debugging Android Native with LLDB](https://www.lili.kim/2019/01/28/android/Debug%20Android%20Native%20with%20LLDB/)
 
 ## Java
 

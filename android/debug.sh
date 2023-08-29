@@ -32,7 +32,7 @@ ${ADB} shell "cat ${TEMP_DIR}/lldb-server | run-as ${PACKAGE_NAME} sh -c 'cat > 
 ${ADB} shell "cat ${TEMP_DIR}/start_lldb_server.sh | run-as ${PACKAGE_NAME} sh -c 'cat > ${LLDB_DIR}/start_lldb_server.sh && chmod 700 ${LLDB_DIR}/start_lldb_server.sh'"
 
 # Launch start_lldb_server.sh
-${ADB} shell "run-as ${PACKAGE_NAME} ${LLDB_DIR}/start_lldb_server.sh /data/data/${PACKAGE_NAME}/lldb unix-abstract /${PACKAGE_NAME}-0 platform-0000.sock \"lldb process:gdb-remote packets\""
+${ADB} shell "run-as ${PACKAGE_NAME} ${LLDB_DIR}/start_lldb_server.sh /data/data/${PACKAGE_NAME}/lldb unix-abstract /${PACKAGE_NAME} debug.socket \"lldb process:gdb-remote packets\"" &
 
 
 ################################################################################
