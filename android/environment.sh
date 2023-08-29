@@ -16,6 +16,8 @@ if [ -z ${ANDROID_SDK_ROOT} ]; then
 	exit -1
 fi
 
+PACKAGE_NAME=com.tools.game
+
 # Directories
 ANDROID_HOME=${ANDROID_SDK_ROOT}
 BUILD_TOOLS=${ANDROID_HOME}/build-tools/33.0.2
@@ -41,4 +43,5 @@ D8=${BUILD_TOOLS}/d8
 KEYTOOL=${JAVA_HOME}/bin/keytool
 APKSIGNER=${BUILD_TOOLS}/apksigner
 ZIPALIGN=${BUILD_TOOLS}/zipalign
+LLDB_SERVER=${TOOLCHAIN}/lib64/clang/14.0.7/lib/linux/aarch64/lldb-server
 

@@ -24,11 +24,11 @@ export LLDB_DEBUGSERVER_DOMAINSOCKET_DIR=$DOMAINSOCKET_DIR
 # This directory already exists. Make sure it has the right permissions.
 chmod 0775 "$LLDB_DIR"
 
-rm -r $TMP_DIR
+rm -rf $TMP_DIR
 mkdir $TMP_DIR
 export TMPDIR=$TMP_DIR
 
-rm -r $LOG_DIR
+rm -rf $LOG_DIR
 mkdir $LOG_DIR
 
 # LLDB would create these files with more restrictive permissions than our umask above. Make sure
