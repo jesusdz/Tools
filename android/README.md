@@ -20,6 +20,7 @@ Download and unzip the following files:
 * [lldb-server manual page](https://lldb.llvm.org/man/lldb-server.html)
 * [lldb manual page](https://lldb.llvm.org/man/lldb.html)
 * [Debugging Android Native with LLDB](https://www.lili.kim/2019/01/28/android/Debug%20Android%20Native%20with%20LLDB/)
+* [Useful thread where the last question is key](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
 
 ## Java
 
@@ -93,3 +94,27 @@ Client:
 (lldb) platform process attach --pid <pid-number> // fails with "Operation not permitted"
 ```
 
+### Server terminal
+```
+./debug.sh
+```
+
+### Client terminal 1
+```
+lldb
+(lldb) platform select remote-android
+(lldb) platform connect unix-abstract-connect:///com.tools.game/debug.socket
+(lldb) attach <pid>
+```
+
+### Client terminal 2
+```
+adb forward tcp:12345 jdwp:<pid>
+jdb -attach localhost:12345
+```
+
+### Client terminal 1 (again)
+```
+(lldb) continue
+// Then the application crashes
+```
