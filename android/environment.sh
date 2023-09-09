@@ -43,5 +43,6 @@ D8=${BUILD_TOOLS}/d8
 KEYTOOL=${JAVA_HOME}/bin/keytool
 APKSIGNER=${BUILD_TOOLS}/apksigner
 ZIPALIGN=${BUILD_TOOLS}/zipalign
+LLDB=${TOOLCHAIN}/bin/lldb.sh
 LLDB_SERVER=${TOOLCHAIN}/lib64/clang/14.0.7/lib/linux/aarch64/lldb-server
 

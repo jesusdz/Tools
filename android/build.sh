@@ -31,6 +31,7 @@ if [[ ${target} = "build" ]]; then
 	GCC_FLAGS="-fPIC"
 	GCC_FLAGS="${GCC_FLAGS} -g -O0" # With debug info
 	GXX_FLAGS="${GCC_FLAGS} -std=gnu++11"
+	LDD_FLAGS="-Wl,--build-id=sha1"
 
 	echo "android_native_app_glue.o:"
 	echo ${GCC} ${GCC_FLAGS} -c ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c -o android_native_app_glue.o
@@ -48,8 +49,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "libgame.so:"
-	echo ${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
-	${GXX} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	echo ${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
 	echo ""
 
 	echo "Popd..."
