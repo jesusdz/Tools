@@ -19,6 +19,19 @@
 #define VOLK_IMPLEMENTATION
 #include "volk/volk.h"
 
+#if USE_IMGUI
+// Unity build Dear ImGui files
+#include "imgui/imgui.cpp"
+#include "imgui/imgui_draw.cpp"
+#include "imgui/imgui_tables.cpp"
+#include "imgui/imgui_widgets.cpp"
+#include "imgui/imgui_impl_win32.cpp"
+
+// Undefining VK_NO_PROTOTYPES here to avoid ImGui to retrieve Vulkan functions again.
+#undef VK_NO_PROTOTYPES
+#include "imgui/imgui_impl_vulkan.cpp"
+#endif
+
 
 struct Vertex
 {
@@ -56,6 +69,15 @@ VkBool32 VulkanDebugReportCallback(
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
 
+static void CheckVulkanResult(VkResult result)
+{
+	if (result == VK_SUCCESS)
+		return;
+	LOG(Error, "[vulkan] VkResult = %d\n", result);
+	if (result < VK_SUCCESS)
+		QUIT_ABNORMALLY();
+}
+
 #define VK_CHECK_RESULT( call ) \
 	if ( call != VK_SUCCESS ) \
 	{ \
@@ -92,7 +114,13 @@ struct GfxDevice
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 
+#if USE_IMGUI
+	VkDescriptorPool imGuiDescriptorPool;
+#endif
+
 	u32 currentFrame;
+
+	VkPipelineCache pipelineCache;
 
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
@@ -669,6 +697,36 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	VK_CHECK_RESULT( vkCreateRenderPass( device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &renderPass ) );
 
 
+	// Create pipeline cache
+	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
+	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	pipelineCacheCreateInfo.flags = 0;
+	pipelineCacheCreateInfo.initialDataSize = 0;
+	pipelineCacheCreateInfo.pInitialData = NULL;
+	VkPipelineCache pipelineCache = {};
+	VK_CHECK_RESULT( vkCreatePipelineCache( device, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &pipelineCache ) );
+
+
+	// Create descriptor pools
+#if USE_IMGUI
+	// Create Descriptor Pool
+	// The example only requires a single combined image sampler descriptor for the font image and only uses one descriptor set (for that)
+	// If you wish to load e.g. additional textures you may need to alter pools sizes.
+	VkDescriptorPoolSize descriptorPoolSizes[] =
+	{
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+	};
+	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	descriptorPoolCreateInfo.maxSets = 1;
+	descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
+	descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
+	VkDescriptorPool imGuiDescriptorPool = {};
+	VK_CHECK_RESULT( vkCreateDescriptorPool( device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &imGuiDescriptorPool ) );
+#endif
+
+
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
 	// but let's put it here for now
@@ -833,7 +891,6 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
 
 	VkPipeline graphicsPipeline;
-	VkPipelineCache pipelineCache = VK_NULL_HANDLE;
 	VK_CHECK_RESULT( vkCreateGraphicsPipelines( device, pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &graphicsPipeline ) );
 
 	vkDestroyShaderModule(device, vertexShaderModule, VULKAN_ALLOCATORS);
@@ -949,11 +1006,22 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.commandPool = commandPool;
 	gfxDevice.vertexBuffer = vertexBuffer;
 	gfxDevice.vertexBufferMemory = vertexBufferMemory;
+	gfxDevice.pipelineCache = pipelineCache;
+#if USE_IMGUI
+	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
+#endif
 	return true;
+}
+
+void WaitDeviceIdle(GfxDevice &gfxDevice)
+{
+	vkDeviceWaitIdle( gfxDevice.device );
 }
 
 void CleanupSwapchain(GfxDevice &gfxDevice)
 {
+	WaitDeviceIdle(gfxDevice);
+
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
 		vkDestroyFramebuffer( gfxDevice.device, gfxDevice.swapchainFramebuffers[i], VULKAN_ALLOCATORS );
@@ -969,7 +1037,7 @@ void CleanupSwapchain(GfxDevice &gfxDevice)
 
 void CleanupGraphics(GfxDevice &gfxDevice)
 {
-	vkDeviceWaitIdle( gfxDevice.device );
+	WaitDeviceIdle( gfxDevice );
 
 	CleanupSwapchain( gfxDevice );
 
@@ -988,6 +1056,12 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+
+	vkDestroyPipelineCache( gfxDevice.device, gfxDevice.pipelineCache, VULKAN_ALLOCATORS );
+
+#if USE_IMGUI
+	vkDestroyDescriptorPool( gfxDevice.device, gfxDevice.imGuiDescriptorPool, VULKAN_ALLOCATORS );
+#endif
 
 	vkDestroyRenderPass( gfxDevice.device, gfxDevice.renderPass, VULKAN_ALLOCATORS );
 
@@ -1018,9 +1092,8 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
-		vkDeviceWaitIdle(gfxDevice.device);
-		CleanupSwapchain(gfxDevice);
-		return CreateSwapchain(gfxDevice, window);
+		gfxDevice.shouldRecreateSwapchain = true;
+		return false;
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 	{
@@ -1078,6 +1151,12 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 
 	vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
 
+#if USE_IMGUI
+	// Record dear imgui primitives into command buffer
+	ImDrawData* draw_data = ImGui::GetDrawData();
+	ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer);
+#endif
+
 	vkCmdEndRenderPass(commandBuffer);
 
 	VK_CHECK_RESULT( vkEndCommandBuffer( commandBuffer ) );
@@ -1118,10 +1197,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR || gfxDevice.shouldRecreateSwapchain)
 	{
-		gfxDevice.shouldRecreateSwapchain = false;
-		vkDeviceWaitIdle(gfxDevice.device);
-		CleanupSwapchain(gfxDevice);
-		CreateSwapchain(gfxDevice, window);
+		gfxDevice.shouldRecreateSwapchain = true;
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
@@ -1178,14 +1254,101 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+#if USE_IMGUI
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	// Setup Dear ImGui style
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplWin32_Init(window.hWnd);
+
+	ImGui_ImplVulkan_InitInfo init_info = {};
+	init_info.Instance = gfxDevice.instance;
+	init_info.PhysicalDevice = gfxDevice.physicalDevice;
+	init_info.Device = gfxDevice.device;
+	init_info.QueueFamily = gfxDevice.graphicsQueueFamilyIndex;
+	init_info.Queue = gfxDevice.graphicsQueue;
+	init_info.PipelineCache = gfxDevice.pipelineCache;
+	init_info.DescriptorPool = gfxDevice.imGuiDescriptorPool;
+	init_info.Subpass = 0;
+	init_info.MinImageCount = gfxDevice.swapchainImageCount;
+	init_info.ImageCount = gfxDevice.swapchainImageCount;
+	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+	init_info.Allocator = VULKAN_ALLOCATORS;
+	init_info.CheckVkResultFn = CheckVulkanResult;
+	ImGui_ImplVulkan_Init(&init_info, gfxDevice.renderPass);
+
+	// Upload Fonts
+	{
+		// Use any command buffer
+		VkCommandPool commandPool = gfxDevice.commandPool;
+		VkCommandBuffer commandBuffer = gfxDevice.commandBuffers[0];
+
+		VK_CHECK_RESULT( vkResetCommandPool(gfxDevice.device, commandPool, 0) );
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		VK_CHECK_RESULT( vkBeginCommandBuffer(commandBuffer, &beginInfo) );
+
+		ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+
+		VkSubmitInfo endInfo = {};
+		endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		endInfo.commandBufferCount = 1;
+		endInfo.pCommandBuffers = &commandBuffer;
+		VK_CHECK_RESULT( vkEndCommandBuffer(commandBuffer) );
+		VK_CHECK_RESULT( vkQueueSubmit(gfxDevice.graphicsQueue, 1, &endInfo, VK_NULL_HANDLE) );
+
+		WaitDeviceIdle(gfxDevice);
+
+		ImGui_ImplVulkan_DestroyFontUploadObjects();
+	}
+#endif
+
 	// Application loop
 	while ( 1 )
 	{
 		ProcessWindowEvents(window);
 
-		if ( window.flags & WindowFlags_Resized )
+#if USE_IMGUI
+		// Start the Dear ImGui frame
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplWin32_NewFrame();
+		ImGui::NewFrame();
+
+		// Create some fancy UI
+		static bool checked = true;
+		static f32 floatValue = 0.0f;
+		static float clear_color[3] = {};
+		static u32 counter = 0;
+		ImGui::Begin("Hello, world!");
+		ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+		ImGui::Checkbox("Example checkbox", &checked);          // Edit bools storing our window open/close state
+		ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);   // Edit 1 float using a slider from 0.0f to 1.0f
+		ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+		if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
+			counter++;
+		ImGui::SameLine();
+		ImGui::Text("counter = %d", counter);
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+		ImGui::End();
+
+		// Generate the draw data
+		ImGui::Render();
+#endif
+
+		if ( window.flags & WindowFlags_Resized || gfxDevice.shouldRecreateSwapchain)
 		{
-			gfxDevice.shouldRecreateSwapchain = true;
+			CleanupSwapchain(gfxDevice);
+			CreateSwapchain(gfxDevice, window);
+			gfxDevice.shouldRecreateSwapchain = false;
 		}
 		if ( window.flags & WindowFlags_Exiting )
 		{
@@ -1198,6 +1361,14 @@ int main(int argc, char **argv)
 
 		RenderGraphics(gfxDevice, window);
 	}
+
+	WaitDeviceIdle(gfxDevice);
+
+#if USE_IMGUI
+	ImGui_ImplVulkan_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+#endif
 
 	CleanupGraphics(gfxDevice);
 

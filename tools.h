@@ -34,6 +34,7 @@
 #endif
 
 #if PLATFORM_WINDOWS
+#define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <WindowsX.h>
@@ -594,9 +595,14 @@ struct float4x4
 	};
 };
 
-#define Min( a, b ) ( a < b ? a : b )
-#define Max( a, b ) ( a > b ? a : b )
-#define Clamp( v, min, max ) Min( Max( v, min ), max )
+#define INSTANTIATE_MATH_OPS_FOR_TYPE( Type ) \
+Type Min( Type a, Type b ) { return a < b ? a : b; } \
+Type Max( Type a, Type b ) { return a > b ? a : b; } \
+Type Clamp( Type v, Type min, Type max ) { return Min( Max( v, min ), max ); }
+
+INSTANTIATE_MATH_OPS_FOR_TYPE( float )
+INSTANTIATE_MATH_OPS_FOR_TYPE( i32 )
+INSTANTIATE_MATH_OPS_FOR_TYPE( u32 )
 
 
 
@@ -918,8 +924,24 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 
 #include "win32_key_mappings.h"
 
+#if PLATFORM_WINDOWS
+#define USE_IMGUI 1
+#endif
+
+#if USE_IMGUI
+#define IMGUI_DEFINE_MATH_OPERATORS
+#include "imgui/imgui.h"
+// Forward declare message handler from imgui_impl_win32.cpp
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
+
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+#if USE_IMGUI
+	if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
+        return true;
+#endif
+
 	Window *window = (Window*)GetPropA(hWnd, "WindowPtr");
 
 	switch (uMsg)
