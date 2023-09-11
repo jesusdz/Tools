@@ -25,7 +25,14 @@
 #include "imgui/imgui_draw.cpp"
 #include "imgui/imgui_tables.cpp"
 #include "imgui/imgui_widgets.cpp"
+
+#if PLATFORM_WINDOWS
 #include "imgui/imgui_impl_win32.cpp"
+#elif PLATFORM_LINUX
+#include "imgui/imgui_impl_xcb.cpp"
+#else
+#error "Missing ImGui implementation file"
+#endif
 
 // Undefining VK_NO_PROTOTYPES here to avoid ImGui to retrieve Vulkan functions again.
 #undef VK_NO_PROTOTYPES
@@ -1267,7 +1274,13 @@ int main(int argc, char **argv)
 	//ImGui::StyleColorsLight();
 
 	// Setup Platform/Renderer backends
+#if USE_WINAPI
 	ImGui_ImplWin32_Init(window.hWnd);
+#elif USE_XCB
+	ImGui_ImplXcb_Init(window.window);
+#else
+#error "Missing codepath"
+#endif
 
 	ImGui_ImplVulkan_InitInfo init_info = {};
 	init_info.Instance = gfxDevice.instance;
@@ -1320,7 +1333,13 @@ int main(int argc, char **argv)
 #if USE_IMGUI
 		// Start the Dear ImGui frame
 		ImGui_ImplVulkan_NewFrame();
+#if USE_WINAPI
 		ImGui_ImplWin32_NewFrame();
+#elif USE_XCB
+		ImGui_ImplXcb_NewFrame();
+#else
+#error "Missing codepath"
+#endif
 		ImGui::NewFrame();
 
 		// Create some fancy UI
@@ -1366,7 +1385,13 @@ int main(int argc, char **argv)
 
 #if USE_IMGUI
 	ImGui_ImplVulkan_Shutdown();
+#if USE_WINAPI
 	ImGui_ImplWin32_Shutdown();
+#elif USE_XCB
+	ImGui_ImplXcb_Shutdown();
+#else
+#error "Missing codepath"
+#endif
 	ImGui::DestroyContext();
 #endif
 

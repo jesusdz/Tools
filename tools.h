@@ -33,6 +33,12 @@
 #	error "Unsupported platform"
 #endif
 
+
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
+#define USE_IMGUI 1
+#endif
+
+
 #if PLATFORM_WINDOWS
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -828,8 +834,20 @@ void PrintModifiers(uint32_t mask)
 
 #include "xcb_key_mappings.h"
 
+#if USE_IMGUI
+#define IMGUI_DEFINE_MATH_OPERATORS
+#include "imgui/imgui.h"
+// Forward declare message handler from imgui_impl_win32.cpp
+extern IMGUI_IMPL_API bool ImGui_ImplXcb_HandleInputEvent(xcb_generic_event_t *event);
+#endif
+
 void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
+#if USE_IMGUI
+	if (ImGui_ImplXcb_HandleInputEvent(event))
+        return;
+#endif
+
 	u32 eventType = event->response_type & ~0x80;
 
 	switch ( eventType )
@@ -923,10 +941,6 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 #elif USE_WINAPI
 
 #include "win32_key_mappings.h"
-
-#if PLATFORM_WINDOWS
-#define USE_IMGUI 1
-#endif
 
 #if USE_IMGUI
 #define IMGUI_DEFINE_MATH_OPERATORS
