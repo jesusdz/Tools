@@ -40,6 +40,12 @@
 #endif
 
 
+struct Buffer
+{
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+};
+
 struct Vertex
 {
 	float2 pos;
@@ -85,13 +91,7 @@ static void CheckVulkanResult(VkResult result)
 		QUIT_ABNORMALLY();
 }
 
-#define VK_CHECK_RESULT( call ) \
-	if ( call != VK_SUCCESS ) \
-	{ \
-		LOG(Error, "Vulkan call failed:.\n"); \
-		LOG(Error, " - " #call "\n"); \
-		return false; \
-	}
+#define VK_CHECK_RESULT( call ) CheckVulkanResult( call )
 
 struct GfxDevice
 {
@@ -163,6 +163,60 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	}
 
 	return shaderModule;
+}
+
+Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsageFlags, VkMemoryPropertyFlags memoryFlags)
+{
+	// Vertex buffers
+	VkBufferCreateInfo bufferCreateInfo = {};
+	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferCreateInfo.size = size;
+	bufferCreateInfo.usage = bufferUsageFlags;
+	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer buffer;
+	VK_CHECK_RESULT( vkCreateBuffer(gfxDevice.device, &bufferCreateInfo, VULKAN_ALLOCATORS, &buffer) );
+
+
+	// Memory for the buffer
+	VkMemoryRequirements memoryRequirements = {};
+	vkGetBufferMemoryRequirements(gfxDevice.device, buffer, &memoryRequirements);
+
+	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(gfxDevice.physicalDevice, &physicalDeviceMemoryProperties);
+
+	uint32_t memoryTypeIndex = -1;
+	VkMemoryPropertyFlags requiredMemoryProperties = memoryFlags;
+	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
+	{
+		if ( (memoryRequirements.memoryTypeBits & (1 << i)) &&
+				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
+		{
+			memoryTypeIndex = i;
+		}
+	}
+	if( memoryTypeIndex == -1 )
+	{
+		LOG(Error, "Could not find a proper memory type for the buffer.\n");
+		QUIT_ABNORMALLY();
+	}
+
+	VkMemoryAllocateInfo memoryAllocateInfo = {};
+	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocateInfo.allocationSize = memoryRequirements.size;
+	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
+
+	VkDeviceMemory memory;
+	VK_CHECK_RESULT( vkAllocateMemory(gfxDevice.device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
+
+	VkDeviceSize offset = 0;
+	VK_CHECK_RESULT( vkBindBufferMemory(gfxDevice.device, buffer, memory, offset) );
+
+	Buffer gfxBuffer = {
+		buffer,
+		memory
+	};
+	return gfxBuffer;
 }
 
 bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
@@ -918,57 +972,17 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	CreateSwapchain( gfxDevice, window );
 
 
-	// Vertex buffers
-	VkBufferCreateInfo vertexBufferCreateInfo = {};
-	vertexBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	vertexBufferCreateInfo.size = sizeof(vertices);
-	vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-	vertexBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	// Create a vertex buffer
+	Buffer vertexBuffer = CreateBuffer(gfxDevice, sizeof(vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
 
-	VkBuffer vertexBuffer;
-	VK_CHECK_RESULT( vkCreateBuffer(device, &vertexBufferCreateInfo, VULKAN_ALLOCATORS, &vertexBuffer) );
-
-
-	// Memory for the vertex buffer
 	VkMemoryRequirements vertexBufferMemoryRequirements = {};
-	vkGetBufferMemoryRequirements(device, vertexBuffer, &vertexBufferMemoryRequirements);
-
-	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
-
-	uint32_t memoryTypeIndex = -1;
-	VkMemoryPropertyFlags requiredMemoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
-	{
-		if ( (vertexBufferMemoryRequirements.memoryTypeBits & (1 << i)) &&
-				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
-		{
-			memoryTypeIndex = i;
-		}
-	}
-	if( memoryTypeIndex == -1 )
-	{
-		LOG(Error, "Could not find a proper memory type for the vertex buffer.\n");
-		return false;
-	}
-
-	VkMemoryAllocateInfo memoryAllocateInfo = {};
-	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	memoryAllocateInfo.allocationSize = vertexBufferMemoryRequirements.size;
-	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
-
-	VkDeviceMemory vertexBufferMemory;
-	VK_CHECK_RESULT( vkAllocateMemory(device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &vertexBufferMemory) );
-
-	VkDeviceSize offset = 0;
-	VK_CHECK_RESULT( vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, offset) );
-
+	vkGetBufferMemoryRequirements(device, vertexBuffer.buffer, &vertexBufferMemoryRequirements);
 
 	// Fill vertex buffer memory
 	void* data;
-	VK_CHECK_RESULT( vkMapMemory(device, vertexBufferMemory, 0, vertexBufferMemoryRequirements.size, 0, &data) );
+	VK_CHECK_RESULT( vkMapMemory(device, vertexBuffer.memory, 0, vertexBufferMemoryRequirements.size, 0, &data) );
 	MemCopy(data, vertices, (size_t) vertexBufferMemoryRequirements.size);
-	vkUnmapMemory(device, vertexBufferMemory);
+	vkUnmapMemory(device, vertexBuffer.memory);
 
 
 	// Command pool
@@ -1011,8 +1025,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
-	gfxDevice.vertexBuffer = vertexBuffer;
-	gfxDevice.vertexBufferMemory = vertexBufferMemory;
+	gfxDevice.vertexBuffer = vertexBuffer.buffer;
+	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
 	gfxDevice.pipelineCache = pipelineCache;
 #if USE_IMGUI
 	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
