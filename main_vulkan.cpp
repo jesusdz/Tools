@@ -219,6 +219,24 @@ Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsa
 	return gfxBuffer;
 }
 
+Buffer CreateVertexBuffer(GfxDevice &gfxDevice, const void *vertexData, u32 size )
+{
+	// Create the buffer backed with memory
+	Buffer vertexBuffer = CreateBuffer(
+			gfxDevice,
+			size,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+
+	// Fill vertex buffer memory
+	void* data;
+	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, vertexBuffer.memory, 0, size, 0, &data) );
+	MemCopy(data, vertexData, (size_t) size);
+	vkUnmapMemory(gfxDevice.device, vertexBuffer.memory);
+
+	return vertexBuffer;
+}
+
 bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 {
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
@@ -973,16 +991,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 
 	// Create a vertex buffer
-	Buffer vertexBuffer = CreateBuffer(gfxDevice, sizeof(vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
-
-	VkMemoryRequirements vertexBufferMemoryRequirements = {};
-	vkGetBufferMemoryRequirements(device, vertexBuffer.buffer, &vertexBufferMemoryRequirements);
-
-	// Fill vertex buffer memory
-	void* data;
-	VK_CHECK_RESULT( vkMapMemory(device, vertexBuffer.memory, 0, vertexBufferMemoryRequirements.size, 0, &data) );
-	MemCopy(data, vertices, (size_t) vertexBufferMemoryRequirements.size);
-	vkUnmapMemory(device, vertexBuffer.memory);
+	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, vertices, sizeof(vertices));
 
 
 	// Command pool
