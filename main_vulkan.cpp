@@ -58,7 +58,7 @@ static const Vertex vertices[] = {
 	{{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
-VkBool32 VulkanDebugReportCallback(
+static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
 		VkDebugReportObjectTypeEXT                  objectType,
 		uint64_t                                    object,
