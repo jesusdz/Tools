@@ -53,10 +53,13 @@ struct Vertex
 };
 
 static const Vertex vertices[] = {
-	{{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-	{{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
-	{{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}
+	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+	{{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}}
 };
+
+static const u16 indices[] = { 0, 1, 2, 2, 3, 0 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
@@ -141,6 +144,8 @@ struct GfxDevice
 
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 
 	struct
 	{
@@ -256,7 +261,7 @@ void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, Vk
 	vkFreeCommandBuffers(gfxDevice.device, gfxDevice.transientCommandPool, 1, &commandBuffer);
 }
 
-Buffer CreateVertexBuffer(GfxDevice &gfxDevice, const void *vertexData, u32 size )
+Buffer CreateBufferWithData(GfxDevice &gfxDevice, const void *data, u32 size, VkBufferUsageFlags usage)
 {
 	// Create a staging buffer backed with locally accessible memory
 	Buffer stagingBuffer = CreateBuffer(
@@ -265,26 +270,39 @@ Buffer CreateVertexBuffer(GfxDevice &gfxDevice, const void *vertexData, u32 size
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
 
-	// Fill vertex buffer memory
-	void* data;
-	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, stagingBuffer.memory, 0, size, 0, &data) );
-	MemCopy(data, vertexData, (size_t) size);
+	// Fill staging buffer memory
+	void* dstData;
+	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, stagingBuffer.memory, 0, size, 0, &dstData) );
+	MemCopy(dstData, data, (size_t) size);
 	vkUnmapMemory(gfxDevice.device, stagingBuffer.memory);
 
-	// Create a vertex buffer in device local memory
-	Buffer vertexBuffer = CreateBuffer(
+	// Create a buffer in device local memory
+	Buffer finalBuffer = CreateBuffer(
 			gfxDevice,
 			size,
-			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-	// Copy contents from the staging to the vertex buffer
-	CopyBuffer(gfxDevice, stagingBuffer.buffer, vertexBuffer.buffer, size);
+	// Copy contents from the staging to the final buffer
+	CopyBuffer(gfxDevice, stagingBuffer.buffer, finalBuffer.buffer, size);
 
 	vkDestroyBuffer( gfxDevice.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
 	vkFreeMemory( gfxDevice.device, stagingBuffer.memory, VULKAN_ALLOCATORS );
 
+	return finalBuffer;
+}
+
+Buffer CreateVertexBuffer(GfxDevice &gfxDevice, const void *data, u32 size )
+{
+	Buffer vertexBuffer = CreateBufferWithData(gfxDevice, data, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 	return vertexBuffer;
+}
+
+
+Buffer CreateIndexBuffer(GfxDevice &gfxDevice, const void *data, u32 size )
+{
+	Buffer indexBuffer = CreateBufferWithData(gfxDevice, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	return indexBuffer;
 }
 
 bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
@@ -1102,6 +1120,11 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.vertexBuffer = vertexBuffer.buffer;
 	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
 
+	// Create a index buffer
+	Buffer indexBuffer = CreateIndexBuffer(gfxDevice, indices, sizeof(indices));
+	gfxDevice.indexBuffer = indexBuffer.buffer;
+	gfxDevice.indexBufferMemory = indexBuffer.memory;
+
 
 	return true;
 }
@@ -1134,6 +1157,8 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 
 	CleanupSwapchain( gfxDevice );
 
+	vkDestroyBuffer( gfxDevice.device, gfxDevice.indexBuffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfxDevice.device, gfxDevice.indexBufferMemory, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfxDevice.device, gfxDevice.vertexBuffer, VULKAN_ALLOCATORS );
 	vkFreeMemory( gfxDevice.device, gfxDevice.vertexBufferMemory, VULKAN_ALLOCATORS );
 
@@ -1243,7 +1268,10 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	VkDeviceSize offsets[] = { 0 };
 	vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
 
-	vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
+	vkCmdBindIndexBuffer(commandBuffer, gfxDevice.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+	//vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(indices), 1, 0, 0, 0);
 
 #if USE_IMGUI
 	// Record dear imgui primitives into command buffer
