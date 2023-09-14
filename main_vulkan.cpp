@@ -137,6 +137,8 @@ struct GfxDevice
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
 
+	VkCommandPool transientCommandPool;
+
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
 
@@ -219,20 +221,68 @@ Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsa
 	return gfxBuffer;
 }
 
+void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{
+	VkCommandBufferAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = gfxDevice.transientCommandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(gfxDevice.device, &allocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	VkBufferCopy copyRegion = {};
+	copyRegion.srcOffset = 0;
+	copyRegion.dstOffset = 0;
+	copyRegion.size = size;
+	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+	vkQueueSubmit(gfxDevice.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(gfxDevice.graphicsQueue);
+
+	vkFreeCommandBuffers(gfxDevice.device, gfxDevice.transientCommandPool, 1, &commandBuffer);
+}
+
 Buffer CreateVertexBuffer(GfxDevice &gfxDevice, const void *vertexData, u32 size )
 {
-	// Create the buffer backed with memory
-	Buffer vertexBuffer = CreateBuffer(
+	// Create a staging buffer backed with locally accessible memory
+	Buffer stagingBuffer = CreateBuffer(
 			gfxDevice,
 			size,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
 
 	// Fill vertex buffer memory
 	void* data;
-	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, vertexBuffer.memory, 0, size, 0, &data) );
+	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, stagingBuffer.memory, 0, size, 0, &data) );
 	MemCopy(data, vertexData, (size_t) size);
-	vkUnmapMemory(gfxDevice.device, vertexBuffer.memory);
+	vkUnmapMemory(gfxDevice.device, stagingBuffer.memory);
+
+	// Create a vertex buffer in device local memory
+	Buffer vertexBuffer = CreateBuffer(
+			gfxDevice,
+			size,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	// Copy contents from the staging to the vertex buffer
+	CopyBuffer(gfxDevice, stagingBuffer.buffer, vertexBuffer.buffer, size);
+
+	vkDestroyBuffer( gfxDevice.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfxDevice.device, stagingBuffer.memory, VULKAN_ALLOCATORS );
 
 	return vertexBuffer;
 }
@@ -990,10 +1040,6 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	CreateSwapchain( gfxDevice, window );
 
 
-	// Create a vertex buffer
-	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, vertices, sizeof(vertices));
-
-
 	// Command pool
 	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1012,6 +1058,16 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	commandBufferAllocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
 	VK_CHECK_RESULT( vkAllocateCommandBuffers( device, &commandBufferAllocInfo, gfxDevice.commandBuffers) );
+
+
+	// Transient command pool
+	VkCommandPoolCreateInfo transientCommandPoolCreateInfo = {};
+	transientCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	transientCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	transientCommandPoolCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+	VkCommandPool transientCommandPool;
+	VK_CHECK_RESULT( vkCreateCommandPool(device, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &transientCommandPool) );
 
 
 	// Synchronization objects
@@ -1034,12 +1090,19 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
-	gfxDevice.vertexBuffer = vertexBuffer.buffer;
-	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
+	gfxDevice.transientCommandPool = transientCommandPool;
 	gfxDevice.pipelineCache = pipelineCache;
 #if USE_IMGUI
 	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
 #endif
+
+
+	// Create a vertex buffer
+	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, vertices, sizeof(vertices));
+	gfxDevice.vertexBuffer = vertexBuffer.buffer;
+	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
+
+
 	return true;
 }
 
@@ -1081,6 +1144,7 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 		vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFences[i], VULKAN_ALLOCATORS );
 	}
 
+	vkDestroyCommandPool( gfxDevice.device, gfxDevice.transientCommandPool, VULKAN_ALLOCATORS );
 	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
 
 	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
