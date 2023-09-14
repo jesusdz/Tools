@@ -784,6 +784,36 @@ struct Mouse
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
 };
 
+bool MouseMoved(const Mouse &mouse)
+{
+	return mouse.dx != 0 || mouse.dy != 0;
+}
+
+bool MouseButtonPress(const Mouse &mouse, MouseButton button)
+{
+	ASSERT(button < MOUSE_BUTTON_COUNT);
+	return mouse.buttons[button] == BUTTON_STATE_PRESS;
+}
+
+bool MouseButtonRelease(const Mouse &mouse, MouseButton button)
+{
+	ASSERT(button < MOUSE_BUTTON_COUNT);
+	return mouse.buttons[button] == BUTTON_STATE_RELEASE;
+}
+
+bool MouseButtonChanged(const Mouse &mouse, MouseButton button)
+{
+	return MouseButtonPress(mouse, button) || MouseButtonRelease(mouse, button);
+}
+
+bool MouseChanged(const Mouse &mouse)
+{
+	return MouseMoved(mouse)
+		|| MouseButtonChanged(mouse, MOUSE_BUTTON_LEFT)
+		|| MouseButtonChanged(mouse, MOUSE_BUTTON_RIGHT)
+		|| MouseButtonChanged(mouse, MOUSE_BUTTON_MIDDLE);
+}
+
 enum WindowFlags
 {
 	WindowFlags_Resized = 1 << 0,
@@ -845,7 +875,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
 #if USE_IMGUI
 	if (ImGui_ImplXcb_HandleInputEvent(event))
-        return;
+		return;
 #endif
 
 	u32 eventType = event->response_type & ~0x80;
@@ -936,6 +966,35 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 			LOG(Info, "Unknown window event: %d\n", event->response_type);
 			break;
 	}
+
+#if USE_IMGUI
+	const Mouse &mouse = window.mouse;
+
+    ImGuiIO& io = ImGui::GetIO();
+	if (MouseChanged(mouse))
+	{
+		if (MouseMoved(mouse))
+		{
+			io.AddMousePosEvent(mouse.x, mouse.y);
+		}
+		int button = -1;
+		bool press = true;
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT)) { button = 0; press = true; }
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_RIGHT)) { button = 1; press = true; }
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_MIDDLE)) { button = 2; press = true; }
+		if (MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) { button = 0; press = false; }
+		if (MouseButtonRelease(mouse, MOUSE_BUTTON_RIGHT)) { button = 1; press = false; }
+		if (MouseButtonRelease(mouse, MOUSE_BUTTON_MIDDLE)) { button = 2; press = false; }
+		if ( button != -1 )
+		{
+			io.AddMouseButtonEvent(button, press);
+			io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
+		}
+	}
+
+	// TODO: When we detect the mouse leves the window
+	// io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+#endif
 }
 
 #elif USE_WINAPI

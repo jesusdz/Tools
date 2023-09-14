@@ -1300,7 +1300,7 @@ int main(int argc, char **argv)
 #if USE_WINAPI
 	ImGui_ImplWin32_Init(window.hWnd);
 #elif USE_XCB
-	ImGui_ImplXcb_Init(window.window);
+	ImGui_ImplXcb_Init(window.connection, window.window);
 #else
 #error "Missing codepath"
 #endif

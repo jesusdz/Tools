@@ -18,25 +18,27 @@
 #include "imgui_impl_xcb.h"
 #endif
 
+internal xcb_connection_t *g_Connection;
 internal xcb_window_t g_Window;
 internal double g_Time;
 
 
-bool ImGui_ImplXcb_Init(xcb_window_t window)
+bool ImGui_ImplXcb_Init(xcb_connection_t *connection, xcb_window_t window)
 {
-    g_Window = window;
-    g_Time = 0.0;
+	g_Connection = connection;
+	g_Window = window;
+	g_Time = 0.0;
 
-    // Setup backend capabilities flags
-    ImGuiIO& io = ImGui::GetIO();
-    io.BackendPlatformName = "imgui_impl_xcb";
+	// Setup backend capabilities flags
+	ImGuiIO& io = ImGui::GetIO();
+	io.BackendPlatformName = "imgui_impl_xcb";
 
-    return true;
+	return true;
 }
 
 bool ImGui_ImplXcb_HandleInputEvent(xcb_generic_event_t *event)
 {
-    ImGuiIO& io = ImGui::GetIO();
+	ImGuiIO& io = ImGui::GetIO();
 
 	u32 eventType = event->response_type & ~0x80;
 
@@ -47,29 +49,38 @@ bool ImGui_ImplXcb_HandleInputEvent(xcb_generic_event_t *event)
 
 void ImGui_ImplXcb_Shutdown()
 {
-    ImGuiIO& io = ImGui::GetIO();
-    io.BackendPlatformName = nullptr;
+	ImGuiIO& io = ImGui::GetIO();
+	io.BackendPlatformName = nullptr;
 }
 
 void ImGui_ImplXcb_NewFrame()
 {
-    ImGuiIO& io = ImGui::GetIO();
+	// Get window width and height
+	int32_t window_width = 500;
+	int32_t window_height = 500;
+	xcb_get_geometry_cookie_t cookie = xcb_get_geometry(g_Connection, g_Window);
+	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply(g_Connection, cookie, NULL);
+	if (reply)
+	{
+		window_width = reply->width;
+		window_height = reply->height;
+	}
+	free(reply);
 
-    // Setup display size (every frame to accommodate for window resizing)
-    int32_t window_width = 900; // TODO: Get the size of the window
-    int32_t window_height = 1000; // TODO: Get the size of the window
-    int display_width = window_width;
-    int display_height = window_height;
+	// Setup display size (every frame to accommodate for window resizing)
+	int display_width = window_width;
+	int display_height = window_height;
 
-    io.DisplaySize = ImVec2((float)window_width, (float)window_height);
-    if (window_width > 0 && window_height > 0)
-        io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
+	ImGuiIO& io = ImGui::GetIO();
+	io.DisplaySize = ImVec2((float)window_width, (float)window_height);
+	if (window_width > 0 && window_height > 0)
+		io.DisplayFramebufferScale = ImVec2((float)display_width / window_width, (float)display_height / window_height);
 
-    // Setup time step
-    struct timespec current_timespec;
-    clock_gettime(CLOCK_MONOTONIC, &current_timespec);
-    double current_time = (double)(current_timespec.tv_sec) + (current_timespec.tv_nsec / 1000000000.0);
-    io.DeltaTime = g_Time > 0.0 ? (float)(current_time - g_Time) : (float)(1.0f / 60.0f);
-    g_Time = current_time;
+	// Setup time step
+	struct timespec current_timespec;
+	clock_gettime(CLOCK_MONOTONIC, &current_timespec);
+	double current_time = (double)(current_timespec.tv_sec) + (current_timespec.tv_nsec / 1000000000.0);
+	io.DeltaTime = g_Time > 0.0 ? (float)(current_time - g_Time) : (float)(1.0f / 60.0f);
+	g_Time = current_time;
 }
 
