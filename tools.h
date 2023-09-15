@@ -62,6 +62,7 @@
 
 
 #include <stdio.h>  // printf
+#include <math.h>
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
 
@@ -587,19 +588,116 @@ struct float3
 
 struct float4
 {
-	union { float x, r; };
-	union { float y, g; };
-	union { float z, b; };
-	union { float w, a; };
+	union
+	{
+		f32 vec[4];
+		struct
+		{
+			union { float x, r; };
+			union { float y, g; };
+			union { float z, b; };
+			union { float w, a; };
+		};
+	};
 };
 
 struct float4x4
 {
-	union {
+	union
+	{
 		f32 mat[4][4];
-		struct { float4 x, y, z, w; };
+		struct
+		{
+			f32 m00, m01, m02, m03,
+				m10, m11, m12, m13,
+				m20, m21, m22, m23,
+				m30, m31, m32, m33;
+		};
 	};
 };
+
+f32 Dot(const float3 &a, const float3 &b)
+{
+	const f32 dot = a.x * b.x + a.y * b.y + a.z * b.z;
+	return dot;
+}
+
+f32 Dot(const float4 &a, const float4 &b)
+{
+	const f32 dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return dot;
+}
+
+float3 Cross(const float3 &u, const float3 &v)
+{
+	const float3 cross = {
+		u.y * v.z - u.z * v.y, // x
+		u.z * v.x - u.x * v.z, // y
+		u.x * v.y - u.y * v.x  // z
+	};
+	return cross;
+}
+
+float4x4 Eye()
+{
+	float4x4 mat = {};
+	mat.m00 = mat.m11 = mat.m22 = mat.m33 = 1.0f;
+	return mat;
+}
+
+float4x4 Translate(const float3 &t)
+{
+	float4x4 mat = {};
+	mat.m30 = t.x;
+	mat.m31 = t.y;
+	mat.m32 = t.z;
+	mat.m33 = 1.0f;
+	return mat;
+}
+
+float4x4 Rotate()
+{
+	float4x4 mat = {};
+	// TODO
+	return mat;
+}
+
+float4x4 Scale(const float3 &s)
+{
+	float4x4 mat = {};
+	mat.m00 = s.x;
+	mat.m11 = s.y;
+	mat.m22 = s.z;
+	mat.m33 = 1.0f;
+	return mat;
+}
+
+float4x4 LookAt(const float3 &vrp, const float3 &obs, const float3 &up)
+{
+	//float3 x = ;
+	//float3 y = ;
+	//float3 z = ;
+
+	float4x4 mat = {};
+	// TODO
+	return mat;
+}
+
+float4x4 Perspective(float fov, float aspect, float near, float far)
+{
+	static const f32 D2R = M_PI / 180.0f;
+    const f32 yScale = 1.0 / tan(D2R * fov / 2);
+    const f32 xScale = yScale / aspect;
+    const f32 nearmfar = near - far;
+
+	float4x4 mat = {};
+	mat.m00 = xScale;
+	mat.m00 = yScale;
+	mat.m22 = (far + near) / nearmfar;
+	mat.m23 = -1;
+	mat.m32 = 2 * far * near / (nearmfar);
+	return mat;
+}
 
 #define INSTANTIATE_MATH_OPS_FOR_TYPE( Type ) \
 Type Min( Type a, Type b ) { return a < b ? a : b; } \

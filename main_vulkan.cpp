@@ -52,6 +52,13 @@ struct Vertex
 	float3 color;
 };
 
+struct VertexTransforms
+{
+	float4x4 model;
+	float4x4 view;
+	float4x4 proj;
+};
+
 static const Vertex vertices[] = {
 	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
 	{{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
@@ -134,6 +141,7 @@ struct GfxDevice
 
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
+	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 
@@ -146,6 +154,9 @@ struct GfxDevice
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexBufferMemory;
+	VkBuffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
+	VkDeviceMemory uniformBuffersMemory[MAX_FRAMES_IN_FLIGHT];
+	void *uniformBuffersMapped[MAX_FRAMES_IN_FLIGHT];
 
 	struct
 	{
@@ -874,6 +885,22 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 #endif
 
 
+	// Create descriptor set layout
+	// TODO: This shouldn't be part of the device initialization
+	VkDescriptorSetLayoutBinding binding = {};
+	binding.binding = 0;
+	binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	binding.descriptorCount = 1;
+	binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	binding.pImmutableSamplers = NULL;
+
+	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+	descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	descriptorSetLayoutCreateInfo.bindingCount = 1;
+	descriptorSetLayoutCreateInfo.pBindings = &binding;
+	VkDescriptorSetLayout descriptorSetLayout;
+	VK_CHECK_RESULT( vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayout) );
+
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
 	// but let's put it here for now
@@ -1011,8 +1038,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.setLayoutCount = 0; // Optional
-	pipelineLayoutCreateInfo.pSetLayouts = nullptr; // Optional
+	pipelineLayoutCreateInfo.setLayoutCount = 1;
+	pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 0; // Optional
 	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr; // Optional
 
@@ -1105,6 +1132,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.instance = instance;
 	gfxDevice.graphicsQueue = graphicsQueue;
 	gfxDevice.presentQueue = presentQueue;
+	gfxDevice.descriptorSetLayout = descriptorSetLayout;
 	gfxDevice.pipelineLayout = pipelineLayout;
 	gfxDevice.graphicsPipeline = graphicsPipeline;
 	gfxDevice.commandPool = commandPool;
@@ -1124,6 +1152,20 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	Buffer indexBuffer = CreateIndexBuffer(gfxDevice, indices, sizeof(indices));
 	gfxDevice.indexBuffer = indexBuffer.buffer;
 	gfxDevice.indexBufferMemory = indexBuffer.memory;
+
+	// Create uniform buffers
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		Buffer uniformBuffer = CreateBuffer(
+			gfxDevice,
+			sizeof(VertexTransforms),
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+		gfxDevice.uniformBuffers[i] = uniformBuffer.buffer;
+		gfxDevice.uniformBuffersMemory[i] = uniformBuffer.memory;
+
+		vkMapMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfxDevice.uniformBuffersMapped[i]);
+	}
 
 
 	return true;
@@ -1162,6 +1204,12 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDestroyBuffer( gfxDevice.device, gfxDevice.vertexBuffer, VULKAN_ALLOCATORS );
 	vkFreeMemory( gfxDevice.device, gfxDevice.vertexBufferMemory, VULKAN_ALLOCATORS );
 
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	{
+		vkDestroyBuffer(gfxDevice.device, gfxDevice.uniformBuffers[i], NULL);
+		vkFreeMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], NULL);
+	}
+
 	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
 	{
 		vkDestroySemaphore( gfxDevice.device, gfxDevice.imageAvailableSemaphores[i], VULKAN_ALLOCATORS );
@@ -1175,6 +1223,8 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+
+	vkDestroyDescriptorSetLayout( gfxDevice.device, gfxDevice.descriptorSetLayout, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineCache( gfxDevice.device, gfxDevice.pipelineCache, VULKAN_ALLOCATORS );
 
@@ -1221,6 +1271,14 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	}
 
 	vkResetFences( gfxDevice.device, 1, &gfxDevice.inFlightFences[frameIndex] );
+
+
+	// Update uniform data
+	VertexTransforms vertexTransforms;
+	vertexTransforms.model = Eye();
+	vertexTransforms.view = Eye();
+	vertexTransforms.proj = Eye();
+	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
 
 
 	// Record commands
