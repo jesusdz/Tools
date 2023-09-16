@@ -131,11 +131,18 @@ struct GfxDevice
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 
+	VkDescriptorPool descriptorPool;
+
 #if USE_IMGUI
 	VkDescriptorPool imGuiDescriptorPool;
 #endif
 
 	u32 currentFrame;
+
+	VkCommandPool commandPool;
+	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
+
+	VkCommandPool transientCommandPool;
 
 	VkPipelineCache pipelineCache;
 
@@ -145,11 +152,6 @@ struct GfxDevice
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 
-	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
-
-	VkCommandPool transientCommandPool;
-
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
@@ -157,6 +159,8 @@ struct GfxDevice
 	VkBuffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 	VkDeviceMemory uniformBuffersMemory[MAX_FRAMES_IN_FLIGHT];
 	void *uniformBuffersMapped[MAX_FRAMES_IN_FLIGHT];
+
+	VkDescriptorSet descriptorSets[MAX_FRAMES_IN_FLIGHT];
 
 	struct
 	{
@@ -990,7 +994,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
 	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizerCreateInfo.lineWidth = 1.0f;
-	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE; // VK_CULL_MODE_BACK_BIT;
 	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
 	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
@@ -1167,6 +1171,53 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		vkMapMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfxDevice.uniformBuffersMapped[i]);
 	}
 
+	// Create Descriptor Pool
+	VkDescriptorPoolSize poolSize = {};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
+
+	VkDescriptorPoolCreateInfo poolCreateInfo = {};
+	poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolCreateInfo.poolSizeCount = 1;
+	poolCreateInfo.pPoolSizes = &poolSize;
+	poolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
+	//poolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+
+	VkDescriptorPool descriptorPool;
+	VK_CHECK_RESULT( vkCreateDescriptorPool(gfxDevice.device, &poolCreateInfo, VULKAN_ALLOCATORS, &descriptorPool) );
+	gfxDevice.descriptorPool = descriptorPool;
+
+	// DescriptorSets
+	VkDescriptorSetLayout descriptorSetLayouts[MAX_FRAMES_IN_FLIGHT] = {};
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) descriptorSetLayouts[i] = gfxDevice.descriptorSetLayout;
+	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+	descriptorSetAllocateInfo.descriptorSetCount = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
+	descriptorSetAllocateInfo.pSetLayouts = descriptorSetLayouts;
+	VK_CHECK_RESULT( vkAllocateDescriptorSets(gfxDevice.device, &descriptorSetAllocateInfo, gfxDevice.descriptorSets) );
+
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		VkDescriptorBufferInfo info = {};
+		info.buffer = gfxDevice.uniformBuffers[i];
+		info.offset = 0;
+		info.range = sizeof(VertexTransforms);
+
+		VkWriteDescriptorSet descriptorWrite = {};
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = gfxDevice.descriptorSets[i];
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.dstArrayElement = 0;
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &info;
+		descriptorWrite.pImageInfo = NULL;
+		descriptorWrite.pTexelBufferView = NULL;
+
+		vkUpdateDescriptorSets(gfxDevice.device, 1, &descriptorWrite, 0, NULL);
+	}
+
 
 	return true;
 }
@@ -1217,9 +1268,6 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 		vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFences[i], VULKAN_ALLOCATORS );
 	}
 
-	vkDestroyCommandPool( gfxDevice.device, gfxDevice.transientCommandPool, VULKAN_ALLOCATORS );
-	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
-
 	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
@@ -1227,6 +1275,11 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	vkDestroyDescriptorSetLayout( gfxDevice.device, gfxDevice.descriptorSetLayout, VULKAN_ALLOCATORS );
 
 	vkDestroyPipelineCache( gfxDevice.device, gfxDevice.pipelineCache, VULKAN_ALLOCATORS );
+
+	vkDestroyCommandPool( gfxDevice.device, gfxDevice.transientCommandPool, VULKAN_ALLOCATORS );
+	vkDestroyCommandPool( gfxDevice.device, gfxDevice.commandPool, VULKAN_ALLOCATORS );
+
+	vkDestroyDescriptorPool( gfxDevice.device, gfxDevice.descriptorPool, VULKAN_ALLOCATORS );
 
 #if USE_IMGUI
 	vkDestroyDescriptorPool( gfxDevice.device, gfxDevice.imGuiDescriptorPool, VULKAN_ALLOCATORS );
@@ -1248,7 +1301,7 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	ZeroStruct( &gfxDevice );
 }
 
-bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
+bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 {
 	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfxDevice.currentFrame;
@@ -1274,8 +1327,10 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 
 
 	// Update uniform data
+	static f32 angle = 0.0f;
+	angle += 45.0f * deltaSeconds;
 	VertexTransforms vertexTransforms;
-	vertexTransforms.model = Eye();
+	vertexTransforms.model = Rotate({0, 0, 1}, angle);
 	vertexTransforms.view = Eye();
 	vertexTransforms.proj = Eye();
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
@@ -1327,6 +1382,8 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
 
 	vkCmdBindIndexBuffer(commandBuffer, gfxDevice.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.pipelineLayout, 0, 1, &gfxDevice.descriptorSets[frameIndex], 0, NULL);
 
 	//vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
 	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(indices), 1, 0, 0, 0);
@@ -1388,6 +1445,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 	gfxDevice.currentFrame = ( gfxDevice.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 
 
+#if 0
 	static Clock clock0 = GetClock();
 	Clock clock1 = GetClock();
 	float deltaSeconds = GetSecondsElapsed(clock0, clock1);
@@ -1404,6 +1462,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window)
 		elapsedSeconds = 0.0f;
 		frameCount = 0;
 	}
+#endif
 
 
 	return true;
@@ -1498,9 +1557,15 @@ int main(int argc, char **argv)
 	}
 #endif
 
+	Clock lastFrameClock = GetClock();
+
 	// Application loop
 	while ( 1 )
 	{
+		const Clock currentFrameClock = GetClock();
+		const f32 deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
+		lastFrameClock = currentFrameClock;
+
 		ProcessWindowEvents(window);
 
 #if USE_IMGUI
@@ -1551,7 +1616,7 @@ int main(int argc, char **argv)
 			break;
 		}
 
-		RenderGraphics(gfxDevice, window);
+		RenderGraphics(gfxDevice, window, deltaSeconds);
 	}
 
 	WaitDeviceIdle(gfxDevice);
