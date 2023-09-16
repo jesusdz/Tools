@@ -616,26 +616,59 @@ struct float4x4
 	};
 };
 
+static constexpr f32 ToRadians = M_PI / 180.0f;
+static constexpr f32 ToDegrees = 180.0f / M_PI;
+
+f32 Sin(f32 value)
+{
+	const f32 res = ::sinf(value);
+	return res;
+}
+
+f32 Cos(f32 value)
+{
+	const f32 res = ::cosf(value);
+	return res;
+}
+
+f32 Sqrt(f32 value)
+{
+	const f32 res = ::sqrtf(value);
+	return res;
+}
+
 f32 Dot(const float3 &a, const float3 &b)
 {
-	const f32 dot = a.x * b.x + a.y * b.y + a.z * b.z;
-	return dot;
+	const f32 res = a.x * b.x + a.y * b.y + a.z * b.z;
+	return res;
 }
 
 f32 Dot(const float4 &a, const float4 &b)
 {
-	const f32 dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-	return dot;
+	const f32 res = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return res;
+}
+
+f32 Length2(const float3 &v)
+{
+	const f32 res = Dot(v, v);
+	return res;
+}
+
+f32 Length(const float3 &v)
+{
+	const f32 res = Sqrt(Length2(v));
+	return res;
 }
 
 float3 Cross(const float3 &u, const float3 &v)
 {
-	const float3 cross = {
+	const float3 res = {
 		u.y * v.z - u.z * v.y, // x
 		u.z * v.x - u.x * v.z, // y
 		u.x * v.y - u.y * v.x  // z
 	};
-	return cross;
+	return res;
 }
 
 float4x4 Eye()
@@ -647,7 +680,7 @@ float4x4 Eye()
 
 float4x4 Translate(const float3 &t)
 {
-	float4x4 mat = {};
+	float4x4 mat = Eye();
 	mat.m30 = t.x;
 	mat.m31 = t.y;
 	mat.m32 = t.z;
@@ -655,10 +688,40 @@ float4x4 Translate(const float3 &t)
 	return mat;
 }
 
-float4x4 Rotate()
+float4x4 Rotate(const float3 &axis, f32 degrees)
 {
-	float4x4 mat = {};
-	// TODO
+	// ASSERT( IsNormalized(axis) );
+
+	const f32 radians = degrees * ToRadians;
+	const f32 c = Cos(radians);
+	const f32 s = Sin(radians);
+	const f32 t = 1.0f - c;
+
+	const f32 m00 = c + axis.x*axis.x*t;
+    const f32 m11 = c + axis.y*axis.y*t;
+    const f32 m22 = c + axis.z*axis.z*t;
+
+    const f32 tmp1 = axis.x*axis.y*t;
+    const f32 tmp2 = axis.z*s;
+    const f32 m10 = tmp1 + tmp2;
+    const f32 m01 = tmp1 - tmp2;
+
+    const f32 tmp3 = axis.x*axis.z*t;
+    const f32 tmp4 = axis.y*s;
+    const f32 m20 = tmp3 - tmp4;
+    const f32 m02 = tmp3 + tmp4;
+
+	const f32 tmp5 = axis.y*axis.z*t;
+    const f32 tmp6 = axis.x*s;
+    const f32 m21 = tmp5 + tmp6;
+    const f32 m12 = tmp5 - tmp6;
+
+	const float4x4 mat = {
+		m00, m01, m02, 0,
+		m10, m11, m12, 0,
+		m20, m21, m22, 0,
+		0,     0,   0, 1,
+	};
 	return mat;
 }
 
@@ -697,6 +760,17 @@ float4x4 Perspective(float fov, float aspect, float near, float far)
 	mat.m23 = -1;
 	mat.m32 = 2 * far * near / (nearmfar);
 	return mat;
+}
+
+float4x4 Transpose(const float4x4 &m)
+{
+	const float4x4 res = {
+		m.m00, m.m10, m.m20, m.m30,
+		m.m01, m.m11, m.m21, m.m31,
+		m.m02, m.m12, m.m22, m.m32,
+		m.m03, m.m13, m.m23, m.m33,
+	};
+	return res;
 }
 
 #define INSTANTIATE_MATH_OPS_FOR_TYPE( Type ) \
