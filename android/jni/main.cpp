@@ -23,6 +23,7 @@
 struct SavedState {
     int32_t x;
     int32_t y;
+	f32 deltaSeconds;
 };
 
 /**
@@ -43,6 +44,7 @@ struct Engine {
 	Arena arena;
 	Window window;
 	GfxDevice gfxDevice;
+	bool initialized;
 #endif
     int32_t width;
     int32_t height;
@@ -141,7 +143,6 @@ static int engine_init_display(Engine* engine)
 
 #elif USE_VULKAN
 
-	LOG(Info, "before InitializeGraphics!");
 	engine->window.window = engine->app->window;
 
 	// Initialize graphics
@@ -151,6 +152,8 @@ static int engine_init_display(Engine* engine)
 		return -1;
 	}
 
+	engine->initialized = true;
+
 #endif
 
     return 0;
@@ -159,8 +162,12 @@ static int engine_init_display(Engine* engine)
 /**
  * Just the current frame in the display.
  */
-static void engine_draw_frame(Engine* engine) {
-
+static void engine_draw_frame(Engine* engine)
+{
+	if ( !engine->initialized )
+	{
+		return;
+	}
 #if USE_OPENGL
 
     if (engine->display == NULL) {
@@ -177,7 +184,7 @@ static void engine_draw_frame(Engine* engine) {
 
 #elif USE_VULKAN
 
-	RenderGraphics(engine->gfxDevice, engine->window);
+	RenderGraphics(engine->gfxDevice, engine->window, engine->state.deltaSeconds);
 
 #endif
 }
@@ -203,6 +210,7 @@ static void engine_term_display(Engine* engine)
     engine->surface = EGL_NO_SURFACE;
 #elif USE_VULKAN
 
+	engine->initialized = false;
 	CleanupGraphics(engine->gfxDevice);
 
 #endif
@@ -283,19 +291,10 @@ void android_main(struct android_app* app) {
     Engine engine = {};
 
 #if USE_VULKAN
-#if 0
-	if ( !InitializeWindow(engine.window) )
-	{
-		LOG(Error, "InitializeWindow failed!\n");
-		return -1;
-	}
-#endif
-
 	// Allocate base memory
 	u32 baseMemorySize = MB(64);
 	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
 	engine.arena = MakeArena(baseMemory, baseMemorySize);
-
 #endif
 
     app->userData = &engine;
@@ -318,23 +317,29 @@ void android_main(struct android_app* app) {
         engine.state = *(SavedState*)app->savedState;
     }
 
+	Clock lastFrameClock = GetClock();
+
     // Application loop
     while ( 1 )
 	{
+		Clock currentFrameClock = GetClock();
+		engine.state.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
+		lastFrameClock = currentFrameClock;
+
         // Read all pending events.
         int ident;
         int events;
         struct android_poll_source* source;
 
 		const int kWaitForever = -1;
-        while ((ident=ALooper_pollAll(kWaitForever, NULL, &events, (void**)&source)) >= 0)
+		const int kDontWait = 0;
+        while ((ident=ALooper_pollAll(kDontWait, NULL, &events, (void**)&source)) >= 0)
 		{
             // Process this event.
             if (source != NULL) {
                 source->process(app, source);
             }
 
-#if USE_OPENGL
             // If a sensor has data, process it now.
             if (ident == LOOPER_ID_USER) {
                 if (engine.accelerometerSensor != NULL) {
@@ -352,10 +357,8 @@ void android_main(struct android_app* app) {
 
             // Check if we are exiting.
             if (app->destroyRequested != 0) {
-                engine_term_display(&engine);
-                return;
+				engine.window.flags |= WindowFlags_Exiting;
             }
-#endif
         }
 
 
@@ -374,10 +377,10 @@ void android_main(struct android_app* app) {
 		{
 			break;
 		}
-
-		RenderGraphics(engine.gfxDevice, engine.window);
-#else
-		engine_draw_frame(&engine);
 #endif
+
+		engine_draw_frame(&engine);
     }
+
+	engine_term_display(&engine);
 }
