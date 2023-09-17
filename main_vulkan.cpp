@@ -46,7 +46,7 @@ struct Buffer
 	VkDeviceMemory memory;
 };
 
-struct Vertex
+struct Vertex2D
 {
 	float2 pos;
 	float3 color;
@@ -59,14 +59,14 @@ struct VertexTransforms
 	float4x4 proj;
 };
 
-static const Vertex vertices[] = {
+static const Vertex2D vertices2D[] = {
 	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
 	{{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
 	{{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
-	{{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}}
+	{{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}},
 };
 
-static const u16 indices[] = { 0, 1, 2, 2, 3, 0 };
+static const u16 indices2D[] = { 0, 1, 2, 2, 3, 0 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
@@ -947,18 +947,18 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	// TODO: Like I said before, vertex description shouldn't go here
 	VkVertexInputBindingDescription bindingDescription = {};
 	bindingDescription.binding = 0;
-	bindingDescription.stride = sizeof(Vertex);
+	bindingDescription.stride = sizeof(Vertex2D);
 	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
 	VkVertexInputAttributeDescription attributeDescriptions[2] = {};
 	attributeDescriptions[0].binding = 0;
 	attributeDescriptions[0].location = 0;
 	attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
-	attributeDescriptions[0].offset = offsetof(Vertex, pos);
+	attributeDescriptions[0].offset = offsetof(Vertex2D, pos);
 	attributeDescriptions[1].binding = 0;
 	attributeDescriptions[1].location = 1;
 	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[1].offset = offsetof(Vertex, color);
+	attributeDescriptions[1].offset = offsetof(Vertex2D, color);
 
 	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
 	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1149,12 +1149,12 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 
 	// Create a vertex buffer
-	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, vertices, sizeof(vertices));
+	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, vertices2D, sizeof(vertices2D));
 	gfxDevice.vertexBuffer = vertexBuffer.buffer;
 	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
 
 	// Create a index buffer
-	Buffer indexBuffer = CreateIndexBuffer(gfxDevice, indices, sizeof(indices));
+	Buffer indexBuffer = CreateIndexBuffer(gfxDevice, indices2D, sizeof(indices2D));
 	gfxDevice.indexBuffer = indexBuffer.buffer;
 	gfxDevice.indexBufferMemory = indexBuffer.memory;
 
@@ -1335,8 +1335,9 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	VertexTransforms vertexTransforms;
 	vertexTransforms.model = Rotate({0, 0, 1}, angle);
-	vertexTransforms.view = Eye();
-	vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -1, 1);
+	vertexTransforms.view = LookAt({0, 0, 0}, {1, 1, 1}, {0, 1, 0});
+	//vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
+	vertexTransforms.proj = Perspective(60.0f, ar, 0.1f, 1000.0f);
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
 
 
@@ -1390,7 +1391,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.pipelineLayout, 0, 1, &gfxDevice.descriptorSets[frameIndex], 0, NULL);
 
 	//vkCmdDraw(commandBuffer, ARRAY_COUNT(vertices), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(indices), 1, 0, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(indices2D), 1, 0, 0, 0);
 
 #if USE_IMGUI
 	// Record dear imgui primitives into command buffer

@@ -637,6 +637,18 @@ f32 Sqrt(f32 value)
 	return res;
 }
 
+float3 FromTo(const float3 &a, const float3 &b)
+{
+	const float3 res = { b.x - a.x, b.y - a.y, b.z - a.z };
+	return res;
+}
+
+float3 Negate(const float3 &v)
+{
+	const float3 res = { -v.x, -v.y, -v.z };
+	return res;
+}
+
 f32 Dot(const float3 &a, const float3 &b)
 {
 	const f32 res = a.x * b.x + a.y * b.y + a.z * b.z;
@@ -661,6 +673,13 @@ f32 Length(const float3 &v)
 	return res;
 }
 
+float3 Normalize(const float3 &v)
+{
+	const f32 invLen = 1.0f / Length(v);
+	const float3 res = {v.x * invLen, v.y * invLen, v.z * invLen};
+	return res;
+}
+
 float3 Cross(const float3 &u, const float3 &v)
 {
 	const float3 res = {
@@ -680,11 +699,12 @@ float4x4 Eye()
 
 float4x4 Translate(const float3 &t)
 {
-	float4x4 mat = Eye();
-	mat.m30 = t.x;
-	mat.m31 = t.y;
-	mat.m32 = t.z;
-	mat.m33 = 1.0f;
+	const float4x4 mat = {
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		t.x, t.y, t.z, 1,
+	};
 	return mat;
 }
 
@@ -727,22 +747,29 @@ float4x4 Rotate(const float3 &axis, f32 degrees)
 
 float4x4 Scale(const float3 &s)
 {
-	float4x4 mat = {};
-	mat.m00 = s.x;
-	mat.m11 = s.y;
-	mat.m22 = s.z;
-	mat.m33 = 1.0f;
+	const float4x4 mat = {
+		s.x, 0, 0, 0,
+		0, s.y, 0, 0,
+		0, 0, s.y, 0,
+		0, 0, 0, 1,
+	};
 	return mat;
 }
 
 float4x4 LookAt(const float3 &vrp, const float3 &obs, const float3 &up)
 {
-	//float3 x = ;
-	//float3 y = ;
-	//float3 z = ;
-
-	float4x4 mat = {};
-	// TODO
+	const float3 forward = Normalize(FromTo(vrp, obs));
+	const float3 right = Normalize(Cross(up, forward));
+	const float3 newUp = Cross(forward, right);
+	const f32 tx = Dot(Negate(right) ,obs);
+	const f32 ty = Dot(Negate(newUp) ,obs);
+	const f32 tz = Dot(Negate(forward) ,obs);
+	const float4x4 mat = {
+		right.x, newUp.x, forward.x, 0,
+		right.y, newUp.y, forward.y, 0,
+		right.z, newUp.z, forward.z, 0,
+		tx, ty, tz, 1,
+	};
 	return mat;
 }
 
@@ -755,10 +782,10 @@ float4x4 Perspective(float fov, float aspect, float near, float far)
 
 	float4x4 mat = {};
 	mat.m00 = xScale;
-	mat.m00 = yScale;
+	mat.m11 = yScale;
 	mat.m22 = (far + near) / nearmfar;
 	mat.m23 = -1;
-	mat.m32 = 2 * far * near / (nearmfar);
+	mat.m32 = 2.0f * far * near / nearmfar;
 	return mat;
 }
 
@@ -769,11 +796,11 @@ float4x4 Orthogonal(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f)
 	const f32 TminusB = t - b;
 	const f32 FminusN = f - n;
 	mat.m00 = 2.0f / RminusL;
-	mat.m30 = -(r+l)/RminusL;
+	mat.m30 = -(r + l)/RminusL;
 	mat.m11 = 2.0f / TminusB;
-	mat.m31 = -(t+b)/TminusB;
+	mat.m31 = -(t + b)/TminusB;
 	mat.m22 = -2.0f / FminusN;
-	mat.m32 = -(f+n)/FminusN;
+	mat.m32 = -(f + n)/FminusN;
 	mat.m33 = 1.0f;
 	return mat;
 }
