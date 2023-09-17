@@ -39,10 +39,19 @@
 #include "imgui/imgui_impl_vulkan.cpp"
 #endif
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+
 
 struct Buffer
 {
 	VkBuffer buffer;
+	VkDeviceMemory memory;
+};
+
+struct Image
+{
+	VkImage image;
 	VkDeviceMemory memory;
 };
 
@@ -197,6 +206,8 @@ struct GfxDevice
 	VkDeviceMemory uniformBuffersMemory[MAX_FRAMES_IN_FLIGHT];
 	void *uniformBuffersMapped[MAX_FRAMES_IN_FLIGHT];
 
+	Image textureImage;
+
 	VkDescriptorSet descriptorSets[MAX_FRAMES_IN_FLIGHT];
 
 	struct
@@ -224,6 +235,29 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	return shaderModule;
 }
 
+u32 FindMemoryTypeIndex(GfxDevice &gfxDevice, u32 memoryTypeBits, VkMemoryPropertyFlags memoryFlags)
+{
+	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(gfxDevice.physicalDevice, &physicalDeviceMemoryProperties);
+
+	u32 memoryTypeIndex = -1;
+	VkMemoryPropertyFlags requiredMemoryProperties = memoryFlags;
+	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
+	{
+		if ( (memoryTypeBits & (1 << i)) &&
+				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
+		{
+			memoryTypeIndex = i;
+		}
+	}
+	if( memoryTypeIndex == -1 )
+	{
+		LOG(Error, "Could not find a proper memory type for the buffer.\n");
+		QUIT_ABNORMALLY();
+	}
+	return memoryTypeIndex;
+}
+
 Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsageFlags, VkMemoryPropertyFlags memoryFlags)
 {
 	// Vertex buffers
@@ -241,24 +275,7 @@ Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsa
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(gfxDevice.device, buffer, &memoryRequirements);
 
-	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(gfxDevice.physicalDevice, &physicalDeviceMemoryProperties);
-
-	uint32_t memoryTypeIndex = -1;
-	VkMemoryPropertyFlags requiredMemoryProperties = memoryFlags;
-	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
-	{
-		if ( (memoryRequirements.memoryTypeBits & (1 << i)) &&
-				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
-		{
-			memoryTypeIndex = i;
-		}
-	}
-	if( memoryTypeIndex == -1 )
-	{
-		LOG(Error, "Could not find a proper memory type for the buffer.\n");
-		QUIT_ABNORMALLY();
-	}
+	const u32 memoryTypeIndex = FindMemoryTypeIndex(gfxDevice, memoryRequirements.memoryTypeBits, memoryFlags);
 
 	VkMemoryAllocateInfo memoryAllocateInfo = {};
 	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -278,7 +295,7 @@ Buffer CreateBuffer(GfxDevice &gfxDevice, u32 size, VkBufferUsageFlags bufferUsa
 	return gfxBuffer;
 }
 
-void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+VkCommandBuffer BeginTransientCommandBuffer(GfxDevice &gfxDevice)
 {
 	VkCommandBufferAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -295,12 +312,11 @@ void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, Vk
 
 	vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-	VkBufferCopy copyRegion = {};
-	copyRegion.srcOffset = 0;
-	copyRegion.dstOffset = 0;
-	copyRegion.size = size;
-	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+	return commandBuffer;
+}
 
+void EndTransientCommandBuffer(GfxDevice &gfxDevice, VkCommandBuffer commandBuffer)
+{
 	vkEndCommandBuffer(commandBuffer);
 
 	VkSubmitInfo submitInfo = {};
@@ -311,6 +327,19 @@ void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, Vk
 	vkQueueWaitIdle(gfxDevice.graphicsQueue);
 
 	vkFreeCommandBuffers(gfxDevice.device, gfxDevice.transientCommandPool, 1, &commandBuffer);
+}
+
+void CopyBuffer(GfxDevice &gfxDevice, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfxDevice);
+
+	VkBufferCopy copyRegion = {};
+	copyRegion.srcOffset = 0;
+	copyRegion.dstOffset = 0;
+	copyRegion.size = size;
+	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	EndTransientCommandBuffer(gfxDevice, commandBuffer);
 }
 
 Buffer CreateBufferWithData(GfxDevice &gfxDevice, const void *data, u32 size, VkBufferUsageFlags usage)
@@ -355,6 +384,160 @@ Buffer CreateIndexBuffer(GfxDevice &gfxDevice, const void *data, u32 size )
 {
 	Buffer indexBuffer = CreateBufferWithData(gfxDevice, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	return indexBuffer;
+}
+
+Image CreateImage(GfxDevice &gfxDevice, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags)
+{
+	VkImageCreateInfo imageCreateInfo = {};
+	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageCreateInfo.extent.width = width;
+	imageCreateInfo.extent.height = height;
+	imageCreateInfo.extent.depth = 1;
+	imageCreateInfo.mipLevels = 1;
+	imageCreateInfo.arrayLayers = 1;
+	imageCreateInfo.format = format;
+	imageCreateInfo.tiling = tiling;
+	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageCreateInfo.usage = usage;
+	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageCreateInfo.flags = 0;
+
+	VkImage image;
+	VK_CHECK_RESULT( vkCreateImage(gfxDevice.device, &imageCreateInfo, VULKAN_ALLOCATORS, &image) );
+
+	VkMemoryRequirements memoryRequirements;
+	vkGetImageMemoryRequirements(gfxDevice.device, image, &memoryRequirements);
+
+	VkMemoryAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memoryRequirements.size;
+	allocInfo.memoryTypeIndex = FindMemoryTypeIndex(gfxDevice, memoryRequirements.memoryTypeBits, memoryFlags);
+
+	VkDeviceMemory imageMemory;
+	VK_CHECK_RESULT( vkAllocateMemory(gfxDevice.device, &allocInfo, VULKAN_ALLOCATORS, &imageMemory) );
+
+	vkBindImageMemory(gfxDevice.device, image, imageMemory, 0);
+
+	Image imageStruct = { image, imageMemory};
+	return imageStruct;
+}
+
+void TransitionImageLayout(GfxDevice &gfxDevice, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+{
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfxDevice);
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+
+	VkPipelineStageFlags sourceStage;
+	VkPipelineStageFlags destinationStage;
+
+	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	} else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else {
+		INVALID_CODE_PATH();
+	}
+
+	vkCmdPipelineBarrier(commandBuffer,
+		sourceStage,
+		destinationStage,
+		0,          // 0 or VK_DEPENDENCY_BY_REGION_BIT
+		0, NULL,    // Memory barriers
+		0, NULL,    // Buffer barriers
+		1, &barrier // Image barriers
+		);
+
+	EndTransientCommandBuffer(gfxDevice, commandBuffer);
+}
+
+void CopyBufferToImage(GfxDevice &gfxDevice, VkBuffer buffer, VkImage image, u32 width, u32 height)
+{
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfxDevice);
+
+	VkBufferImageCopy region{};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+
+	region.imageOffset = {0, 0, 0};
+	region.imageExtent = { width, height, 1 };
+
+	vkCmdCopyBufferToImage(
+			commandBuffer,
+			buffer,
+			image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			&region
+			);
+
+	EndTransientCommandBuffer(gfxDevice, commandBuffer);
+}
+
+void CreateTextureImage(GfxDevice &gfxDevice)
+{
+	int texWidth, texHeight, texChannels;
+	stbi_uc* pixels = stbi_load("assets/image.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	ASSERT(pixels && "stbi_load failed!");
+
+	u32 imageSize = texWidth * texHeight * 4;
+
+	// Create a staging buffer backed with locally accessible memory
+	Buffer stagingBuffer = CreateBuffer(
+			gfxDevice,
+			imageSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+
+	// Fill staging buffer memory
+	void* dstData;
+	VK_CHECK_RESULT( vkMapMemory(gfxDevice.device, stagingBuffer.memory, 0, imageSize, 0, &dstData) );
+	MemCopy(dstData, pixels, imageSize);
+	vkUnmapMemory(gfxDevice.device, stagingBuffer.memory);
+
+	stbi_image_free(pixels);
+
+	Image image = CreateImage(gfxDevice,
+			texWidth, texHeight,
+			VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	TransitionImageLayout(gfxDevice, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	CopyBufferToImage(gfxDevice, stagingBuffer.buffer, image.image, texWidth, texHeight);
+	TransitionImageLayout(gfxDevice, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	vkDestroyBuffer( gfxDevice.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfxDevice.device, stagingBuffer.memory, VULKAN_ALLOCATORS );
+
+	gfxDevice.textureImage = image;
 }
 
 VkFormat FindSupportedFormat(GfxDevice &gfxDevice, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
@@ -1251,6 +1434,9 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		vkMapMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfxDevice.uniformBuffersMapped[i]);
 	}
 
+	// Create texture
+	//CreateTextureImage(gfxDevice);
+
 	// Create Descriptor Pool
 	VkDescriptorPoolSize poolSize = {};
 	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1329,6 +1515,9 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	WaitDeviceIdle( gfxDevice );
 
 	CleanupSwapchain( gfxDevice );
+
+	vkDestroyImage( gfxDevice.device, gfxDevice.textureImage.image, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfxDevice.device, gfxDevice.textureImage.memory, VULKAN_ALLOCATORS );
 
 	vkDestroyBuffer( gfxDevice.device, gfxDevice.indexBuffer, VULKAN_ALLOCATORS );
 	vkFreeMemory( gfxDevice.device, gfxDevice.indexBufferMemory, VULKAN_ALLOCATORS );
