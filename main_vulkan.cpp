@@ -424,6 +424,37 @@ Image CreateImage(GfxDevice &gfxDevice, u32 width, u32 height, VkFormat format, 
 	return imageStruct;
 }
 
+VkImageView CreateImageView(GfxDevice &gfxDevice, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+{
+    VkImageViewCreateInfo viewInfo = {};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = format;
+	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    viewInfo.subresourceRange.aspectMask = aspectFlags;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    VkImageView imageView;
+    VK_CHECK_RESULT( vkCreateImageView(gfxDevice.device, &viewInfo, nullptr, &imageView) );
+
+    return imageView;
+}
+
+bool HasStencilComponent(VkFormat format)
+{
+	const bool hasStencil =
+		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		format == VK_FORMAT_D24_UNORM_S8_UINT;
+	return hasStencil;
+}
+
 void TransitionImageLayout(GfxDevice &gfxDevice, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfxDevice);
@@ -435,11 +466,19 @@ void TransitionImageLayout(GfxDevice &gfxDevice, VkImage image, VkFormat format,
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
+
+	if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (HasStencilComponent(format)) {
+			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+	} else {
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
 
 	VkPipelineStageFlags sourceStage;
 	VkPipelineStageFlags destinationStage;
@@ -456,6 +495,12 @@ void TransitionImageLayout(GfxDevice &gfxDevice, VkImage image, VkFormat format,
 
 		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 	} else {
 		INVALID_CODE_PATH();
 	}
@@ -569,14 +614,6 @@ VkFormat FindDepthFormat(GfxDevice &gfxDevice)
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
-bool HasStencilComponent(VkFormat format)
-{
-	const bool hasStencil =
-		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-		format == VK_FORMAT_D24_UNORM_S8_UINT;
-	return hasStencil;
-}
-
 bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 {
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
@@ -603,6 +640,21 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 	uint32_t imageCount = surfaceCapabilities.minImageCount + 1;
 	if ( surfaceCapabilities.maxImageCount > 0 )
 		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
+
+
+	// Depth buffer
+	VkFormat depthFormat = FindDepthFormat(gfxDevice);
+	Image depthImage = CreateImage(gfxDevice,
+			gfxDevice.swapchainExtent.width, gfxDevice.swapchainExtent.height,
+			depthFormat,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VkImageView depthImageView = CreateImageView(gfxDevice, depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+	TransitionImageLayout(gfxDevice, depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+	gfxDevice.depthImage = depthImage.image;
+	gfxDevice.depthImageMemory = depthImage.memory;
+	gfxDevice.depthImageView = depthImageView;
 
 
 	// Swapchain
@@ -655,29 +707,16 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 	gfxDevice.swapchainImageCount = gfxDevice.swapchainImageCount;
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
-		VkImageViewCreateInfo imageViewCreateInfo = {};
-		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		imageViewCreateInfo.image = gfxDevice.swapchainImages[i];
-		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		imageViewCreateInfo.format = gfxDevice.swapchainFormat;
-		imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
-		imageViewCreateInfo.subresourceRange.levelCount = 1;
-		imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
-		imageViewCreateInfo.subresourceRange.layerCount = 1;
-
-		VK_CHECK_RESULT( vkCreateImageView(gfxDevice.device, &imageViewCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.swapchainImageViews[i] ) );
+		const VkImage image = gfxDevice.swapchainImages[i];
+		const VkFormat format = gfxDevice.swapchainFormat;
+		gfxDevice.swapchainImageViews[i] = CreateImageView(gfxDevice, image, format, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 
 	// Framebuffer
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
-		VkImageView attachments[] = { gfxDevice.swapchainImageViews[i] };
+		VkImageView attachments[] = { gfxDevice.swapchainImageViews[i], gfxDevice.depthImageView };
 
 		VkFramebufferCreateInfo framebufferCreateInfo = {};
 		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1072,6 +1111,10 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		return false;
 	}
 
+	// Store devices
+	gfxDevice.physicalDevice = physicalDevice;
+	gfxDevice.device = device;
+
 
 	// Load all the remaining device-related Vulkan function pointers
 	volkLoadDevice(device);
@@ -1100,17 +1143,44 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	colorAttachmentRef.attachment = 0;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	VkAttachmentDescription depthAttachmentDesc = {};
+	depthAttachmentDesc.format = FindDepthFormat(gfxDevice);
+	depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthAttachmentRef = {};
+	depthAttachmentRef.attachment = 1;
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	const VkAttachmentDescription attachments[] = { colorAttachmentDesc, depthAttachmentDesc };
+
 	VkSubpassDescription subpassDesc = {};
 	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpassDesc.colorAttachmentCount = 1;
 	subpassDesc.pColorAttachments = &colorAttachmentRef;
+	subpassDesc.pDepthStencilAttachment = &depthAttachmentRef;
+
+	VkSubpassDependency subpassDependency = {};
+	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependency.dstSubpass = 0;
+	subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	subpassDependency.srcAccessMask = 0;
+	subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 	VkRenderPassCreateInfo renderPassCreateInfo = {};
 	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.attachmentCount = 1;
-	renderPassCreateInfo.pAttachments = &colorAttachmentDesc;
+	renderPassCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
+	renderPassCreateInfo.pAttachments = attachments;
 	renderPassCreateInfo.subpassCount = 1;
 	renderPassCreateInfo.pSubpasses = &subpassDesc;
+	renderPassCreateInfo.dependencyCount = 1;
+	renderPassCreateInfo.pDependencies = &subpassDependency;
 
 	VkRenderPass renderPass = {};
 	VK_CHECK_RESULT( vkCreateRenderPass( device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &renderPass ) );
@@ -1268,6 +1338,18 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	multisamplingCreateInfo.alphaToCoverageEnable = VK_FALSE; // Optional
 	multisamplingCreateInfo.alphaToOneEnable = VK_FALSE; // Optional
 
+	VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo = {};
+	depthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencilCreateInfo.depthTestEnable = VK_TRUE;
+	depthStencilCreateInfo.depthWriteEnable = VK_TRUE;
+	depthStencilCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilCreateInfo.depthBoundsTestEnable = VK_FALSE;
+	depthStencilCreateInfo.minDepthBounds = 0.0f;
+	depthStencilCreateInfo.maxDepthBounds = 1.0f;
+	depthStencilCreateInfo.stencilTestEnable = VK_FALSE;
+	depthStencilCreateInfo.front = {}; // Optional
+	depthStencilCreateInfo.back = {}; // Optional
+
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
 	colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 	// Color replace
@@ -1317,7 +1399,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	graphicsPipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
 	graphicsPipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
 	graphicsPipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
-	graphicsPipelineCreateInfo.pDepthStencilState = nullptr; // Optional
+	graphicsPipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
 	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
 	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
 	graphicsPipelineCreateInfo.layout = pipelineLayout;
@@ -1331,25 +1413,6 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 	vkDestroyShaderModule(device, vertexShaderModule, VULKAN_ALLOCATORS);
 	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
-
-
-	// Swapchain creation
-	gfxDevice.physicalDevice = physicalDevice;
-	gfxDevice.device = device;
-	gfxDevice.surface = surface;
-	gfxDevice.swapchainFormat = surfaceFormat.format;
-	gfxDevice.swapchainColorSpace = surfaceFormat.colorSpace;
-	gfxDevice.swapchainPresentMode = surfacePresentMode;
-	gfxDevice.graphicsQueueFamilyIndex = graphicsQueueFamilyIndex;
-	gfxDevice.presentQueueFamilyIndex = presentQueueFamilyIndex;
-	gfxDevice.renderPass = renderPass;
-
-	CreateSwapchain( gfxDevice, window );
-
-
-	// Depth buffer
-	VkFormat depthFormat = FindDepthFormat(gfxDevice);
-	//CreateImage();
 
 
 	// Command pool
@@ -1382,6 +1445,30 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	VK_CHECK_RESULT( vkCreateCommandPool(device, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &transientCommandPool) );
 
 
+	// Swapchain creation
+	gfxDevice.surface = surface;
+	gfxDevice.swapchainFormat = surfaceFormat.format;
+	gfxDevice.swapchainColorSpace = surfaceFormat.colorSpace;
+	gfxDevice.swapchainPresentMode = surfacePresentMode;
+	gfxDevice.graphicsQueueFamilyIndex = graphicsQueueFamilyIndex;
+	gfxDevice.presentQueueFamilyIndex = presentQueueFamilyIndex;
+	gfxDevice.renderPass = renderPass;
+	gfxDevice.commandPool = commandPool;
+	gfxDevice.transientCommandPool = transientCommandPool;
+	gfxDevice.instance = instance;
+	gfxDevice.graphicsQueue = graphicsQueue;
+	gfxDevice.presentQueue = presentQueue;
+	gfxDevice.pipelineCache = pipelineCache;
+	gfxDevice.descriptorSetLayout = descriptorSetLayout;
+	gfxDevice.pipelineLayout = pipelineLayout;
+	gfxDevice.graphicsPipeline = graphicsPipeline;
+#if USE_IMGUI
+	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
+#endif
+
+	CreateSwapchain( gfxDevice, window );
+
+
 	// Synchronization objects
 	VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -1393,21 +1480,6 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.renderFinishedSemaphores[i] ) );
 		VK_CHECK_RESULT( vkCreateFence( device, &fenceCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.inFlightFences[i] ) );
 	}
-
-
-	// Fill GfxDevice
-	gfxDevice.instance = instance;
-	gfxDevice.graphicsQueue = graphicsQueue;
-	gfxDevice.presentQueue = presentQueue;
-	gfxDevice.descriptorSetLayout = descriptorSetLayout;
-	gfxDevice.pipelineLayout = pipelineLayout;
-	gfxDevice.graphicsPipeline = graphicsPipeline;
-	gfxDevice.commandPool = commandPool;
-	gfxDevice.transientCommandPool = transientCommandPool;
-	gfxDevice.pipelineCache = pipelineCache;
-#if USE_IMGUI
-	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
-#endif
 
 
 	// Create a vertex buffer
@@ -1496,6 +1568,10 @@ void WaitDeviceIdle(GfxDevice &gfxDevice)
 void CleanupSwapchain(GfxDevice &gfxDevice)
 {
 	WaitDeviceIdle(gfxDevice);
+
+	vkDestroyImageView(gfxDevice.device, gfxDevice.depthImageView, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfxDevice.device, gfxDevice.depthImage, VULKAN_ALLOCATORS);
+	vkFreeMemory(gfxDevice.device, gfxDevice.depthImageMemory, VULKAN_ALLOCATORS);
 
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
@@ -1621,7 +1697,9 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
 	VK_CHECK_RESULT( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
 
-	VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+	VkClearValue clearValues[2] = {};
+	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+	clearValues[1].depthStencil = {1.0f, 0};
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1629,8 +1707,8 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	renderPassBeginInfo.framebuffer = gfxDevice.swapchainFramebuffers[imageIndex];
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
 	renderPassBeginInfo.renderArea.extent = gfxDevice.swapchainExtent;
-	renderPassBeginInfo.clearValueCount = 1;
-	renderPassBeginInfo.pClearValues = &clearColor;
+	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
+	renderPassBeginInfo.pClearValues = clearValues;
 
 	vkCmdBeginRenderPass( commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 
