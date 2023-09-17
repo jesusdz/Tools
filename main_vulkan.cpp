@@ -994,7 +994,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
 	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizerCreateInfo.lineWidth = 1.0f;
-	rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE; // VK_CULL_MODE_BACK_BIT;
+	//rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE;
+	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
 	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
 	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
@@ -1329,10 +1330,13 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	// Update uniform data
 	static f32 angle = 0.0f;
 	angle += 45.0f * deltaSeconds;
+	const f32 ar =
+		static_cast<f32>(window.height) /
+		static_cast<f32>(window.width);
 	VertexTransforms vertexTransforms;
 	vertexTransforms.model = Rotate({0, 0, 1}, angle);
 	vertexTransforms.view = Eye();
-	vertexTransforms.proj = Eye();
+	vertexTransforms.proj = Orthogonal(-1, 1, -ar, ar, -1, 1);
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
 
 

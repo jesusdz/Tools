@@ -762,6 +762,22 @@ float4x4 Perspective(float fov, float aspect, float near, float far)
 	return mat;
 }
 
+float4x4 Orthogonal(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f)
+{
+	float4x4 mat = {};
+	const f32 RminusL = r - l;
+	const f32 TminusB = t - b;
+	const f32 FminusN = f - n;
+	mat.m00 = 2.0f / RminusL;
+	mat.m30 = -(r+l)/RminusL;
+	mat.m11 = 2.0f / TminusB;
+	mat.m31 = -(t+b)/TminusB;
+	mat.m22 = -2.0f / FminusN;
+	mat.m32 = -(f+n)/FminusN;
+	mat.m33 = 1.0f;
+	return mat;
+}
+
 float4x4 Transpose(const float4x4 &m)
 {
 	const float4x4 res = {
