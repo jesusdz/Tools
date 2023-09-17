@@ -631,6 +631,12 @@ f32 Cos(f32 value)
 	return res;
 }
 
+f32 Tan(f32 value)
+{
+	const f32 res = ::tanf(value);
+	return res;
+}
+
 f32 Sqrt(f32 value)
 {
 	const f32 res = ::sqrtf(value);
@@ -773,19 +779,26 @@ float4x4 LookAt(const float3 &vrp, const float3 &obs, const float3 &up)
 	return mat;
 }
 
+//#define USE_DEPTH_ZERO_TO_ONE 0 // For OpenGL
+#define USE_DEPTH_ZERO_TO_ONE 1 // For DX12, Vulkan
 float4x4 Perspective(float fov, float aspect, float near, float far)
 {
-	static const f32 D2R = M_PI / 180.0f;
-    const f32 yScale = 1.0 / tan(D2R * fov / 2);
+    const f32 yScale = 1.0f / Tan(fov * ToRadians / 2.0f);
     const f32 xScale = yScale / aspect;
     const f32 nearmfar = near - far;
 
 	float4x4 mat = {};
 	mat.m00 = xScale;
 	mat.m11 = yScale;
+#if USE_DEPTH_ZERO_TO_ONE
+	mat.m22 = far / nearmfar;
+	mat.m32 = far * near / nearmfar;
+#else
 	mat.m22 = (far + near) / nearmfar;
-	mat.m23 = -1;
 	mat.m32 = 2.0f * far * near / nearmfar;
+#endif
+	mat.m23 = -1;
+
 	return mat;
 }
 

@@ -159,6 +159,10 @@ struct GfxDevice
 	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
 	VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
 
+	VkImage depthImage;
+	VkDeviceMemory depthImageMemory;
+	VkImageView depthImageView;
+
 	uint32_t graphicsQueueFamilyIndex;
 	uint32_t presentQueueFamilyIndex;
 	VkQueue graphicsQueue;
@@ -351,6 +355,43 @@ Buffer CreateIndexBuffer(GfxDevice &gfxDevice, const void *data, u32 size )
 {
 	Buffer indexBuffer = CreateBufferWithData(gfxDevice, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	return indexBuffer;
+}
+
+VkFormat FindSupportedFormat(GfxDevice &gfxDevice, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+	for (u32 i = 0; i < candidateCount; ++i)
+	{
+		VkFormat format = candidates[i];
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(gfxDevice.physicalDevice, format, &properties);
+
+		if (tiling == VK_IMAGE_TILING_LINEAR && (features & properties.linearTilingFeatures) == features)
+		{
+			return format;
+		}
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (features & properties.optimalTilingFeatures) == features)
+		{
+			return format;
+		}
+	}
+
+	INVALID_CODE_PATH();
+	return VK_FORMAT_MAX_ENUM;
+}
+
+VkFormat FindDepthFormat(GfxDevice &gfxDevice)
+{
+	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
+	return FindSupportedFormat(gfxDevice, candidates, ARRAY_COUNT(candidates),
+			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
+
+bool HasStencilComponent(VkFormat format)
+{
+	const bool hasStencil =
+		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		format == VK_FORMAT_D24_UNORM_S8_UINT;
+	return hasStencil;
 }
 
 bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
@@ -1121,6 +1162,11 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	gfxDevice.renderPass = renderPass;
 
 	CreateSwapchain( gfxDevice, window );
+
+
+	// Depth buffer
+	VkFormat depthFormat = FindDepthFormat(gfxDevice);
+	//CreateImage();
 
 
 	// Command pool
