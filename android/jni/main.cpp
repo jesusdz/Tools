@@ -153,6 +153,10 @@ static int engine_init_display(Engine* engine)
 	}
 
 	engine->initialized = true;
+	engine->width = engine->gfxDevice.swapchainExtent.width;
+	engine->height = engine->gfxDevice.swapchainExtent.height;
+	engine->window.width = engine->width;
+	engine->window.height = engine->height;
 
 #endif
 
