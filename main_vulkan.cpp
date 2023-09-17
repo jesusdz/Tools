@@ -60,10 +60,10 @@ struct VertexTransforms
 };
 
 static const Vertex vertices[] = {
-	{{-0.25f, -0.25f}, {1.0f, 0.0f, 0.0f}},
-	{{ 0.25f, -0.25f}, {0.0f, 1.0f, 0.0f}},
-	{{ 0.25f,  0.25f}, {0.0f, 0.0f, 1.0f}},
-	{{-0.25f,  0.25f}, {1.0f, 1.0f, 1.0f}}
+	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+	{{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}}
 };
 
 static const u16 indices[] = { 0, 1, 2, 2, 3, 0 };
@@ -1330,13 +1330,13 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	// Update uniform data
 	static f32 angle = 0.0f;
 	angle += 45.0f * deltaSeconds;
-	const f32 ar =
-		static_cast<f32>(window.height) /
-		static_cast<f32>(window.width);
+	const f32 ar = static_cast<f32>(window.width) / static_cast<f32>(window.height);
+	const float orthox = ar > 1.0f ? ar : 1.0f;
+	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	VertexTransforms vertexTransforms;
 	vertexTransforms.model = Rotate({0, 0, 1}, angle);
 	vertexTransforms.view = Eye();
-	vertexTransforms.proj = Orthogonal(-1, 1, -ar, ar, -1, 1);
+	vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -1, 1);
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
 
 
