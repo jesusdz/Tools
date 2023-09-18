@@ -553,8 +553,22 @@ void CopyBufferToImage(GfxDevice &gfxDevice, VkBuffer buffer, VkImage image, u32
 void CreateTextureImage(GfxDevice &gfxDevice)
 {
 	int texWidth, texHeight, texChannels;
-	stbi_uc* pixels = stbi_load("assets/image.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-	ASSERT(pixels && "stbi_load failed!");
+#if PLATFORM_ANDROID
+	// TODO: Implement functions to get the base path for asset data per platform
+	const char *imageFilename = "/sdcard/Android/data/com.tools.game/files/assets/image.png";
+#else
+	const char *imageFilename = "assets/image.png";
+#endif
+	stbi_uc* originalPixels = stbi_load(imageFilename, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	stbi_uc* pixels = originalPixels;
+	if ( !pixels )
+	{
+		LOG(Error, "stbi_load failed to load %s\n", imageFilename);
+		static stbi_uc constPixels[] = {255, 0, 255, 255};
+		pixels = constPixels;
+		texWidth = texHeight = 1;
+		texChannels = 4;
+	}
 
 	u32 imageSize = texWidth * texHeight * 4;
 
@@ -571,7 +585,10 @@ void CreateTextureImage(GfxDevice &gfxDevice)
 	MemCopy(dstData, pixels, imageSize);
 	vkUnmapMemory(gfxDevice.device, stagingBuffer.memory);
 
-	stbi_image_free(pixels);
+	if ( originalPixels )
+	{
+		stbi_image_free(originalPixels);
+	}
 
 	Image image = CreateImage(gfxDevice,
 			texWidth, texHeight,
