@@ -616,8 +616,9 @@ struct float4x4
 	};
 };
 
-static constexpr f32 ToRadians = M_PI / 180.0f;
-static constexpr f32 ToDegrees = 180.0f / M_PI;
+static constexpr f32 Pi = 3.14159265358979323846f;
+static constexpr f32 ToRadians = Pi / 180.0f;
+static constexpr f32 ToDegrees = 180.0f / Pi;
 
 f32 Sin(f32 value)
 {
@@ -781,21 +782,21 @@ float4x4 LookAt(const float3 &vrp, const float3 &obs, const float3 &up)
 
 //#define USE_DEPTH_ZERO_TO_ONE 0 // For OpenGL
 #define USE_DEPTH_ZERO_TO_ONE 1 // For DX12, Vulkan
-float4x4 Perspective(float fov, float aspect, float near, float far)
+float4x4 Perspective(float fov, float aspect, float Near, float Far)
 {
-    const f32 yScale = 1.0f / Tan(fov * ToRadians / 2.0f);
-    const f32 xScale = yScale / aspect;
-    const f32 nearmfar = near - far;
+	const f32 yScale = 1.0f / Tan(fov * ToRadians / 2.0f);
+	const f32 xScale = yScale / aspect;
+	const f32 NearMinusFar = Near - Far;
 
 	float4x4 mat = {};
 	mat.m00 = xScale;
 	mat.m11 = yScale;
 #if USE_DEPTH_ZERO_TO_ONE
-	mat.m22 = far / nearmfar;
-	mat.m32 = far * near / nearmfar;
+	mat.m22 = Far / NearMinusFar;
+	mat.m32 = Far * Near / NearMinusFar;
 #else
-	mat.m22 = (far + near) / nearmfar;
-	mat.m32 = 2.0f * far * near / nearmfar;
+	mat.m22 = (Far + Near) / NearMinusFar;
+	mat.m32 = 2.0f * Far * Near / NearMinusFar;
 #endif
 	mat.m23 = -1;
 
