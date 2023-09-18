@@ -739,6 +739,8 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 
 bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 {
+	GfxDevice gd = {};
+
 	Arena scratch = MakeSubArena(arena);
 
 
@@ -841,18 +843,17 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	instanceCreateInfo.enabledExtensionCount = enabledInstanceExtensionCount;
 	instanceCreateInfo.ppEnabledExtensionNames = enabledInstanceExtensionNames;
 
-	VkInstance instance = {};
-	VK_CHECK_RESULT ( vkCreateInstance( &instanceCreateInfo, VULKAN_ALLOCATORS, &instance ) );
+	VK_CHECK_RESULT ( vkCreateInstance( &instanceCreateInfo, VULKAN_ALLOCATORS, &gd.instance ) );
 
 
 	// Load the instance-related Vulkan function pointers
-	volkLoadInstanceOnly(instance);
+	volkLoadInstanceOnly(gd.instance);
 
 
 	// Report callback
 	if ( vkCreateDebugReportCallbackEXT )
 	{
-		gfxDevice.support.debugReportCallbacks = true;
+		gd.support.debugReportCallbacks = true;
 
 		VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
 		//debugReportCallbackCreateInfo.flags = VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
@@ -862,7 +863,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		debugReportCallbackCreateInfo.pfnCallback = VulkanDebugReportCallback;
 		debugReportCallbackCreateInfo.pUserData = 0;
 
-		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT( instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.debugReportCallback) );
+		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT( gd.instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &gd.debugReportCallback) );
 	}
 
 
@@ -871,29 +872,26 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.connection = window.connection;
 	surfaceCreateInfo.window = window.window;
-	VkSurfaceKHR surface = {};
-	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+	VK_CHECK_RESULT( vkCreateXcbSurfaceKHR( gd.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &gd.surface ) );
 #elif VK_USE_PLATFORM_ANDROID_KHR
 	VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.window = window.window; // ANativeWindow
-	VkSurfaceKHR surface = {};
-	VK_CHECK_RESULT( vkCreateAndroidSurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+	VK_CHECK_RESULT( vkCreateAndroidSurfaceKHR( gd.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &gd.surface ) );
 #elif VK_USE_PLATFORM_WIN32_KHR
 	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surfaceCreateInfo.hinstance = window.hInstance;
 	surfaceCreateInfo.hwnd = window.hWnd;
-	VkSurfaceKHR surface = {};
-	VK_CHECK_RESULT( vkCreateWin32SurfaceKHR( instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &surface ) );
+	VK_CHECK_RESULT( vkCreateWin32SurfaceKHR( gd.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &gd.surface ) );
 #endif
 
 
 	// List of physical devices
 	uint32_t physicalDeviceCount = 0;
-	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, NULL ) );
+	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( gd.instance, &physicalDeviceCount, NULL ) );
 	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
-	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( instance, &physicalDeviceCount, physicalDevices ) );
+	VK_CHECK_RESULT( vkEnumeratePhysicalDevices( gd.instance, &physicalDeviceCount, physicalDevices ) );
 
 	const char *requiredDeviceExtensionNames[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -903,45 +901,37 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	// Data to discover from the physical device selection
 	bool suitableDeviceFound = false;
 
-	VkPhysicalDevice physicalDevice;
-	uint32_t graphicsQueueFamilyIndex;
-	uint32_t presentQueueFamilyIndex;
-
-	VkSurfaceFormatKHR surfaceFormat;
-	VkPresentModeKHR surfacePresentMode;
-
-
 	// Physical device selection
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
-		VkPhysicalDevice device = physicalDevices[i];
+		VkPhysicalDevice physicalDevice = physicalDevices[i];
 
 		Arena scratch2 = MakeSubArena(scratch);
 
 		#if !PLATFORM_ANDROID
 		// We only want dedicated GPUs
 		VkPhysicalDeviceProperties properties;
-		vkGetPhysicalDeviceProperties( device, &properties );
+		vkGetPhysicalDeviceProperties( physicalDevice, &properties );
 		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
 			continue;
 		#endif
 
 		VkPhysicalDeviceFeatures features;
-		vkGetPhysicalDeviceFeatures( device, &features );
+		vkGetPhysicalDeviceFeatures( physicalDevice, &features );
 		// Check any needed features here
 
 		// Check the available queue families
 		uint32_t queueFamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, NULL);
+		vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, NULL);
 		VkQueueFamilyProperties *queueFamilies = PushArray( scratch2, VkQueueFamilyProperties, queueFamilyCount );
-		vkGetPhysicalDeviceQueueFamilyProperties( device, &queueFamilyCount, queueFamilies );
+		vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, queueFamilies );
 
 		uint32_t gfxFamilyIndex = -1;
 		uint32_t presentFamilyIndex = -1;
 		for ( uint32_t i = 0; i < queueFamilyCount; ++i )
 		{
 			VkBool32 presentSupport = VK_FALSE;
-			vkGetPhysicalDeviceSurfaceSupportKHR( device, i, surface, &presentSupport );
+			vkGetPhysicalDeviceSurfaceSupportKHR( physicalDevice, i, gd.surface, &presentSupport );
 			if ( presentSupport )
 			{
 				presentFamilyIndex = i;
@@ -959,9 +949,9 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 		// Check if this physical device has all the required extensions
 		uint32_t deviceExtensionCount;
-		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( device, NULL, &deviceExtensionCount, NULL ) );
+		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, NULL ) );
 		VkExtensionProperties *deviceExtensions = PushArray( scratch2, VkExtensionProperties, deviceExtensionCount );
-		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( device, NULL, &deviceExtensionCount, deviceExtensions ) );
+		VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
 
 		uint32_t foundDeviceExtensionCount = 0;
 
@@ -993,53 +983,57 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 		// Swapchain format
 		uint32_t surfaceFormatCount = 0;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &surfaceFormatCount, NULL);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, gd.surface, &surfaceFormatCount, NULL);
 		if ( surfaceFormatCount == 0 )
 			continue;
 		VkSurfaceFormatKHR *surfaceFormats = PushArray( scratch2, VkSurfaceFormatKHR, surfaceFormatCount );
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &surfaceFormatCount, surfaceFormats);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, gd.surface, &surfaceFormatCount, surfaceFormats);
 
-		surfaceFormat.format = VK_FORMAT_MAX_ENUM;
+		gd.swapchainFormat = VK_FORMAT_MAX_ENUM;
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
 			if ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
 					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
 			{
-				surfaceFormat = surfaceFormats[i];
+				gd.swapchainFormat = surfaceFormats[i].format;
+				gd.swapchainColorSpace = surfaceFormats[i].colorSpace;
 				break;
 			}
 		}
-		if ( surfaceFormat.format == VK_FORMAT_MAX_ENUM )
-			surfaceFormat = surfaceFormats[0];
+		if ( gd.swapchainFormat == VK_FORMAT_MAX_ENUM )
+		{
+			gd.swapchainFormat = surfaceFormats[0].format;
+			gd.swapchainColorSpace = surfaceFormats[0].colorSpace;
+		}
 
 		// Swapchain present mode
 		uint32_t surfacePresentModeCount = 0;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &surfacePresentModeCount, NULL);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, gd.surface, &surfacePresentModeCount, NULL);
 		if ( surfacePresentModeCount == 0 )
 			continue;
 		VkPresentModeKHR *surfacePresentModes = PushArray( scratch2, VkPresentModeKHR, surfacePresentModeCount );
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &surfacePresentModeCount, surfacePresentModes);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, gd.surface, &surfacePresentModeCount, surfacePresentModes);
 
 #if USE_SWAPCHAIN_MAILBOX_PRESENT_MODE
-		surfacePresentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+		gd.swapchainPresentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
 		for ( u32 i = 0; i < surfacePresentModeCount; ++i )
 		{
 			if ( surfacePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR )
 			{
-				surfacePresentMode = surfacePresentModes[i];
+				gd.swapchainPresentMode = surfacePresentModes[i];
 			}
 		}
-		if ( surfacePresentMode == VK_PRESENT_MODE_MAILBOX_KHR )
-			surfacePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		if ( gd.swapchainPresentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+			gd.swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
 #else
-		surfacePresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		gd.swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
 #endif
 
 		// At this point, we know this device meets all the requirements
 		suitableDeviceFound = true;
-		physicalDevice = device;
-		graphicsQueueFamilyIndex = gfxFamilyIndex;
-		presentQueueFamilyIndex = presentFamilyIndex;
+		gd.physicalDevice = physicalDevice;
+		gd.graphicsQueueFamilyIndex = gfxFamilyIndex;
+		gd.presentQueueFamilyIndex = presentFamilyIndex;
 		break;
 	}
 
@@ -1055,19 +1049,19 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	float queuePriorities[1] = { 1.0f };
 	VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
 	queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queueCreateInfos[0].queueFamilyIndex = graphicsQueueFamilyIndex;
+	queueCreateInfos[0].queueFamilyIndex = gd.graphicsQueueFamilyIndex;
 	queueCreateInfos[0].queueCount = queueCount;
 	queueCreateInfos[0].pQueuePriorities = queuePriorities;
 	queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queueCreateInfos[1].queueFamilyIndex = presentQueueFamilyIndex;
+	queueCreateInfos[1].queueFamilyIndex = gd.presentQueueFamilyIndex;
 	queueCreateInfos[1].queueCount = queueCount;
 	queueCreateInfos[1].pQueuePriorities = queuePriorities;
 
 #if 0
 	uint32_t deviceExtensionCount;
-	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, NULL ) );
+	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( gd.physicalDevice, NULL, &deviceExtensionCount, NULL ) );
 	VkExtensionProperties *deviceExtensions = PushArray(scratch, VkExtensionProperties, deviceExtensionCount);
-	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
+	VK_CHECK_RESULT( vkEnumerateDeviceExtensionProperties( gd.physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
 
 	// We don't need this loop anymore unless we want to print this device extensions
 	const char *enabledDeviceExtensionNames[ARRAY_COUNT(requiredDeviceExtensionNames)];
@@ -1107,34 +1101,26 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensionNames;
 	deviceCreateInfo.pEnabledFeatures = &physicalDeviceFeatures;
 
-	VkDevice device;
-	result = vkCreateDevice( physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &device );
+	result = vkCreateDevice( gd.physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &gd.device );
 	if ( result != VK_SUCCESS )
 	{
 		LOG(Error, "vkCreateDevice failed!\n");
 		return false;
 	}
 
-	// Store devices
-	gfxDevice.physicalDevice = physicalDevice;
-	gfxDevice.device = device;
-
-
 	// Load all the remaining device-related Vulkan function pointers
-	volkLoadDevice(device);
+	volkLoadDevice(gd.device);
 
 
 	// Retrieve queues
-	VkQueue graphicsQueue;
-	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
+	vkGetDeviceQueue(gd.device, gd.graphicsQueueFamilyIndex, 0, &gd.graphicsQueue);
 
-	VkQueue presentQueue;
-	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue);
+	vkGetDeviceQueue(gd.device, gd.presentQueueFamilyIndex, 0, &gd.presentQueue);
 
 
 	// Create render passes
 	VkAttachmentDescription colorAttachmentDesc = {};
-	colorAttachmentDesc.format = surfaceFormat.format;
+	colorAttachmentDesc.format = gd.swapchainFormat;
 	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1148,7 +1134,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentDescription depthAttachmentDesc = {};
-	depthAttachmentDesc.format = FindDepthFormat(gfxDevice);
+	depthAttachmentDesc.format = FindDepthFormat(gd);
 	depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -1186,8 +1172,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	renderPassCreateInfo.dependencyCount = 1;
 	renderPassCreateInfo.pDependencies = &subpassDependency;
 
-	VkRenderPass renderPass = {};
-	VK_CHECK_RESULT( vkCreateRenderPass( device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &renderPass ) );
+	VK_CHECK_RESULT( vkCreateRenderPass( gd.device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &gd.renderPass ) );
 
 
 	// Create pipeline cache
@@ -1196,8 +1181,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	pipelineCacheCreateInfo.flags = 0;
 	pipelineCacheCreateInfo.initialDataSize = 0;
 	pipelineCacheCreateInfo.pInitialData = NULL;
-	VkPipelineCache pipelineCache = {};
-	VK_CHECK_RESULT( vkCreatePipelineCache( device, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &pipelineCache ) );
+	VK_CHECK_RESULT( vkCreatePipelineCache( gd.device, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &gd.pipelineCache ) );
 
 
 	// Create descriptor pools
@@ -1215,8 +1199,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	descriptorPoolCreateInfo.maxSets = 1;
 	descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
 	descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-	VkDescriptorPool imGuiDescriptorPool = {};
-	VK_CHECK_RESULT( vkCreateDescriptorPool( device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &imGuiDescriptorPool ) );
+	VK_CHECK_RESULT( vkCreateDescriptorPool( gd.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gd.imGuiDescriptorPool ) );
 #endif
 
 
@@ -1233,8 +1216,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	descriptorSetLayoutCreateInfo.bindingCount = 1;
 	descriptorSetLayoutCreateInfo.pBindings = &binding;
-	VkDescriptorSetLayout descriptorSetLayout;
-	VK_CHECK_RESULT( vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayout) );
+	VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gd.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &gd.descriptorSetLayout) );
 
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
@@ -1258,8 +1240,8 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		return false;
 	}
 
-	VkShaderModule vertexShaderModule = CreateShaderModule( device, vertexFile->data, vertexFile->size );
-	VkShaderModule fragmentShaderModule = CreateShaderModule( device, fragmentFile->data, fragmentFile->size );
+	VkShaderModule vertexShaderModule = CreateShaderModule( gd.device, vertexFile->data, vertexFile->size );
+	VkShaderModule fragmentShaderModule = CreateShaderModule( gd.device, fragmentFile->data, fragmentFile->size );
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1387,12 +1369,11 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutCreateInfo.setLayoutCount = 1;
-	pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutCreateInfo.pSetLayouts = &gd.descriptorSetLayout;
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 0; // Optional
 	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr; // Optional
 
-	VkPipelineLayout pipelineLayout;
-	VK_CHECK_RESULT( vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
+	VK_CHECK_RESULT( vkCreatePipelineLayout(gd.device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &gd.pipelineLayout) );
 
 	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {};
 	graphicsPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1406,71 +1387,49 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	graphicsPipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
 	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
 	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
-	graphicsPipelineCreateInfo.layout = pipelineLayout;
-	graphicsPipelineCreateInfo.renderPass = renderPass;
+	graphicsPipelineCreateInfo.layout = gd.pipelineLayout;
+	graphicsPipelineCreateInfo.renderPass = gd.renderPass;
 	graphicsPipelineCreateInfo.subpass = 0;
 	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
 
-	VkPipeline graphicsPipeline;
-	VK_CHECK_RESULT( vkCreateGraphicsPipelines( device, pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &graphicsPipeline ) );
+	VK_CHECK_RESULT( vkCreateGraphicsPipelines( gd.device, gd.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &gd.graphicsPipeline ) );
 
-	vkDestroyShaderModule(device, vertexShaderModule, VULKAN_ALLOCATORS);
-	vkDestroyShaderModule(device, fragmentShaderModule, VULKAN_ALLOCATORS);
+	vkDestroyShaderModule(gd.device, vertexShaderModule, VULKAN_ALLOCATORS);
+	vkDestroyShaderModule(gd.device, fragmentShaderModule, VULKAN_ALLOCATORS);
 
 
 	// Command pool
 	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	commandPoolCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+	commandPoolCreateInfo.queueFamilyIndex = gd.graphicsQueueFamilyIndex;
 
-	VkCommandPool commandPool;
-	VK_CHECK_RESULT( vkCreateCommandPool(device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &commandPool) );
+	VK_CHECK_RESULT( vkCreateCommandPool(gd.device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &gd.commandPool) );
 
 
 	// Command buffer
 	VkCommandBufferAllocateInfo commandBufferAllocInfo = {};
 	commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	commandBufferAllocInfo.commandPool = commandPool;
+	commandBufferAllocInfo.commandPool = gd.commandPool;
 	commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	commandBufferAllocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-	VK_CHECK_RESULT( vkAllocateCommandBuffers( device, &commandBufferAllocInfo, gfxDevice.commandBuffers) );
+	VK_CHECK_RESULT( vkAllocateCommandBuffers( gd.device, &commandBufferAllocInfo, gd.commandBuffers) );
 
 
 	// Transient command pool
 	VkCommandPoolCreateInfo transientCommandPoolCreateInfo = {};
 	transientCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	transientCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-	transientCommandPoolCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+	transientCommandPoolCreateInfo.queueFamilyIndex = gd.graphicsQueueFamilyIndex;
 
 	VkCommandPool transientCommandPool;
-	VK_CHECK_RESULT( vkCreateCommandPool(device, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &transientCommandPool) );
+	VK_CHECK_RESULT( vkCreateCommandPool(gd.device, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &gd.transientCommandPool) );
 
 
-	// Swapchain creation
-	gfxDevice.surface = surface;
-	gfxDevice.swapchainFormat = surfaceFormat.format;
-	gfxDevice.swapchainColorSpace = surfaceFormat.colorSpace;
-	gfxDevice.swapchainPresentMode = surfacePresentMode;
-	gfxDevice.graphicsQueueFamilyIndex = graphicsQueueFamilyIndex;
-	gfxDevice.presentQueueFamilyIndex = presentQueueFamilyIndex;
-	gfxDevice.renderPass = renderPass;
-	gfxDevice.commandPool = commandPool;
-	gfxDevice.transientCommandPool = transientCommandPool;
-	gfxDevice.instance = instance;
-	gfxDevice.graphicsQueue = graphicsQueue;
-	gfxDevice.presentQueue = presentQueue;
-	gfxDevice.pipelineCache = pipelineCache;
-	gfxDevice.descriptorSetLayout = descriptorSetLayout;
-	gfxDevice.pipelineLayout = pipelineLayout;
-	gfxDevice.graphicsPipeline = graphicsPipeline;
-#if USE_IMGUI
-	gfxDevice.imGuiDescriptorPool = imGuiDescriptorPool;
-#endif
-
-	CreateSwapchain( gfxDevice, window );
+	// Create swapchain
+	CreateSwapchain( gd, window );
 
 
 	// Synchronization objects
@@ -1480,39 +1439,39 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 
 	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
 	{
-		VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.imageAvailableSemaphores[i] ) );
-		VK_CHECK_RESULT( vkCreateSemaphore( device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.renderFinishedSemaphores[i] ) );
-		VK_CHECK_RESULT( vkCreateFence( device, &fenceCreateInfo, VULKAN_ALLOCATORS, &gfxDevice.inFlightFences[i] ) );
+		VK_CHECK_RESULT( vkCreateSemaphore( gd.device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gd.imageAvailableSemaphores[i] ) );
+		VK_CHECK_RESULT( vkCreateSemaphore( gd.device, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &gd.renderFinishedSemaphores[i] ) );
+		VK_CHECK_RESULT( vkCreateFence( gd.device, &fenceCreateInfo, VULKAN_ALLOCATORS, &gd.inFlightFences[i] ) );
 	}
 
 
 	// Create a vertex buffer
-	Buffer vertexBuffer = CreateVertexBuffer(gfxDevice, cubeVertices, sizeof(cubeVertices));
-	gfxDevice.vertexBuffer = vertexBuffer.buffer;
-	gfxDevice.vertexBufferMemory = vertexBuffer.memory;
+	Buffer vertexBuffer = CreateVertexBuffer(gd, cubeVertices, sizeof(cubeVertices));
+	gd.vertexBuffer = vertexBuffer.buffer;
+	gd.vertexBufferMemory = vertexBuffer.memory;
 
 	// Create a index buffer
-	Buffer indexBuffer = CreateIndexBuffer(gfxDevice, cubeIndices, sizeof(cubeIndices));
-	gfxDevice.indexBuffer = indexBuffer.buffer;
-	gfxDevice.indexBufferMemory = indexBuffer.memory;
+	Buffer indexBuffer = CreateIndexBuffer(gd, cubeIndices, sizeof(cubeIndices));
+	gd.indexBuffer = indexBuffer.buffer;
+	gd.indexBufferMemory = indexBuffer.memory;
 
 	// Create uniform buffers
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
 		Buffer uniformBuffer = CreateBuffer(
-			gfxDevice,
+			gd,
 			sizeof(VertexTransforms),
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
-		gfxDevice.uniformBuffers[i] = uniformBuffer.buffer;
-		gfxDevice.uniformBuffersMemory[i] = uniformBuffer.memory;
+		gd.uniformBuffers[i] = uniformBuffer.buffer;
+		gd.uniformBuffersMemory[i] = uniformBuffer.memory;
 
-		vkMapMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfxDevice.uniformBuffersMapped[i]);
+		vkMapMemory(gd.device, gd.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gd.uniformBuffersMapped[i]);
 	}
 
 #if 0
 	// Create texture
-	CreateTextureImage(gfxDevice);
+	CreateTextureImage(gd);
 #endif
 
 	// Create Descriptor Pool
@@ -1527,30 +1486,28 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	poolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
 	//poolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
-	VkDescriptorPool descriptorPool;
-	VK_CHECK_RESULT( vkCreateDescriptorPool(gfxDevice.device, &poolCreateInfo, VULKAN_ALLOCATORS, &descriptorPool) );
-	gfxDevice.descriptorPool = descriptorPool;
+	VK_CHECK_RESULT( vkCreateDescriptorPool(gd.device, &poolCreateInfo, VULKAN_ALLOCATORS, &gd.descriptorPool) );
 
 	// DescriptorSets
 	VkDescriptorSetLayout descriptorSetLayouts[MAX_FRAMES_IN_FLIGHT] = {};
-	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) descriptorSetLayouts[i] = gfxDevice.descriptorSetLayout;
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) descriptorSetLayouts[i] = gd.descriptorSetLayout;
 	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+	descriptorSetAllocateInfo.descriptorPool = gd.descriptorPool;
 	descriptorSetAllocateInfo.descriptorSetCount = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
 	descriptorSetAllocateInfo.pSetLayouts = descriptorSetLayouts;
-	VK_CHECK_RESULT( vkAllocateDescriptorSets(gfxDevice.device, &descriptorSetAllocateInfo, gfxDevice.descriptorSets) );
+	VK_CHECK_RESULT( vkAllocateDescriptorSets(gd.device, &descriptorSetAllocateInfo, gd.descriptorSets) );
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
 		VkDescriptorBufferInfo info = {};
-		info.buffer = gfxDevice.uniformBuffers[i];
+		info.buffer = gd.uniformBuffers[i];
 		info.offset = 0;
 		info.range = sizeof(VertexTransforms);
 
 		VkWriteDescriptorSet descriptorWrite = {};
 		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite.dstSet = gfxDevice.descriptorSets[i];
+		descriptorWrite.dstSet = gd.descriptorSets[i];
 		descriptorWrite.dstBinding = 0;
 		descriptorWrite.dstArrayElement = 0;
 		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1559,9 +1516,11 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		descriptorWrite.pImageInfo = NULL;
 		descriptorWrite.pTexelBufferView = NULL;
 
-		vkUpdateDescriptorSets(gfxDevice.device, 1, &descriptorWrite, 0, NULL);
+		vkUpdateDescriptorSets(gd.device, 1, &descriptorWrite, 0, NULL);
 	}
 
+	// Copy the temporary device into the output parameter
+	gfxDevice = gd;
 
 	return true;
 }
