@@ -1321,9 +1321,9 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
 	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizerCreateInfo.lineWidth = 1.0f;
-	rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE;
-	//rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	//rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE;
+	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
 	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
 	rasterizerCreateInfo.depthBiasClamp = 0.0f; // Optional
@@ -1679,7 +1679,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	VertexTransforms vertexTransforms;
 	vertexTransforms.model = Rotate({0, 1, 0}, angle);
-	vertexTransforms.view = LookAt({0, 0, 0}, {1, -1, 1}, {0, 1, 0});
+	vertexTransforms.view = LookAt({0, 0, 0}, {0, 1, 2}, {0, 1, 0});
 	//vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
 	vertexTransforms.proj = Perspective(60.0f, ar, 0.1f, 1000.0f);
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
@@ -1716,9 +1716,9 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
-	viewport.y = 0.0f;
+	viewport.y = static_cast<float>(gfxDevice.swapchainExtent.height);
 	viewport.width = static_cast<float>(gfxDevice.swapchainExtent.width);
-	viewport.height = static_cast<float>(gfxDevice.swapchainExtent.height);
+	viewport.height = -static_cast<float>(gfxDevice.swapchainExtent.height);
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
