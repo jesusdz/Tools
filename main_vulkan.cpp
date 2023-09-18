@@ -39,8 +39,10 @@
 #include "imgui/imgui_impl_vulkan.cpp"
 #endif
 
+#if 0
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
+#endif
 
 
 struct Buffer
@@ -546,6 +548,7 @@ void CopyBufferToImage(GfxDevice &gfxDevice, VkBuffer buffer, VkImage image, u32
 	EndTransientCommandBuffer(gfxDevice, commandBuffer);
 }
 
+#if 0
 void CreateTextureImage(GfxDevice &gfxDevice)
 {
 	int texWidth, texHeight, texChannels;
@@ -584,6 +587,7 @@ void CreateTextureImage(GfxDevice &gfxDevice)
 
 	gfxDevice.textureImage = image;
 }
+#endif
 
 VkFormat FindSupportedFormat(GfxDevice &gfxDevice, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
 {
@@ -1506,8 +1510,10 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		vkMapMemory(gfxDevice.device, gfxDevice.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfxDevice.uniformBuffersMapped[i]);
 	}
 
+#if 0
 	// Create texture
-	//CreateTextureImage(gfxDevice);
+	CreateTextureImage(gfxDevice);
+#endif
 
 	// Create Descriptor Pool
 	VkDescriptorPoolSize poolSize = {};
