@@ -650,6 +650,12 @@ float3 FromTo(const float3 &a, const float3 &b)
 	return res;
 }
 
+float3 Add(const float3 &a, const float3 &b)
+{
+	const float3 res = { b.x + a.x, b.y + a.y, b.z + a.z };
+	return res;
+}
+
 float3 Negate(const float3 &v)
 {
 	const float3 res = { -v.x, -v.y, -v.z };
@@ -1009,9 +1015,27 @@ struct Keyboard
 struct Mouse
 {
 	u32 x, y;
-	u32 dx, dy;
+	i32 dx, dy;
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
 };
+
+bool KeyPress(const Keyboard &keyboard, Key key)
+{
+	ASSERT(key < KEY_COUNT);
+	return keyboard.keys[key] == KEY_STATE_PRESS;
+}
+
+bool KeyPressed(const Keyboard &keyboard, Key key)
+{
+	ASSERT(key < KEY_COUNT);
+	return keyboard.keys[key] == KEY_STATE_PRESSED;
+}
+
+bool KeyRelease(const Keyboard &keyboard, Key key)
+{
+	ASSERT(key < KEY_COUNT);
+	return keyboard.keys[key] == KEY_STATE_RELEASE;
+}
 
 bool MouseMoved(const Mouse &mouse)
 {
@@ -1022,6 +1046,12 @@ bool MouseButtonPress(const Mouse &mouse, MouseButton button)
 {
 	ASSERT(button < MOUSE_BUTTON_COUNT);
 	return mouse.buttons[button] == BUTTON_STATE_PRESS;
+}
+
+bool MouseButtonPressed(const Mouse &mouse, MouseButton button)
+{
+	ASSERT(button < MOUSE_BUTTON_COUNT);
+	return mouse.buttons[button] == BUTTON_STATE_PRESSED;
 }
 
 bool MouseButtonRelease(const Mouse &mouse, MouseButton button)
@@ -1145,8 +1175,8 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_MOTION_NOTIFY:
 			{
 				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-				window.mouse.dx = ev->event_x - window.mouse.x;
-				window.mouse.dy = ev->event_y - window.mouse.y;
+				window.mouse.dx = static_cast<i32>(ev->event_x) - static_cast<i32>(window.mouse.x);
+				window.mouse.dy = static_cast<i32>(ev->event_y) - static_cast<i32>(window.mouse.y);
 				window.mouse.x = ev->event_x;
 				window.mouse.y = ev->event_y;
 				break;
@@ -1566,6 +1596,9 @@ void ProcessWindowEvents(Window &window)
 			window.mouse.buttons[i] = BUTTON_STATE_IDLE;
 		}
 	}
+
+	window.mouse.dx = 0.0f;
+	window.mouse.dy = 0.0f;
 
 #if USE_XCB
 
