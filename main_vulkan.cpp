@@ -147,6 +147,12 @@ static void CheckVulkanResult(VkResult result)
 
 #define VK_CHECK_RESULT( call ) CheckVulkanResult( call )
 
+struct Camera
+{
+	float3 position;
+	float2 orientation; // yaw and pitch
+};
+
 struct GfxDevice
 {
 	VkInstance instance;
@@ -220,6 +226,8 @@ struct GfxDevice
 	} support;
 
 	VkDebugReportCallbackEXT debugReportCallback;
+
+	Camera camera;
 };
 
 VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
@@ -1604,6 +1612,10 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 		vkUpdateDescriptorSets(gd.device, ARRAY_COUNT(descriptorWrites), descriptorWrites, 0, NULL);
 	}
 
+	// Camera
+	gd.camera.position = {0, 1, 2};
+	gd.camera.orientation = {0, -0.45};
+
 	// Copy the temporary device into the output parameter
 	gfxDevice = gd;
 
@@ -1699,6 +1711,27 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	ZeroStruct( &gfxDevice );
 }
 
+float3 DirectionFromAngles(const float2 &angles)
+{
+	const f32 yaw = angles.x;
+	const f32 pitch = angles.y;
+	const float3 forward = {
+		-Sin(yaw)*Cos(pitch),
+		Sin(pitch),
+		-Cos(yaw)*Cos(pitch)
+	};
+	return forward;
+}
+
+float4x4 ViewMatrixFromCamera(const Camera &camera)
+{
+	const float3 forward = DirectionFromAngles(camera.orientation);
+	const float3 vrp = Add(camera.position, forward);
+	constexpr float3 up = {0, 1, 0};
+	const float4x4 res = LookAt(vrp, camera.position, up);
+	return res;
+}
+
 bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 {
 	// TODO: create as many fences as swap images to improve synchronization
@@ -1732,7 +1765,8 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	VertexTransforms vertexTransforms;
 	vertexTransforms.model = Rotate({0, 1, 0}, angle);
-	vertexTransforms.view = LookAt({0, 0, 0}, {0, 1, 2}, {0, 1, 0});
+	//vertexTransforms.view = LookAt({0, 0, 0}, {0, 1, 2}, {0, 1, 0});
+	vertexTransforms.view = ViewMatrixFromCamera(gfxDevice.camera);
 	//vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
 	vertexTransforms.proj = Perspective(60.0f, ar, 0.1f, 1000.0f);
 	MemCopy(gfxDevice.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
@@ -1971,6 +2005,33 @@ int main(int argc, char **argv)
 		lastFrameClock = currentFrameClock;
 
 		ProcessWindowEvents(window);
+
+#define USE_CAMERA_MOVEMENT 0
+#if USE_CAMERA_MOVEMENT
+		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT))
+		{
+			const f32 deltaYaw = - window.mouse.dx * ToRadians;
+			const f32 deltaPitch = - window.mouse.dy * ToRadians;
+			gfxDevice.camera.orientation.x += deltaYaw;
+			gfxDevice.camera.orientation.y += deltaPitch;
+		}
+
+#if 0
+		static f32 speed = 0.0f;
+		static f32 accel = 0.0f;
+		if (KeyPressed(window.keyboard, KEY_W))
+		{
+			const float3 forward = DirectionFromAngles(gfxDevice.camera.orientation);
+			e = speed * t + 0.5f * a * t * t;
+			gfxDevice.camera.position = Add(gfxDevice.camera.position, translation);
+		}
+		else
+		{
+			speed *= 0.9;
+			accel = 0;
+		}
+#endif
+#endif
 
 #if USE_IMGUI
 		// Start the Dear ImGui frame
