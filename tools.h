@@ -656,6 +656,12 @@ float3 Add(const float3 &a, const float3 &b)
 	return res;
 }
 
+float3 Mul(const float3 &a, f32 b)
+{
+	const float3 res = { a.x * b, a.y * b, a.z * b };
+	return res;
+}
+
 float3 Negate(const float3 &v)
 {
 	const float3 res = { -v.x, -v.y, -v.z };

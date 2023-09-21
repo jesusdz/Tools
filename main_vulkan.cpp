@@ -1711,21 +1711,24 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 	ZeroStruct( &gfxDevice );
 }
 
-float3 DirectionFromAngles(const float2 &angles)
+float3 ForwardDirectionFromAngles(const float2 &angles)
 {
 	const f32 yaw = angles.x;
 	const f32 pitch = angles.y;
-	const float3 forward = {
-		-Sin(yaw)*Cos(pitch),
-		Sin(pitch),
-		-Cos(yaw)*Cos(pitch)
-	};
+	const float3 forward = { -Sin(yaw)*Cos(pitch), Sin(pitch), -Cos(yaw)*Cos(pitch) };
 	return forward;
+}
+
+float3 RightDirectionFromAngles(const float2 &angles)
+{
+	const f32 yaw = angles.x;
+	const float3 right = { Cos(yaw), 0.0f, -Sin(yaw) };
+	return right;
 }
 
 float4x4 ViewMatrixFromCamera(const Camera &camera)
 {
-	const float3 forward = DirectionFromAngles(camera.orientation);
+	const float3 forward = ForwardDirectionFromAngles(camera.orientation);
 	const float3 vrp = Add(camera.position, forward);
 	constexpr float3 up = {0, 1, 0};
 	const float4x4 res = LookAt(vrp, camera.position, up);
@@ -2006,31 +2009,47 @@ int main(int argc, char **argv)
 
 		ProcessWindowEvents(window);
 
-#define USE_CAMERA_MOVEMENT 0
+#define USE_CAMERA_MOVEMENT 1
 #if USE_CAMERA_MOVEMENT
+
+		// Camera rotation
+		float2 angles = gfxDevice.camera.orientation;
 		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT))
 		{
-			const f32 deltaYaw = - window.mouse.dx * ToRadians;
-			const f32 deltaPitch = - window.mouse.dy * ToRadians;
-			gfxDevice.camera.orientation.x += deltaYaw;
-			gfxDevice.camera.orientation.y += deltaPitch;
+			const f32 deltaYaw = - window.mouse.dx * ToRadians * 0.5f;
+			const f32 deltaPitch = - window.mouse.dy * ToRadians * 0.5f;
+			angles.x = angles.x + deltaYaw;
+			angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
 		}
+		gfxDevice.camera.orientation = angles;
 
-#if 0
-		static f32 speed = 0.0f;
-		static f32 accel = 0.0f;
-		if (KeyPressed(window.keyboard, KEY_W))
-		{
-			const float3 forward = DirectionFromAngles(gfxDevice.camera.orientation);
-			e = speed * t + 0.5f * a * t * t;
-			gfxDevice.camera.position = Add(gfxDevice.camera.position, translation);
-		}
-		else
-		{
-			speed *= 0.9;
-			accel = 0;
-		}
-#endif
+		// Movement direction
+		float3 dir = { 0, 0, 0 };
+		if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+		dir = Length2(dir) > 0.0f ? Normalize(dir) : dir;
+
+		// Accelerated translation
+		static constexpr f32 MAX_SPEED = 50.0f;
+		static constexpr f32 accel = 20.0f;
+		static constexpr f32 decel = 50.0f;
+		static float3 speed = { 0, 0, 0 };
+		const float3 acceleratedSpeed = Add(speed, Mul(dir, accel*deltaSeconds));
+		const float3 cappedSpeed = Length(acceleratedSpeed) > MAX_SPEED ?
+			Mul( Normalize(acceleratedSpeed), MAX_SPEED) :
+			acceleratedSpeed;
+		const float3 deceleratedSpeed =
+			Length2(cappedSpeed) > 0.0f ?
+			Add(cappedSpeed, Mul(Normalize(cappedSpeed), -decel*deltaSeconds)) :
+			cappedSpeed;
+		const float3 finalSpeed = Length2(dir) > 0.0f ? cappedSpeed : deceleratedSpeed;
+		const float3 translation = Add( Mul(speed, deltaSeconds), Mul(finalSpeed, 0.5f * deltaSeconds) );
+		speed = finalSpeed;
+
+		// Apply translation
+		gfxDevice.camera.position = Add(gfxDevice.camera.position, translation);
 #endif
 
 #if USE_IMGUI

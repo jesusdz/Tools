@@ -25,7 +25,7 @@ KEY_NULL, // 21
 KEY_NULL, // 22
 KEY_NULL, // 23
 KEY_NULL, // 24
-KEY_NULL, // 25
+KEY_W, // 25
 KEY_NULL, // 26
 KEY_NULL, // 27
 KEY_NULL, // 28
@@ -38,9 +38,9 @@ KEY_NULL, // 34
 KEY_NULL, // 35
 KEY_NULL, // 36
 KEY_NULL, // 37
-KEY_NULL, // 38
-KEY_NULL, // 39
-KEY_NULL, // 40
+KEY_A, // 38
+KEY_S, // 39
+KEY_D, // 40
 KEY_NULL, // 41
 KEY_NULL, // 42
 KEY_NULL, // 43
