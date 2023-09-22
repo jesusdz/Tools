@@ -43,6 +43,15 @@
 #include "stb/stb_image.h"
 
 
+#define VULKAN_ALLOCATORS NULL
+#if PLATFORM_ANDROID
+#define MAX_SWAPCHAIN_IMAGE_COUNT 5
+#else
+#define MAX_SWAPCHAIN_IMAGE_COUNT 3
+#endif
+#define MAX_FRAMES_IN_FLIGHT 2
+
+
 struct Pipeline
 {
 	VkPipelineLayout layout;
@@ -75,83 +84,6 @@ struct VertexTransforms
 	float4x4 view;
 	float4x4 proj;
 };
-
-static const Vertex cubeVertices[] = {
-	// front
-	{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-	{{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-	{{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-	{{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-	// back
-	{{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},
-	{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}},
-	{{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},
-	{{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}},
-	// right
-	{{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-	{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-	{{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-	{{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-	// left
-	{{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-	{{-0.5f, -0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
-	{{-0.5f,  0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-	{{-0.5f,  0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-	// top
-	{{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-	{{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
-	{{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-	{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-	// bottom
-	{{ 0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
-	{{-0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
-	{{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
-	{{ 0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-};
-
-static const u16 cubeIndices[] = {
-	0,  1,  2,  2,  3,  0,  // front
-	4,  5,  6,  6,  7,  4,  // back
-	8,  9,  10, 10, 11, 8,  // right
-	12, 13, 14, 14, 15, 12, // left
-	16, 17, 18, 18, 19, 16, // top
-	20, 21, 22, 22, 23, 20, // bottom
-};
-
-static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
-		VkDebugReportFlagsEXT                       flags,
-		VkDebugReportObjectTypeEXT                  objectType,
-		uint64_t                                    object,
-		size_t                                      location,
-		int32_t                                     messageCode,
-		const char*                                 pLayerPrefix,
-		const char*                                 pMessage,
-		void*                                       pUserData)
-{
-	LOG(Warning, "VulkanDebugReportCallback was called.\n");
-	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
-	LOG(Warning, " - pMessage: %s.\n", pMessage);
-	return VK_FALSE;
-}
-
-#define VULKAN_ALLOCATORS NULL
-#if PLATFORM_ANDROID
-#define MAX_SWAPCHAIN_IMAGE_COUNT 5
-#else
-#define MAX_SWAPCHAIN_IMAGE_COUNT 3
-#endif
-#define MAX_FRAMES_IN_FLIGHT 2
-
-static void CheckVulkanResult(VkResult result)
-{
-	if (result == VK_SUCCESS)
-		return;
-	LOG(Error, "[vulkan] VkResult = %d\n", result);
-	if (result < VK_SUCCESS)
-		QUIT_ABNORMALLY();
-}
-
-#define VK_CHECK_RESULT( call ) CheckVulkanResult( call )
 
 struct Camera
 {
@@ -233,6 +165,76 @@ struct GfxDevice
 
 	Camera camera;
 };
+
+
+static const Vertex cubeVertices[] = {
+	// front
+	{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+	{{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+	{{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+	{{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+	// back
+	{{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}},
+	{{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}},
+	{{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}},
+	{{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}},
+	// right
+	{{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+	{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+	{{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+	{{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+	// left
+	{{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+	{{-0.5f, -0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+	{{-0.5f,  0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+	{{-0.5f,  0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+	// top
+	{{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+	{{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+	{{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+	{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+	// bottom
+	{{ 0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}},
+	{{-0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}},
+	{{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+	{{ 0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+};
+
+static const u16 cubeIndices[] = {
+	0,  1,  2,  2,  3,  0,  // front
+	4,  5,  6,  6,  7,  4,  // back
+	8,  9,  10, 10, 11, 8,  // right
+	12, 13, 14, 14, 15, 12, // left
+	16, 17, 18, 18, 19, 16, // top
+	20, 21, 22, 22, 23, 20, // bottom
+};
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
+		VkDebugReportFlagsEXT                       flags,
+		VkDebugReportObjectTypeEXT                  objectType,
+		uint64_t                                    object,
+		size_t                                      location,
+		int32_t                                     messageCode,
+		const char*                                 pLayerPrefix,
+		const char*                                 pMessage,
+		void*                                       pUserData)
+{
+	LOG(Warning, "VulkanDebugReportCallback was called.\n");
+	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
+	LOG(Warning, " - pMessage: %s.\n", pMessage);
+	return VK_FALSE;
+}
+
+static void CheckVulkanResult(VkResult result)
+{
+	if (result == VK_SUCCESS)
+		return;
+	LOG(Error, "[vulkan] VkResult = %d\n", result);
+	if (result < VK_SUCCESS)
+		QUIT_ABNORMALLY();
+}
+
+#define VK_CHECK_RESULT( call ) CheckVulkanResult( call )
 
 VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 {
