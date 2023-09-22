@@ -178,13 +178,12 @@ struct GfxDevice
 	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 	bool shouldRecreateSwapchain;
 
+	Image depthImage;
+	VkImageView depthImageView;
+
 	VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
 	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
 	VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
-
-	VkImage depthImage;
-	VkDeviceMemory depthImageMemory;
-	VkImageView depthImageView;
 
 	uint32_t graphicsQueueFamilyIndex;
 	uint32_t presentQueueFamilyIndex;
@@ -892,21 +891,6 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
 
 
-	// Depth buffer
-	VkFormat depthFormat = FindDepthFormat(gfxDevice);
-	Image depthImage = CreateImage(gfxDevice,
-			gfxDevice.swapchainExtent.width, gfxDevice.swapchainExtent.height,
-			depthFormat,
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VkImageView depthImageView = CreateImageView(gfxDevice, depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-	TransitionImageLayout(gfxDevice, depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-	gfxDevice.depthImage = depthImage.image;
-	gfxDevice.depthImageMemory = depthImage.memory;
-	gfxDevice.depthImageView = depthImageView;
-
-
 	// Swapchain
 	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
 	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -961,6 +945,21 @@ bool CreateSwapchain(GfxDevice &gfxDevice, Window &window)
 		const VkFormat format = gfxDevice.swapchainFormat;
 		gfxDevice.swapchainImageViews[i] = CreateImageView(gfxDevice, image, format, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
+
+
+	// NOTE: Maybe depth buffer and framebuffer shouldn't be part of the swapchain...
+
+	// Depth buffer
+	VkFormat depthFormat = FindDepthFormat(gfxDevice);
+	gfxDevice.depthImage = CreateImage(gfxDevice,
+			gfxDevice.swapchainExtent.width, gfxDevice.swapchainExtent.height,
+			depthFormat,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VkImageView depthImageView = CreateImageView(gfxDevice, gfxDevice.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+	TransitionImageLayout(gfxDevice, gfxDevice.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+	gfxDevice.depthImageView = depthImageView;
 
 
 	// Framebuffer
@@ -1640,8 +1639,8 @@ void CleanupSwapchain(GfxDevice &gfxDevice)
 	WaitDeviceIdle(gfxDevice);
 
 	vkDestroyImageView(gfxDevice.device, gfxDevice.depthImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfxDevice.device, gfxDevice.depthImage, VULKAN_ALLOCATORS);
-	vkFreeMemory(gfxDevice.device, gfxDevice.depthImageMemory, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfxDevice.device, gfxDevice.depthImage.image, VULKAN_ALLOCATORS);
+	vkFreeMemory(gfxDevice.device, gfxDevice.depthImage.memory, VULKAN_ALLOCATORS);
 
 	for ( u32 i = 0; i < gfxDevice.swapchainImageCount; ++i )
 	{
