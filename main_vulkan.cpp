@@ -85,6 +85,26 @@ struct VertexTransforms
 	float4x4 proj;
 };
 
+struct SwapchainInfo
+{
+	VkFormat format;
+	VkColorSpaceKHR colorSpace;
+	VkPresentModeKHR presentMode;
+};
+
+struct Swapchain
+{
+	VkSwapchainKHR handle;
+	VkExtent2D extent;
+	u32 imageCount;
+	VkImage images[MAX_SWAPCHAIN_IMAGE_COUNT];
+	VkImageView imageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
+	VkFramebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
+	Image depthImage;
+	VkImageView depthImageView;
+	bool shouldRecreate;
+};
+
 struct Camera
 {
 	float3 position;
@@ -99,19 +119,8 @@ struct Graphics
 
 	VkSurfaceKHR surface;
 
-	VkSwapchainKHR swapchain;
-	VkFormat swapchainFormat;
-	VkExtent2D swapchainExtent;
-	VkColorSpaceKHR swapchainColorSpace;
-	VkPresentModeKHR swapchainPresentMode;
-	u32 swapchainImageCount;
-	VkImage swapchainImages[MAX_SWAPCHAIN_IMAGE_COUNT];
-	VkImageView swapchainImageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
-	VkFramebuffer swapchainFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
-	bool shouldRecreateSwapchain;
-
-	Image depthImage;
-	VkImageView depthImageView;
+	SwapchainInfo swapchainInfo;
+	Swapchain swapchain;
 
 	VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
 	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
@@ -253,7 +262,7 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	return shaderModule;
 }
 
-u32 FindMemoryTypeIndex(Graphics &gfx, u32 memoryTypeBits, VkMemoryPropertyFlags memoryFlags)
+u32 FindMemoryTypeIndex(const Graphics &gfx, u32 memoryTypeBits, VkMemoryPropertyFlags memoryFlags)
 {
 	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &physicalDeviceMemoryProperties);
@@ -313,7 +322,7 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 	return gfxBuffer;
 }
 
-VkCommandBuffer BeginTransientCommandBuffer(Graphics &gfx)
+VkCommandBuffer BeginTransientCommandBuffer(const Graphics &gfx)
 {
 	VkCommandBufferAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -333,7 +342,7 @@ VkCommandBuffer BeginTransientCommandBuffer(Graphics &gfx)
 	return commandBuffer;
 }
 
-void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
+void EndTransientCommandBuffer(const Graphics &gfx, VkCommandBuffer commandBuffer)
 {
 	vkEndCommandBuffer(commandBuffer);
 
@@ -591,7 +600,7 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 	return pipeline;
 }
 
-Image CreateImage(Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags)
+Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags)
 {
 	VkImageCreateInfo imageCreateInfo = {};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -629,27 +638,26 @@ Image CreateImage(Graphics &gfx, u32 width, u32 height, VkFormat format, VkImage
 	return imageStruct;
 }
 
-VkImageView CreateImageView(Graphics &gfx, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {
-    VkImageViewCreateInfo viewInfo = {};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = format;
 	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-    viewInfo.subresourceRange.aspectMask = aspectFlags;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
+	viewInfo.subresourceRange.aspectMask = aspectFlags;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
 
-    VkImageView imageView;
-    VK_CHECK_RESULT( vkCreateImageView(gfx.device, &viewInfo, nullptr, &imageView) );
-
-    return imageView;
+	VkImageView imageView;
+	VK_CHECK_RESULT( vkCreateImageView(gfx.device, &viewInfo, nullptr, &imageView) );
+	return imageView;
 }
 
 bool HasStencilComponent(VkFormat format)
@@ -660,7 +668,7 @@ bool HasStencilComponent(VkFormat format)
 	return hasStencil;
 }
 
-void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+void TransitionImageLayout(const Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
@@ -836,7 +844,7 @@ void CreateTextureSampler(Graphics &gfx)
 	gfx.textureSampler = textureSampler;
 }
 
-VkFormat FindSupportedFormat(Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
+VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
 {
 	for (u32 i = 0; i < candidateCount; ++i)
 	{
@@ -858,14 +866,14 @@ VkFormat FindSupportedFormat(Graphics &gfx, const VkFormat candidates[], u32 can
 	return VK_FORMAT_MAX_ENUM;
 }
 
-VkFormat FindDepthFormat(Graphics &gfx)
+VkFormat FindDepthFormat(const Graphics &gfx)
 {
 	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
 	return FindSupportedFormat(gfx, candidates, ARRAY_COUNT(candidates),
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
-bool CreateSwapchain(Graphics &gfx, Window &window)
+bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &swapchainInfo, Swapchain &swapchain)
 {
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gfx.physicalDevice, gfx.surface, &surfaceCapabilities);
@@ -873,18 +881,18 @@ bool CreateSwapchain(Graphics &gfx, Window &window)
 	// Swapchain extent
 	if ( surfaceCapabilities.currentExtent.width != 0xFFFFFFFF )
 	{
-		gfx.swapchainExtent = surfaceCapabilities.currentExtent;
+		swapchain.extent = surfaceCapabilities.currentExtent;
 	}
 	else
 	{
-		gfx.swapchainExtent.width = Clamp( window.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
-		gfx.swapchainExtent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
+		swapchain.extent.width = Clamp( window.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
+		swapchain.extent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
 	}
 
 	// We want to update the Window size just in case the swapchain recreation was
 	// requested from the Vulkan driver before being notified by the window manager.
-	window.width = gfx.swapchainExtent.width;
-	window.height = gfx.swapchainExtent.height;
+	window.width = swapchain.extent.width;
+	window.height = swapchain.extent.height;
 
 
 	// Image count
@@ -898,9 +906,9 @@ bool CreateSwapchain(Graphics &gfx, Window &window)
 	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 	swapchainCreateInfo.surface = gfx.surface;
 	swapchainCreateInfo.minImageCount = imageCount;
-	swapchainCreateInfo.imageFormat = gfx.swapchainFormat;
-	swapchainCreateInfo.imageColorSpace = gfx.swapchainColorSpace;
-	swapchainCreateInfo.imageExtent = gfx.swapchainExtent; // TODO: Calculate extent each time
+	swapchainCreateInfo.imageFormat = swapchainInfo.format;
+	swapchainCreateInfo.imageColorSpace = swapchainInfo.colorSpace;
+	swapchainCreateInfo.imageExtent = swapchain.extent; // TODO: Calculate extent each time
 	swapchainCreateInfo.imageArrayLayers = 1;
 	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
 	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
@@ -924,28 +932,26 @@ bool CreateSwapchain(Graphics &gfx, Window &window)
 	}
 
 	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Ignore, no compositing over other windows
-	swapchainCreateInfo.presentMode = gfx.swapchainPresentMode;
+	swapchainCreateInfo.presentMode = swapchainInfo.presentMode;
 	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
 	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
 	swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 
-	VkSwapchainKHR swapchain;
-	VK_CHECK_RESULT( vkCreateSwapchainKHR(gfx.device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &gfx.swapchain) );
+	VK_CHECK_RESULT( vkCreateSwapchainKHR(gfx.device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain.handle) );
 
 
 	// Get the swapchain images
-	vkGetSwapchainImagesKHR( gfx.device, gfx.swapchain, &gfx.swapchainImageCount, NULL );
-	ASSERT( gfx.swapchainImageCount <= ARRAY_COUNT(gfx.swapchainImages) );
-	vkGetSwapchainImagesKHR( gfx.device, gfx.swapchain, &gfx.swapchainImageCount, gfx.swapchainImages );
+	vkGetSwapchainImagesKHR( gfx.device, swapchain.handle, &swapchain.imageCount, NULL );
+	ASSERT( swapchain.imageCount <= ARRAY_COUNT(swapchain.images) );
+	vkGetSwapchainImagesKHR( gfx.device, swapchain.handle, &swapchain.imageCount, swapchain.images );
 
 
 	// Create image views
-	gfx.swapchainImageCount = gfx.swapchainImageCount;
-	for ( u32 i = 0; i < gfx.swapchainImageCount; ++i )
+	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
-		const VkImage image = gfx.swapchainImages[i];
-		const VkFormat format = gfx.swapchainFormat;
-		gfx.swapchainImageViews[i] = CreateImageView(gfx, image, format, VK_IMAGE_ASPECT_COLOR_BIT);
+		const VkImage image = swapchain.images[i];
+		const VkFormat format = swapchainInfo.format;
+		swapchain.imageViews[i] = CreateImageView(gfx, image, format, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 
@@ -953,32 +959,32 @@ bool CreateSwapchain(Graphics &gfx, Window &window)
 
 	// Depth buffer
 	VkFormat depthFormat = FindDepthFormat(gfx);
-	gfx.depthImage = CreateImage(gfx,
-			gfx.swapchainExtent.width, gfx.swapchainExtent.height,
+	swapchain.depthImage = CreateImage(gfx,
+			swapchain.extent.width, swapchain.extent.height,
 			depthFormat,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VkImageView depthImageView = CreateImageView(gfx, gfx.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-	TransitionImageLayout(gfx, gfx.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-	gfx.depthImageView = depthImageView;
+	VkImageView depthImageView = CreateImageView(gfx, swapchain.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+	TransitionImageLayout(gfx, swapchain.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+	swapchain.depthImageView = depthImageView;
 
 
 	// Framebuffer
-	for ( u32 i = 0; i < gfx.swapchainImageCount; ++i )
+	for ( u32 i = 0; i < gfx.swapchain.imageCount; ++i )
 	{
-		VkImageView attachments[] = { gfx.swapchainImageViews[i], gfx.depthImageView };
+		VkImageView attachments[] = { swapchain.imageViews[i], swapchain.depthImageView };
 
 		VkFramebufferCreateInfo framebufferCreateInfo = {};
 		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		framebufferCreateInfo.renderPass = gfx.renderPass;
 		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
 		framebufferCreateInfo.pAttachments = attachments;
-		framebufferCreateInfo.width = gfx.swapchainExtent.width;
-		framebufferCreateInfo.height = gfx.swapchainExtent.height;
+		framebufferCreateInfo.width = swapchain.extent.width;
+		framebufferCreateInfo.height = swapchain.extent.height;
 		framebufferCreateInfo.layers = 1;
 
-		VK_CHECK_RESULT( vkCreateFramebuffer( gfx.device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &gfx.swapchainFramebuffers[i]) );
+		VK_CHECK_RESULT( vkCreateFramebuffer( gfx.device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &swapchain.framebuffers[i]) );
 	}
 
 	return true;
@@ -1238,21 +1244,21 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 		VkSurfaceFormatKHR *surfaceFormats = PushArray( scratch2, VkSurfaceFormatKHR, surfaceFormatCount );
 		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, gfx.surface, &surfaceFormatCount, surfaceFormats);
 
-		gfx.swapchainFormat = VK_FORMAT_MAX_ENUM;
+		gfx.swapchainInfo.format = VK_FORMAT_MAX_ENUM;
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
 			if ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
 					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
 			{
-				gfx.swapchainFormat = surfaceFormats[i].format;
-				gfx.swapchainColorSpace = surfaceFormats[i].colorSpace;
+				gfx.swapchainInfo.format = surfaceFormats[i].format;
+				gfx.swapchainInfo.colorSpace = surfaceFormats[i].colorSpace;
 				break;
 			}
 		}
-		if ( gfx.swapchainFormat == VK_FORMAT_MAX_ENUM )
+		if ( gfx.swapchainInfo.format == VK_FORMAT_MAX_ENUM )
 		{
-			gfx.swapchainFormat = surfaceFormats[0].format;
-			gfx.swapchainColorSpace = surfaceFormats[0].colorSpace;
+			gfx.swapchainInfo.format = surfaceFormats[0].format;
+			gfx.swapchainInfo.colorSpace = surfaceFormats[0].colorSpace;
 		}
 
 		// Swapchain present mode
@@ -1272,10 +1278,10 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 				gfx.swapchainPresentMode = surfacePresentModes[i];
 			}
 		}
-		if ( gfx.swapchainPresentMode == VK_PRESENT_MODE_MAILBOX_KHR )
-			gfx.swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		if ( gfx.swapchainInfo.presentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+			gfx.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 #else
-		gfx.swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+		gfx.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 #endif
 
 		// At this point, we know this device meets all the requirements
@@ -1370,7 +1376,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 
 	// Create render passes
 	VkAttachmentDescription colorAttachmentDesc = {};
-	colorAttachmentDesc.format = gfx.swapchainFormat;
+	colorAttachmentDesc.format = gfx.swapchainInfo.format;
 	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1514,7 +1520,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 
 
 	// Create swapchain
-	CreateSwapchain( gfx, window );
+	CreateSwapchain( gfx, window, gfx.swapchainInfo, gfx.swapchain );
 
 
 	// Synchronization objects
@@ -1631,37 +1637,37 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	return true;
 }
 
-void WaitDeviceIdle(Graphics &gfx)
+void WaitDeviceIdle(const Graphics &gfx)
 {
 	vkDeviceWaitIdle( gfx.device );
 }
 
-void CleanupSwapchain(Graphics &gfx)
+void CleanupSwapchain(const Graphics &gfx, const Swapchain &swapchain)
 {
 	WaitDeviceIdle(gfx);
 
-	vkDestroyImageView(gfx.device, gfx.depthImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfx.device, gfx.depthImage.image, VULKAN_ALLOCATORS);
-	vkFreeMemory(gfx.device, gfx.depthImage.memory, VULKAN_ALLOCATORS);
+	vkDestroyImageView(gfx.device, swapchain.depthImageView, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device, swapchain.depthImage.image, VULKAN_ALLOCATORS);
+	vkFreeMemory(gfx.device, swapchain.depthImage.memory, VULKAN_ALLOCATORS);
 
-	for ( u32 i = 0; i < gfx.swapchainImageCount; ++i )
+	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
-		vkDestroyFramebuffer( gfx.device, gfx.swapchainFramebuffers[i], VULKAN_ALLOCATORS );
+		vkDestroyFramebuffer( gfx.device, swapchain.framebuffers[i], VULKAN_ALLOCATORS );
 	}
 
-	for ( u32 i = 0; i < gfx.swapchainImageCount; ++i )
+	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
-		vkDestroyImageView(gfx.device, gfx.swapchainImageViews[i], VULKAN_ALLOCATORS);
+		vkDestroyImageView(gfx.device, swapchain.imageViews[i], VULKAN_ALLOCATORS);
 	}
 
-	vkDestroySwapchainKHR(gfx.device, gfx.swapchain, VULKAN_ALLOCATORS);
+	vkDestroySwapchainKHR(gfx.device, swapchain.handle, VULKAN_ALLOCATORS);
 }
 
 void CleanupGraphics(Graphics &gfx)
 {
 	WaitDeviceIdle( gfx );
 
-	CleanupSwapchain( gfx );
+	CleanupSwapchain( gfx, gfx.swapchain );
 
 	vkDestroySampler( gfx.device, gfx.textureSampler, VULKAN_ALLOCATORS );
 
@@ -1753,11 +1759,11 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 	vkWaitForFences( gfx.device, 1, &gfx.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX );
 
 	uint32_t imageIndex;
-	VkResult acquireResult = vkAcquireNextImageKHR( gfx.device, gfx.swapchain, UINT64_MAX, gfx.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
+	VkResult acquireResult = vkAcquireNextImageKHR( gfx.device, gfx.swapchain.handle, UINT64_MAX, gfx.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
-		gfx.shouldRecreateSwapchain = true;
+		gfx.swapchain.shouldRecreate = true;
 		return false;
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
@@ -1803,9 +1809,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassBeginInfo.renderPass = gfx.renderPass;
-	renderPassBeginInfo.framebuffer = gfx.swapchainFramebuffers[imageIndex];
+	renderPassBeginInfo.framebuffer = gfx.swapchain.framebuffers[imageIndex];
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = gfx.swapchainExtent;
+	renderPassBeginInfo.renderArea.extent = gfx.swapchain.extent;
 	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
 	renderPassBeginInfo.pClearValues = clearValues;
 
@@ -1815,16 +1821,16 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(gfx.swapchainExtent.height);
-	viewport.width = static_cast<float>(gfx.swapchainExtent.width);
-	viewport.height = -static_cast<float>(gfx.swapchainExtent.height);
+	viewport.y = static_cast<float>(gfx.swapchain.extent.height);
+	viewport.width = static_cast<float>(gfx.swapchain.extent.width);
+	viewport.height = -static_cast<float>(gfx.swapchain.extent.height);
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
 	VkRect2D scissor = {};
 	scissor.offset = {0, 0};
-	scissor.extent = gfx.swapchainExtent;
+	scissor.extent = gfx.swapchain.extent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 	VkBuffer vertexBuffers[] = { gfx.vertexBuffer };
@@ -1876,15 +1882,15 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
 	presentInfo.pWaitSemaphores = signalSemaphores;
 	presentInfo.swapchainCount = 1;
-	presentInfo.pSwapchains = &gfx.swapchain;
+	presentInfo.pSwapchains = &gfx.swapchain.handle;
 	presentInfo.pImageIndices = &imageIndex;
 	presentInfo.pResults = NULL; // Optional
 
 	VkResult presentResult = vkQueuePresentKHR( gfx.presentQueue, &presentInfo );
 
-	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR || gfx.shouldRecreateSwapchain)
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR || gfx.swapchain.shouldRecreate)
 	{
-		gfx.shouldRecreateSwapchain = true;
+		gfx.swapchain.shouldRecreate = true;
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
@@ -1973,8 +1979,8 @@ int main(int argc, char **argv)
 	init_info.PipelineCache = gfx.pipelineCache;
 	init_info.DescriptorPool = gfx.imGuiDescriptorPool;
 	init_info.Subpass = 0;
-	init_info.MinImageCount = gfx.swapchainImageCount;
-	init_info.ImageCount = gfx.swapchainImageCount;
+	init_info.MinImageCount = gfx.swapchain.imageCount;
+	init_info.ImageCount = gfx.swapchain.imageCount;
 	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	init_info.Allocator = VULKAN_ALLOCATORS;
 	init_info.CheckVkResultFn = CheckVulkanResult;
@@ -2091,11 +2097,11 @@ int main(int argc, char **argv)
 		ImGui::Render();
 #endif
 
-		if ( window.flags & WindowFlags_Resized || gfx.shouldRecreateSwapchain)
+		if ( window.flags & WindowFlags_Resized || gfx.swapchain.shouldRecreate )
 		{
-			CleanupSwapchain(gfx);
-			CreateSwapchain(gfx, window);
-			gfx.shouldRecreateSwapchain = false;
+			CleanupSwapchain(gfx, gfx.swapchain);
+			CreateSwapchain(gfx, window, gfx.swapchainInfo, gfx.swapchain);
+			gfx.swapchain.shouldRecreate = false;
 		}
 		if ( window.flags & WindowFlags_Exiting )
 		{

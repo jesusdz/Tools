@@ -153,8 +153,8 @@ static int engine_init_display(Engine* engine)
 	}
 
 	engine->initialized = true;
-	engine->width = engine->gfx.swapchainExtent.width;
-	engine->height = engine->gfx.swapchainExtent.height;
+	engine->width = engine->gfx.swapchain.extent.width;
+	engine->height = engine->gfx.swapchain.extent.height;
 	engine->window.width = engine->width;
 	engine->window.height = engine->height;
 
@@ -371,7 +371,7 @@ void android_main(struct android_app* app) {
 
 		if ( engine.window.flags & WindowFlags_Resized )
 		{
-			engine.gfx.shouldRecreateSwapchain = true;
+			engine.gfx.swapchain.shouldRecreate = true;
 		}
 		if ( engine.window.flags & WindowFlags_Exiting )
 		{
