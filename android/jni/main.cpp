@@ -43,7 +43,7 @@ struct Engine {
 #elif USE_VULKAN
 	Arena arena;
 	Window window;
-	GfxDevice gfxDevice;
+	Graphics gfx;
 	bool initialized;
 #endif
     int32_t width;
@@ -146,15 +146,15 @@ static int engine_init_display(Engine* engine)
 	engine->window.window = engine->app->window;
 
 	// Initialize graphics
-	if ( !InitializeGraphics(engine->arena, engine->window, engine->gfxDevice) )
+	if ( !InitializeGraphics(engine->arena, engine->window, engine->gfx) )
 	{
 		LOG(Error, "InitializeGraphics failed!");
 		return -1;
 	}
 
 	engine->initialized = true;
-	engine->width = engine->gfxDevice.swapchainExtent.width;
-	engine->height = engine->gfxDevice.swapchainExtent.height;
+	engine->width = engine->gfx.swapchainExtent.width;
+	engine->height = engine->gfx.swapchainExtent.height;
 	engine->window.width = engine->width;
 	engine->window.height = engine->height;
 
@@ -188,7 +188,7 @@ static void engine_draw_frame(Engine* engine)
 
 #elif USE_VULKAN
 
-	RenderGraphics(engine->gfxDevice, engine->window, engine->state.deltaSeconds);
+	RenderGraphics(engine->gfx, engine->window, engine->state.deltaSeconds);
 
 #endif
 }
@@ -215,7 +215,7 @@ static void engine_term_display(Engine* engine)
 #elif USE_VULKAN
 
 	engine->initialized = false;
-	CleanupGraphics(engine->gfxDevice);
+	CleanupGraphics(engine->gfx);
 
 #endif
 }
@@ -371,7 +371,7 @@ void android_main(struct android_app* app) {
 
 		if ( engine.window.flags & WindowFlags_Resized )
 		{
-			engine.gfxDevice.shouldRecreateSwapchain = true;
+			engine.gfx.shouldRecreateSwapchain = true;
 		}
 		if ( engine.window.flags & WindowFlags_Exiting )
 		{
