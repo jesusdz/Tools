@@ -407,22 +407,16 @@ Pipeline CreatePipeline(const GfxDevice &gd, Arena &arena)
 {
 	Arena scratch = MakeSubArena(arena);
 
-#if PLATFORM_ANDROID
-	// TODO: Implement functions to get the base path for asset data per platform
-	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/vertex.spv";
-	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/fragment.spv";
-#else
-	const char *vertexShaderFilename = "shaders/vertex.spv";
-	const char *fragmentShaderFilename = "shaders/fragment.spv";
-#endif
-	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderFilename );
+	FilePath vertexShaderPath = MakePath("shaders/vertex.spv");
+	FilePath fragmentShaderPath = MakePath("shaders/fragment.spv");
+	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderPath.str );
 	if ( !vertexFile ) {
-		LOG( Error, "Could not open shader file %s.\n", vertexShaderFilename );
+		LOG( Error, "Could not open shader file %s.\n", vertexShaderPath.str );
 		QUIT_ABNORMALLY();
 	}
-	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderFilename );
+	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderPath.str );
 	if ( !fragmentFile ) {
-		LOG( Error, "Could not open shader file %s.\n", fragmentShaderFilename );
+		LOG( Error, "Could not open shader file %s.\n", fragmentShaderPath.str );
 		QUIT_ABNORMALLY();
 	}
 
@@ -759,17 +753,12 @@ void CopyBufferToImage(GfxDevice &gfxDevice, VkBuffer buffer, VkImage image, u32
 void CreateTextureImage(GfxDevice &gfxDevice)
 {
 	int texWidth, texHeight, texChannels;
-#if PLATFORM_ANDROID
-	// TODO: Implement functions to get the base path for asset data per platform
-	const char *imageFilename = "/sdcard/Android/data/com.tools.game/files/assets/image.png";
-#else
-	const char *imageFilename = "assets/image.png";
-#endif
-	stbi_uc* originalPixels = stbi_load(imageFilename, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	FilePath imagePath = MakePath("assets/image.png");
+	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	stbi_uc* pixels = originalPixels;
 	if ( !pixels )
 	{
-		LOG(Error, "stbi_load failed to load %s\n", imageFilename);
+		LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
 		static stbi_uc constPixels[] = {255, 0, 255, 255};
 		pixels = constPixels;
 		texWidth = texHeight = 1;

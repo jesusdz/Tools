@@ -571,6 +571,29 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// File paths
+
+#define MAX_PATH_LENGTH 512
+
+struct FilePath
+{
+	char str[MAX_PATH_LENGTH];
+};
+
+FilePath MakePath(const char *relativePath)
+{
+	FilePath path = {};
+#if PLATFORM_ANDROID
+	// TODO: Don't hardcode this path here and get it from Android API.
+	StrCat(path.str, "/sdcard/Android/data/com.tools.game/files/");
+#endif
+	StrCat(path.str, relativePath);
+	return path;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math
 
 struct float2
