@@ -43,6 +43,12 @@
 #include "stb/stb_image.h"
 
 
+struct Pipeline
+{
+	VkPipelineLayout layout;
+	VkPipeline handle;
+};
+
 struct Buffer
 {
 	VkBuffer buffer;
@@ -203,8 +209,7 @@ struct GfxDevice
 	// TODO: Temporary stuff hardcoded here
 	VkRenderPass renderPass;
 	VkDescriptorSetLayout descriptorSetLayout;
-	VkPipelineLayout pipelineLayout;
-	VkPipeline graphicsPipeline;
+	Pipeline pipeline;
 
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
@@ -396,6 +401,199 @@ Buffer CreateIndexBuffer(GfxDevice &gfxDevice, const void *data, u32 size )
 {
 	Buffer indexBuffer = CreateBufferWithData(gfxDevice, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	return indexBuffer;
+}
+
+Pipeline CreatePipeline(const GfxDevice &gd, Arena &arena)
+{
+	Arena scratch = MakeSubArena(arena);
+
+#if PLATFORM_ANDROID
+	// TODO: Implement functions to get the base path for asset data per platform
+	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/vertex.spv";
+	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/fragment.spv";
+#else
+	const char *vertexShaderFilename = "shaders/vertex.spv";
+	const char *fragmentShaderFilename = "shaders/fragment.spv";
+#endif
+	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderFilename );
+	if ( !vertexFile ) {
+		LOG( Error, "Could not open shader file %s.\n", vertexShaderFilename );
+		QUIT_ABNORMALLY();
+	}
+	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderFilename );
+	if ( !fragmentFile ) {
+		LOG( Error, "Could not open shader file %s.\n", fragmentShaderFilename );
+		QUIT_ABNORMALLY();
+	}
+
+	VkShaderModule vertexShaderModule = CreateShaderModule( gd.device, vertexFile->data, vertexFile->size );
+	VkShaderModule fragmentShaderModule = CreateShaderModule( gd.device, fragmentFile->data, fragmentFile->size );
+
+	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
+	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vertexShaderStageCreateInfo.module = vertexShaderModule;
+	vertexShaderStageCreateInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
+	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragmentShaderStageCreateInfo.module = fragmentShaderModule;
+	fragmentShaderStageCreateInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
+
+	// TODO: Like I said before, vertex description shouldn't go here
+	VkVertexInputBindingDescription bindingDescription = {};
+	bindingDescription.binding = 0;
+	bindingDescription.stride = sizeof(Vertex);
+	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	VkVertexInputAttributeDescription attributeDescriptions[3] = {};
+	attributeDescriptions[0].binding = 0;
+	attributeDescriptions[0].location = 0;
+	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attributeDescriptions[0].offset = offsetof(Vertex, pos);
+	attributeDescriptions[1].binding = 0;
+	attributeDescriptions[1].location = 1;
+	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	attributeDescriptions[1].offset = offsetof(Vertex, normal);
+	attributeDescriptions[2].binding = 0;
+	attributeDescriptions[2].location = 2;
+	attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+	attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
+	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
+	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInputCreateInfo.vertexBindingDescriptionCount = 1;
+	vertexInputCreateInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
+	vertexInputCreateInfo.vertexAttributeDescriptionCount = ARRAY_COUNT(attributeDescriptions);
+	vertexInputCreateInfo.pVertexAttributeDescriptions = attributeDescriptions; // Optional
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
+	inputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssemblyCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
+
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {};
+	dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicStateCreateInfo.dynamicStateCount = ARRAY_COUNT(dynamicStates);
+	dynamicStateCreateInfo.pDynamicStates = dynamicStates;
+
+	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {};
+	viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportStateCreateInfo.viewportCount = 1;
+	viewportStateCreateInfo.scissorCount = 1;
+	// NOTE: We don't set values for the viewport and scissor
+	// rect because they will be set dynamically using commands
+
+	VkPipelineRasterizationStateCreateInfo rasterizerCreateInfo = {};
+	rasterizerCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizerCreateInfo.depthClampEnable = VK_FALSE;
+	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
+	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizerCreateInfo.lineWidth = 1.0f;
+	//rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE;
+	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
+	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
+	rasterizerCreateInfo.depthBiasClamp = 0.0f; // Optional
+	rasterizerCreateInfo.depthBiasSlopeFactor = 0.0f; // Optional
+
+	VkPipelineMultisampleStateCreateInfo multisamplingCreateInfo = {};
+	multisamplingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisamplingCreateInfo.sampleShadingEnable = VK_FALSE;
+	multisamplingCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisamplingCreateInfo.minSampleShading = 1.0f; // Optional
+	multisamplingCreateInfo.pSampleMask = nullptr; // Optional
+	multisamplingCreateInfo.alphaToCoverageEnable = VK_FALSE; // Optional
+	multisamplingCreateInfo.alphaToOneEnable = VK_FALSE; // Optional
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo = {};
+	depthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencilCreateInfo.depthTestEnable = VK_TRUE;
+	depthStencilCreateInfo.depthWriteEnable = VK_TRUE;
+	depthStencilCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilCreateInfo.depthBoundsTestEnable = VK_FALSE;
+	depthStencilCreateInfo.minDepthBounds = 0.0f;
+	depthStencilCreateInfo.maxDepthBounds = 1.0f;
+	depthStencilCreateInfo.stencilTestEnable = VK_FALSE;
+	depthStencilCreateInfo.front = {}; // Optional
+	depthStencilCreateInfo.back = {}; // Optional
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
+	colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	// Color replace
+	colorBlendAttachmentState.blendEnable = VK_FALSE;
+	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD; // Optional
+	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
+	// Alpha blending
+	//colorBlendAttachmentState.blendEnable = VK_TRUE;
+	//colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	//colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	//colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
+	//colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	//colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	//colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	VkPipelineColorBlendStateCreateInfo colorBlendingCreateInfo = {};
+	colorBlendingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlendingCreateInfo.logicOpEnable = VK_FALSE;
+	colorBlendingCreateInfo.logicOp = VK_LOGIC_OP_COPY; // Optional
+	colorBlendingCreateInfo.attachmentCount = 1;
+	colorBlendingCreateInfo.pAttachments = &colorBlendAttachmentState;
+	colorBlendingCreateInfo.blendConstants[0] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[1] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
+	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutCreateInfo.setLayoutCount = 1;
+	pipelineLayoutCreateInfo.pSetLayouts = &gd.descriptorSetLayout;
+	pipelineLayoutCreateInfo.pushConstantRangeCount = 0; // Optional
+	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr; // Optional
+
+	VkPipelineLayout pipelineLayout;
+	VK_CHECK_RESULT( vkCreatePipelineLayout(gd.device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
+
+	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {};
+	graphicsPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	graphicsPipelineCreateInfo.stageCount = ARRAY_COUNT(shaderStages);
+	graphicsPipelineCreateInfo.pStages = shaderStages;
+	graphicsPipelineCreateInfo.pVertexInputState = &vertexInputCreateInfo;
+	graphicsPipelineCreateInfo.pInputAssemblyState = &inputAssemblyCreateInfo;
+	graphicsPipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
+	graphicsPipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
+	graphicsPipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
+	graphicsPipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
+	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
+	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
+	graphicsPipelineCreateInfo.layout = pipelineLayout;
+	graphicsPipelineCreateInfo.renderPass = gd.renderPass;
+	graphicsPipelineCreateInfo.subpass = 0;
+	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
+
+	VkPipeline pipelineHandle;
+	VK_CHECK_RESULT( vkCreateGraphicsPipelines( gd.device, gd.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &pipelineHandle ) );
+
+	vkDestroyShaderModule(gd.device, vertexShaderModule, VULKAN_ALLOCATORS);
+	vkDestroyShaderModule(gd.device, fragmentShaderModule, VULKAN_ALLOCATORS);
+
+	Pipeline pipeline = {};
+	pipeline.layout = pipelineLayout;
+	pipeline.handle = pipelineHandle;
+	return pipeline;
 }
 
 Image CreateImage(GfxDevice &gfxDevice, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags)
@@ -1293,186 +1491,7 @@ bool InitializeGraphics(Arena &arena, Window window, GfxDevice &gfxDevice)
 	// Create pipeline
 	// TODO: This shouldn't be part of the device initialization
 	// but let's put it here for now
-#if PLATFORM_ANDROID
-	// TODO: Implement functions to get the base path for asset data per platform
-	const char *vertexShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/vertex.spv";
-	const char *fragmentShaderFilename = "/sdcard/Android/data/com.tools.game/files/shaders/fragment.spv";
-#else
-	const char *vertexShaderFilename = "shaders/vertex.spv";
-	const char *fragmentShaderFilename = "shaders/fragment.spv";
-#endif
-	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderFilename );
-	if ( !vertexFile ) {
-		LOG( Error, "Could not open shader file %s.\n", vertexShaderFilename );
-		return false;
-	}
-	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderFilename );
-	if ( !fragmentFile ) {
-		LOG( Error, "Could not open shader file %s.\n", fragmentShaderFilename );
-		return false;
-	}
-
-	VkShaderModule vertexShaderModule = CreateShaderModule( gd.device, vertexFile->data, vertexFile->size );
-	VkShaderModule fragmentShaderModule = CreateShaderModule( gd.device, fragmentFile->data, fragmentFile->size );
-
-	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
-	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexShaderStageCreateInfo.module = vertexShaderModule;
-	vertexShaderStageCreateInfo.pName = "main";
-
-	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
-	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentShaderStageCreateInfo.module = fragmentShaderModule;
-	fragmentShaderStageCreateInfo.pName = "main";
-
-	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
-
-	// TODO: Like I said before, vertex description shouldn't go here
-	VkVertexInputBindingDescription bindingDescription = {};
-	bindingDescription.binding = 0;
-	bindingDescription.stride = sizeof(Vertex);
-	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	VkVertexInputAttributeDescription attributeDescriptions[3] = {};
-	attributeDescriptions[0].binding = 0;
-	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[0].offset = offsetof(Vertex, pos);
-	attributeDescriptions[1].binding = 0;
-	attributeDescriptions[1].location = 1;
-	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[1].offset = offsetof(Vertex, normal);
-	attributeDescriptions[2].binding = 0;
-	attributeDescriptions[2].location = 2;
-	attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-	attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
-	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputCreateInfo.vertexBindingDescriptionCount = 1;
-	vertexInputCreateInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
-	vertexInputCreateInfo.vertexAttributeDescriptionCount = ARRAY_COUNT(attributeDescriptions);
-	vertexInputCreateInfo.pVertexAttributeDescriptions = attributeDescriptions; // Optional
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
-	inputAssemblyCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssemblyCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-	inputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
-
-	VkDynamicState dynamicStates[] = {
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_SCISSOR
-	};
-	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {};
-	dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicStateCreateInfo.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-	dynamicStateCreateInfo.pDynamicStates = dynamicStates;
-
-	VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {};
-	viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportStateCreateInfo.viewportCount = 1;
-	viewportStateCreateInfo.scissorCount = 1;
-	// NOTE: We don't set values for the viewport and scissor
-	// rect because they will be set dynamically using commands
-
-	VkPipelineRasterizationStateCreateInfo rasterizerCreateInfo = {};
-	rasterizerCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizerCreateInfo.depthClampEnable = VK_FALSE;
-	rasterizerCreateInfo.rasterizerDiscardEnable = VK_FALSE;
-	rasterizerCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizerCreateInfo.lineWidth = 1.0f;
-	//rasterizerCreateInfo.cullMode = VK_CULL_MODE_NONE;
-	rasterizerCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizerCreateInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterizerCreateInfo.depthBiasEnable = VK_FALSE;
-	rasterizerCreateInfo.depthBiasConstantFactor = 0.0f; // Optional
-	rasterizerCreateInfo.depthBiasClamp = 0.0f; // Optional
-	rasterizerCreateInfo.depthBiasSlopeFactor = 0.0f; // Optional
-
-	VkPipelineMultisampleStateCreateInfo multisamplingCreateInfo = {};
-	multisamplingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisamplingCreateInfo.sampleShadingEnable = VK_FALSE;
-	multisamplingCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-	multisamplingCreateInfo.minSampleShading = 1.0f; // Optional
-	multisamplingCreateInfo.pSampleMask = nullptr; // Optional
-	multisamplingCreateInfo.alphaToCoverageEnable = VK_FALSE; // Optional
-	multisamplingCreateInfo.alphaToOneEnable = VK_FALSE; // Optional
-
-	VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo = {};
-	depthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencilCreateInfo.depthTestEnable = VK_TRUE;
-	depthStencilCreateInfo.depthWriteEnable = VK_TRUE;
-	depthStencilCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
-	depthStencilCreateInfo.depthBoundsTestEnable = VK_FALSE;
-	depthStencilCreateInfo.minDepthBounds = 0.0f;
-	depthStencilCreateInfo.maxDepthBounds = 1.0f;
-	depthStencilCreateInfo.stencilTestEnable = VK_FALSE;
-	depthStencilCreateInfo.front = {}; // Optional
-	depthStencilCreateInfo.back = {}; // Optional
-
-	VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {};
-	colorBlendAttachmentState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	// Color replace
-	colorBlendAttachmentState.blendEnable = VK_FALSE;
-	colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
-	colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-	colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD; // Optional
-	colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
-	colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
-	colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
-	// Alpha blending
-	//colorBlendAttachmentState.blendEnable = VK_TRUE;
-	//colorBlendAttachmentState.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-	//colorBlendAttachmentState.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	//colorBlendAttachmentState.colorBlendOp = VK_BLEND_OP_ADD;
-	//colorBlendAttachmentState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-	//colorBlendAttachmentState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-	//colorBlendAttachmentState.alphaBlendOp = VK_BLEND_OP_ADD;
-
-	VkPipelineColorBlendStateCreateInfo colorBlendingCreateInfo = {};
-	colorBlendingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlendingCreateInfo.logicOpEnable = VK_FALSE;
-	colorBlendingCreateInfo.logicOp = VK_LOGIC_OP_COPY; // Optional
-	colorBlendingCreateInfo.attachmentCount = 1;
-	colorBlendingCreateInfo.pAttachments = &colorBlendAttachmentState;
-	colorBlendingCreateInfo.blendConstants[0] = 0.0f; // Optional
-	colorBlendingCreateInfo.blendConstants[1] = 0.0f; // Optional
-	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
-	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
-
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
-	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.setLayoutCount = 1;
-	pipelineLayoutCreateInfo.pSetLayouts = &gd.descriptorSetLayout;
-	pipelineLayoutCreateInfo.pushConstantRangeCount = 0; // Optional
-	pipelineLayoutCreateInfo.pPushConstantRanges = nullptr; // Optional
-
-	VK_CHECK_RESULT( vkCreatePipelineLayout(gd.device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &gd.pipelineLayout) );
-
-	VkGraphicsPipelineCreateInfo graphicsPipelineCreateInfo = {};
-	graphicsPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	graphicsPipelineCreateInfo.stageCount = ARRAY_COUNT(shaderStages);
-	graphicsPipelineCreateInfo.pStages = shaderStages;
-	graphicsPipelineCreateInfo.pVertexInputState = &vertexInputCreateInfo;
-	graphicsPipelineCreateInfo.pInputAssemblyState = &inputAssemblyCreateInfo;
-	graphicsPipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
-	graphicsPipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
-	graphicsPipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
-	graphicsPipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
-	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
-	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
-	graphicsPipelineCreateInfo.layout = gd.pipelineLayout;
-	graphicsPipelineCreateInfo.renderPass = gd.renderPass;
-	graphicsPipelineCreateInfo.subpass = 0;
-	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
-	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
-
-	VK_CHECK_RESULT( vkCreateGraphicsPipelines( gd.device, gd.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &gd.graphicsPipeline ) );
-
-	vkDestroyShaderModule(gd.device, vertexShaderModule, VULKAN_ALLOCATORS);
-	vkDestroyShaderModule(gd.device, fragmentShaderModule, VULKAN_ALLOCATORS);
+	gd.pipeline = CreatePipeline(gd, scratch);
 
 
 	// Command pool
@@ -1678,9 +1697,9 @@ void CleanupGraphics(GfxDevice &gfxDevice)
 		vkDestroyFence( gfxDevice.device, gfxDevice.inFlightFences[i], VULKAN_ALLOCATORS );
 	}
 
-	vkDestroyPipeline( gfxDevice.device, gfxDevice.graphicsPipeline, VULKAN_ALLOCATORS );
+	vkDestroyPipeline( gfxDevice.device, gfxDevice.pipeline.handle, VULKAN_ALLOCATORS );
 
-	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipelineLayout, VULKAN_ALLOCATORS );
+	vkDestroyPipelineLayout( gfxDevice.device, gfxDevice.pipeline.layout, VULKAN_ALLOCATORS );
 
 	vkDestroyDescriptorSetLayout( gfxDevice.device, gfxDevice.descriptorSetLayout, VULKAN_ALLOCATORS );
 
@@ -1802,7 +1821,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 
 	vkCmdBeginRenderPass( commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 
-	vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.graphicsPipeline );
+	vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.pipeline.handle );
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
@@ -1824,7 +1843,7 @@ bool RenderGraphics(GfxDevice &gfxDevice, Window &window, f32 deltaSeconds)
 
 	vkCmdBindIndexBuffer(commandBuffer, gfxDevice.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.pipelineLayout, 0, 1, &gfxDevice.descriptorSets[frameIndex], 0, NULL);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfxDevice.pipeline.layout, 0, 1, &gfxDevice.descriptorSets[frameIndex], 0, NULL);
 
 	//vkCmdDraw(commandBuffer, ARRAY_COUNT(cubeVertices), 1, 0, 0);
 	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(cubeIndices), 1, 0, 0, 0);
