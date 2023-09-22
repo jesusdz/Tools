@@ -2016,8 +2016,8 @@ int main(int argc, char **argv)
 		float2 angles = gfxDevice.camera.orientation;
 		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT))
 		{
-			const f32 deltaYaw = - window.mouse.dx * ToRadians * 0.5f;
-			const f32 deltaPitch = - window.mouse.dy * ToRadians * 0.5f;
+			const f32 deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
+			const f32 deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
 			angles.x = angles.x + deltaYaw;
 			angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
 		}
@@ -2029,27 +2029,24 @@ int main(int argc, char **argv)
 		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
 		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
 		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
-		dir = Length2(dir) > 0.0f ? Normalize(dir) : dir;
+		dir = NormalizeIfNotZero(dir);
 
 		// Accelerated translation
-		static constexpr f32 MAX_SPEED = 50.0f;
-		static constexpr f32 accel = 20.0f;
-		static constexpr f32 decel = 50.0f;
+		static constexpr f32 MAX_SPEED = 100.0f;
+		static constexpr f32 ACCELERATION = 50.0f;
 		static float3 speed = { 0, 0, 0 };
-		const float3 acceleratedSpeed = Add(speed, Mul(dir, accel*deltaSeconds));
-		const float3 cappedSpeed = Length(acceleratedSpeed) > MAX_SPEED ?
-			Mul( Normalize(acceleratedSpeed), MAX_SPEED) :
-			acceleratedSpeed;
-		const float3 deceleratedSpeed =
-			Length2(cappedSpeed) > 0.0f ?
-			Add(cappedSpeed, Mul(Normalize(cappedSpeed), -decel*deltaSeconds)) :
-			cappedSpeed;
-		const float3 finalSpeed = Length2(dir) > 0.0f ? cappedSpeed : deceleratedSpeed;
-		const float3 translation = Add( Mul(speed, deltaSeconds), Mul(finalSpeed, 0.5f * deltaSeconds) );
-		speed = finalSpeed;
+		const float3 speed0 = speed;
 
-		// Apply translation
+		// Apply acceleration, then limit speed
+		speed = Add(speed, Mul(dir, ACCELERATION * deltaSeconds));
+		speed = Length(speed) > MAX_SPEED ?  Mul( Normalize(speed), MAX_SPEED) : speed;
+
+		// Based on speed, translate camera position
+		const float3 translation = Add( Mul(speed0, deltaSeconds), Mul(speed, 0.5f * deltaSeconds) );
 		gfxDevice.camera.position = Add(gfxDevice.camera.position, translation);
+
+		// Apply deceleration
+		speed = Mul(speed, 0.9);
 #endif
 
 #if USE_IMGUI

@@ -656,6 +656,12 @@ float3 Add(const float3 &a, const float3 &b)
 	return res;
 }
 
+float3 Sub(const float3 &a, const float3 &b)
+{
+	const float3 res = { a.x - b.x, a.y - b.y, a.z - b.z };
+	return res;
+}
+
 float3 Mul(const float3 &a, f32 b)
 {
 	const float3 res = { a.x * b, a.y * b, a.z * b };
@@ -692,10 +698,21 @@ f32 Length(const float3 &v)
 	return res;
 }
 
+bool IsZero(const float3 &v)
+{
+	return Length2(v) == 0.0f;
+}
+
 float3 Normalize(const float3 &v)
 {
 	const f32 invLen = 1.0f / Length(v);
 	const float3 res = {v.x * invLen, v.y * invLen, v.z * invLen};
+	return res;
+}
+
+float3 NormalizeIfNotZero(const float3 &v)
+{
+	const float3 res = Length2(v) > 0.0f ? Normalize(v) : v;
 	return res;
 }
 
