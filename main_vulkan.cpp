@@ -50,6 +50,8 @@
 #define MAX_SWAPCHAIN_IMAGE_COUNT 3
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
+#define MAX_ENTITIES 12
+#define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
 
 
 struct Pipeline
@@ -62,6 +64,7 @@ struct Buffer
 {
 	VkBuffer buffer;
 	VkDeviceMemory memory;
+	u32 size;
 };
 
 struct Image
@@ -111,6 +114,15 @@ struct Camera
 	float2 orientation; // yaw and pitch
 };
 
+struct Entity
+{
+	float3 position;
+	bool visible;
+	u32 transformsOffset;
+	Buffer *vertexBuffer;
+	Buffer *indexBuffer;
+};
+
 struct Graphics
 {
 	VkInstance instance;
@@ -144,12 +156,12 @@ struct Graphics
 	VkDescriptorSetLayout descriptorSetLayout;
 	Pipeline pipeline;
 
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
-	VkBuffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
-	VkDeviceMemory uniformBuffersMemory[MAX_FRAMES_IN_FLIGHT];
+	Buffer cubeVertices;
+	Buffer cubeIndices;
+	Buffer planeVertices;
+	Buffer planeIndices;
+
+	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 	void *uniformBuffersMapped[MAX_FRAMES_IN_FLIGHT];
 
 	Image textureImage;
@@ -161,7 +173,7 @@ struct Graphics
 	VkDescriptorPool imGuiDescriptorPool;
 #endif
 
-	VkDescriptorSet descriptorSets[MAX_FRAMES_IN_FLIGHT];
+	VkDescriptorSet descriptorSets[MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES];
 
 	struct
 	{
@@ -215,6 +227,20 @@ static const u16 cubeIndices[] = {
 	16, 17, 18, 18, 19, 16, // top
 	20, 21, 22, 22, 23, 20, // bottom
 };
+
+static const Vertex planeVertices[] = {
+	{{-0.5f, 0.0f,  0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+	{{ 0.5f, 0.0f,  0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+	{{ 0.5f, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+	{{-0.5f, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+};
+
+static const u16 planeIndices[] = {
+	0, 1, 2, 2, 3, 0,
+};
+
+static Entity entities[MAX_ENTITIES] = {};
+
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
@@ -315,7 +341,8 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 
 	Buffer gfxBuffer = {
 		buffer,
-		memory
+		memory,
+		size
 	};
 	return gfxBuffer;
 }
@@ -1511,28 +1538,22 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	gfx.pipeline = CreatePipeline(gfx, scratch);
 
 
-	// Create a vertex buffer
-	Buffer vertexBuffer = CreateVertexBuffer(gfx, cubeVertices, sizeof(cubeVertices));
-	gfx.vertexBuffer = vertexBuffer.buffer;
-	gfx.vertexBufferMemory = vertexBuffer.memory;
-
-	// Create a index buffer
-	Buffer indexBuffer = CreateIndexBuffer(gfx, cubeIndices, sizeof(cubeIndices));
-	gfx.indexBuffer = indexBuffer.buffer;
-	gfx.indexBufferMemory = indexBuffer.memory;
+	// Create vertex/index buffers
+	gfx.cubeVertices = CreateVertexBuffer(gfx, cubeVertices, sizeof(cubeVertices));
+	gfx.cubeIndices = CreateIndexBuffer(gfx, cubeIndices, sizeof(cubeIndices));
+	gfx.planeVertices = CreateVertexBuffer(gfx, planeVertices, sizeof(planeVertices));
+	gfx.planeIndices = CreateIndexBuffer(gfx, planeIndices, sizeof(cubeIndices));
 
 	// Create uniform buffers
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
-		Buffer uniformBuffer = CreateBuffer(
+		gfx.uniformBuffers[i] = CreateBuffer(
 			gfx,
-			sizeof(VertexTransforms),
+			sizeof(VertexTransforms) * ARRAY_COUNT(entities),
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
-		gfx.uniformBuffers[i] = uniformBuffer.buffer;
-		gfx.uniformBuffersMemory[i] = uniformBuffer.memory;
 
-		vkMapMemory(gfx.device, gfx.uniformBuffersMemory[i], 0, sizeof(VertexTransforms), 0, &gfx.uniformBuffersMapped[i]);
+		vkMapMemory(gfx.device, gfx.uniformBuffers[i].memory, 0, sizeof(VertexTransforms), 0, &gfx.uniformBuffersMapped[i]);
 	}
 
 
@@ -1545,15 +1566,15 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	// Create Descriptor Pool
 	{
 		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT) },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT) }
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
 		};
 		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
 		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
+		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES);
 		VK_CHECK_RESULT( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.descriptorPool ) );
 	}
 
@@ -1577,57 +1598,56 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 #endif
 
 
-	// DescriptorSets
-	VkDescriptorSetLayout descriptorSetLayouts[MAX_FRAMES_IN_FLIGHT] = {};
-	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) descriptorSetLayouts[i] = gfx.descriptorSetLayout;
+	// DescriptorSets for entities
+	VkDescriptorSetLayout descriptorSetLayouts[MAX_DESCRIPTOR_SETS] = {};
+	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) descriptorSetLayouts[i] = gfx.descriptorSetLayout;
 	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	descriptorSetAllocateInfo.descriptorPool = gfx.descriptorPool;
-	descriptorSetAllocateInfo.descriptorSetCount = static_cast<u32>(MAX_FRAMES_IN_FLIGHT);
+	descriptorSetAllocateInfo.descriptorSetCount = ARRAY_COUNT(descriptorSetLayouts);
 	descriptorSetAllocateInfo.pSetLayouts = descriptorSetLayouts;
 	VK_CHECK_RESULT( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.descriptorSets) );
-
-	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-	{
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = gfx.uniformBuffers[i];
-		bufferInfo.offset = 0;
-		bufferInfo.range = sizeof(VertexTransforms);
-
-		VkDescriptorImageInfo imageInfo = {};
-		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = gfx.textureImageView;
-		imageInfo.sampler = gfx.textureSampler;
-
-		VkWriteDescriptorSet descriptorWrites[2] = {};
-
-		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = gfx.descriptorSets[i];
-		descriptorWrites[0].dstBinding = 0;
-		descriptorWrites[0].dstArrayElement = 0;
-		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrites[0].descriptorCount = 1;
-		descriptorWrites[0].pBufferInfo = &bufferInfo;
-		descriptorWrites[0].pImageInfo = NULL;
-		descriptorWrites[0].pTexelBufferView = NULL;
-
-		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = gfx.descriptorSets[i];
-		descriptorWrites[1].dstBinding = 1;
-		descriptorWrites[1].dstArrayElement = 0;
-		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descriptorWrites[1].descriptorCount = 1;
-		descriptorWrites[1].pBufferInfo = NULL;
-		descriptorWrites[1].pImageInfo = &imageInfo;
-		descriptorWrites[1].pTexelBufferView = NULL;
-
-		vkUpdateDescriptorSets(gfx.device, ARRAY_COUNT(descriptorWrites), descriptorWrites, 0, NULL);
-	}
 
 
 	// Camera
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45};
+
+
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
+	const u32 uniformBufferOffsetAlignment = properties.limits.minUniformBufferOffsetAlignment;
+
+	// Entities
+	u32 entityIndex = 0;
+
+	entities[entityIndex].visible = true;
+	entities[entityIndex].position = { -1, 0, -1 };
+	entities[entityIndex].transformsOffset = AlignUp(sizeof(VertexTransforms), uniformBufferOffsetAlignment) * entityIndex;
+	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
+	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
+	entityIndex++;
+
+	entities[entityIndex].visible = true;
+	entities[entityIndex].position = {  1, 0, -1 };
+	entities[entityIndex].transformsOffset = AlignUp(sizeof(VertexTransforms), uniformBufferOffsetAlignment) * entityIndex;
+	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
+	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
+	entityIndex++;
+
+	entities[entityIndex].visible = true;
+	entities[entityIndex].position = {  1, 0,  1 };
+	entities[entityIndex].transformsOffset = AlignUp(sizeof(VertexTransforms), uniformBufferOffsetAlignment) * entityIndex;
+	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
+	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
+	entityIndex++;
+
+	entities[entityIndex].visible = true;
+	entities[entityIndex].position = { -1, 0,  1 };
+	entities[entityIndex].transformsOffset = AlignUp(sizeof(VertexTransforms), uniformBufferOffsetAlignment) * entityIndex;
+	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
+	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
+	entityIndex++;
 
 	// Copy the temporary device into the output parameter
 	outGfx = gfx;
@@ -1676,15 +1696,19 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyImage( gfx.device, gfx.textureImage.image, VULKAN_ALLOCATORS );
 	vkFreeMemory( gfx.device, gfx.textureImage.memory, VULKAN_ALLOCATORS );
 
-	vkDestroyBuffer( gfx.device, gfx.indexBuffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.indexBufferMemory, VULKAN_ALLOCATORS );
-	vkDestroyBuffer( gfx.device, gfx.vertexBuffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.vertexBufferMemory, VULKAN_ALLOCATORS );
+	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfx.device, gfx.cubeIndices.memory, VULKAN_ALLOCATORS );
+	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfx.device, gfx.cubeVertices.memory, VULKAN_ALLOCATORS );
+	vkDestroyBuffer( gfx.device, gfx.planeIndices.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfx.device, gfx.planeIndices.memory, VULKAN_ALLOCATORS );
+	vkDestroyBuffer( gfx.device, gfx.planeVertices.buffer, VULKAN_ALLOCATORS );
+	vkFreeMemory( gfx.device, gfx.planeVertices.memory, VULKAN_ALLOCATORS );
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i], NULL);
-		vkFreeMemory(gfx.device, gfx.uniformBuffersMemory[i], NULL);
+		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, NULL);
+		vkFreeMemory(gfx.device, gfx.uniformBuffers[i].memory, NULL);
 	}
 
 	vkDestroyPipeline( gfx.device, gfx.pipeline.handle, VULKAN_ALLOCATORS );
@@ -1746,7 +1770,7 @@ float4x4 ViewMatrixFromCamera(const Camera &camera)
 	return res;
 }
 
-bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
+bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfx.currentFrame;
@@ -1777,13 +1801,85 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 	const f32 ar = static_cast<f32>(window.width) / static_cast<f32>(window.height);
 	const float orthox = ar > 1.0f ? ar : 1.0f;
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
-	VertexTransforms vertexTransforms;
-	vertexTransforms.model = Rotate({0, 1, 0}, angle);
-	//vertexTransforms.view = LookAt({0, 0, 0}, {0, 1, 2}, {0, 1, 0});
-	vertexTransforms.view = ViewMatrixFromCamera(gfx.camera);
-	//vertexTransforms.proj = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
-	vertexTransforms.proj = Perspective(60.0f, ar, 0.1f, 1000.0f);
-	MemCopy(gfx.uniformBuffersMapped[frameIndex], &vertexTransforms, sizeof(vertexTransforms) );
+	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
+	//const float4x4 = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
+	const float4x4 projectionMatrix = Perspective(60.0f, ar, 0.1f, 1000.0f);
+
+	for (u32 i = 0; i < ARRAY_COUNT(entities); ++i)
+	{
+		const Entity &entity = entities[i];
+
+		if ( entity.visible )
+		{
+			VertexTransforms vertexTransforms;
+			vertexTransforms.model = Translate(entity.position); // TODO: Apply also rotation and scale
+			vertexTransforms.view = viewMatrix;
+			vertexTransforms.proj = projectionMatrix;
+
+			void *ptr = (u8*)gfx.uniformBuffersMapped[frameIndex] + entity.transformsOffset;
+			MemCopy( ptr, &vertexTransforms, sizeof(vertexTransforms) );
+		}
+	}
+
+
+	// Update descriptor sets
+	// TODO: Maybe these descriptor sets should be configured per material?
+	// Then use dynamic offsets in the draw calls to configure transforms...
+	u32 descriptorWriteCount = 0;
+	for (u32 i = 0; i < MAX_ENTITIES; ++i)
+	{
+		descriptorWriteCount += entities[i].visible ? 2 : 0;
+	}
+
+	VkWriteDescriptorSet *descriptorWrites = PushArray(frameArena, VkWriteDescriptorSet, descriptorWriteCount);
+	descriptorWriteCount = 0;
+
+	for (u32 entityIndex = 0; entityIndex < MAX_ENTITIES; ++entityIndex)
+	{
+		const Entity &entity = entities[entityIndex];
+
+		if ( entity.visible )
+		{
+			const u32 descriptorSetIndex = frameIndex * MAX_ENTITIES + entityIndex;
+
+			VkDescriptorBufferInfo *bufferInfo = PushStruct(frameArena, VkDescriptorBufferInfo);
+			bufferInfo->buffer = gfx.uniformBuffers[frameIndex].buffer;
+			bufferInfo->offset = entity.transformsOffset;
+			bufferInfo->range = sizeof(VertexTransforms);
+
+			VkDescriptorImageInfo *imageInfo = PushStruct(frameArena, VkDescriptorImageInfo);
+			imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageInfo->imageView = gfx.textureImageView;
+			imageInfo->sampler = gfx.textureSampler;
+
+			const u32 i0 = descriptorWriteCount++;
+			descriptorWrites[i0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[i0].dstSet = gfx.descriptorSets[descriptorSetIndex];
+			descriptorWrites[i0].dstBinding = 0;
+			descriptorWrites[i0].dstArrayElement = 0;
+			descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[i0].descriptorCount = 1;
+			descriptorWrites[i0].pBufferInfo = bufferInfo;
+			descriptorWrites[i0].pImageInfo = NULL;
+			descriptorWrites[i0].pTexelBufferView = NULL;
+
+			const u32 i1 = descriptorWriteCount++;
+			descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[i1].dstSet = gfx.descriptorSets[descriptorSetIndex];
+			descriptorWrites[i1].dstBinding = 1;
+			descriptorWrites[i1].dstArrayElement = 0;
+			descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			descriptorWrites[i1].descriptorCount = 1;
+			descriptorWrites[i1].pBufferInfo = NULL;
+			descriptorWrites[i1].pImageInfo = imageInfo;
+			descriptorWrites[i1].pTexelBufferView = NULL;
+		}
+	}
+
+	if ( descriptorWriteCount > 0 )
+	{
+		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
+	}
 
 
 	// Record commands
@@ -1829,16 +1925,30 @@ bool RenderGraphics(Graphics &gfx, Window &window, f32 deltaSeconds)
 	scissor.extent = gfx.swapchain.extent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	VkBuffer vertexBuffers[] = { gfx.vertexBuffer };
-	VkDeviceSize offsets[] = { 0 };
-	vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
+	for (u32 entityIndex = 0; entityIndex < MAX_ENTITIES; ++entityIndex)
+	{
+		const Entity &entity = entities[entityIndex];
 
-	vkCmdBindIndexBuffer(commandBuffer, gfx.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+		if ( !entity.visible ) continue;
 
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, 1, &gfx.descriptorSets[frameIndex], 0, NULL);
+		Buffer *vertexBuffer = entity.vertexBuffer;
+		Buffer *indexBuffer = entity.indexBuffer;
 
-	//vkCmdDraw(commandBuffer, ARRAY_COUNT(cubeVertices), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(cubeIndices), 1, 0, 0, 0);
+		//VkBuffer vertexBuffers[] = { gfx.planeVertices.buffer };
+		VkBuffer vertexBuffers[] = { vertexBuffer->buffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
+
+		//vkCmdBindIndexBuffer(commandBuffer, gfx.cubeIndices.buffer, 0, VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(commandBuffer, indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
+
+		const u32 descriptorSetIndex = frameIndex * MAX_ENTITIES + entityIndex;
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, 1, &gfx.descriptorSets[descriptorSetIndex], 0, NULL);
+
+		////vkCmdDraw(commandBuffer, ARRAY_COUNT(planeVertices), 1, 0, 0);
+		//vkCmdDrawIndexed(commandBuffer, ARRAY_COUNT(planeIndices), 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, indexBuffer->size/2, 1, 0, 0, 0);
+	}
 
 #if USE_IMGUI
 	// Record dear imgui primitives into command buffer
@@ -1936,6 +2046,11 @@ int main(int argc, char **argv)
 	u32 baseMemorySize = MB(64);
 	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
 	Arena arena = MakeArena(baseMemory, baseMemorySize);
+
+	// Frame allocator
+	u32 frameMemorySize = MB(16);
+	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
+	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
 
 	// Initialize graphics
 	Graphics gfx = {};
@@ -2108,7 +2223,8 @@ int main(int argc, char **argv)
 			break;
 		}
 
-		RenderGraphics(gfx, window, deltaSeconds);
+		RenderGraphics(gfx, window, frameArena, deltaSeconds);
+		ResetArena(frameArena);
 	}
 
 	WaitDeviceIdle(gfx);
