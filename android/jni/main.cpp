@@ -42,6 +42,7 @@ struct Engine {
     EGLContext context;
 #elif USE_VULKAN
 	Arena arena;
+	Arena frameArena;
 	Window window;
 	Graphics gfx;
 	bool initialized;
@@ -188,7 +189,7 @@ static void engine_draw_frame(Engine* engine)
 
 #elif USE_VULKAN
 
-	RenderGraphics(engine->gfx, engine->window, engine->state.deltaSeconds);
+	RenderGraphics(engine->gfx, engine->window, engine->frameArena, engine->state.deltaSeconds);
 
 #endif
 }
@@ -299,6 +300,11 @@ void android_main(struct android_app* app) {
 	u32 baseMemorySize = MB(64);
 	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
 	engine.arena = MakeArena(baseMemory, baseMemorySize);
+
+	// Frame allocator
+	u32 frameMemorySize = MB(16);
+	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
+	engine.frameArena = MakeArena(frameMemory, frameMemorySize);
 #endif
 
     app->userData = &engine;
