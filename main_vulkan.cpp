@@ -417,12 +417,12 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 
 	FilePath vertexShaderPath = MakePath("shaders/vertex.spv");
 	FilePath fragmentShaderPath = MakePath("shaders/fragment.spv");
-	FileOnMemory *vertexFile = PushFile( scratch, vertexShaderPath.str );
+	DataChunk *vertexFile = PushFile( scratch, vertexShaderPath.str );
 	if ( !vertexFile ) {
 		LOG( Error, "Could not open shader file %s.\n", vertexShaderPath.str );
 		QUIT_ABNORMALLY();
 	}
-	FileOnMemory *fragmentFile = PushFile( scratch, fragmentShaderPath.str );
+	DataChunk *fragmentFile = PushFile( scratch, fragmentShaderPath.str );
 	if ( !fragmentFile ) {
 		LOG( Error, "Could not open shader file %s.\n", fragmentShaderPath.str );
 		QUIT_ABNORMALLY();

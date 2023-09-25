@@ -421,7 +421,7 @@ void PrintArenaUsage(Arena &arena)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Files
 
-struct FileOnMemory
+struct DataChunk
 {
 	byte *data;
 	u64 size;
@@ -505,9 +505,9 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	return ok;
 }
 
-FileOnMemory *PushFile( Arena& arena, const char *filename )
+DataChunk *PushFile( Arena& arena, const char *filename )
 {
-	FileOnMemory *file = 0;
+	DataChunk *file = 0;
 
 	u64 fileSize;
 	if ( GetFileSize( filename, fileSize ) && fileSize > 0 )
@@ -517,7 +517,7 @@ FileOnMemory *PushFile( Arena& arena, const char *filename )
 		if ( ReadEntireFile( filename, fileData, fileSize ) )
 		{
 			fileData[fileSize] = 0; // final zero
-			file = PushStruct( arena, FileOnMemory );
+			file = PushStruct( arena, DataChunk );
 			file->data = fileData;
 			file->size = fileSize;
 		}
@@ -1299,6 +1299,10 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 
 	// TODO: When we detect the mouse leves the window
 	// io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+
+	// Clear mouse/keyboard events if handled by ImGui
+	if ( io.WantCaptureMouse ) window.mouse = {};
+	if ( io.WantCaptureKeyboard ) window.keyboard = {};
 #endif
 }
 
