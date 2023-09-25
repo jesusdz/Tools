@@ -894,6 +894,24 @@ INSTANTIATE_MATH_OPS_FOR_TYPE( u32 )
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Alignment functions
+
+bool IsPowerOfTwo(u32 value)
+{
+	// First value in the below expression is for the case when value is 0
+    return value && (!(value & (value - 1)));
+}
+
+u32 AlignUp(u32 value, u32 alignment)
+{
+	ASSERT( IsPowerOfTwo(alignment) );
+	const u32 alignedValue =  ((value - 1) & ~(alignment - 1)) + alignment;
+	return alignedValue;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Time
 
 struct Clock
