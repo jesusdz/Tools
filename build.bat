@@ -30,7 +30,9 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_vulkan.cpp" (
 
-	set CommonCompilerFlags=%CommonCompilerFlags% -I "C:\Program Files\VulkanSDK\Include"
+	REM set VULKAN_SDK_DIR=C:\Program Files\VulkanSDK
+	set VULKAN_SDK_DIR="D:\CORE-DEV-1\code_source\external\VulkanSDK\1.3.226"
+	set CommonCompilerFlags=%CommonCompilerFlags% -I "%VULKAN_SDK_DIR%\Include"
 	set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 
 ) else if "%target%" == "main_d3d12.cpp" (
@@ -57,7 +59,7 @@ popd
 :: Build shaders
 pushd shaders
 
-del /Q *.spv *.dxil *.pdb
+del /Q *.spv *.dxil *.pdb 2>nul
 
 if "%target%"=="main_vulkan.cpp" (
 	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
