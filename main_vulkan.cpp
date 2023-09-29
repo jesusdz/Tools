@@ -1669,7 +1669,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 
 	// Camera
 	gfx.camera.position = {0, 1, 2};
-	gfx.camera.orientation = {0, -0.45};
+	gfx.camera.orientation = {0, -0.45f};
 
 
 	// Entities
