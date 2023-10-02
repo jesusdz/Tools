@@ -1,5 +1,8 @@
 #include "tools.h"
 
+
+// Types /////////////////////////////////////////////////////////////////////////////////
+
 struct SpirvHeader
 {
 	u32 magic;
@@ -18,29 +21,74 @@ struct SpirvModule
 	bool bigEndian;
 };
 
-int main(int argc, char **argv)
+
+// Endianness ////////////////////////////////////////////////////////////////////////////
+
+union SpirvEndianness
 {
-	u32 memorySize = MB(1);
-	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
-	Arena arena = MakeArena(memory, memorySize);
+	unsigned char values[4];
+	struct {
+		unsigned int value;
+	};
+};
 
-	const char *shaderFile = "spirv/vertex.spv";
-	DataChunk *chunk = PushFile(arena, shaderFile);
-	if (!chunk)
-	{
-		LOG(Error, "Error reading %s\n", shaderFile);
-	}
+static const SpirvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
+static const SpirvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
+static const unsigned int SPIRV_PLATFORM_ENDIANNESS = 0x01020304;
 
-	LOG(Info, "File size: %llu\n\n", chunk->size);
+bool SpirvPlatformIsLittleEndian()
+{
+	return SPIRV_PLATFORM_ENDIANNESS == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value;
+}
 
-	SpirvModule spirv = {};
-	spirv.header = (SpirvHeader*)chunk->data;
+bool SpirvPlatformIsBigEndian()
+{
+	return SPIRV_PLATFORM_ENDIANNESS == SPIRV_ENDIANNESS_BIG_ENDIAN.value;
+}
+
+
+// Parsing ///////////////////////////////////////////////////////////////////////////////
+
+bool SpirvParse(byte *data, u32 size, SpirvModule *spirv)
+{
+	// TODO: Assert data size is multiple of 4-byte
+
+	spirv->header = (SpirvHeader*)data;
 
 	// TODO: Check endiannes based on the magic number
 	//       Check https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
 	// TODO: Make read functions based on endiannes
 	//       Check repo: https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source
 
+	return true;
+}
+
+
+// Main program //////////////////////////////////////////////////////////////////////////
+
+int main(int argc, char **argv)
+{
+	// Create a memory arena
+	u32 memorySize = MB(1);
+	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
+	Arena arena = MakeArena(memory, memorySize);
+
+	// Get shader file memory blob
+	const char *shaderFile = "spirv/vertex.spv";
+	DataChunk *chunk = PushFile(arena, shaderFile);
+	if (!chunk) {
+		LOG(Error, "Error reading %s\n", shaderFile);
+		return -1;
+	}
+
+	// Print platform endianness
+	LOG(Info, "Platform endianness: %s endian\n", SpirvPlatformIsLittleEndian() ? "little" : "big" );
+
+	// Parse spirv bytecode
+	SpirvModule spirv = {};
+	const bool ok = SpirvParse(chunk->data, chunk->size, &spirv);
+
+	// Log some spirv information
 	LOG(Info, "magicNumber: %d\n", spirv.header->magic);
 	LOG(Info, "versionNumberMajor: %d\n", spirv.header->major);
 	LOG(Info, "versionNumberMinor: %d\n", spirv.header->minor);
@@ -48,27 +96,6 @@ int main(int argc, char **argv)
 	LOG(Info, "bound: %d\n", spirv.header->bound);
 	LOG(Info, "schema: %d\n", spirv.header->schema);
 
-#if 0
-	u32 *dataU32 = (u32*)chunk->data;
-	u16 *dataU16 = (u16*)chunk->data;
-	char *dataChar = (char*)chunk->data;
-	for (u32 i = 0; i < 32; ++i)
-	{
-		LOG(Info, "%d ", dataU32[i]);
-	}
-	LOG(Info,"\n");
-	for (u32 i = 0; i < 32; ++i)
-	{
-		LOG(Info, "%d ", dataU16[i]);
-	}
-	LOG(Info,"\n");
-	for (u32 i = 0; i < 32; ++i)
-	{
-		LOG(Info, "%d ", dataChar[i]);
-	}
-	LOG(Info,"\n");
-#endif
 	return 0;
 }
-
 
