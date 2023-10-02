@@ -1,6 +1,9 @@
 #include "tools.h"
 
 
+// NOTE: Check for reference: https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source
+// NOTE: Check for reference: https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
+
 // Endianness ////////////////////////////////////////////////////////////////////////////
 
 union SpirvEndianness
@@ -29,10 +32,7 @@ unsigned int SpirvFixWord(unsigned int word, SpirvEndianness endianness)
 struct SpirvHeader
 {
 	u32 magic;
-	u8 padding0;
-	u8 major;
-	u8 minor;
-	u8 padding1;
+	u32 version;
 	u32 generator;
 	u32 bound;
 	u32 schema;
@@ -51,24 +51,46 @@ bool SpirvParse(byte *data, u32 size, SpirvModule *spirv)
 {
 	// TODO: Assert data size is multiple of 4-byte
 
-	spirv->header = (SpirvHeader*)data;
+	SpirvHeader *header = (SpirvHeader*)data;
 
 	// Check module endianness based on the magic number
-	// NOTE: Check for reference https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
-	if ( spirv->header->magic == SPIRV_MAGIC_LITTLE_ENDIAN.value )
-	{
-		spirv->endianness = SPIRV_ENDIANNESS_LITTLE_ENDIAN;
-	}
-	else
-	{
-		spirv->endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
+	SpirvEndianness endianness;
+	if ( header->magic == SPIRV_MAGIC_LITTLE_ENDIAN.value ) {
+		endianness = SPIRV_ENDIANNESS_LITTLE_ENDIAN;
+	} else {
+		endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
 	}
 
-	// TODO: Make read functions based on endianness
-	//       Check repo: https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source
+	// Fix values for host endianness
+	header->magic = SpirvFixWord( header->magic, endianness );
+	header->version = SpirvFixWord( header->version, endianness );
+	header->generator = SpirvFixWord( header->generator, endianness );
+	header->bound = SpirvFixWord( header->bound, endianness );
+	header->schema = SpirvFixWord( header->schema, endianness );
+
+	// Set output values
+	spirv->header = (SpirvHeader*)data;
+	spirv->endianness = endianness;
 
 	return true;
 }
+
+
+
+// Getters ///////////////////////////////////////////////////////////////////////////////
+
+u8 SpirvVersionMajor(u32 version)
+{
+	const u8 major = ( version & 0x00ff0000 ) >> 16;
+	return major;
+}
+
+u8 SpirvVersionMinor(u32 version)
+{
+	const u8 minor = ( version & 0x0000ff00 ) >> 8;
+	return minor;
+}
+
 
 
 // Main program //////////////////////////////////////////////////////////////////////////
@@ -97,10 +119,10 @@ int main(int argc, char **argv)
 	LOG(Info, "Spirv endianness: %s endian\n", spirv.endianness.value == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big");
 
 	// Log some spirv information
-	LOG(Info, "magicNumber: %x\n", spirv.header->magic);
-	LOG(Info, "versionNumberMajor: %d\n", spirv.header->major);
-	LOG(Info, "versionNumberMinor: %d\n", spirv.header->minor);
-	LOG(Info, "generatorMagicNumber: %d\n", spirv.header->generator);
+	LOG(Info, "magic: %x\n", spirv.header->magic);
+	LOG(Info, "major: %d\n", SpirvVersionMajor(spirv.header->version));
+	LOG(Info, "minor: %d\n", SpirvVersionMinor(spirv.header->version));
+	LOG(Info, "generator: %d\n", spirv.header->generator);
 	LOG(Info, "bound: %d\n", spirv.header->bound);
 	LOG(Info, "schema: %d\n", spirv.header->schema);
 
