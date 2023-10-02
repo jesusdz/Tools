@@ -1,6 +1,29 @@
 #include "tools.h"
 
 
+// Endianness ////////////////////////////////////////////////////////////////////////////
+
+union SpirvEndianness
+{
+	unsigned char values[4];
+	struct {
+		unsigned int value;
+	};
+};
+
+static const SpirvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
+static const SpirvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
+static const SpirvEndianness SPIRV_MAGIC_LITTLE_ENDIAN = { 0x03, 0x02, 0x23, 0x07 }; // Magic number: 0x07230203
+static const unsigned int SPIRV_HOST_ENDIANNESS = 0x01020304;
+
+unsigned int SpirvFixWord(unsigned int word, SpirvEndianness endianness)
+{
+	const unsigned int swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
+	const unsigned int fixedWord = ( endianness.value == SPIRV_HOST_ENDIANNESS ? word : swappedWord );
+	return fixedWord;
+}
+
+
 // Types /////////////////////////////////////////////////////////////////////////////////
 
 struct SpirvHeader
@@ -18,33 +41,8 @@ struct SpirvHeader
 struct SpirvModule
 {
 	SpirvHeader *header;
-	bool bigEndian;
+	SpirvEndianness endianness;
 };
-
-
-// Endianness ////////////////////////////////////////////////////////////////////////////
-
-union SpirvEndianness
-{
-	unsigned char values[4];
-	struct {
-		unsigned int value;
-	};
-};
-
-static const SpirvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
-static const SpirvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
-static const unsigned int SPIRV_PLATFORM_ENDIANNESS = 0x01020304;
-
-bool SpirvPlatformIsLittleEndian()
-{
-	return SPIRV_PLATFORM_ENDIANNESS == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value;
-}
-
-bool SpirvPlatformIsBigEndian()
-{
-	return SPIRV_PLATFORM_ENDIANNESS == SPIRV_ENDIANNESS_BIG_ENDIAN.value;
-}
 
 
 // Parsing ///////////////////////////////////////////////////////////////////////////////
@@ -55,9 +53,18 @@ bool SpirvParse(byte *data, u32 size, SpirvModule *spirv)
 
 	spirv->header = (SpirvHeader*)data;
 
-	// TODO: Check endiannes based on the magic number
-	//       Check https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
-	// TODO: Make read functions based on endiannes
+	// Check module endianness based on the magic number
+	// NOTE: Check for reference https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
+	if ( spirv->header->magic == SPIRV_MAGIC_LITTLE_ENDIAN.value )
+	{
+		spirv->endianness = SPIRV_ENDIANNESS_LITTLE_ENDIAN;
+	}
+	else
+	{
+		spirv->endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
+	}
+
+	// TODO: Make read functions based on endianness
 	//       Check repo: https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source
 
 	return true;
@@ -81,15 +88,16 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	// Print platform endianness
-	LOG(Info, "Platform endianness: %s endian\n", SpirvPlatformIsLittleEndian() ? "little" : "big" );
-
 	// Parse spirv bytecode
 	SpirvModule spirv = {};
 	const bool ok = SpirvParse(chunk->data, chunk->size, &spirv);
 
+	// Print platform endianness
+	LOG(Info, "Host endianness: %s endian\n", SPIRV_HOST_ENDIANNESS == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big" );
+	LOG(Info, "Spirv endianness: %s endian\n", spirv.endianness.value == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big");
+
 	// Log some spirv information
-	LOG(Info, "magicNumber: %d\n", spirv.header->magic);
+	LOG(Info, "magicNumber: %x\n", spirv.header->magic);
 	LOG(Info, "versionNumberMajor: %d\n", spirv.header->major);
 	LOG(Info, "versionNumberMinor: %d\n", spirv.header->minor);
 	LOG(Info, "generatorMagicNumber: %d\n", spirv.header->generator);
