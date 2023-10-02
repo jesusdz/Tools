@@ -45,6 +45,11 @@ if "%target%" == "main_interpreter.cpp" (
 	set CommonCompilerFlags=%CommonCompilerFlags%
 	set CommonLinkerFlags=%CommonLinkerFlags%
 
+) else if "%target%" == "main_spirv.cpp" (
+
+	set CommonCompilerFlags=%CommonCompilerFlags%
+	set CommonLinkerFlags=%CommonLinkerFlags%
+
 ) else (
 
 	echo Invalid target: %target%
@@ -59,7 +64,7 @@ popd
 :: Build shaders
 pushd shaders
 
-del /Q *.spv *.dxil *.pdb 2>nul
+del /Q *.spv *.dxil *.pdb *.cso 2>nul
 
 if "%target%"=="main_vulkan.cpp" (
 	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv

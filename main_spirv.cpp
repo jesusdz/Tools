@@ -37,7 +37,9 @@ int main(int argc, char **argv)
 	spirv.header = (SpirvHeader*)chunk->data;
 
 	// TODO: Check endiannes based on the magic number
+	//       Check https://github.com/KhronosGroup/SPIRV-Tools/blob/main/source/spirv_endian.cpp
 	// TODO: Make read functions based on endiannes
+	//       Check repo: https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source
 
 	LOG(Info, "magicNumber: %d\n", spirv.header->magic);
 	LOG(Info, "versionNumberMajor: %d\n", spirv.header->major);
