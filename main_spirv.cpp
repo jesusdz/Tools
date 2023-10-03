@@ -29,6 +29,11 @@ unsigned int SpirvFixWord(unsigned int word, SpirvEndianness endianness)
 
 // Types /////////////////////////////////////////////////////////////////////////////////
 
+#define SPV_INDEX_INSTRUCTION 5u
+
+
+// Types /////////////////////////////////////////////////////////////////////////////////
+
 struct SpirvHeader
 {
 	u32 magic;
@@ -44,14 +49,44 @@ struct SpirvModule
 	SpirvEndianness endianness;
 };
 
+struct SpirvParser
+{
+	u32 *words;
+	u32 wordCount;
+	u32 wordIndex;
+};
+
 
 // Parsing ///////////////////////////////////////////////////////////////////////////////
 
-bool SpirvParse(byte *data, u32 size, SpirvModule *spirv)
+bool SpirvParserFinished(SpirvParser *parser)
 {
-	// TODO: Assert data size is multiple of 4-byte
+	return parser->wordIndex >= parser->wordCount;
+}
 
-	SpirvHeader *header = (SpirvHeader*)data;
+bool SpirvParseInstruction(SpirvParser *parser, SpirvModule *spirv)
+{
+	SpirvEndianness endianness = spirv->endianness;
+
+	const u32 instructionOffset = parser->wordIndex;
+	u32 instructionWordCount = 0;
+
+	u32 opCode = parser->words[instructionOffset + 0];
+	instructionWordCount++;
+
+	switch (opCode)
+	{
+		default:
+			return false;
+	};
+
+	parser->wordIndex += instructionWordCount;
+	return true;
+}
+
+bool SpirvParse(SpirvParser *parser, SpirvModule *spirv)
+{
+	SpirvHeader *header = (SpirvHeader*)parser->words;
 
 	// Check module endianness based on the magic number
 	SpirvEndianness endianness;
@@ -61,16 +96,24 @@ bool SpirvParse(byte *data, u32 size, SpirvModule *spirv)
 		endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
 	}
 
-	// Fix values for host endianness
-	header->magic = SpirvFixWord( header->magic, endianness );
-	header->version = SpirvFixWord( header->version, endianness );
-	header->generator = SpirvFixWord( header->generator, endianness );
-	header->bound = SpirvFixWord( header->bound, endianness );
-	header->schema = SpirvFixWord( header->schema, endianness );
+	// Fix endianness
+	for (u32 i = 0; i < parser->wordCount; ++i) {
+		parser->words[i] = SpirvFixWord( parser->words[i], endianness );
+	}
 
 	// Set output values
-	spirv->header = (SpirvHeader*)data;
+	spirv->header = header;
 	spirv->endianness = endianness;
+
+	parser->wordIndex = SPV_INDEX_INSTRUCTION;
+
+	while ( !SpirvParserFinished(parser) )
+	{
+		if ( !SpirvParseInstruction(parser, spirv) )
+		{
+			return false;
+		}
+	}
 
 	return true;
 }
@@ -111,20 +154,29 @@ int main(int argc, char **argv)
 	}
 
 	// Parse spirv bytecode
+	u32 *words = (u32*)chunk->data;
+	const u32 wordCount = chunk->size / 4;
+	ASSERT( chunk->size % 4 == 0 );
+	SpirvParser spirvParser = { words, wordCount };
 	SpirvModule spirv = {};
-	const bool ok = SpirvParse(chunk->data, chunk->size, &spirv);
+	const bool ok = SpirvParse(&spirvParser, &spirv);
 
-	// Print platform endianness
-	LOG(Info, "Host endianness: %s endian\n", SPIRV_HOST_ENDIANNESS == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big" );
-	LOG(Info, "Spirv endianness: %s endian\n", spirv.endianness.value == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big");
+	// Print endianness information
+	LOG(Info, "Endianness\n");
+	LOG(Info, "- Host endianness: %s endian\n", SPIRV_HOST_ENDIANNESS == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big" );
+	LOG(Info, "- Spirv endianness: %s endian\n", spirv.endianness.value == SPIRV_ENDIANNESS_LITTLE_ENDIAN.value ? "little" : "big");
 
-	// Log some spirv information
-	LOG(Info, "magic: %x\n", spirv.header->magic);
-	LOG(Info, "major: %d\n", SpirvVersionMajor(spirv.header->version));
-	LOG(Info, "minor: %d\n", SpirvVersionMinor(spirv.header->version));
-	LOG(Info, "generator: %d\n", spirv.header->generator);
-	LOG(Info, "bound: %d\n", spirv.header->bound);
-	LOG(Info, "schema: %d\n", spirv.header->schema);
+	// Log spirv module header information
+	LOG(Info, "\nHeader info\n");
+	LOG(Info, "- magic: %x\n", spirv.header->magic);
+	LOG(Info, "- major: %d\n", SpirvVersionMajor(spirv.header->version));
+	LOG(Info, "- minor: %d\n", SpirvVersionMinor(spirv.header->version));
+	LOG(Info, "- generator: %d\n", spirv.header->generator);
+	LOG(Info, "- bound: %d\n", spirv.header->bound);
+	LOG(Info, "- schema: %d\n", spirv.header->schema);
+
+	LOG(Info, "\nParsed information\n");
+	LOG(Info, "- Result: %s\n", ok ? "Success" : "Fail");
 
 	return 0;
 }
