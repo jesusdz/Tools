@@ -16,5 +16,5 @@ shaders:
 	dxc -spirv -T ps_6_7 -Fo shaders/fragment.spv shaders/fragment.hlsl
 
 clean:
-	rm -f main_interpreter main_vulkan main_atof shaders/*.spv
+	rm -f main_interpreter main_vulkan main_atof main_spirv shaders/*.spv
 
