@@ -70,8 +70,10 @@ enum SpvOpCode
 	SpvOpAccessChain = 65,
 	SpvOpDecorate = 71,
 	SpvOpMemberDecorate = 72,
+	SpvOpVectorShuffle = 79,
 	SpvOpCompositeConstruct = 80,
 	SpvOpCompositeExtract = 81,
+	SpvOpVectorTimesMatrix = 144,
 	SpvOpMatrixTimesVector = 145,
 	SpvOpMatrixTimesMatrix = 146,
 	SpvOpOuterProduct = 147,
@@ -155,8 +157,10 @@ bool SpirvParseInstruction(SpirvParser *parser, SpirvModule *spirv)
 		case SpvOpAccessChain: break;
 		case SpvOpDecorate: break;
 		case SpvOpMemberDecorate: break;
+		case SpvOpVectorShuffle: break;
 		case SpvOpCompositeConstruct:break;
 		case SpvOpCompositeExtract: break;
+		case SpvOpVectorTimesMatrix: break;
 		case SpvOpMatrixTimesVector: break;
 		case SpvOpMatrixTimesMatrix: break;
 		case SpvOpOuterProduct: break;
@@ -230,13 +234,19 @@ u8 SpirvVersionMinor(u32 version)
 
 int main(int argc, char **argv)
 {
+	// Get shader filename
+	if ( argc != 2 ) {
+		LOG(Error, "Usage: %s <spirv_file.spv>\n", argv[0]);
+		return -1;
+	}
+	const char *shaderFile = argv[1];
+
 	// Create a memory arena
 	u32 memorySize = MB(1);
 	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
 	Arena arena = MakeArena(memory, memorySize);
 
 	// Get shader file memory blob
-	const char *shaderFile = "spirv/vertex.spv";
 	DataChunk *chunk = PushFile(arena, shaderFile);
 	if (!chunk) {
 		LOG(Error, "Error reading %s\n", shaderFile);
