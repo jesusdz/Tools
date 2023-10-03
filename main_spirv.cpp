@@ -34,6 +34,52 @@ unsigned int SpirvFixWord(unsigned int word, SpirvEndianness endianness)
 
 // Types /////////////////////////////////////////////////////////////////////////////////
 
+enum SpvOpCode
+{
+	SpvOpSource = 3,
+	SpvOpSourceExtension = 4,
+	SpvOpName = 5,
+	SpvOpMemberName = 6,
+	SpvOpExtInstImport = 11,
+	SpvOpMemoryModel = 14,
+	SpvOpEntryPoint = 15,
+	SpvOpExecutionMode = 16,
+	SpvOpCapability = 17,
+	SpvOpTypeVoid = 19,
+	SpvOpTypeBool = 20,
+	SpvOpTypeInt = 21,
+	SpvOpTypeFloat = 22,
+	SpvOpTypeVector = 23,
+	SpvOpTypeMatrix = 24,
+	SpvOpTypeImage = 25,
+	SpvOpTypeSampler = 26,
+	SpvOpTypeSampledImage = 27,
+	SpvOpTypeArray = 28,
+	SpvOpTypeRuntimeArray = 29,
+	SpvOpTypeStruct = 30,
+	SpvOpTypeOpaque = 31,
+	SpvOpTypePointer = 32,
+	SpvOpTypeFunction = 33,
+	SpvOpConstant = 43,
+	SpvOpFunction = 54,
+	SpvOpFunctionEnd = 56,
+	SpvOpFunctionCall = 57,
+	SpvOpVariable = 59,
+	SpvOpLoad = 61,
+	SpvOpStore = 62,
+	SpvOpAccessChain = 65,
+	SpvOpDecorate = 71,
+	SpvOpMemberDecorate = 72,
+	SpvOpCompositeConstruct = 80,
+	SpvOpCompositeExtract = 81,
+	SpvOpMatrixTimesVector = 145,
+	SpvOpMatrixTimesMatrix = 146,
+	SpvOpOuterProduct = 147,
+	SpvOpDot = 148,
+	SpvOpLabel = 248,
+	SpvOpReturn = 253,
+};
+
 struct SpirvHeader
 {
 	u32 magic;
@@ -66,21 +112,65 @@ bool SpirvParserFinished(SpirvParser *parser)
 
 bool SpirvParseInstruction(SpirvParser *parser, SpirvModule *spirv)
 {
-	SpirvEndianness endianness = spirv->endianness;
-
 	const u32 instructionOffset = parser->wordIndex;
-	u32 instructionWordCount = 0;
 
-	u32 opCode = parser->words[instructionOffset + 0];
-	instructionWordCount++;
+	const u32 word0 = parser->words[instructionOffset + 0];
+	const u32 wordCount = ( word0 >> 16 ) & 0xffff;
+	const u32 opCode = ( word0 >> 0 ) & 0xffff;
+
 
 	switch (opCode)
 	{
+		case SpvOpSource: break;
+		case SpvOpSourceExtension: break;
+		case SpvOpName: break;
+		case SpvOpMemberName: break;
+		case SpvOpExtInstImport: break;
+		case SpvOpMemoryModel: break;
+		case SpvOpEntryPoint: break;
+		case SpvOpExecutionMode: break;
+		case SpvOpCapability: break;
+		case SpvOpTypeVoid: break;
+		case SpvOpTypeBool: break;
+		case SpvOpTypeInt: break;
+		case SpvOpTypeFloat: break;
+		case SpvOpTypeVector: break;
+		case SpvOpTypeMatrix: break;
+		case SpvOpTypeImage: break;
+		case SpvOpTypeSampler: break;
+		case SpvOpTypeSampledImage: break;
+		case SpvOpTypeArray: break;
+		case SpvOpTypeRuntimeArray: break;
+		case SpvOpTypeStruct: break;
+		case SpvOpTypeOpaque: break;
+		case SpvOpTypePointer: break;
+		case SpvOpTypeFunction: break;
+		case SpvOpConstant: break;
+		case SpvOpFunction: break;
+		case SpvOpFunctionEnd: break;
+		case SpvOpFunctionCall: break;
+		case SpvOpVariable: break;
+		case SpvOpLoad: break;
+		case SpvOpStore: break;
+		case SpvOpAccessChain: break;
+		case SpvOpDecorate: break;
+		case SpvOpMemberDecorate: break;
+		case SpvOpCompositeConstruct:break;
+		case SpvOpCompositeExtract: break;
+		case SpvOpMatrixTimesVector: break;
+		case SpvOpMatrixTimesMatrix: break;
+		case SpvOpOuterProduct: break;
+		case SpvOpDot: break;
+		case SpvOpLabel: break;
+		case SpvOpReturn: break;
 		default:
+		{
+			LOG(Debug, "- opCode: %u - wordCount: %u\n", opCode, wordCount);
 			return false;
+		}
 	};
 
-	parser->wordIndex += instructionWordCount;
+	parser->wordIndex += wordCount;
 	return true;
 }
 
