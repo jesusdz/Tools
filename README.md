@@ -37,7 +37,9 @@ To the greatest extent possible, the projects and tools here present will not ha
 
 This is the list of the currently used dependencies:
 
-* Volk: https://github.com/zeux/volk
+* [Volk](https://github.com/zeux/volk) (a meta-loader for Vulkan by Zeux)
+* [stb_image](https://github.com/nothings/stb) (public domain image loader by Seann Barrett)
+* [Dear ImGui](https://github.com/ocornut/imgui) (bloat-free graphical user interface library for C++ by Omar Cornut)
 
 
 ## Supported platforms
