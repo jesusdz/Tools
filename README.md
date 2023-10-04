@@ -29,6 +29,7 @@ Currently, there are the following *in-progress* projects:
 * `main_vulkan`: Implementation of a graphics application template using the Vulkan graphics API.
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
 * `main_atof`: Custom implementation of the atof (ASCII to float) function.
+* `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.
 
 
 ## Dependencies
@@ -44,7 +45,7 @@ This is the list of the currently used dependencies:
 
 ## Supported platforms
 
-So far the current code is being tested on Windows and Linux platforms.
+So far the current code is being tested on Windows, Linux, and Android platforms.
 
 
 ## Interesting links
