@@ -115,58 +115,205 @@ bool SpirvParserFinished(SpirvParser *parser)
 bool SpirvParseInstruction(SpirvParser *parser, SpirvModule *spirv)
 {
 	const u32 instructionOffset = parser->wordIndex;
+	const u32 *instructionWords = parser->words + instructionOffset;
 
-	const u32 word0 = parser->words[instructionOffset + 0];
+	const u32 word0 = instructionWords[0];
 	const u32 wordCount = ( word0 >> 16 ) & 0xffff;
 	const u32 opCode = ( word0 >> 0 ) & 0xffff;
 
 
 	switch (opCode)
 	{
-		case SpvOpSource: break;
-		case SpvOpSourceExtension: break;
-		case SpvOpName: break;
-		case SpvOpMemberName: break;
-		case SpvOpExtInstImport: break;
-		case SpvOpMemoryModel: break;
-		case SpvOpEntryPoint: break;
-		case SpvOpExecutionMode: break;
-		case SpvOpCapability: break;
-		case SpvOpTypeVoid: break;
-		case SpvOpTypeBool: break;
-		case SpvOpTypeInt: break;
-		case SpvOpTypeFloat: break;
-		case SpvOpTypeVector: break;
-		case SpvOpTypeMatrix: break;
-		case SpvOpTypeImage: break;
-		case SpvOpTypeSampler: break;
-		case SpvOpTypeSampledImage: break;
-		case SpvOpTypeArray: break;
-		case SpvOpTypeRuntimeArray: break;
-		case SpvOpTypeStruct: break;
-		case SpvOpTypeOpaque: break;
-		case SpvOpTypePointer: break;
-		case SpvOpTypeFunction: break;
-		case SpvOpConstant: break;
-		case SpvOpFunction: break;
-		case SpvOpFunctionEnd: break;
-		case SpvOpFunctionCall: break;
-		case SpvOpVariable: break;
-		case SpvOpLoad: break;
-		case SpvOpStore: break;
-		case SpvOpAccessChain: break;
-		case SpvOpDecorate: break;
-		case SpvOpMemberDecorate: break;
-		case SpvOpVectorShuffle: break;
-		case SpvOpCompositeConstruct:break;
-		case SpvOpCompositeExtract: break;
-		case SpvOpVectorTimesMatrix: break;
-		case SpvOpMatrixTimesVector: break;
-		case SpvOpMatrixTimesMatrix: break;
-		case SpvOpOuterProduct: break;
-		case SpvOpDot: break;
-		case SpvOpLabel: break;
-		case SpvOpReturn: break;
+		case SpvOpSource:
+			{
+				const u32 sourceLanguage = instructionWords[1];
+				const u32 version = instructionWords[2];
+				LOG(Info, "      SpvOpSource - sourceLanguage: %u - version: %u", sourceLanguage, version);
+				if (wordCount > 3) {
+					const u32 fileId = instructionWords[3];
+					LOG(Info, " - fileId: %u", fileId);
+				}
+				if (wordCount > 4) {
+					const char *source = (const char *)&instructionWords[4];
+					LOG(Info, " - source: %s", source);
+				}
+				LOG(Info, "\n");
+			}
+			break;
+		case SpvOpSourceExtension: LOG(Info, "SpvOpSourceExtension - wordCount: %u\n", wordCount); break;
+		case SpvOpName:
+			{
+				const u32 targetId = instructionWords[1];
+				const char *name = (const char *)&instructionWords[2];
+				LOG(Info, "      SpvOpName - targetId: %u - name: %s\n", targetId, name);
+			}
+			break;
+		case SpvOpMemberName:
+			{
+				const u32 typeId = instructionWords[1];
+				const u32 member = instructionWords[2];
+				const char *name = (const char *)&instructionWords[3];
+				LOG(Info, "      SpvOpMemberName - typeId: %u - member: %u - name: %s\n", typeId, member, name);
+			}
+			break;
+		case SpvOpExtInstImport: LOG(Info, "SpvOpExtInstImport - wordCount: %u\n", wordCount); break;
+		case SpvOpMemoryModel:
+			{
+				const u32 addressingModel = instructionWords[1];
+				const u32 memoryModel = instructionWords[2];
+				LOG(Info, "      SpvOpMemoryModel - addressingModel: %u - memoryModel: %u\n", addressingModel, memoryModel);
+			}
+			break;
+		case SpvOpEntryPoint:
+			{
+				const u32 executionModel = instructionWords[1];
+				const u32 entryPointId = instructionWords[2];
+				const char *name = (const char *)&instructionWords[3];
+				LOG(Info, "      SpvOpEntryPoint - executionModel: %u - entryPointId: %u - name: %s - ...\n", executionModel, entryPointId, name);
+			}
+			break;
+		case SpvOpExecutionMode:
+			{
+				const u32 entryPointId = instructionWords[1];
+				const u32 executionModel = instructionWords[2];
+				LOG(Info, "      SpvOpExecutionMode - entryPointId: %u - executionModel: %u - ...\n", entryPointId, executionModel);
+			}
+			break;
+		case SpvOpCapability:
+			{
+				const u32 capability = instructionWords[1];
+				LOG(Info, "      SpvOpCapability - capability: %u\n", capability);
+			}
+			break;
+		case SpvOpTypeVoid:
+			{
+				const u32 resultId = instructionWords[1];
+				LOG(Info, "%%%u = SpvOpTypeVoid\n", resultId);
+			}
+			break;
+		case SpvOpTypeBool:
+			{
+				const u32 resultId = instructionWords[1];
+				LOG(Info, "%%%u = SpvOpTypeBool\n", resultId);
+			}
+			break;
+		case SpvOpTypeInt:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 width = instructionWords[2];
+				const u32 sign = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpTypeInt - width: %u - sign: %u\n", resultId, width, sign);
+			}
+			break;
+		case SpvOpTypeFloat:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 width = instructionWords[2];
+				LOG(Info, "%%%u = SpvOpTypeFloat - width: %u\n", resultId, width);
+			}
+			break;
+		case SpvOpTypeVector:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 componentTypeId = instructionWords[2];
+				const u32 componentCount = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpTypeVector - componentTypeId: %u - componentCount: %u\n", resultId, componentTypeId, componentCount);
+			}
+			break;
+		case SpvOpTypeMatrix:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 columnTypeId = instructionWords[2];
+				const u32 columnCount = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpTypeMatrix - columnTypeId: %u - columnCount: %u\n", resultId, columnTypeId, columnCount);
+			}
+			break;
+		case SpvOpTypeImage: LOG(Info, "SpvOpTypeImage - wordCount: %u\n", wordCount); break;
+		case SpvOpTypeSampler: LOG(Info, "SpvOpTypeSampler - wordCount: %u\n", wordCount); break;
+		case SpvOpTypeSampledImage: LOG(Info, "SpvOpTypeSampledImage - wordCount: %u\n", wordCount); break;
+		case SpvOpTypeArray: LOG(Info, "SpvOpTypeArray - wordCount: %u\n", wordCount); break;
+		case SpvOpTypeRuntimeArray: LOG(Info, "SpvOpTypeRuntimeArray - wordCount: %u\n", wordCount); break;
+		case SpvOpTypeStruct:
+			{
+				const u32 resultId = instructionWords[1];
+				LOG(Info, "%%%u = SpvOpTypeStruct", resultId);
+				for (u32 i = 2; i < wordCount; ++i)
+				{
+					const u32 typeId = instructionWords[i];
+					LOG(Info, " - typeId: %u", typeId);
+				}
+				if (wordCount > 2) LOG(Info, "\n");
+			}
+			break;
+		case SpvOpTypeOpaque: LOG(Info, "SpvOpTypeOpaque - wordCount: %u\n", wordCount); break;
+		case SpvOpTypePointer:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 storageClass = instructionWords[2];
+				const u32 typeId = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpTypePointer - storageClass: %u - typeId: %u\n", resultId, storageClass, typeId);
+			}
+			break;
+		case SpvOpTypeFunction:
+			{
+				const u32 resultId = instructionWords[1];
+				const u32 returnTypeId = instructionWords[2];
+				LOG(Info, "%%%u = SpvOpTypeFunction - returnTypeId: %u\n", resultId, returnTypeId);
+				for (u32 i = 3; i < wordCount; ++i)
+				{
+					const u32 typeId = instructionWords[i];
+					LOG(Info, " - typeId: %u", typeId);
+				}
+				if (wordCount > 3) LOG(Info, "\n");
+			}
+			break;
+		case SpvOpConstant:
+			{
+				const u32 resultTypeId = instructionWords[1];
+				const u32 resultId = instructionWords[2];
+				const u32 value = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpConstant - returnTypeId: %u - value: %u\n", resultId, resultTypeId, value);
+			}
+			break;
+		case SpvOpFunction: LOG(Info, "SpvOpFunction - wordCount: %u\n", wordCount); break;
+		case SpvOpFunctionEnd: LOG(Info, "SpvOpFunctionEnd - wordCount: %u\n", wordCount); break;
+		case SpvOpFunctionCall: LOG(Info, "SpvOpFunctionCall - wordCount: %u\n", wordCount); break;
+		case SpvOpVariable:
+			{
+				const u32 resultTypeId = instructionWords[1];
+				const u32 resultId = instructionWords[2];
+				const u32 storageClass = instructionWords[3];
+				LOG(Info, "%%%u = SpvOpVariable - resultTypeId: %u - storageClass: %u - ...\n", resultId, resultTypeId, storageClass);
+			}
+			break;
+		case SpvOpLoad: LOG(Info, "SpvOpLoad - wordCount: %u\n", wordCount); break;
+		case SpvOpStore: LOG(Info, "SpvOpStore - wordCount: %u\n", wordCount); break;
+		case SpvOpAccessChain: LOG(Info, "SpvOpAccessChain - wordCount: %u\n", wordCount); break;
+		case SpvOpDecorate:
+			{
+				const u32 targetId = instructionWords[1];
+				const u32 decoration = instructionWords[2];
+				LOG(Info, "      SpvOpDecorate - targetId: %u - decoration: %u...\n", targetId, decoration);
+			}
+			break;
+		case SpvOpMemberDecorate:
+			{
+				const u32 structyreTypeId = instructionWords[1];
+				const u32 member = instructionWords[2];
+				const u32 decoration = instructionWords[3];
+				LOG(Info, "      SpvOpMemberDecorate - structyreTypeId: %u - member: %u - decoration: %u...\n", structyreTypeId, member, decoration);
+			}
+			break;
+		case SpvOpVectorShuffle: LOG(Info, "SpvOpVectorShuffle - wordCount: %u\n", wordCount); break;
+		case SpvOpCompositeConstruct: LOG(Info, "SpvOpCompositeConstruct - wordCount: %u\n", wordCount); break;
+		case SpvOpCompositeExtract: LOG(Info, "SpvOpCompositeExtract - wordCount: %u\n", wordCount); break;
+		case SpvOpVectorTimesMatrix: LOG(Info, "SpvOpVectorTimesMatrix - wordCount: %u\n", wordCount); break;
+		case SpvOpMatrixTimesVector: LOG(Info, "SpvOpMatrixTimesVector - wordCount: %u\n", wordCount); break;
+		case SpvOpMatrixTimesMatrix: LOG(Info, "SpvOpMatrixTimesMatrix - wordCount: %u\n", wordCount); break;
+		case SpvOpOuterProduct: LOG(Info, "SpvOpOuterProduct - wordCount: %u\n", wordCount); break;
+		case SpvOpDot: LOG(Info, "SpvOpDot - wordCount: %u\n", wordCount); break;
+		case SpvOpLabel: LOG(Info, "SpvOpLabel - wordCount: %u\n", wordCount); break;
+		case SpvOpReturn: LOG(Info, "SpvOpReturn - wordCount: %u\n", wordCount); break;
 		default:
 		{
 			LOG(Debug, "- opCode: %u - wordCount: %u\n", opCode, wordCount);
