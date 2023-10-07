@@ -1962,6 +1962,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	scissor.extent = gfx.swapchain.extent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+	{
+		const u32 globalDescriptorSetIndex = frameIndex;
+		const VkDescriptorSet descriptorSets[] = { gfx.globalDescriptorSets[globalDescriptorSetIndex], };
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
+		// firstSet = 0
+	}
+
 	for (u32 entityIndex = 0; entityIndex < MAX_ENTITIES; ++entityIndex)
 	{
 		const Entity &entity = entities[entityIndex];
@@ -1977,13 +1984,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		vkCmdBindIndexBuffer(commandBuffer, indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
 
-		const u32 globalDescriptorSetIndex = frameIndex;
 		const u32 materialDescriptorSetIndex = 0; // TODO: Avoid hardcoding materials
-		const VkDescriptorSet descriptorSets[] = {
-			gfx.globalDescriptorSets[globalDescriptorSetIndex],
-			gfx.materialDescriptorSets[materialDescriptorSetIndex],
-		};
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
+		const VkDescriptorSet descriptorSets[] = { gfx.materialDescriptorSets[materialDescriptorSetIndex], };
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 1, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
+		// firstSet = 1
 
 		const float4x4 modelMatrix = Translate(entity.position); // TODO: Apply also rotation and scale
 		vkCmdPushConstants(commandBuffer, gfx.pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(modelMatrix), &modelMatrix);
