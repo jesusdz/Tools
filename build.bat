@@ -67,8 +67,10 @@ pushd shaders
 del /Q *.spv *.dxil *.pdb *.cso 2>nul
 
 if "%target%"=="main_vulkan.cpp" (
-	glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
-	glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+	dxc -spirv -T vs_6_7 -Fo vertex.spv vertex.hlsl
+	dxc -spirv -T ps_6_7 -Fo fragment.spv fragment.hlsl
+	REM glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
+	REM glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
 )
 
 if "%target%"=="main_d3d12.cpp" (

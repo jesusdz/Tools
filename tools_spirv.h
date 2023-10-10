@@ -15,8 +15,9 @@
 // Defines ///////////////////////////////////////////////////////////////////////////////
 
 #define SPV_INDEX_INSTRUCTION 5u
-#define SPV_MAX_LAYOUTS 4u
-#define SPV_MAX_DESCRIPTORS 64u
+#define SPV_MAX_DESCRIPTOR_SETS 4u
+#define SPV_MAX_DESCRIPTORS_PER_SET 8u
+#define SPV_MAX_DESCRIPTORS ( SPV_MAX_DESCRIPTOR_SETS * SPV_MAX_DESCRIPTORS_PER_SET )
 
 
 // Endianness ////////////////////////////////////////////////////////////////////////////
@@ -99,6 +100,12 @@ enum SpvOp
 	SpvOpReturn = 253,
 };
 
+enum SpvDecoration
+{
+	SpvDecorationBinding = 33,
+	SpvDecorationDescriptorSet = 34,
+};
+
 enum SpvStorageClass
 {
 	SpvStorageClassUniformConstant = 0,
@@ -114,8 +121,15 @@ struct SpvHeader
 	u32 schema;
 };
 
-struct SpvDescriptorSetLayout
+struct SpvDescriptor
 {
+	u32 binding;
+	u32 descriptorSet;
+};
+
+struct SpvDescriptorSet
+{
+	SpvDescriptor descriptors[SPV_MAX_DESCRIPTORS_PER_SET];
 };
 
 struct SpvModule
@@ -466,7 +480,6 @@ void SpvParseDescriptorId(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTO
 
 	const u32 firstWord = instructionWords[0];
 	const u32 opCode = SpvGetOpCode(firstWord);
-	const u32 wordCount = SpvGetWordCount(firstWord);
 
 	if ( opCode == SpvOpVariable )
 	{
@@ -489,14 +502,24 @@ void SpvParseDescriptor(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS
 
 	const u32 firstWord = instructionWords[0];
 	const u32 opCode = SpvGetOpCode(firstWord);
-	const u32 wordCount = SpvGetWordCount(firstWord);
 
-	if ( opCode == SpvOpVariable )
+	if ( opCode == SpvOpDecorate )
 	{
+		const u32 targetId = instructionWords[1];
+		const u32 decoration = instructionWords[2];
+
+		if ( decoration == SpvDecorationBinding )
+		{
+			const u32 binding = instructionWords[3];
+		}
+		else if ( decoration == SpvDecorationDescriptorSet )
+		{
+			const u32 descriptorSet = instructionWords[3];
+		}
 	}
 }
 
-bool SpvParse(SpvParser *parser, SpvDescriptorSetLayout layouts[SPV_MAX_LAYOUTS])
+bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIPTOR_SETS])
 {
 	SpvHeader *header = NULL;
 	if ( !SpvParseHeader(parser, &header) )

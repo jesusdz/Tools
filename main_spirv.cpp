@@ -46,8 +46,8 @@ int main(int argc, char **argv)
 	LOG(Info, "- Result: %s\n", ok ? "Success" : "Fail");
 #else
 	// Parse descriptor set layouts
-	SpvDescriptorSetLayout layouts[SPV_MAX_LAYOUTS] = {};
-	const bool ok = SpvParse(&spirvParser, layouts);
+	SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIPTOR_SETS] = {};
+	const bool ok = SpvParse(&spirvParser, descriptorSets);
 #endif
 
 	return 0;
