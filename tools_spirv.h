@@ -163,6 +163,7 @@ struct SpvParser
 
 	// State
 	u32 wordIndex;
+	u32 *instructionWords;
 	u16 instructionOpCode;
 	u16 instructionWordCount;
 };
@@ -197,9 +198,10 @@ u16 SpvGetOpCode(u32 firstInstructionWord)
 void SpvParserUpdateState(SpvParser *parser)
 {
 	ASSERT(parser->wordIndex >= SPV_INDEX_INSTRUCTION);
-	const u32 firstWord = parser->words[ parser->wordIndex ];
-	parser->instructionOpCode = SpvGetOpCode(firstWord);
-	parser->instructionWordCount = SpvGetWordCount(firstWord);
+	const u32 firstInstructionWord = parser->words[ parser->wordIndex ];
+	parser->instructionWords = parser->words + parser->wordIndex;
+	parser->instructionOpCode = SpvGetOpCode(firstInstructionWord);
+	parser->instructionWordCount = SpvGetWordCount(firstInstructionWord);
 }
 
 void SpvParserSeek(SpvParser *parser, SpvSeekPos seekPos = SpvSeekPosBegin)
@@ -215,6 +217,16 @@ void SpvParserSeek(SpvParser *parser, SpvSeekPos seekPos = SpvSeekPosBegin)
 	}
 }
 
+u32 SpvParserInstructionOpCode(SpvParser *parser)
+{
+	return parser->instructionOpCode;
+}
+
+u32 SpvParserInstructionWordCount(SpvParser *parser)
+{
+	return parser->instructionWordCount;
+}
+
 void SpvParserAdvance(SpvParser *parser)
 {
 	parser->wordIndex += parser->instructionWordCount;
@@ -228,25 +240,23 @@ bool SpvParserFinished(SpvParser *parser)
 
 bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 {
-	const u32 *instructionWords = parser->words + parser->wordIndex;
-
-	const u32 firstWord = instructionWords[0];
-	const u16 opCode = SpvGetOpCode(firstWord);
-	const u16 wordCount = SpvGetWordCount(firstWord);
+	const u32 *words = parser->instructionWords;
+	const u16 opCode = SpvParserInstructionOpCode(parser);
+	const u16 wordCount = SpvParserInstructionWordCount(parser);
 
 	switch (opCode)
 	{
 		case SpvOpSource:
 			{
-				const u32 sourceLanguage = instructionWords[1];
-				const u32 version = instructionWords[2];
+				const u32 sourceLanguage = words[1];
+				const u32 version = words[2];
 				LOG(Info, "      SpvOpSource - sourceLanguage: %u - version: %u", sourceLanguage, version);
 				if (wordCount > 3) {
-					const u32 fileId = instructionWords[3];
+					const u32 fileId = words[3];
 					LOG(Info, " - fileId: %u", fileId);
 				}
 				if (wordCount > 4) {
-					const char *source = (const char *)&instructionWords[4];
+					const char *source = (const char *)&words[4];
 					LOG(Info, " - source: %s", source);
 				}
 				LOG(Info, "\n");
@@ -255,88 +265,88 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		case SpvOpSourceExtension: LOG(Info, "SpvOpSourceExtension - wordCount: %u\n", wordCount); break;
 		case SpvOpName:
 			{
-				const u32 targetId = instructionWords[1];
-				const char *name = (const char *)&instructionWords[2];
+				const u32 targetId = words[1];
+				const char *name = (const char *)&words[2];
 				LOG(Info, "      SpvOpName - targetId: %u - name: %s\n", targetId, name);
 			}
 			break;
 		case SpvOpMemberName:
 			{
-				const u32 typeId = instructionWords[1];
-				const u32 member = instructionWords[2];
-				const char *name = (const char *)&instructionWords[3];
+				const u32 typeId = words[1];
+				const u32 member = words[2];
+				const char *name = (const char *)&words[3];
 				LOG(Info, "      SpvOpMemberName - typeId: %u - member: %u - name: %s\n", typeId, member, name);
 			}
 			break;
 		case SpvOpExtInstImport: LOG(Info, "SpvOpExtInstImport - wordCount: %u\n", wordCount); break;
 		case SpvOpMemoryModel:
 			{
-				const u32 addressingModel = instructionWords[1];
-				const u32 memoryModel = instructionWords[2];
+				const u32 addressingModel = words[1];
+				const u32 memoryModel = words[2];
 				LOG(Info, "      SpvOpMemoryModel - addressingModel: %u - memoryModel: %u\n", addressingModel, memoryModel);
 			}
 			break;
 		case SpvOpEntryPoint:
 			{
-				const u32 executionModel = instructionWords[1];
-				const u32 entryPointId = instructionWords[2];
-				const char *name = (const char *)&instructionWords[3];
+				const u32 executionModel = words[1];
+				const u32 entryPointId = words[2];
+				const char *name = (const char *)&words[3];
 				LOG(Info, "      SpvOpEntryPoint - executionModel: %u - entryPointId: %u - name: %s - ...\n", executionModel, entryPointId, name);
 			}
 			break;
 		case SpvOpExecutionMode:
 			{
-				const u32 entryPointId = instructionWords[1];
-				const u32 executionModel = instructionWords[2];
+				const u32 entryPointId = words[1];
+				const u32 executionModel = words[2];
 				LOG(Info, "      SpvOpExecutionMode - entryPointId: %u - executionModel: %u - ...\n", entryPointId, executionModel);
 			}
 			break;
 		case SpvOpCapability:
 			{
-				const u32 capability = instructionWords[1];
+				const u32 capability = words[1];
 				LOG(Info, "      SpvOpCapability - capability: %u\n", capability);
 			}
 			break;
 		case SpvOpTypeVoid:
 			{
-				const u32 resultId = instructionWords[1];
+				const u32 resultId = words[1];
 				LOG(Info, "%%%u = SpvOpTypeVoid\n", resultId);
 			}
 			break;
 		case SpvOpTypeBool:
 			{
-				const u32 resultId = instructionWords[1];
+				const u32 resultId = words[1];
 				LOG(Info, "%%%u = SpvOpTypeBool\n", resultId);
 			}
 			break;
 		case SpvOpTypeInt:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 width = instructionWords[2];
-				const u32 sign = instructionWords[3];
+				const u32 resultId = words[1];
+				const u32 width = words[2];
+				const u32 sign = words[3];
 				LOG(Info, "%%%u = SpvOpTypeInt - width: %u - sign: %u\n", resultId, width, sign);
 			}
 			break;
 		case SpvOpTypeFloat:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 width = instructionWords[2];
+				const u32 resultId = words[1];
+				const u32 width = words[2];
 				LOG(Info, "%%%u = SpvOpTypeFloat - width: %u\n", resultId, width);
 			}
 			break;
 		case SpvOpTypeVector:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 componentTypeId = instructionWords[2];
-				const u32 componentCount = instructionWords[3];
+				const u32 resultId = words[1];
+				const u32 componentTypeId = words[2];
+				const u32 componentCount = words[3];
 				LOG(Info, "%%%u = SpvOpTypeVector - componentTypeId: %u - componentCount: %u\n", resultId, componentTypeId, componentCount);
 			}
 			break;
 		case SpvOpTypeMatrix:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 columnTypeId = instructionWords[2];
-				const u32 columnCount = instructionWords[3];
+				const u32 resultId = words[1];
+				const u32 columnTypeId = words[2];
+				const u32 columnCount = words[3];
 				LOG(Info, "%%%u = SpvOpTypeMatrix - columnTypeId: %u - columnCount: %u\n", resultId, columnTypeId, columnCount);
 			}
 			break;
@@ -347,11 +357,11 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		case SpvOpTypeRuntimeArray: LOG(Info, "SpvOpTypeRuntimeArray - wordCount: %u\n", wordCount); break;
 		case SpvOpTypeStruct:
 			{
-				const u32 resultId = instructionWords[1];
+				const u32 resultId = words[1];
 				LOG(Info, "%%%u = SpvOpTypeStruct", resultId);
 				for (u32 i = 2; i < wordCount; ++i)
 				{
-					const u32 typeId = instructionWords[i];
+					const u32 typeId = words[i];
 					LOG(Info, " - typeId: %u", typeId);
 				}
 				if (wordCount > 2) LOG(Info, "\n");
@@ -360,9 +370,9 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		case SpvOpTypeOpaque: LOG(Info, "SpvOpTypeOpaque - wordCount: %u\n", wordCount); break;
 		case SpvOpTypePointer:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 storageClass = instructionWords[2];
-				const u32 typeId = instructionWords[3];
+				const u32 resultId = words[1];
+				const u32 storageClass = words[2];
+				const u32 typeId = words[3];
 				LOG(Info, "%%%u = SpvOpTypePointer - storageClass: %u - typeId: %u\n", resultId, storageClass, typeId);
 				if (storageClass == SpvStorageClassUniform)
 				{
@@ -372,12 +382,12 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 			break;
 		case SpvOpTypeFunction:
 			{
-				const u32 resultId = instructionWords[1];
-				const u32 returnTypeId = instructionWords[2];
+				const u32 resultId = words[1];
+				const u32 returnTypeId = words[2];
 				LOG(Info, "%%%u = SpvOpTypeFunction - returnTypeId: %u\n", resultId, returnTypeId);
 				for (u32 i = 3; i < wordCount; ++i)
 				{
-					const u32 typeId = instructionWords[i];
+					const u32 typeId = words[i];
 					LOG(Info, " - typeId: %u", typeId);
 				}
 				if (wordCount > 3) LOG(Info, "\n");
@@ -385,9 +395,9 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 			break;
 		case SpvOpConstant:
 			{
-				const u32 resultTypeId = instructionWords[1];
-				const u32 resultId = instructionWords[2];
-				const u32 value = instructionWords[3];
+				const u32 resultTypeId = words[1];
+				const u32 resultId = words[2];
+				const u32 value = words[3];
 				LOG(Info, "%%%u = SpvOpConstant - returnTypeId: %u - value: %u\n", resultId, resultTypeId, value);
 			}
 			break;
@@ -396,9 +406,9 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		case SpvOpFunctionCall: LOG(Info, "SpvOpFunctionCall - wordCount: %u\n", wordCount); break;
 		case SpvOpVariable:
 			{
-				const u32 resultTypeId = instructionWords[1];
-				const u32 resultId = instructionWords[2];
-				const u32 storageClass = instructionWords[3];
+				const u32 resultTypeId = words[1];
+				const u32 resultId = words[2];
+				const u32 storageClass = words[3];
 				LOG(Info, "%%%u = SpvOpVariable - resultTypeId: %u - storageClass: %u - ...\n", resultId, resultTypeId, storageClass);
 			}
 			break;
@@ -407,16 +417,16 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		case SpvOpAccessChain: LOG(Info, "SpvOpAccessChain - wordCount: %u\n", wordCount); break;
 		case SpvOpDecorate:
 			{
-				const u32 targetId = instructionWords[1];
-				const u32 decoration = instructionWords[2];
+				const u32 targetId = words[1];
+				const u32 decoration = words[2];
 				LOG(Info, "      SpvOpDecorate - targetId: %u - decoration: %u...\n", targetId, decoration);
 			}
 			break;
 		case SpvOpMemberDecorate:
 			{
-				const u32 structyreTypeId = instructionWords[1];
-				const u32 member = instructionWords[2];
-				const u32 decoration = instructionWords[3];
+				const u32 structyreTypeId = words[1];
+				const u32 member = words[2];
+				const u32 decoration = words[3];
 				LOG(Info, "      SpvOpMemberDecorate - structyreTypeId: %u - member: %u - decoration: %u...\n", structyreTypeId, member, decoration);
 			}
 			break;
@@ -494,14 +504,12 @@ bool SpvParse(SpvParser *parser, SpvModule *spirv)
 
 void SpvParseEntryPoint(SpvParser *parser, u32 *executionModel)
 {
-	const u32 *instructionWords = parser->words + parser->wordIndex;
-
-	const u32 firstWord = instructionWords[0];
-	const u32 opCode = SpvGetOpCode(firstWord);
+	const u32 *words = parser->instructionWords;
+	const u32 opCode = SpvParserInstructionOpCode(parser);
 
 	if ( opCode == SpvOpEntryPoint )
 	{
-		*executionModel = instructionWords[1];
+		*executionModel = words[1];
 
 		if ( *executionModel == SpvExecutionModelVertex ) LOG(Info, "Execution model: Vertex\n");
 		else if ( *executionModel == SpvExecutionModelFragment ) LOG(Info, "Execution model: Fragment\n");
@@ -511,16 +519,14 @@ void SpvParseEntryPoint(SpvParser *parser, u32 *executionModel)
 
 void SpvParseDescriptorId(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS], u32 *descriptorIdCount)
 {
-	const u32 *instructionWords = parser->words + parser->wordIndex;
-
-	const u32 firstWord = instructionWords[0];
-	const u32 opCode = SpvGetOpCode(firstWord);
+	const u32 *words = parser->instructionWords;
+	const u32 opCode = SpvParserInstructionOpCode(parser);
 
 	if ( opCode == SpvOpVariable )
 	{
-		const u32 resultTypeId = instructionWords[1];
-		const u32 resultId = instructionWords[2];
-		const u32 storageClass = instructionWords[3];
+		const u32 resultTypeId = words[1];
+		const u32 resultId = words[2];
+		const u32 storageClass = words[3];
 		if ( storageClass == SpvStorageClassUniform || storageClass == SpvStorageClassUniformConstant )
 		{
 			LOG(Info, "Found Uniform with id %u and type %u\n", resultId, resultTypeId);
@@ -533,23 +539,21 @@ void SpvParseDescriptorId(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTO
 
 void SpvParseDescriptor(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS], u32 *descriptorIdCount)
 {
-	const u32 *instructionWords = parser->words + parser->wordIndex;
-
-	const u32 firstWord = instructionWords[0];
-	const u32 opCode = SpvGetOpCode(firstWord);
+	const u32 *words = parser->instructionWords;
+	const u32 opCode = SpvParserInstructionOpCode(parser);
 
 	if ( opCode == SpvOpDecorate )
 	{
-		const u32 targetId = instructionWords[1];
-		const u32 decoration = instructionWords[2];
+		const u32 targetId = words[1];
+		const u32 decoration = words[2];
 
 		if ( decoration == SpvDecorationBinding )
 		{
-			const u32 binding = instructionWords[3];
+			const u32 binding = words[3];
 		}
 		else if ( decoration == SpvDecorationDescriptorSet )
 		{
-			const u32 descriptorSet = instructionWords[3];
+			const u32 descriptorSet = words[3];
 		}
 	}
 }
@@ -569,8 +573,11 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIP
 
 	while ( !SpvParserFinished(parser) )
 	{
-		SpvParseEntryPoint(parser, &executionModel);
-		SpvParseDescriptorId(parser, descriptorIds, &descriptorIdCount);
+		const u32 opCode = SpvParserInstructionOpCode(parser);
+		switch (opCode) {
+			case SpvOpEntryPoint: SpvParseEntryPoint(parser, &executionModel); break;
+			case SpvOpVariable: SpvParseDescriptorId(parser, descriptorIds, &descriptorIdCount); break;
+		};
 		SpvParserAdvance(parser);
 	}
 
