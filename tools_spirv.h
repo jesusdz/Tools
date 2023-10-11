@@ -100,6 +100,12 @@ enum SpvOp
 	SpvOpReturn = 253,
 };
 
+enum SpvExecutionModel
+{
+	SpvExecutionModelVertex = 0,
+	SpvExecutionModelFragment = 4,
+};
+
 enum SpvDecoration
 {
 	SpvDecorationBinding = 33,
@@ -110,6 +116,16 @@ enum SpvStorageClass
 {
 	SpvStorageClassUniformConstant = 0,
 	SpvStorageClassUniform = 2,
+};
+
+enum SpvDescriptorType
+{
+	SpvDescriptorTypeUniformBuffer,
+};
+
+enum SpvStageFlags
+{
+	SpvStageFlagsVertexBit,
 };
 
 struct SpvHeader
@@ -125,6 +141,8 @@ struct SpvDescriptor
 {
 	u32 binding;
 	u32 descriptorSet;
+	u32 descriptorType;
+	u32 stageFlags;
 };
 
 struct SpvDescriptorSet
@@ -474,6 +492,23 @@ bool SpvParse(SpvParser *parser, SpvModule *spirv)
 	return true;
 }
 
+void SpvParseEntryPoint(SpvParser *parser, u32 *executionModel)
+{
+	const u32 *instructionWords = parser->words + parser->wordIndex;
+
+	const u32 firstWord = instructionWords[0];
+	const u32 opCode = SpvGetOpCode(firstWord);
+
+	if ( opCode == SpvOpEntryPoint )
+	{
+		*executionModel = instructionWords[1];
+
+		if ( *executionModel == SpvExecutionModelVertex ) LOG(Info, "Execution model: Vertex\n");
+		else if ( *executionModel == SpvExecutionModelFragment ) LOG(Info, "Execution model: Fragment\n");
+		else LOG(Info, "Execution model: Unknown\n");
+	}
+}
+
 void SpvParseDescriptorId(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS], u32 *descriptorIdCount)
 {
 	const u32 *instructionWords = parser->words + parser->wordIndex;
@@ -528,11 +563,13 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIP
 		return false;
 	}
 
+	u32 executionModel = 0;
 	u32 descriptorIds[SPV_MAX_DESCRIPTORS];
 	u32 descriptorIdCount = 0;
 
 	while ( !SpvParserFinished(parser) )
 	{
+		SpvParseEntryPoint(parser, &executionModel);
 		SpvParseDescriptorId(parser, descriptorIds, &descriptorIdCount);
 		SpvParserAdvance(parser);
 	}
@@ -545,29 +582,7 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIP
 		SpvParserAdvance(parser);
 	}
 
-#if 0
-	SpvDescriptor descriptors[SPV_MAX_DESCRIPTORS] = {};
-	u32 descriptorCount = 0;
-
-	// Parse spirv to find the IDs of descriptor variables
-	while ( !SpvParserFinished(parser) )
-	{
-		u32 descriptorId;
-		if ( SpvParseDescriptorId(parser, &descriptorId) )
-		{
-			if (
-		}
-		SpvParserAdvance(parser);
-	}
-
-	parser->wordIndex = SPV_INDEX_INSTRUCTION;
-	while ( !SpvParserFinished(parser) )
-	{
-		SpvParse
-	}
-#endif
-
-	return false;
+	return true;
 }
 
 
