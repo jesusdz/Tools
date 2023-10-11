@@ -46,12 +46,6 @@ unsigned int SpvFixWord(unsigned int word, SpvEndianness endianness)
 
 // Types /////////////////////////////////////////////////////////////////////////////////
 
-enum SpvSeekPos
-{
-	SpvSeekPosBegin,
-	SpvSeekPosInstructions,
-};
-
 enum SpvOp
 {
 	SpvOpSource = 3,
@@ -137,6 +131,21 @@ struct SpvHeader
 	u32 schema;
 };
 
+struct SpvParser
+{
+	// Stream
+	u32 *words;
+	u32 wordCount;
+
+	// Header
+	SpvHeader *header;
+
+	// State
+	u32 *instructionWords;
+	u16 instructionOpCode;
+	u16 instructionWordCount;
+};
+
 struct SpvDescriptor
 {
 	u32 binding;
@@ -153,19 +162,6 @@ struct SpvDescriptorSet
 struct SpvModule
 {
 	SpvHeader *header;
-};
-
-struct SpvParser
-{
-	// Stream
-	u32 *words;
-	u32 wordCount;
-
-	// State
-	u32 wordIndex;
-	u32 *instructionWords;
-	u16 instructionOpCode;
-	u16 instructionWordCount;
 };
 
 
@@ -195,26 +191,17 @@ u16 SpvGetOpCode(u32 firstInstructionWord)
 	return opCode;
 }
 
-void SpvParserUpdateState(SpvParser *parser)
+void SpvParserUpdateInstruction(SpvParser *parser)
 {
-	ASSERT(parser->wordIndex >= SPV_INDEX_INSTRUCTION);
-	const u32 firstInstructionWord = parser->words[ parser->wordIndex ];
-	parser->instructionWords = parser->words + parser->wordIndex;
+	const u32 firstInstructionWord = *parser->instructionWords;
 	parser->instructionOpCode = SpvGetOpCode(firstInstructionWord);
 	parser->instructionWordCount = SpvGetWordCount(firstInstructionWord);
 }
 
-void SpvParserSeek(SpvParser *parser, SpvSeekPos seekPos = SpvSeekPosBegin)
+void SpvParserRewind(SpvParser *parser)
 {
-	if ( SpvSeekPosInstructions == seekPos )
-	{
-		parser->wordIndex = SPV_INDEX_INSTRUCTION;
-		SpvParserUpdateState(parser);
-	}
-	else
-	{
-		parser->wordIndex = 0;
-	}
+	parser->instructionWords = parser->words + SPV_INDEX_INSTRUCTION;
+	SpvParserUpdateInstruction(parser);
 }
 
 u32 SpvParserInstructionOpCode(SpvParser *parser)
@@ -229,13 +216,13 @@ u32 SpvParserInstructionWordCount(SpvParser *parser)
 
 void SpvParserAdvance(SpvParser *parser)
 {
-	parser->wordIndex += parser->instructionWordCount;
-	SpvParserUpdateState(parser);
+	parser->instructionWords += parser->instructionWordCount;
+	SpvParserUpdateInstruction(parser);
 }
 
 bool SpvParserFinished(SpvParser *parser)
 {
-	return parser->wordIndex >= parser->wordCount;
+	return parser->instructionWords - parser->words >= parser->wordCount;
 }
 
 bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
@@ -450,45 +437,9 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 	return true;
 }
 
-bool SpvParseHeader(SpvParser *parser, SpvHeader **outHeader)
-{
-	SpvHeader *header = (SpvHeader*)parser->words;
-
-	// Check module endianness based on the magic number
-	SpvEndianness endianness;
-	if ( header->magic == SPIRV_MAGIC_LITTLE_ENDIAN.value ) {
-		endianness = SPIRV_ENDIANNESS_LITTLE_ENDIAN;
-	} else if ( header->magic == SPIRV_MAGIC_BIG_ENDIAN.value ) {
-		endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
-	} else {
-		return false;
-	}
-
-	// Fix endianness
-	for (u32 i = 0; i < parser->wordCount; ++i) {
-		parser->words[i] = SpvFixWord( parser->words[i], endianness );
-	}
-
-	// Skip the header after parsing it
-	SpvParserSeek(parser, SpvSeekPosInstructions);
-
-	// Set output value
-	*outHeader = header;
-
-	return true;
-}
-
 bool SpvParse(SpvParser *parser, SpvModule *spirv)
 {
-	SpvHeader *header = NULL;
-	if ( !SpvParseHeader(parser, &header) )
-	{
-		// TODO: Report error
-		return false;
-	}
-
-	// Set output values
-	spirv->header = header;
+	spirv->header = parser->header;
 
 	while ( !SpvParserFinished(parser) )
 	{
@@ -560,16 +511,11 @@ void SpvParseDescriptor(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS
 
 bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIPTOR_SETS])
 {
-	SpvHeader *header = NULL;
-	if ( !SpvParseHeader(parser, &header) )
-	{
-		// TODO: Report error
-		return false;
-	}
-
 	u32 executionModel = 0;
 	u32 descriptorIds[SPV_MAX_DESCRIPTORS];
 	u32 descriptorIdCount = 0;
+
+	SpvParserRewind(parser);
 
 	while ( !SpvParserFinished(parser) )
 	{
@@ -581,7 +527,7 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIP
 		SpvParserAdvance(parser);
 	}
 
-	SpvParserSeek(parser, SpvSeekPosInstructions);
+	SpvParserRewind(parser);
 
 	while ( !SpvParserFinished(parser) )
 	{
@@ -590,6 +536,31 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIP
 	}
 
 	return true;
+}
+
+SpvParser SpvParserInit( u32 *words, u32 wordCount )
+{
+	SpvHeader *header = (SpvHeader*)words;
+
+	// Check module endianness based on the magic number
+	SpvEndianness endianness;
+	if ( header->magic == SPIRV_MAGIC_LITTLE_ENDIAN.value ) {
+		endianness = SPIRV_ENDIANNESS_LITTLE_ENDIAN;
+	} else if ( header->magic == SPIRV_MAGIC_BIG_ENDIAN.value ) {
+		endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
+	} else {
+		ASSERT(0 && "Invalid SPIRV word stream.");
+	}
+
+	// Fix endianness
+	for (u32 i = 0; i < wordCount; ++i) {
+		words[i] = SpvFixWord( words[i], endianness );
+	}
+
+	// Skip the header after parsing it
+	SpvParser parser = { words, wordCount };
+	SpvParserRewind( &parser );
+	return parser;
 }
 
 

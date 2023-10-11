@@ -25,7 +25,7 @@ int main(int argc, char **argv)
 	u32 *words = (u32*)chunk->data;
 	const u32 wordCount = chunk->size / 4;
 	ASSERT( chunk->size % 4 == 0 );
-	SpvParser spirvParser = { words, wordCount };
+	SpvParser spirvParser = SpvParserInit( words, wordCount );
 
 #define PARSE_INSTRUCTIONS 0
 #if PARSE_INSTRUCTIONS
