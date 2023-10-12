@@ -12,8 +12,8 @@ main_spirv:
 	g++ -g -o main_spirv main_spirv.cpp
 
 shaders:
-	dxc -spirv -T vs_6_7 -Fo shaders/vertex.spv shaders/vertex.hlsl
-	dxc -spirv -T ps_6_7 -Fo shaders/fragment.spv shaders/fragment.hlsl
+	dxc -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl
+	dxc -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
 
 clean:
 	rm -f main_interpreter main_vulkan main_atof main_spirv shaders/*.spv

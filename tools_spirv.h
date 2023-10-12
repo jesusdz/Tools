@@ -18,6 +18,7 @@
 #define SPV_MAX_DESCRIPTOR_SETS 4u
 #define SPV_MAX_DESCRIPTORS_PER_SET 8u
 #define SPV_MAX_DESCRIPTORS ( SPV_MAX_DESCRIPTOR_SETS * SPV_MAX_DESCRIPTORS_PER_SET )
+#define SPV_MAX_IDS 128
 
 
 // Endianness ////////////////////////////////////////////////////////////////////////////
@@ -26,7 +27,7 @@ union SpvEndianness
 {
 	unsigned char values[4];
 	struct {
-		unsigned int value;
+		u32 value;
 	};
 };
 
@@ -34,13 +35,12 @@ static const SpvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
 static const SpvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
 static const SpvEndianness SPIRV_MAGIC_LITTLE_ENDIAN = { 0x03, 0x02, 0x23, 0x07 }; // Magic number: 0x07230203
 static const SpvEndianness SPIRV_MAGIC_BIG_ENDIAN = { 0x07, 0x23, 0x02, 0x03 }; // Magic number: 0x07230203
-static const unsigned int SPIRV_HOST_ENDIANNESS = 0x01020304;
+static const u32 SPIRV_HOST_ENDIANNESS = 0x01020304;
 
-unsigned int SpvFixWord(unsigned int word, SpvEndianness endianness)
+u32 SpvSwapWord(u32 word)
 {
-	const unsigned int swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
-	const unsigned int fixedWord = ( endianness.value == SPIRV_HOST_ENDIANNESS ? word : swappedWord );
-	return fixedWord;
+	const u32 swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
+	return swappedWord;
 }
 
 
@@ -94,6 +94,13 @@ enum SpvOp
 	SpvOpReturn = 253,
 };
 
+enum SpvType
+{
+	SpvTypeNone,
+	SpvTypeSampledImage,
+	SpvTypeUniformBuffer,
+};
+
 enum SpvExecutionModel
 {
 	SpvExecutionModelVertex = 0,
@@ -119,7 +126,8 @@ enum SpvDescriptorType
 
 enum SpvStageFlags
 {
-	SpvStageFlagsVertexBit,
+	SpvStageFlagsVertexBit = (1<<0),
+	SpvStageFlagsFragmentBit = (1<<1),
 };
 
 struct SpvHeader
@@ -148,15 +156,20 @@ struct SpvParser
 
 struct SpvDescriptor
 {
-	u32 binding;
-	u32 descriptorSet;
-	u32 descriptorType;
-	u32 stageFlags;
+	u8 binding;
+	u8 set;
+	u8 type;
+	u8 stageFlags;
 };
 
 struct SpvDescriptorSet
 {
-	SpvDescriptor descriptors[SPV_MAX_DESCRIPTORS_PER_SET];
+	SpvDescriptor bindings[SPV_MAX_DESCRIPTORS_PER_SET];
+};
+
+struct SpvDescriptorSetLayout
+{
+	SpvDescriptorSet sets[SPV_MAX_DESCRIPTOR_SETS];
 };
 
 struct SpvModule
@@ -453,7 +466,7 @@ bool SpvParse(SpvParser *parser, SpvModule *spirv)
 	return true;
 }
 
-void SpvParseEntryPoint(SpvParser *parser, u32 *executionModel)
+void SpvTryParseEntryPoint(SpvParser *parser, u32 *executionModel)
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -468,27 +481,46 @@ void SpvParseEntryPoint(SpvParser *parser, u32 *executionModel)
 	}
 }
 
-void SpvParseDescriptorId(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS], u32 *descriptorIdCount)
+enum SpvIdFlags
+{
+	SpvIdFlagDescriptor = (1<<0),
+};
+
+struct SpvId
+{
+	u8 binding;
+	u8 set;
+	u8 type;
+	u8 flags;
+};
+
+void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
 
-	if ( opCode == SpvOpVariable )
-	{
-		const u32 resultTypeId = words[1];
-		const u32 resultId = words[2];
-		const u32 storageClass = words[3];
-		if ( storageClass == SpvStorageClassUniform || storageClass == SpvStorageClassUniformConstant )
-		{
-			LOG(Info, "Found Uniform with id %u and type %u\n", resultId, resultTypeId);
-			const u32 descriptorId = *descriptorIdCount;
-			descriptorIds[descriptorId] = resultId;
-			*descriptorIdCount = descriptorId + 1;
-		}
-	}
+	u32 resultId = 0;
+	u32 typeId = 0;
+
+	switch ( opCode ) {
+		case SpvOpTypeSampledImage:
+			resultId = words[1];
+			ids[resultId].type = SpvTypeSampledImage;
+			break;
+		case SpvOpTypeStruct:
+			resultId = words[1];
+			ids[resultId].type = SpvTypeUniformBuffer;
+			break;
+		case SpvOpTypePointer:
+			resultId = words[1];
+			//storageClass = words[2];
+			typeId = words[3];
+			ids[resultId].type = ids[typeId].type;
+			break;
+	};
 }
 
-void SpvParseDescriptor(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS], u32 *descriptorIdCount)
+void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -500,39 +532,79 @@ void SpvParseDescriptor(SpvParser *parser, u32 descriptorIds[SPV_MAX_DESCRIPTORS
 
 		if ( decoration == SpvDecorationBinding )
 		{
-			const u32 binding = words[3];
+			ids[targetId].binding = (u8)words[3];
 		}
 		else if ( decoration == SpvDecorationDescriptorSet )
 		{
-			const u32 descriptorSet = words[3];
+			ids[targetId].set = (u8)words[3];
 		}
 	}
 }
 
-bool SpvParse(SpvParser *parser, SpvDescriptorSet descriptorSets[SPV_MAX_DESCRIPTOR_SETS])
+void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+{
+	const u32 *words = parser->instructionWords;
+	const u32 opCode = SpvParserInstructionOpCode(parser);
+
+	if ( opCode == SpvOpVariable )
+	{
+		const u32 resultTypeId = words[1];
+		const u32 resultId = words[2];
+		const u32 storageClass = words[3];
+
+		if ( storageClass == SpvStorageClassUniform || storageClass == SpvStorageClassUniformConstant )
+		{
+			ids[resultId].type = ids[resultTypeId].type;
+			ids[resultId].flags |= SpvIdFlagDescriptor;
+		}
+	}
+}
+
+bool SpvParse(SpvParser *parser, SpvDescriptorSetLayout *descriptorSetLayout) 
 {
 	u32 executionModel = 0;
-	u32 descriptorIds[SPV_MAX_DESCRIPTORS];
-	u32 descriptorIdCount = 0;
+
+	SpvId ids[SPV_MAX_IDS] = {};
 
 	SpvParserRewind(parser);
-
-	while ( !SpvParserFinished(parser) )
-	{
-		const u32 opCode = SpvParserInstructionOpCode(parser);
-		switch (opCode) {
-			case SpvOpEntryPoint: SpvParseEntryPoint(parser, &executionModel); break;
-			case SpvOpVariable: SpvParseDescriptorId(parser, descriptorIds, &descriptorIdCount); break;
-		};
+	while ( !SpvParserFinished(parser) ) {
+		SpvTryParseEntryPoint(parser, &executionModel);
+		SpvTryParseType(parser, ids);
+		SpvTryParseDescriptor(parser, ids);
+		SpvTryParseDescriptorId(parser, ids);
 		SpvParserAdvance(parser);
 	}
 
-	SpvParserRewind(parser);
-
-	while ( !SpvParserFinished(parser) )
+	for (u32 i = 0; i < SPV_MAX_IDS; ++i)
 	{
-		SpvParseDescriptor(parser, descriptorIds, &descriptorIdCount);
-		SpvParserAdvance(parser);
+		if (ids[i].flags & SpvIdFlagDescriptor)
+		{
+			const u32 id = i;
+			const u8 binding = ids[i].binding;
+			const u8 set = ids[i].set;
+			const u8 type = ids[i].type;
+			LOG(Info, "Found Uniform:\n - id %u\n - type %u\n - binding:%u\n - set:%u\n", id, type, binding, set);
+
+			// TODO: check type if not first time accessed
+			SpvDescriptor *descriptor = &descriptorSetLayout->sets[set].bindings[binding];
+			descriptor->binding = ids[i].binding;
+			descriptor->set = ids[i].set;
+			descriptor->type = ids[i].type;
+			descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
+			descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
+		}
+	}
+
+	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
+	{
+		for (u32 binding = 0; binding < SPV_MAX_DESCRIPTORS_PER_SET; ++binding)
+		{
+			SpvDescriptor *desc = &descriptorSetLayout->sets[set].bindings[binding];
+			if ( desc->stageFlags )
+			{
+				LOG(Info, "Found Uniform:\n - type %u\n - binding:%u\n - set:%u\n", desc->type, desc->binding, desc->set);
+			}
+		}
 	}
 
 	return true;
@@ -553,11 +625,14 @@ SpvParser SpvParserInit( u32 *words, u32 wordCount )
 	}
 
 	// Fix endianness
-	for (u32 i = 0; i < wordCount; ++i) {
-		words[i] = SpvFixWord( words[i], endianness );
+	if ( endianness.value != SPIRV_HOST_ENDIANNESS ) {
+		for (u32 i = 0; i < wordCount; ++i) {
+			words[i] = SpvSwapWord( words[i] );
+		}
 	}
 
-	// Skip the header after parsing it
+	ASSERT(header->bound <= SPV_MAX_IDS);
+
 	SpvParser parser = { words, wordCount };
 	SpvParserRewind( &parser );
 	return parser;
