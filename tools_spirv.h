@@ -6,6 +6,7 @@ binary SPIRV streams and print some information.
 
 These are the publicly exposed functions:
 ```
+  SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
   SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
   bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
   void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
@@ -134,11 +135,6 @@ enum SpvStorageClass
 	SpvStorageClassUniform = 2,
 };
 
-enum SpvDescriptorType
-{
-	SpvDescriptorTypeUniformBuffer,
-};
-
 enum SpvStageFlags
 {
 	SpvStageFlagsVertexBit = (1<<0),
@@ -190,7 +186,8 @@ struct SpvDescriptorSetList
 
 // Prototypes ////////////////////////////////////////////////////////////////////////////
 
-SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
+SpvParser SpvParserInit( spv_u8 *words, spv_u32 wordCount );
+SpvParser SpvParserInit( spv_u32 *bytes, spv_u32 byteCount );
 bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
 #if defined(SPV_PRINT_FUNCTIONS)
 void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
@@ -420,6 +417,14 @@ static spv_u32 SpvSwapWord(spv_u32 word)
 {
 	const spv_u32 swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
 	return swappedWord;
+}
+
+SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount )
+{
+	SPV_ASSERT( byteCount % 4 == 0 );
+	const spv_u32 wordCount = byteCount / 4;
+	spv_u32 *words = (spv_u32*)bytes;
+	return SpvParserInit( words, wordCount );
 }
 
 SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount )

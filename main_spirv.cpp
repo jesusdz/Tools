@@ -40,10 +40,7 @@ int main(int argc, char **argv)
 		}
 
 		// Prepare a SpvParser
-		u32 *words = (u32*)chunk->data;
-		const u32 wordCount = chunk->size / 4;
-		ASSERT( chunk->size % 4 == 0 );
-		SpvParser spirvParser = SpvParserInit( words, wordCount );
+		SpvParser spirvParser = SpvParserInit( chunk->data, chunk->size );
 
 		// Parse spirv bytecode
 		SpvPrintDisassembly(&spirvParser);
@@ -63,10 +60,7 @@ int main(int argc, char **argv)
 		}
 
 		// Prepare a SpvParser
-		u32 *words = (u32*)chunk->data;
-		const u32 wordCount = chunk->size / 4;
-		ASSERT( chunk->size % 4 == 0 );
-		SpvParser spirvParser = SpvParserInit( words, wordCount );
+		SpvParser spirvParser = SpvParserInit( chunk->data, chunk->size );
 
 		const bool ok = SpvParseDescriptors(&spirvParser, &descriptorSetList);
 	}
