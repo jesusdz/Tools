@@ -1,53 +1,72 @@
+
+#define SPV_INCLUDE_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
 int main(int argc, char **argv)
 {
-	// Get shader filename
-	if ( argc != 2 ) {
-		LOG(Error, "Usage: %s <spirv_file.spv>\n", argv[0]);
+	// Check input arguments
+	if ( argc < 2 ) {
+		LOG(Error, "Usage: %s <file1.spv> <file2.spv> ...\n", argv[0]);
 		return -1;
 	}
-	const char *shaderFile = argv[1];
+
+	// Get shader filenames
+	const char *shaderFileNames[2];
+	const u32 shaderFileCount = Min(argc - 1, ARRAY_COUNT(shaderFileNames));
+	for (u32 i = 0; i < shaderFileCount; ++i) {
+		shaderFileNames[i] = argv[i + 1];
+	}
 
 	// Create a memory arena
 	u32 memorySize = MB(1);
 	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
 	Arena arena = MakeArena(memory, memorySize);
 
-	// Get shader file memory blob
-	DataChunk *chunk = PushFile(arena, shaderFile);
-	if (!chunk) {
-		LOG(Error, "Error reading %s\n", shaderFile);
-		return -1;
-	}
-
-	// Prepare a SpvParser
-	u32 *words = (u32*)chunk->data;
-	const u32 wordCount = chunk->size / 4;
-	ASSERT( chunk->size % 4 == 0 );
-	SpvParser spirvParser = SpvParserInit( words, wordCount );
-
-#define PARSE_INSTRUCTIONS 0
+#define PARSE_INSTRUCTIONS 1
 #if PARSE_INSTRUCTIONS
-	// Parse spirv bytecode
-	SpvModule spirv = {};
-	const bool ok = SpvParse(&spirvParser, &spirv);
+	for (u32 i = 0; i < shaderFileCount; ++i)
+	{
+		// Get shader file memory blob
+		const char *shaderFile = shaderFileNames[i];
+		DataChunk *chunk = PushFile(arena, shaderFile);
+		if (!chunk) {
+			LOG(Error, "Error reading %s\n", shaderFile);
+			return -1;
+		}
 
-	// Log spirv module header information
-	LOG(Info, "\nHeader info\n");
-	LOG(Info, "- magic: %x\n", spirv.header->magic);
-	LOG(Info, "- major: %d\n", SpvVersionMajor(spirv.header->version));
-	LOG(Info, "- minor: %d\n", SpvVersionMinor(spirv.header->version));
-	LOG(Info, "- generator: %d\n", spirv.header->generator);
-	LOG(Info, "- bound: %d\n", spirv.header->bound);
-	LOG(Info, "- schema: %d\n", spirv.header->schema);
+		// Prepare a SpvParser
+		u32 *words = (u32*)chunk->data;
+		const u32 wordCount = chunk->size / 4;
+		ASSERT( chunk->size % 4 == 0 );
+		SpvParser spirvParser = SpvParserInit( words, wordCount );
 
-	LOG(Info, "\nParsed information\n");
-	LOG(Info, "- Result: %s\n", ok ? "Success" : "Fail");
+		// Parse spirv bytecode
+		SpvPrintDisassembly(&spirvParser);
+	}
 #else
 	// Parse descriptor set layouts
-	SpvDescriptorSetLayout descriptorSetLayout = {};
-	const bool ok = SpvParse(&spirvParser, &descriptorSetLayout);
+	SpvDescriptorSetList descriptorSetList = {};
+
+	for (u32 i = 0; i < shaderFileCount; ++i)
+	{
+		// Get shader file memory blob
+		const char *shaderFile = shaderFileNames[i];
+		DataChunk *chunk = PushFile(arena, shaderFile);
+		if (!chunk) {
+			LOG(Error, "Error reading %s\n", shaderFile);
+			return -1;
+		}
+
+		// Prepare a SpvParser
+		u32 *words = (u32*)chunk->data;
+		const u32 wordCount = chunk->size / 4;
+		ASSERT( chunk->size % 4 == 0 );
+		SpvParser spirvParser = SpvParserInit( words, wordCount );
+
+		const bool ok = SpvParseDescriptors(&spirvParser, &descriptorSetList);
+	}
+
+	SpvPrintDescriptorSetList(&descriptorSetList);
 #endif
 
 	return 0;

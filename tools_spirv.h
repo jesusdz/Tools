@@ -14,34 +14,12 @@
 
 // Defines ///////////////////////////////////////////////////////////////////////////////
 
+#define SPV_ASSERT ASSERT
 #define SPV_INDEX_INSTRUCTION 5u
 #define SPV_MAX_DESCRIPTOR_SETS 4u
 #define SPV_MAX_DESCRIPTORS_PER_SET 8u
 #define SPV_MAX_DESCRIPTORS ( SPV_MAX_DESCRIPTOR_SETS * SPV_MAX_DESCRIPTORS_PER_SET )
 #define SPV_MAX_IDS 128
-
-
-// Endianness ////////////////////////////////////////////////////////////////////////////
-
-union SpvEndianness
-{
-	unsigned char values[4];
-	struct {
-		u32 value;
-	};
-};
-
-static const SpvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
-static const SpvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
-static const SpvEndianness SPIRV_MAGIC_LITTLE_ENDIAN = { 0x03, 0x02, 0x23, 0x07 }; // Magic number: 0x07230203
-static const SpvEndianness SPIRV_MAGIC_BIG_ENDIAN = { 0x07, 0x23, 0x02, 0x03 }; // Magic number: 0x07230203
-static const u32 SPIRV_HOST_ENDIANNESS = 0x01020304;
-
-u32 SpvSwapWord(u32 word)
-{
-	const u32 swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
-	return swappedWord;
-}
 
 
 // Types /////////////////////////////////////////////////////////////////////////////////
@@ -99,6 +77,14 @@ enum SpvType
 	SpvTypeNone,
 	SpvTypeSampledImage,
 	SpvTypeUniformBuffer,
+	SpvTypeCount
+};
+
+static const char *SpvTypeStrings[] =
+{
+	"SpvTypeNone",
+	"SpvTypeSampledImage",
+	"SpvTypeUniformBuffer",
 };
 
 enum SpvExecutionModel
@@ -167,78 +153,78 @@ struct SpvDescriptorSet
 	SpvDescriptor bindings[SPV_MAX_DESCRIPTORS_PER_SET];
 };
 
-struct SpvDescriptorSetLayout
+struct SpvDescriptorSetList
 {
 	SpvDescriptorSet sets[SPV_MAX_DESCRIPTOR_SETS];
 };
 
-struct SpvModule
-{
-	SpvHeader *header;
-};
+
+// Headers ///////////////////////////////////////////////////////////////////////////////
+
+void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
 
 
 // Parsing ///////////////////////////////////////////////////////////////////////////////
 
-u8 SpvVersionMajor(u32 version)
+static u8 SpvVersionMajor(u32 version)
 {
 	const u8 major = ( version & 0x00ff0000 ) >> 16;
 	return major;
 }
 
-u8 SpvVersionMinor(u32 version)
+static u8 SpvVersionMinor(u32 version)
 {
 	const u8 minor = ( version & 0x0000ff00 ) >> 8;
 	return minor;
 }
 
-u16 SpvGetWordCount(u32 firstInstructionWord)
+static u16 SpvGetWordCount(u32 firstInstructionWord)
 {
 	const u16 wordCount = ( firstInstructionWord >> 16 ) & 0xffff;
 	return wordCount;
 }
 
-u16 SpvGetOpCode(u32 firstInstructionWord)
+static u16 SpvGetOpCode(u32 firstInstructionWord)
 {
 	const u16 opCode = ( firstInstructionWord >> 0 ) & 0xffff;
 	return opCode;
 }
 
-void SpvParserUpdateInstruction(SpvParser *parser)
+static void SpvParserUpdateInstruction(SpvParser *parser)
 {
 	const u32 firstInstructionWord = *parser->instructionWords;
 	parser->instructionOpCode = SpvGetOpCode(firstInstructionWord);
 	parser->instructionWordCount = SpvGetWordCount(firstInstructionWord);
 }
 
-void SpvParserRewind(SpvParser *parser)
+static void SpvParserRewind(SpvParser *parser)
 {
 	parser->instructionWords = parser->words + SPV_INDEX_INSTRUCTION;
 	SpvParserUpdateInstruction(parser);
 }
 
-u32 SpvParserInstructionOpCode(SpvParser *parser)
+static u32 SpvParserInstructionOpCode(SpvParser *parser)
 {
 	return parser->instructionOpCode;
 }
 
-u32 SpvParserInstructionWordCount(SpvParser *parser)
+static u32 SpvParserInstructionWordCount(SpvParser *parser)
 {
 	return parser->instructionWordCount;
 }
 
-void SpvParserAdvance(SpvParser *parser)
+static void SpvParserAdvance(SpvParser *parser)
 {
 	parser->instructionWords += parser->instructionWordCount;
 	SpvParserUpdateInstruction(parser);
 }
 
-bool SpvParserFinished(SpvParser *parser)
+static bool SpvParserFinished(SpvParser *parser)
 {
 	return parser->instructionWords - parser->words >= parser->wordCount;
 }
 
-bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
+static void SpvPrintInstructionDisassembly(SpvParser *parser)
 {
 	const u32 *words = parser->instructionWords;
 	const u16 opCode = SpvParserInstructionOpCode(parser);
@@ -443,30 +429,20 @@ bool SpvParseInstruction(SpvParser *parser, SpvModule *spirv)
 		default:
 		{
 			LOG(Debug, "Unhandled instruction - opCode: %u - wordCount: %u\n", opCode, wordCount);
-			//return false;
 		}
 	};
-
-	return true;
 }
 
-bool SpvParse(SpvParser *parser, SpvModule *spirv)
+void SpvPrintDisassembly(SpvParser *parser)
 {
-	spirv->header = parser->header;
-
 	while ( !SpvParserFinished(parser) )
 	{
-		if ( !SpvParseInstruction(parser, spirv) )
-		{
-			return false;
-		}
+		SpvPrintInstructionDisassembly(parser);
 		SpvParserAdvance(parser);
 	}
-
-	return true;
 }
 
-void SpvTryParseEntryPoint(SpvParser *parser, u32 *executionModel)
+static void SpvTryParseEntryPoint(SpvParser *parser, u32 *executionModel)
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -474,10 +450,6 @@ void SpvTryParseEntryPoint(SpvParser *parser, u32 *executionModel)
 	if ( opCode == SpvOpEntryPoint )
 	{
 		*executionModel = words[1];
-
-		if ( *executionModel == SpvExecutionModelVertex ) LOG(Info, "Execution model: Vertex\n");
-		else if ( *executionModel == SpvExecutionModelFragment ) LOG(Info, "Execution model: Fragment\n");
-		else LOG(Info, "Execution model: Unknown\n");
 	}
 }
 
@@ -494,7 +466,7 @@ struct SpvId
 	u8 flags;
 };
 
-void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -520,7 +492,7 @@ void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	};
 }
 
-void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -541,7 +513,7 @@ void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
-void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 {
 	const u32 *words = parser->instructionWords;
 	const u32 opCode = SpvParserInstructionOpCode(parser);
@@ -560,7 +532,7 @@ void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
-bool SpvParse(SpvParser *parser, SpvDescriptorSetLayout *descriptorSetLayout) 
+bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList) 
 {
 	u32 executionModel = 0;
 
@@ -575,39 +547,48 @@ bool SpvParse(SpvParser *parser, SpvDescriptorSetLayout *descriptorSetLayout)
 		SpvParserAdvance(parser);
 	}
 
-	for (u32 i = 0; i < SPV_MAX_IDS; ++i)
+	for (u32 id = 0; id < SPV_MAX_IDS; ++id)
 	{
-		if (ids[i].flags & SpvIdFlagDescriptor)
+		if (ids[id].flags & SpvIdFlagDescriptor)
 		{
-			const u32 id = i;
-			const u8 binding = ids[i].binding;
-			const u8 set = ids[i].set;
-			const u8 type = ids[i].type;
-			LOG(Info, "Found Uniform:\n - id %u\n - type %u\n - binding:%u\n - set:%u\n", id, type, binding, set);
+			const u8 binding = ids[id].binding;
+			const u8 set = ids[id].set;
+			const u8 type = ids[id].type;
 
-			// TODO: check type if not first time accessed
-			SpvDescriptor *descriptor = &descriptorSetLayout->sets[set].bindings[binding];
-			descriptor->binding = ids[i].binding;
-			descriptor->set = ids[i].set;
-			descriptor->type = ids[i].type;
+			SpvDescriptor *descriptor = &descriptorSetList->sets[set].bindings[binding];
+
+			const bool firstTimeAccessed = (descriptor->stageFlags == 0);
+			SPV_ASSERT( firstTimeAccessed || descriptor->type == type );
+
+			descriptor->binding = ids[id].binding;
+			descriptor->set = ids[id].set;
+			descriptor->type = ids[id].type;
 			descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
 			descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
 		}
 	}
 
-	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
-	{
-		for (u32 binding = 0; binding < SPV_MAX_DESCRIPTORS_PER_SET; ++binding)
-		{
-			SpvDescriptor *desc = &descriptorSetLayout->sets[set].bindings[binding];
-			if ( desc->stageFlags )
-			{
-				LOG(Info, "Found Uniform:\n - type %u\n - binding:%u\n - set:%u\n", desc->type, desc->binding, desc->set);
-			}
-		}
-	}
-
 	return true;
+}
+
+union SpvEndianness
+{
+	u8 values[4];
+	struct {
+		u32 value;
+	};
+};
+
+static const SpvEndianness SPIRV_ENDIANNESS_LITTLE_ENDIAN = { 4, 3, 2, 1 };
+static const SpvEndianness SPIRV_ENDIANNESS_BIG_ENDIAN = { 1, 2, 3, 4 };
+static const SpvEndianness SPIRV_MAGIC_LITTLE_ENDIAN = { 0x03, 0x02, 0x23, 0x07 }; // Magic number: 0x07230203
+static const SpvEndianness SPIRV_MAGIC_BIG_ENDIAN = { 0x07, 0x23, 0x02, 0x03 }; // Magic number: 0x07230203
+static const u32 SPIRV_HOST_ENDIANNESS = 0x01020304;
+
+static u32 SpvSwapWord(u32 word)
+{
+	const u32 swappedWord = (word & 0x000000ff) << 24 | (word & 0x0000ff00) << 8 | (word & 0x00ff0000) >> 8 | (word & 0xff000000) >> 24;
+	return swappedWord;
 }
 
 SpvParser SpvParserInit( u32 *words, u32 wordCount )
@@ -621,24 +602,60 @@ SpvParser SpvParserInit( u32 *words, u32 wordCount )
 	} else if ( header->magic == SPIRV_MAGIC_BIG_ENDIAN.value ) {
 		endianness = SPIRV_ENDIANNESS_BIG_ENDIAN;
 	} else {
-		ASSERT(0 && "Invalid SPIRV word stream.");
+		SPV_ASSERT(0 && "Invalid SPIRV word stream.");
 	}
 
 	// Fix endianness
+	// FIXME: This is probably not correct... I think decoration strings use
+	// 1-byte characters, so this swapping could be messing their order.
+	// Likely 4-byte words should be swapped when accessed.
 	if ( endianness.value != SPIRV_HOST_ENDIANNESS ) {
 		for (u32 i = 0; i < wordCount; ++i) {
 			words[i] = SpvSwapWord( words[i] );
 		}
 	}
 
-	ASSERT(header->bound <= SPV_MAX_IDS);
+	SPV_ASSERT(header->bound <= SPV_MAX_IDS);
 
 	SpvParser parser = { words, wordCount };
 	SpvParserRewind( &parser );
 	return parser;
 }
 
+static const char *SpvTypeToString(SpvType type)
+{
+	const char *typeString = type < SpvTypeCount ? SpvTypeStrings[type] : "SpvTypeUnknown";
+	return typeString;
+}
 
+#if defined(SPV_INCLUDE_PRINT_FUNCTIONS)
+void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList)
+{
+	u32 currentSet = SPV_MAX_DESCRIPTOR_SETS;
+	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
+	{
+		for (u32 binding = 0; binding < SPV_MAX_DESCRIPTORS_PER_SET; ++binding)
+		{
+			SpvDescriptor *desc = &descriptorSetList->sets[set].bindings[binding];
+			if ( desc->type != SpvTypeNone )
+			{
+				if ( set != currentSet )
+				{
+					LOG(Info, "descriptor_set[%u]\n", set);
+					currentSet = set;
+				}
+
+				LOG(Info, "  binding[%u]\n", binding);
+				LOG(Info, "    type = %s\n", SpvTypeToString((SpvType)desc->type));
+				LOG(Info, "    stages = ");
+				if ( desc->stageFlags & SpvStageFlagsVertexBit ) LOG(Info, "Vertex ");
+				if ( desc->stageFlags & SpvStageFlagsFragmentBit ) LOG(Info, "Fragment ");
+				LOG(Info, "\n");
+			}
+		}
+	}
+}
+#endif
 
 #endif // #if TOOLS_SPIRV_H
 
