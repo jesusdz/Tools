@@ -6,12 +6,12 @@ struct PixelInput
 };
 
 // Create a combined image/sampler at binding=1, descriptorSet=1
-// Register for texture and sampler are t1, s1 in DX.
+// Register for texture and sampler are t0, s0 in DX.
 // Reference: https://github.com/microsoft/DirectXShaderCompiler/wiki/Vulkan-combined-image-sampler-type
 [[vk::combinedImageSampler]]
-Texture2D<float4> tex : register(t1, space1);
+Texture2D<float4> tex : register(t0, space1);
 [[vk::combinedImageSampler]]
-SamplerState texSampler : register(s1, space1);
+SamplerState texSampler : register(s0, space1);
 
 float4 main(PixelInput IN) : SV_Target
 {

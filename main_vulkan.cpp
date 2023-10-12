@@ -42,6 +42,12 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
+#define SPV_ASSERT ASSERT
+#define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
+#define SPV_IMPLEMENTATION
+#define SPV_PRINT_FUNCTIONS
+#include "tools_spirv.h"
+
 
 #define VULKAN_ALLOCATORS NULL
 #if PLATFORM_ANDROID
@@ -57,6 +63,8 @@
 
 struct Pipeline
 {
+	VkDescriptorSetLayout globalDescriptorSetLayout;
+	VkDescriptorSetLayout materialDescriptorSetLayout;
 	VkPipelineLayout layout;
 	VkPipeline handle;
 };
@@ -159,8 +167,6 @@ struct Graphics
 	u32 currentFrame;
 
 	// TODO: Temporary stuff hardcoded here
-	VkDescriptorSetLayout globalDescriptorSetLayout;
-	VkDescriptorSetLayout materialDescriptorSetLayout;
 	Pipeline pipeline;
 
 	Buffer cubeVertices;
@@ -448,6 +454,24 @@ Buffer CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
 	return indexBuffer;
 }
 
+static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
+{
+	switch (type) {
+		case SpvTypeSampledImage: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		case SpvTypeUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		default: INVALID_CODE_PATH();
+	}
+	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+}
+
+static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
+{
+	VkShaderStageFlags vkStageFlags = 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsVertexBit ) ? VK_SHADER_STAGE_VERTEX_BIT : 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsFragmentBit ) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
+	return vkStageFlags;
+}
+
 Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 {
 	Arena scratch = MakeSubArena(arena);
@@ -595,19 +619,106 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
 	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
 
+	// Pipeline layout
+	VkDescriptorSetLayout globalDescriptorSetLayout;
+	VkDescriptorSetLayout materialDescriptorSetLayout;
+#if 1
+	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS];
+	u32 descriptorSetLayoutCount = 0;
+
+	SpvParser parserForVertex = SpvParserInit( vertexFile->data, vertexFile->size );
+	SpvParser parserForFragment = SpvParserInit( fragmentFile->data, fragmentFile->size );
+	SpvDescriptorSetList spvDescriptorList = {};
+	SpvParseDescriptors( &parserForVertex, &spvDescriptorList );
+	SpvParseDescriptors( &parserForFragment, &spvDescriptorList );
+
+	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
+	{
+		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+		u32 bindingCount = 0;
+
+		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
+		{
+			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
+
+			if ( descriptor.type != SpvTypeNone )
+			{
+				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
+				binding.binding = descriptor.binding;
+				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)descriptor.type);
+				binding.descriptorCount = 1;
+				binding.stageFlags = SpvStageFlagsToVulkan(descriptor.stageFlags);
+				binding.pImmutableSamplers = NULL;
+			}
+		}
+
+		if (bindingCount > 0)
+		{
+			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
+			descriptorSetLayoutCreateInfo.pBindings = bindings;
+			VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
+		}
+	}
+
+	globalDescriptorSetLayout = descriptorSetLayouts[0];
+	materialDescriptorSetLayout = descriptorSetLayouts[1];
+#else
+	// -- For globals
+	{
+		VkDescriptorSetLayoutBinding bindings[] = {
+			{
+				0, // binding
+				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // descriptorType
+				1, // descriptorCount
+				VK_SHADER_STAGE_VERTEX_BIT, // stageFlags
+				NULL // pImmutableSamplers
+			},
+		};
+
+		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
+		descriptorSetLayoutCreateInfo.pBindings = bindings;
+		VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &globalDescriptorSetLayout) );
+	}
+
+	// -- For materials
+	{
+		VkDescriptorSetLayoutBinding bindings[] = {
+			{
+				0, // binding
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // descriptorType
+				1, // descriptorCount
+				VK_SHADER_STAGE_FRAGMENT_BIT, // stageFlags
+				NULL // pImmutableSamplers
+			},
+		};
+
+		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
+		descriptorSetLayoutCreateInfo.pBindings = bindings;
+		VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &materialDescriptorSetLayout) );
+	}
+
+	VkDescriptorSetLayout descriptorSetLayouts[] = {
+		globalDescriptorSetLayout,
+		materialDescriptorSetLayout,
+	};
+	const u32 descriptorSetLayoutCount = ARRAY_COUNT(descriptorSetLayouts);
+#endif
+
+	// TODO: Get this from SPIRV as well
 	VkPushConstantRange pushConstantRanges[1] = {};
 	pushConstantRanges[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	pushConstantRanges[0].offset = 0;
 	pushConstantRanges[0].size = sizeof(float4x4);
 
-	VkDescriptorSetLayout descriptorSetLayouts[] = {
-		gfx.globalDescriptorSetLayout,
-		gfx.materialDescriptorSetLayout,
-	};
-
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.setLayoutCount = ARRAY_COUNT(descriptorSetLayouts);
+	pipelineLayoutCreateInfo.setLayoutCount = descriptorSetLayoutCount;
 	pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts;
 	pipelineLayoutCreateInfo.pushConstantRangeCount = ARRAY_COUNT(pushConstantRanges);
 	pipelineLayoutCreateInfo.pPushConstantRanges = pushConstantRanges;
@@ -640,6 +751,8 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 	vkDestroyShaderModule(gfx.device, fragmentShaderModule, VULKAN_ALLOCATORS);
 
 	Pipeline pipeline = {};
+	pipeline.globalDescriptorSetLayout = globalDescriptorSetLayout;
+	pipeline.materialDescriptorSetLayout = materialDescriptorSetLayout;
 	pipeline.layout = pipelineLayout;
 	pipeline.handle = pipelineHandle;
 	return pipeline;
@@ -1537,45 +1650,6 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 
 	// Create descriptor set layout
 
-	// -- For globals
-	{
-		VkDescriptorSetLayoutBinding bindings[] = {
-			{
-				0, // binding
-				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // descriptorType
-				1, // descriptorCount
-				VK_SHADER_STAGE_VERTEX_BIT, // stageFlags
-				NULL // pImmutableSamplers
-			},
-		};
-
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
-		descriptorSetLayoutCreateInfo.pBindings = bindings;
-		VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &gfx.globalDescriptorSetLayout) );
-	}
-
-	// -- For materials
-	{
-		VkDescriptorSetLayoutBinding bindings[] = {
-			{
-				1, // binding
-				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // descriptorType
-				1, // descriptorCount
-				VK_SHADER_STAGE_FRAGMENT_BIT, // stageFlags
-				NULL // pImmutableSamplers
-			},
-		};
-
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
-		descriptorSetLayoutCreateInfo.pBindings = bindings;
-		VK_CHECK_RESULT( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &gfx.materialDescriptorSetLayout) );
-	}
-
-
 	// Create pipeline
 	gfx.pipeline = CreatePipeline(gfx, scratch);
 
@@ -1645,7 +1719,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	{
 		const u32 descriptorSetCount = ARRAY_COUNT(gfx.globalDescriptorSets);
 		VkDescriptorSetLayout descriptorSetLayouts[descriptorSetCount] = {};
-		for (u32 i = 0; i < descriptorSetCount; ++i) descriptorSetLayouts[i] = gfx.globalDescriptorSetLayout;
+		for (u32 i = 0; i < descriptorSetCount; ++i) descriptorSetLayouts[i] = gfx.pipeline.globalDescriptorSetLayout;
 		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		descriptorSetAllocateInfo.descriptorPool = gfx.descriptorPool;
@@ -1657,7 +1731,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	{
 		const u32 descriptorSetCount = ARRAY_COUNT(gfx.materialDescriptorSets);
 		VkDescriptorSetLayout descriptorSetLayouts[descriptorSetCount] = {};
-		for (u32 i = 0; i < descriptorSetCount; ++i) descriptorSetLayouts[i] = gfx.materialDescriptorSetLayout;
+		for (u32 i = 0; i < descriptorSetCount; ++i) descriptorSetLayouts[i] = gfx.pipeline.materialDescriptorSetLayout;
 		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		descriptorSetAllocateInfo.descriptorPool = gfx.descriptorPool;
@@ -1763,8 +1837,8 @@ void CleanupGraphics(Graphics &gfx)
 
 	vkDestroyPipeline( gfx.device, gfx.pipeline.handle, VULKAN_ALLOCATORS );
 	vkDestroyPipelineLayout( gfx.device, gfx.pipeline.layout, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorSetLayout( gfx.device, gfx.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorSetLayout( gfx.device, gfx.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
 
 
 	vkDestroyPipelineCache( gfx.device, gfx.pipelineCache, VULKAN_ALLOCATORS );
@@ -1904,7 +1978,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const u32 i1 = descriptorWriteCount++;
 		descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		descriptorWrites[i1].dstSet = gfx.materialDescriptorSets[0];
-		descriptorWrites[i1].dstBinding = 1;
+		descriptorWrites[i1].dstBinding = 0;
 		descriptorWrites[i1].dstArrayElement = 0;
 		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		descriptorWrites[i1].descriptorCount = 1;
