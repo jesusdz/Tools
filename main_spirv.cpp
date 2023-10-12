@@ -1,6 +1,12 @@
+#include "tools.h"
 
-#define SPV_INCLUDE_PRINT_FUNCTIONS
+#define SPV_ASSERT ASSERT
+#define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
+#define SPV_IMPLEMENTATION
+#define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
+
+#define PRINT_DISASSEMBLY 0
 
 int main(int argc, char **argv)
 {
@@ -22,8 +28,7 @@ int main(int argc, char **argv)
 	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
 	Arena arena = MakeArena(memory, memorySize);
 
-#define PARSE_INSTRUCTIONS 1
-#if PARSE_INSTRUCTIONS
+#if PRINT_DISASSEMBLY
 	for (u32 i = 0; i < shaderFileCount; ++i)
 	{
 		// Get shader file memory blob
