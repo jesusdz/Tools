@@ -105,6 +105,8 @@ enum SpvOp
 enum SpvType
 {
 	SpvTypeNone,
+	SpvTypeImage,
+	SpvTypeSampler,
 	SpvTypeSampledImage,
 	SpvTypeUniformBuffer,
 	SpvTypeCount
@@ -113,6 +115,8 @@ enum SpvType
 static const char *SpvTypeStrings[] =
 {
 	"SpvTypeNone",
+	"SpvTypeImage",
+	"SpvTypeSampler",
 	"SpvTypeSampledImage",
 	"SpvTypeUniformBuffer",
 };
@@ -133,6 +137,7 @@ enum SpvStorageClass
 {
 	SpvStorageClassUniformConstant = 0,
 	SpvStorageClassUniform = 2,
+	SpvStorageClassPushConstant = 9,
 };
 
 enum SpvStageFlags
@@ -284,6 +289,7 @@ static void SpvTryParseEntryPoint(SpvParser *parser, spv_u32 *executionModel)
 enum SpvIdFlags
 {
 	SpvIdFlagDescriptor = (1<<0),
+	SpvIdFlagPushConstant = (1<<1),
 };
 
 struct SpvId
@@ -303,6 +309,14 @@ static void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	spv_u32 typeId = 0;
 
 	switch ( opCode ) {
+		case SpvOpTypeImage:
+			resultId = words[1];
+			ids[resultId].type = SpvTypeImage;
+			break;
+		case SpvOpTypeSampler:
+			resultId = words[1];
+			ids[resultId].type = SpvTypeSampler;
+			break;
 		case SpvOpTypeSampledImage:
 			resultId = words[1];
 			ids[resultId].type = SpvTypeSampledImage;
@@ -357,6 +371,11 @@ static void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 			ids[resultId].type = ids[resultTypeId].type;
 			ids[resultId].flags |= SpvIdFlagDescriptor;
 		}
+		else if ( storageClass == SpvStorageClassPushConstant )
+		{
+			ids[resultId].type = ids[resultTypeId].type;
+			ids[resultId].flags |= SpvIdFlagPushConstant;
+		}
 	}
 }
 
@@ -386,13 +405,20 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 			SpvDescriptor *descriptor = &descriptorSetList->sets[set].bindings[binding];
 
 			const bool firstTimeAccessed = (descriptor->stageFlags == 0);
-			SPV_ASSERT( firstTimeAccessed || descriptor->type == type );
 
-			descriptor->binding = ids[id].binding;
-			descriptor->set = ids[id].set;
-			descriptor->type = ids[id].type;
-			descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
-			descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
+			if ( firstTimeAccessed || descriptor->type == type )
+			{
+				descriptor->binding = ids[id].binding;
+				descriptor->set = ids[id].set;
+				descriptor->type = ids[id].type;
+				descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
+				descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
+			}
+			else
+			{
+				SPV_PRINTF( "Warning: descriptor(set:%u, binding:%u) - Type mismatch (%u / %u)\n", set, binding, descriptor->type, type );
+				SPV_ASSERT( firstTimeAccessed || descriptor->type == type );
+			}
 		}
 	}
 
@@ -451,7 +477,9 @@ SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount )
 		}
 	}
 
-	SPV_ASSERT(header->bound <= SPV_MAX_IDS);
+	if ( header->bound >= SPV_MAX_IDS )
+		SPV_PRINTF( "Error: Maximum number of SPIRV IDs (%u) reached.\n", SPV_MAX_IDS );
+	SPV_ASSERT(header->bound < SPV_MAX_IDS);
 
 	SpvParser parser = { words, wordCount };
 	SpvParserRewind( &parser );

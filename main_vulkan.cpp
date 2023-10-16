@@ -457,6 +457,8 @@ Buffer CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
 static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
 {
 	switch (type) {
+		case SpvTypeImage: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		case SpvTypeSampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
 		case SpvTypeSampledImage: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		case SpvTypeUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		default: INVALID_CODE_PATH();
@@ -1684,7 +1686,9 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	{
 		VkDescriptorPoolSize descriptorPoolSizes[] = {
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
+			//{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
 		};
 		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1956,7 +1960,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	VkDescriptorImageInfo *imageInfo = PushStruct(frameArena, VkDescriptorImageInfo);
 	imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	imageInfo->imageView = gfx.textureImageView;
-	imageInfo->sampler = gfx.textureSampler;
+	imageInfo->sampler = VK_NULL_HANDLE;
+
+	VkDescriptorImageInfo *samplerInfo = PushStruct(frameArena, VkDescriptorImageInfo);
+	samplerInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	samplerInfo->imageView = VK_NULL_HANDLE;
+	samplerInfo->sampler = gfx.textureSampler;
 
 	u32 descriptorWriteCount = 0;
 
@@ -1980,11 +1989,22 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		descriptorWrites[i1].dstSet = gfx.materialDescriptorSets[0];
 		descriptorWrites[i1].dstBinding = 0;
 		descriptorWrites[i1].dstArrayElement = 0;
-		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 		descriptorWrites[i1].descriptorCount = 1;
 		descriptorWrites[i1].pBufferInfo = NULL;
 		descriptorWrites[i1].pImageInfo = imageInfo;
 		descriptorWrites[i1].pTexelBufferView = NULL;
+
+		const u32 i2 = descriptorWriteCount++;
+		descriptorWrites[i2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[i2].dstSet = gfx.materialDescriptorSets[0];
+		descriptorWrites[i2].dstBinding = 1;
+		descriptorWrites[i2].dstArrayElement = 0;
+		descriptorWrites[i2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		descriptorWrites[i2].descriptorCount = 1;
+		descriptorWrites[i2].pBufferInfo = NULL;
+		descriptorWrites[i2].pImageInfo = samplerInfo;
+		descriptorWrites[i2].pTexelBufferView = NULL;
 	}
 
 	if ( descriptorWriteCount > 0 )
@@ -2368,4 +2388,8 @@ int main(int argc, char **argv)
 
 	return 1;
 }
+
+// TODO:
+// - Create the most common samplers in the global descriptor set.
+// - Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 
