@@ -49,7 +49,14 @@
 #include "tools_spirv.h"
 
 
+#define USE_VULKAN_ALLOCATION_CALLBACKS 0
+#if USE_VULKAN_ALLOCATION_CALLBACKS
+#define VULKAN_ALLOCATORS &g_VulkanAllocators
+#else
 #define VULKAN_ALLOCATORS NULL
+#endif
+
+
 #if PLATFORM_ANDROID
 #define MAX_SWAPCHAIN_IMAGE_COUNT 5
 #else
@@ -264,6 +271,88 @@ static const u16 planeIndices[] = {
 
 static Entity entities[MAX_ENTITIES] = {};
 
+
+#if USE_VULKAN_ALLOCATION_CALLBACKS
+
+// TODO: Remove this include from here
+#include <stdlib.h>
+
+struct VulkanAllocationScope
+{
+	u32 allocatedBytes;
+	u32 maxAllocatedBytes;
+};
+
+struct VulkanAllocationInfo
+{
+	u32 size;
+	u32 maxSize;
+	VulkanAllocationScope scopes[VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE + 1];
+};
+
+const char *VkSystemAllocationScopeToString( VkSystemAllocationScope scope )
+{
+	static const char *toString[] = {
+		"VK_SYSTEM_ALLOCATION_SCOPE_COMMAND", // = 0,
+		"VK_SYSTEM_ALLOCATION_SCOPE_OBJECT", // = 1,
+		"VK_SYSTEM_ALLOCATION_SCOPE_CACHE", // = 2,
+		"VK_SYSTEM_ALLOCATION_SCOPE_DEVICE", // = 3,
+		"VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE", // = 4,
+	};
+	ASSERT( scope < ARRAY_COUNT(toString) );
+	return toString[scope];
+}
+
+static void* VulkanAllocate(void* userData, size_t size, size_t alignment, VkSystemAllocationScope scope)
+{
+	//LOG(Debug,"- VulkanAllocate size: %u - align: %u - scope: %s\n", size, alignment, VkSystemAllocationScopeToString(scope));
+	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
+	VulkanAllocationScope &allocationScope = allocationInfo->scopes[scope];
+	allocationScope.allocatedBytes += size;
+	allocationScope.maxAllocatedBytes = Max(allocationScope.maxAllocatedBytes, allocationScope.allocatedBytes);
+	return malloc(size);
+}
+
+static void* VulkanReallocate(void* userData, void* original, size_t size, size_t alignment, VkSystemAllocationScope scope)
+{
+	//LOG(Debug,"- VulkanReallocate size: %u - align: %u - scope: %s\n", size, alignment, VkSystemAllocationScopeToString(scope));
+	return realloc(original, size);
+}
+
+static void VulkanFree(void* userData, void* memory)
+{
+	//LOG(Debug,"- VulkanFree\n");
+	free(memory);
+}
+
+static void VulkanAllocNotification(void* userData, size_t size, VkInternalAllocationType type, VkSystemAllocationScope scope)
+{
+	LOG(Debug,"- VulkanAllocate size: %u\n", size);
+	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
+	allocationInfo->size += size;
+	allocationInfo->maxSize = Max(allocationInfo->maxSize, allocationInfo->size);
+}
+
+static void VulkanFreeNotification(void* userData, size_t size, VkInternalAllocationType type, VkSystemAllocationScope scope)
+{
+	LOG(Debug,"- VulkanReallocate size: %u\n", size);
+	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
+	allocationInfo->size -= size;
+	allocationInfo->maxSize = Max(allocationInfo->maxSize, allocationInfo->size);
+}
+
+static VulkanAllocationInfo g_VulkanAllocationInfo = {};
+
+static VkAllocationCallbacks g_VulkanAllocators = {
+    &g_VulkanAllocationInfo, // void*
+    VulkanAllocate, // PFN_vkAllocationFunction
+    VulkanReallocate, // PFN_vkReallocationFunction
+    VulkanFree, // PFN_vkFreeFunction
+    VulkanAllocNotification, // PFN_vkInternalAllocationNotification
+    VulkanFreeNotification, // PFN_vkInternalFreeNotification
+};
+
+#endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT                       flags,
@@ -799,7 +888,7 @@ Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, V
 	VkDeviceMemory imageMemory;
 	VK_CHECK_RESULT( vkAllocateMemory(gfx.device, &allocInfo, VULKAN_ALLOCATORS, &imageMemory) );
 
-	vkBindImageMemory(gfx.device, image, imageMemory, 0);
+	VK_CHECK_RESULT( vkBindImageMemory(gfx.device, image, imageMemory, 0) );
 
 	Image imageStruct = { image, format, imageMemory};
 	return imageStruct;
@@ -823,7 +912,7 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	viewInfo.subresourceRange.layerCount = 1;
 
 	VkImageView imageView;
-	VK_CHECK_RESULT( vkCreateImageView(gfx.device, &viewInfo, nullptr, &imageView) );
+	VK_CHECK_RESULT( vkCreateImageView(gfx.device, &viewInfo, VULKAN_ALLOCATORS, &imageView) );
 	return imageView;
 }
 
@@ -1855,8 +1944,8 @@ void CleanupGraphics(Graphics &gfx)
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, NULL);
-		vkFreeMemory(gfx.device, gfx.uniformBuffers[i].memory, NULL);
+		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, VULKAN_ALLOCATORS);
+		vkFreeMemory(gfx.device, gfx.uniformBuffers[i].memory, VULKAN_ALLOCATORS);
 	}
 
 	vkDestroyPipeline( gfx.device, gfx.pipeline.handle, VULKAN_ALLOCATORS );
@@ -2410,6 +2499,16 @@ int main(int argc, char **argv)
 	CleanupWindow(window);
 
 	PrintArenaUsage(arena);
+
+#if USE_VULKAN_ALLOCATION_CALLBACKS
+	LOG(Info, "Vulkan system memory usage:\n");
+	for ( u32 i = 0; i < ARRAY_COUNT( g_VulkanAllocationInfo.scopes ); ++i )
+	{
+		VkSystemAllocationScope scopeId = (VkSystemAllocationScope)i;
+		VulkanAllocationScope &scope = g_VulkanAllocationInfo.scopes[scopeId];
+		LOG(Info, "- Max size for %s: %u kB\n", VkSystemAllocationScopeToString(scopeId), scope.maxAllocatedBytes / KB(1));
+	}
+#endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
 
 	return 1;
 }
