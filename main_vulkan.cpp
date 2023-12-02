@@ -68,6 +68,33 @@
 #define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
 
 
+enum HeapType
+{
+	HeapType_General,
+	HeapType_RTs,
+	HeapType_Staging,
+	HeapType_Dynamic,
+	HeapType_Readback,
+	HeapType_COUNT,
+};
+
+struct Heap
+{
+	HeapType type;
+	u32 size;
+	u32 memoryTypeIndex;
+	VkDeviceMemory memory;
+	u8* data;
+	u32 used;
+};
+
+struct Alloc
+{
+	HeapType heap;
+	u64 offset;
+	u64 size;
+};
+
 struct Pipeline
 {
 	VkDescriptorSetLayout globalDescriptorSetLayout;
@@ -79,15 +106,14 @@ struct Pipeline
 struct Buffer
 {
 	VkBuffer buffer;
-	VkDeviceMemory memory;
-	u32 size;
+	Alloc alloc;
 };
 
 struct Image
 {
 	VkImage image;
 	VkFormat format;
-	VkDeviceMemory memory;
+	Alloc alloc;
 };
 
 struct Vertex
@@ -175,6 +201,8 @@ struct Graphics
 
 	VkPipelineCache pipelineCache;
 
+	Heap heaps[HeapType_COUNT];
+
 	u32 currentFrame;
 
 	// TODO: Temporary stuff hardcoded here
@@ -189,7 +217,6 @@ struct Graphics
 	Buffer planeIndices;
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
-	void *uniformBuffersMapped[MAX_FRAMES_IN_FLIGHT];
 
 	Image textureImage;
 	VkImageView textureImageView;
@@ -272,6 +299,60 @@ static const u16 planeIndices[] = {
 static Entity entities[MAX_ENTITIES] = {};
 
 
+const char *VkPhysicalDeviceTypeToString( VkPhysicalDeviceType type )
+{
+	static const char *toString[] = {
+		"VK_PHYSICAL_DEVICE_TYPE_OTHER", // 0
+		"VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU", // 1
+		"VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU", // 2
+		"VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU", // 3
+		"VK_PHYSICAL_DEVICE_TYPE_CPU", // 4
+	};
+	ASSERT( type < ARRAY_COUNT(toString) );
+	return toString[type];
+}
+
+#define CONCAT_FLAG(flag) if ( flags & flag ) StrCat(outString, #flag "|" );
+
+const char *VkMemoryPropertyFlagsToString( VkMemoryPropertyFlags flags, char *outString )
+{
+	*outString = 0;
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_PROTECTED_BIT);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD);
+	CONCAT_FLAG(VK_MEMORY_PROPERTY_RDMA_CAPABLE_BIT_NV);
+	return outString;
+}
+
+const char *VkMemoryHeapFlagsToString( VkMemoryHeapFlags flags, char *outString )
+{
+	*outString = 0;
+	CONCAT_FLAG(VK_MEMORY_HEAP_DEVICE_LOCAL_BIT);
+	CONCAT_FLAG(VK_MEMORY_HEAP_MULTI_INSTANCE_BIT);
+	return outString;
+}
+
+const char *HeapTypeToString(HeapType heapType)
+{
+	static const char *toString[] = {
+		"HeapType_General",
+		"HeapType_RTs",
+		"HeapType_Staging",
+		"HeapType_Dynamic",
+		"HeapType_Readback",
+	};
+	CT_ASSERT( ARRAY_COUNT(toString) == HeapType_COUNT );
+	ASSERT( heapType < ARRAY_COUNT(toString) );
+	return toString[heapType];
+}
+
+#undef CONCAT_FLAG
+
 #if USE_VULKAN_ALLOCATION_CALLBACKS
 
 // TODO: Remove this include from here
@@ -344,25 +425,25 @@ static void VulkanFreeNotification(void* userData, size_t size, VkInternalAlloca
 static VulkanAllocationInfo g_VulkanAllocationInfo = {};
 
 static VkAllocationCallbacks g_VulkanAllocators = {
-    &g_VulkanAllocationInfo, // void*
-    VulkanAllocate, // PFN_vkAllocationFunction
-    VulkanReallocate, // PFN_vkReallocationFunction
-    VulkanFree, // PFN_vkFreeFunction
-    VulkanAllocNotification, // PFN_vkInternalAllocationNotification
-    VulkanFreeNotification, // PFN_vkInternalFreeNotification
+	&g_VulkanAllocationInfo, // void*
+	VulkanAllocate, // PFN_vkAllocationFunction
+	VulkanReallocate, // PFN_vkReallocationFunction
+	VulkanFree, // PFN_vkFreeFunction
+	VulkanAllocNotification, // PFN_vkInternalAllocationNotification
+	VulkanFreeNotification, // PFN_vkInternalFreeNotification
 };
 
 #endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
-		VkDebugReportFlagsEXT                       flags,
-		VkDebugReportObjectTypeEXT                  objectType,
-		uint64_t                                    object,
-		size_t                                      location,
-		int32_t                                     messageCode,
-		const char*                                 pLayerPrefix,
-		const char*                                 pMessage,
-		void*                                       pUserData)
+		VkDebugReportFlagsEXT       flags,
+		VkDebugReportObjectTypeEXT  objectType,
+		uint64_t                    object,
+		size_t                      location,
+		int32_t                     messageCode,
+		const char*                 pLayerPrefix,
+		const char*                 pMessage,
+		void*                       pUserData)
 {
 	LOG(Warning, "VulkanDebugReportCallback was called.\n");
 	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
@@ -398,32 +479,65 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	return shaderModule;
 }
 
-u32 FindMemoryTypeIndex(const Graphics &gfx, u32 memoryTypeBits, VkMemoryPropertyFlags memoryFlags)
+VkMemoryPropertyFlags HeapTypeToVkMemoryPropertyFlags( HeapType heapType )
 {
-	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &physicalDeviceMemoryProperties);
+	static const VkMemoryPropertyFlags flags[] = {
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_General,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_RTs,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Staging,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Dynamic,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, // HeapType_Readback,
+	};
+	CT_ASSERT( ARRAY_COUNT(flags) == HeapType_COUNT );
+	return flags[heapType];
+};
 
+Heap CreateHeap(const Graphics &gfx, HeapType heapType, u32 size, bool mapMemory)
+{
 	u32 memoryTypeIndex = -1;
-	VkMemoryPropertyFlags requiredMemoryProperties = memoryFlags;
-	for (u32 i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; ++i)
+
+	VkMemoryPropertyFlags requiredFlags = HeapTypeToVkMemoryPropertyFlags( heapType );
+
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &memoryProperties);
+
+	for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
 	{
-		if ( (memoryTypeBits & (1 << i)) &&
-				((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & requiredMemoryProperties) == requiredMemoryProperties) )
+		const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
+
+		if ( ( memoryType.propertyFlags & requiredFlags ) == requiredFlags )
 		{
 			memoryTypeIndex = i;
+			break;
 		}
 	}
-	if( memoryTypeIndex == -1 )
+
+	VkMemoryAllocateInfo memoryAllocateInfo = {};
+	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocateInfo.allocationSize = size;
+	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
+
+	VkDeviceMemory memory;
+	VK_CHECK_RESULT( vkAllocateMemory(gfx.device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
+
+	u8 *data = 0;
+	if ( mapMemory )
 	{
-		LOG(Error, "Could not find a proper memory type for the buffer.\n");
-		QUIT_ABNORMALLY();
+		VK_CHECK_RESULT( vkMapMemory(gfx.device, memory, 0, size, 0, (void**)&data) );
 	}
-	return memoryTypeIndex;
+
+	Heap heap = {};
+	heap.type = heapType;
+	heap.size = size;
+	heap.memoryTypeIndex = memoryTypeIndex;
+	heap.memory = memory;
+	heap.data = data;
+	return heap;
 }
 
-Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, VkMemoryPropertyFlags memoryFlags)
+Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, Heap &memoryHeap)
 {
-	// Vertex buffers
+	// Buffer
 	VkBufferCreateInfo bufferCreateInfo = {};
 	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferCreateInfo.size = size;
@@ -433,29 +547,27 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 	VkBuffer buffer;
 	VK_CHECK_RESULT( vkCreateBuffer(gfx.device, &bufferCreateInfo, VULKAN_ALLOCATORS, &buffer) );
 
-
-	// Memory for the buffer
+	// Memory
+	VkDeviceMemory memory = memoryHeap.memory;
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(gfx.device, buffer, &memoryRequirements);
+	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
+	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
+	memoryHeap.used = offset + memoryRequirements.size;
 
-	const u32 memoryTypeIndex = FindMemoryTypeIndex(gfx, memoryRequirements.memoryTypeBits, memoryFlags);
-
-	VkMemoryAllocateInfo memoryAllocateInfo = {};
-	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	memoryAllocateInfo.allocationSize = memoryRequirements.size;
-	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
-
-	VkDeviceMemory memory;
-	VK_CHECK_RESULT( vkAllocateMemory(gfx.device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
-
-	VkDeviceSize offset = 0;
 	VK_CHECK_RESULT( vkBindBufferMemory(gfx.device, buffer, memory, offset) );
+
+	Alloc alloc = {
+		memoryHeap.type,
+		offset,
+		memoryRequirements.size,
+	};
 
 	Buffer gfxBuffer = {
 		buffer,
-		memory,
-		size
+		alloc,
 	};
+
 	return gfxBuffer;
 }
 
@@ -508,31 +620,30 @@ void CopyBuffer(Graphics &gfx, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceS
 
 Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
 {
+	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
+
 	// Create a staging buffer backed with locally accessible memory
 	Buffer stagingBuffer = CreateBuffer(
 			gfx,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+			stagingHeap);
 
 	// Fill staging buffer memory
-	void* dstData;
-	VK_CHECK_RESULT( vkMapMemory(gfx.device, stagingBuffer.memory, 0, size, 0, &dstData) );
+	void* dstData = stagingHeap.data + stagingBuffer.alloc.offset;
 	MemCopy(dstData, data, (size_t) size);
-	vkUnmapMemory(gfx.device, stagingBuffer.memory);
 
 	// Create a buffer in device local memory
 	Buffer finalBuffer = CreateBuffer(
 			gfx,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			gfx.heaps[HeapType_General]);
 
 	// Copy contents from the staging to the final buffer
 	CopyBuffer(gfx, stagingBuffer.buffer, finalBuffer.buffer, size);
 
 	vkDestroyBuffer( gfx.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, stagingBuffer.memory, VULKAN_ALLOCATORS );
 
 	return finalBuffer;
 }
@@ -856,8 +967,9 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 	return pipeline;
 }
 
-Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryFlags)
+Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
 {
+	// Image
 	VkImageCreateInfo imageCreateInfo = {};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -877,20 +989,26 @@ Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, V
 	VkImage image;
 	VK_CHECK_RESULT( vkCreateImage(gfx.device, &imageCreateInfo, VULKAN_ALLOCATORS, &image) );
 
-	VkMemoryRequirements memoryRequirements;
+	// Memory
+	VkMemoryRequirements memoryRequirements = {};
 	vkGetImageMemoryRequirements(gfx.device, image, &memoryRequirements);
+	VkDeviceMemory memory = memoryHeap.memory;
+	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
+	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
+	memoryHeap.used = offset + memoryRequirements.size;
 
-	VkMemoryAllocateInfo allocInfo = {};
-	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	allocInfo.allocationSize = memoryRequirements.size;
-	allocInfo.memoryTypeIndex = FindMemoryTypeIndex(gfx, memoryRequirements.memoryTypeBits, memoryFlags);
+	VK_CHECK_RESULT( vkBindImageMemory(gfx.device, image, memory, offset) );
 
-	VkDeviceMemory imageMemory;
-	VK_CHECK_RESULT( vkAllocateMemory(gfx.device, &allocInfo, VULKAN_ALLOCATORS, &imageMemory) );
-
-	VK_CHECK_RESULT( vkBindImageMemory(gfx.device, image, imageMemory, 0) );
-
-	Image imageStruct = { image, format, imageMemory};
+	Alloc alloc = {
+		memoryHeap.type,
+		offset,
+		memoryRequirements.size,
+	};
+	Image imageStruct = {
+		image,
+		format,
+		alloc,
+	};
 	return imageStruct;
 }
 
@@ -1033,17 +1151,17 @@ void CreateTextureImage(Graphics &gfx)
 	u32 imageSize = texWidth * texHeight * 4;
 
 	// Create a staging buffer backed with locally accessible memory
+	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
 	Buffer stagingBuffer = CreateBuffer(
 			gfx,
 			imageSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+			stagingHeap);
 
 	// Fill staging buffer memory
-	void* dstData;
-	VK_CHECK_RESULT( vkMapMemory(gfx.device, stagingBuffer.memory, 0, imageSize, 0, &dstData) );
+	ASSERT( stagingHeap.data != 0 );
+	void* dstData = stagingHeap.data + stagingBuffer.alloc.offset;
 	MemCopy(dstData, pixels, imageSize);
-	vkUnmapMemory(gfx.device, stagingBuffer.memory);
 
 	if ( originalPixels )
 	{
@@ -1054,14 +1172,13 @@ void CreateTextureImage(Graphics &gfx)
 			texWidth, texHeight,
 			VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			gfx.heaps[HeapType_General]);
 
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 	CopyBufferToImage(gfx, stagingBuffer.buffer, image.image, texWidth, texHeight);
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 	vkDestroyBuffer( gfx.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, stagingBuffer.memory, VULKAN_ALLOCATORS );
 
 	gfx.textureImage = image;
 }
@@ -1275,7 +1392,7 @@ bool CreateRenderPass( const Graphics &gfx, VkRenderPass &renderPass )
 	return true;
 }
 
-bool CreateRenderTargets(const Graphics &gfx, RenderTargets &renderTargets)
+bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	// Depth buffer
 	VkFormat depthFormat = FindDepthFormat(gfx);
@@ -1284,7 +1401,7 @@ bool CreateRenderTargets(const Graphics &gfx, RenderTargets &renderTargets)
 			depthFormat,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			gfx.heaps[HeapType_RTs]);
 	VkImageView depthImageView = CreateImageView(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 	TransitionImageLayout(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 	renderTargets.depthImageView = depthImageView;
@@ -1689,10 +1806,31 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	volkLoadDevice(gfx.device);
 
 
-	// Get alignments
+	// Print physical device info
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
+	LOG(Info, "Physical device info:\n");
+	LOG(Info, "- apiVersion: %u\n", properties.apiVersion); // uint32_t
+	LOG(Info, "- driverVersion: %u\n", properties.driverVersion); // uint32_t
+	LOG(Info, "- vendorID: %u\n", properties.vendorID); // uint32_t
+	LOG(Info, "- deviceID: %u\n", properties.deviceID); // uint32_t
+	LOG(Info, "- deviceType: %s\n", VkPhysicalDeviceTypeToString(properties.deviceType)); // VkPhysicalDeviceType
+	LOG(Info, "- deviceName: %s\n", properties.deviceName); // char
+	//LOG(Info, "- \n"); // uint8_t							 pipelineCacheUUID[VK_UUID_SIZE];
+	//LOG(Info, "- \n"); // VkPhysicalDeviceLimits			  limits;
+	//LOG(Info, "- \n"); // VkPhysicalDeviceSparseProperties	sparseProperties;
+
+
+	// Get alignments
 	gfx.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
+
+
+	// Create heaps
+	gfx.heaps[HeapType_General] = CreateHeap(gfx, HeapType_General, MB(16), false);
+	gfx.heaps[HeapType_RTs] = CreateHeap(gfx, HeapType_RTs, MB(64), false);
+	gfx.heaps[HeapType_Staging] = CreateHeap(gfx, HeapType_Staging, MB(16), true);
+	gfx.heaps[HeapType_Dynamic] = CreateHeap(gfx, HeapType_Dynamic, MB(16), true);
+	//gfx.heaps[HeapType_Readback] = CreateHeap(gfx, HeapType_Readback, 0);
 
 
 	// Retrieve queues
@@ -1778,9 +1916,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 			gfx,
 			uniformBufferSize,
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
-
-		vkMapMemory(gfx.device, gfx.uniformBuffers[i].memory, 0, uniformBufferSize, 0, &gfx.uniformBuffersMapped[i]);
+			gfx.heaps[HeapType_Dynamic]);
 	}
 
 
@@ -1906,11 +2042,14 @@ void CleanupSwapchain(const Graphics &gfx, const Swapchain &swapchain)
 	vkDestroySwapchainKHR(gfx.device, swapchain.handle, VULKAN_ALLOCATORS);
 }
 
-void CleanupRenderTargets(const Graphics &gfx, const RenderTargets &renderTargets)
+void CleanupRenderTargets(Graphics &gfx, const RenderTargets &renderTargets)
 {
 	vkDestroyImageView(gfx.device, renderTargets.depthImageView, VULKAN_ALLOCATORS);
 	vkDestroyImage(gfx.device, renderTargets.depthImage.image, VULKAN_ALLOCATORS);
-	vkFreeMemory(gfx.device, renderTargets.depthImage.memory, VULKAN_ALLOCATORS);
+
+	// Reset the heap used for render targets
+	Heap &rtHeap = gfx.heaps[HeapType_RTs];
+	rtHeap.used = 0;
 
 	for ( u32 i = 0; i < gfx.swapchain.imageCount; ++i )
 	{
@@ -1931,21 +2070,20 @@ void CleanupGraphics(Graphics &gfx)
 
 	vkDestroyImageView( gfx.device, gfx.textureImageView, VULKAN_ALLOCATORS );
 	vkDestroyImage( gfx.device, gfx.textureImage.image, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.textureImage.memory, VULKAN_ALLOCATORS );
 
 	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.cubeIndices.memory, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.cubeVertices.memory, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.planeIndices.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.planeIndices.memory, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.planeVertices.buffer, VULKAN_ALLOCATORS );
-	vkFreeMemory( gfx.device, gfx.planeVertices.memory, VULKAN_ALLOCATORS );
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
 		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, VULKAN_ALLOCATORS);
-		vkFreeMemory(gfx.device, gfx.uniformBuffers[i].memory, VULKAN_ALLOCATORS);
+	}
+
+	for (u32 i = 0; i < HeapType_COUNT; ++i)
+	{
+		vkFreeMemory(gfx.device, gfx.heaps[i].memory, VULKAN_ALLOCATORS);
 	}
 
 	vkDestroyPipeline( gfx.device, gfx.pipeline.handle, VULKAN_ALLOCATORS );
@@ -1953,7 +2091,7 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
 	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
 
-	CleanupRenderTargets( gfx, gfx.renderTargets);
+	CleanupRenderTargets( gfx, gfx.renderTargets );
 
 	vkDestroyRenderPass( gfx.device, gfx.renderPass, VULKAN_ALLOCATORS );
 
@@ -2051,7 +2189,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	Globals globals;
 	globals.view = viewMatrix;
 	globals.proj = projectionMatrix;
-	void *ptr = (u8*)gfx.uniformBuffersMapped[frameIndex] + uniformBufferOffset;
+	Buffer &uniformBuffer = gfx.uniformBuffers[frameIndex];
+	Heap &uniformBufferHeap = gfx.heaps[uniformBuffer.alloc.heap];
+	void *ptr = uniformBufferHeap.data + uniformBuffer.alloc.offset;
 	MemCopy( ptr, &globals, sizeof(globals) );
 	uniformBufferOffset = AlignUp(uniformBufferOffset + sizeof(globals), gfx.alignment.uniformBufferOffset);
 
@@ -2197,7 +2337,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const float4x4 modelMatrix = Translate(entity.position); // TODO: Apply also rotation and scale
 		vkCmdPushConstants(commandBuffer, gfx.pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(modelMatrix), &modelMatrix);
 
-		vkCmdDrawIndexed(commandBuffer, indexBuffer->size/2, 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, indexBuffer->alloc.size/2, 1, 0, 0, 0);
 	}
 
 #if USE_IMGUI
@@ -2315,8 +2455,8 @@ int main(int argc, char **argv)
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;	 // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	  // Enable Gamepad Controls
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
@@ -2436,26 +2576,89 @@ int main(int argc, char **argv)
 #error "Missing codepath"
 #endif
 		ImGui::NewFrame();
+		ImGui::Begin("Hello, world!");
 
+#if 0 // Example ImGui code
 		// Create some fancy UI
 		static bool checked = true;
 		static f32 floatValue = 0.0f;
 		static float clear_color[3] = {};
 		static u32 counter = 0;
-		ImGui::Begin("Hello, world!");
-		ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-		ImGui::Checkbox("Example checkbox", &checked);          // Edit bools storing our window open/close state
-		ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);   // Edit 1 float using a slider from 0.0f to 1.0f
-		ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-		if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
+
+		ImGui::Text("This is some useful text.");
+		ImGui::Checkbox("Example checkbox", &checked);
+		ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);
+		ImGui::ColorEdit3("clear color", (float*)&clear_color);
+		if (ImGui::Button("Button"))
 			counter++;
 		ImGui::SameLine();
 		ImGui::Text("counter = %d", counter);
-		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-		ImGui::End();
+#endif
 
-		// Generate the draw data
-		ImGui::Render();
+		char tmpString[4092] = {};
+		VkPhysicalDeviceMemoryProperties memoryProperties;
+		vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &memoryProperties);
+
+
+		ImGui::Text("Memory units");
+		static int unit = 1;
+		static const char *unitSuffix[] = {"B", "KB", "MB"};
+		static const u32 unitBytes[] = {1, KB(1), MB(1)};
+		if (ImGui::BeginTable("##mem_units", 3)) {
+			for (int i = 0; i < ARRAY_COUNT(unitSuffix); i++) {
+				ImGui::TableNextColumn();
+				if (ImGui::RadioButton(unitSuffix[i], i == unit)) {
+					unit = i;
+				}
+			}
+			ImGui::EndTable();
+		}
+
+		if ( ImGui::CollapsingHeader("Vulkan memory types", ImGuiTreeNodeFlags_None) )
+		{
+			for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
+			{
+				const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
+
+				// Some devices expose memory types we cannot use
+				if ( memoryType.propertyFlags == 0 ) continue;
+
+				ImGui::Text("- type[%u]", i);
+				ImGui::Text("- propertyFlags: %s", VkMemoryPropertyFlagsToString(memoryType.propertyFlags, tmpString));
+				ImGui::Text("- heapIndex: %u", memoryType.heapIndex);
+				ImGui::Separator();
+			}
+		}
+
+		if ( ImGui::CollapsingHeader("Vulkan memory heaps", ImGuiTreeNodeFlags_None) )
+		{
+			for ( u32 i = 0; i < memoryProperties.memoryHeapCount; ++i )
+			{
+				const VkMemoryHeap &memoryHeap = memoryProperties.memoryHeaps[i];
+				ImGui::Text("- heap[%u]", i );
+				ImGui::Text("- size: %u %s", memoryHeap.size / unitBytes[unit], unitSuffix[unit]);
+				ImGui::Text("- flags: %s", VkMemoryHeapFlagsToString(memoryHeap.flags, tmpString));
+				ImGui::Separator();
+			}
+		}
+
+		if ( ImGui::CollapsingHeader("Application memory heaps", ImGuiTreeNodeFlags_None) )
+		{
+			for ( u32 i = 0; i < HeapType_COUNT; ++i )
+			{
+				const Heap &heap = gfx.heaps[i];
+				ImGui::Text("- %s", HeapTypeToString((HeapType)i));
+				ImGui::Text("  - size: %u %s\n", heap.size / unitBytes[unit], unitSuffix[unit]);
+				ImGui::Text("  - used: %u %s\n", heap.used / unitBytes[unit], unitSuffix[unit]);
+				ImGui::Text("  - memoryTypeIndex: %u\n", heap.memoryTypeIndex);
+				ImGui::Separator();
+			}
+		}
+
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+		ImGui::End();
+		ImGui::Render(); // Generate the draw data
 #endif
 
 		if ( window.flags & WindowFlags_Resized || gfx.swapchain.shouldRecreate )
