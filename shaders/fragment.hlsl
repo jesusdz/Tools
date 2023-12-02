@@ -17,6 +17,7 @@ float4 main(PixelInput IN) : SV_Target
 	float3 lightColor = float3(1.0, 1.0, 1.0);
 	float3 diffuse = 0.8 * clamp(dot(N, L), 0.0, 1.0) * lightColor;
 	float3 ambient = 0.2 * lightColor;
-	return float4((diffuse + ambient) * albedo, 1.0);
+	float4 shadedColor = float4((diffuse + ambient) * albedo, 1.0);
+	return shadedColor;
 }
 

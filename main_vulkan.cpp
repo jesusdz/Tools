@@ -122,6 +122,11 @@ struct Texture
 	VkImageView imageView;
 };
 
+struct Material
+{
+	Texture *albedoTexture;
+};
+
 struct Sampler
 {
 	VkSampler sampler;
@@ -230,8 +235,12 @@ struct Graphics
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 
-	Texture texture;
+	Texture textureDirt;
+	Texture textureDiamond;
 	Sampler textureSampler;
+
+	Material materials[MAX_MATERIALS];
+	u32 materialCount;
 
 	VkDescriptorPool descriptorPool;
 #if USE_IMGUI
@@ -1227,6 +1236,13 @@ Texture CreateTexture(Graphics &gfx, const char *filePath)
 	return texture;
 }
 
+Material CreateMaterial( Texture &texture )
+{
+	Material material = {};
+	material.albedoTexture = &texture;
+	return material;
+}
+
 VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
 {
 	for (u32 i = 0; i < candidateCount; ++i)
@@ -1694,7 +1710,7 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 		gfx.swapchainInfo.format = VK_FORMAT_MAX_ENUM;
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
-			if ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
+			if ( ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB || surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB ) &&
 					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
 			{
 				gfx.swapchainInfo.format = surfaceFormats[i].format;
@@ -1930,11 +1946,6 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	}
 
 
-	// Create texture
-	gfx.texture = CreateTexture(gfx, "assets/image.png");
-	gfx.textureSampler = CreateSampler(gfx);
-
-
 	// Create Descriptor Pool
 	{
 		VkDescriptorPoolSize descriptorPoolSizes[] = {
@@ -2003,25 +2014,34 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	gfx.camera.orientation = {0, -0.45f};
 
 
-	// Materials
+	// Textures
 
-	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
+	gfx.textureDiamond = CreateTexture(gfx, "assets/diamond.png");
+	gfx.textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
+	gfx.textureSampler = CreateSampler(gfx);
+
+
+	// Materials
+	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textureDiamond );
+	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textureDirt );
 
 	u32 descriptorWriteCount = 0;
+	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
+	VkDescriptorImageInfo imageInfos[MAX_MATERIALS] = {};
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfos[i].imageView = gfx.materials[i].albedoTexture->imageView;
+		imageInfos[i].sampler = VK_NULL_HANDLE;
 
-	VkDescriptorImageInfo imageInfo = {};
-	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageInfo.imageView = gfx.texture.imageView;
-	imageInfo.sampler = VK_NULL_HANDLE;
-
-	descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	descriptorWrites[descriptorWriteCount].dstSet = gfx.materialDescriptorSets[0];
-	descriptorWrites[descriptorWriteCount].dstBinding = 0;
-	descriptorWrites[descriptorWriteCount].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	descriptorWrites[descriptorWriteCount].descriptorCount = 1;
-	descriptorWrites[descriptorWriteCount].pImageInfo = &imageInfo;
-	descriptorWriteCount++;
-
+		descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[descriptorWriteCount].dstSet = gfx.materialDescriptorSets[i];
+		descriptorWrites[descriptorWriteCount].dstBinding = 0;
+		descriptorWrites[descriptorWriteCount].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		descriptorWrites[descriptorWriteCount].descriptorCount = 1;
+		descriptorWrites[descriptorWriteCount].pImageInfo = &imageInfos[i];
+		descriptorWriteCount++;
+	}
 	if ( descriptorWriteCount > 0 )
 	{
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
@@ -2048,14 +2068,14 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	entities[entityIndex].position = {  1, 0,  1 };
 	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
-	entities[entityIndex].materialIndex = 0;
+	entities[entityIndex].materialIndex = 1;
 	entityIndex++;
 
 	entities[entityIndex].visible = true;
 	entities[entityIndex].position = { -1, 0,  1 };
 	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
-	entities[entityIndex].materialIndex = 0;
+	entities[entityIndex].materialIndex = 1;
 	entityIndex++;
 
 	// Copy the temporary device into the output parameter
@@ -2105,8 +2125,10 @@ void CleanupGraphics(Graphics &gfx)
 
 	vkDestroySampler( gfx.device, gfx.textureSampler.sampler, VULKAN_ALLOCATORS );
 
-	vkDestroyImageView( gfx.device, gfx.texture.imageView, VULKAN_ALLOCATORS );
-	vkDestroyImage( gfx.device, gfx.texture.image.image, VULKAN_ALLOCATORS );
+	vkDestroyImageView( gfx.device, gfx.textureDiamond.imageView, VULKAN_ALLOCATORS );
+	vkDestroyImage( gfx.device, gfx.textureDiamond.image.image, VULKAN_ALLOCATORS );
+	vkDestroyImageView( gfx.device, gfx.textureDirt.imageView, VULKAN_ALLOCATORS );
+	vkDestroyImage( gfx.device, gfx.textureDirt.image.image, VULKAN_ALLOCATORS );
 
 	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
@@ -2159,6 +2181,16 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyInstance(gfx.instance, VULKAN_ALLOCATORS);
 
 	ZeroStruct( &gfx );
+}
+
+void LoadScene(Graphics &gfx)
+{
+	// TODO
+}
+
+void CleanupScene(Graphics &gfx)
+{
+	// TODO
 }
 
 float3 ForwardDirectionFromAngles(const float2 &angles)
@@ -2587,6 +2619,22 @@ int main(int argc, char **argv)
 #endif
 		ImGui::NewFrame();
 		ImGui::Begin("Hello, world!");
+
+
+		if ( ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen) )
+		{
+			static bool sceneLoaded = false;
+			if ( ImGui::Button("Load") && !sceneLoaded )
+			{
+				LoadScene(gfx);
+			}
+			if ( ImGui::Button("Cleanup") && sceneLoaded )
+			{
+				CleanupScene(gfx);
+			}
+		}
+
+		ImGui::Separator();
 
 #if 0 // Example ImGui code
 		// Create some fancy UI
