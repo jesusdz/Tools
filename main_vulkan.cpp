@@ -63,6 +63,7 @@
 #define MAX_SWAPCHAIN_IMAGE_COUNT 3
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
+#define MAX_TEXTURES 4
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 8
 #define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
@@ -235,9 +236,10 @@ struct Graphics
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 
-	Texture textureDirt;
-	Texture textureDiamond;
 	Sampler textureSampler;
+
+	Texture textures[MAX_TEXTURES];
+	u32 textureCount;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -2014,16 +2016,18 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	gfx.camera.orientation = {0, -0.45f};
 
 
-	// Textures
-
-	gfx.textureDiamond = CreateTexture(gfx, "assets/diamond.png");
-	gfx.textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
+	// Samplers
 	gfx.textureSampler = CreateSampler(gfx);
 
 
+	// Textures
+	gfx.textures[gfx.textureCount++] = CreateTexture(gfx, "assets/diamond.png");
+	gfx.textures[gfx.textureCount++] = CreateTexture(gfx, "assets/dirt.jpg");
+
+
 	// Materials
-	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textureDiamond );
-	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textureDirt );
+	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textures[0] );
+	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textures[1] );
 
 	u32 descriptorWriteCount = 0;
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
@@ -2125,10 +2129,11 @@ void CleanupGraphics(Graphics &gfx)
 
 	vkDestroySampler( gfx.device, gfx.textureSampler.sampler, VULKAN_ALLOCATORS );
 
-	vkDestroyImageView( gfx.device, gfx.textureDiamond.imageView, VULKAN_ALLOCATORS );
-	vkDestroyImage( gfx.device, gfx.textureDiamond.image.image, VULKAN_ALLOCATORS );
-	vkDestroyImageView( gfx.device, gfx.textureDirt.imageView, VULKAN_ALLOCATORS );
-	vkDestroyImage( gfx.device, gfx.textureDirt.image.image, VULKAN_ALLOCATORS );
+	for (u32 i = 0; i < gfx.textureCount; ++i)
+	{
+		vkDestroyImageView( gfx.device, gfx.textures[i].imageView, VULKAN_ALLOCATORS );
+		vkDestroyImage( gfx.device, gfx.textures[i].image.image, VULKAN_ALLOCATORS );
+	}
 
 	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
