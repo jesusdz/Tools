@@ -116,6 +116,17 @@ struct Image
 	Alloc alloc;
 };
 
+struct Texture
+{
+	Image image;
+	VkImageView imageView;
+};
+
+struct Sampler
+{
+	VkSampler sampler;
+};
+
 struct Vertex
 {
 	float3 pos;
@@ -165,6 +176,7 @@ struct Entity
 	bool visible;
 	Buffer *vertexBuffer;
 	Buffer *indexBuffer;
+	u16 materialIndex;
 };
 
 struct Alignment
@@ -218,9 +230,8 @@ struct Graphics
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 
-	Image textureImage;
-	VkImageView textureImageView;
-	VkSampler textureSampler;
+	Texture texture;
+	Sampler textureSampler;
 
 	VkDescriptorPool descriptorPool;
 #if USE_IMGUI
@@ -1034,6 +1045,36 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	return imageView;
 }
 
+Sampler CreateSampler(Graphics &gfx)
+{
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
+
+	VkSamplerCreateInfo samplerCreateInfo = {};
+	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.anisotropyEnable = VK_TRUE;
+	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+	samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+	samplerCreateInfo.compareEnable = VK_FALSE; // For PCF shadows for instance
+	samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerCreateInfo.mipLodBias = 0.0f;
+	samplerCreateInfo.minLod = 0.0f;
+	samplerCreateInfo.maxLod = 0.0f;
+
+	VkSampler vkSampler;
+	VK_CHECK_RESULT( vkCreateSampler(gfx.device, &samplerCreateInfo, VULKAN_ALLOCATORS, &vkSampler) );
+
+	Sampler sampler = {vkSampler};
+	return sampler;
+}
+
 bool HasStencilComponent(VkFormat format)
 {
 	const bool hasStencil =
@@ -1133,10 +1174,10 @@ void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, VkImage image, u32 width,
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-void CreateTextureImage(Graphics &gfx)
+Texture CreateTexture(Graphics &gfx, const char *filePath)
 {
 	int texWidth, texHeight, texChannels;
-	FilePath imagePath = MakePath("assets/image.png");
+	FilePath imagePath = MakePath(filePath);
 	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	stbi_uc* pixels = originalPixels;
 	if ( !pixels )
@@ -1180,41 +1221,10 @@ void CreateTextureImage(Graphics &gfx)
 
 	vkDestroyBuffer( gfx.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
 
-	gfx.textureImage = image;
-}
-
-void CreateTextureImageView(Graphics &gfx)
-{
-	gfx.textureImageView = CreateImageView(gfx, gfx.textureImage.image, gfx.textureImage.format, VK_IMAGE_ASPECT_COLOR_BIT);
-}
-
-void CreateTextureSampler(Graphics &gfx)
-{
-	VkPhysicalDeviceProperties properties;
-	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
-
-	VkSamplerCreateInfo samplerCreateInfo = {};
-	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCreateInfo.anisotropyEnable = VK_TRUE;
-	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-	samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-	samplerCreateInfo.compareEnable = VK_FALSE; // For PCF shadows for instance
-	samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	samplerCreateInfo.mipLodBias = 0.0f;
-	samplerCreateInfo.minLod = 0.0f;
-	samplerCreateInfo.maxLod = 0.0f;
-
-	VkSampler textureSampler;
-	VK_CHECK_RESULT( vkCreateSampler(gfx.device, &samplerCreateInfo, VULKAN_ALLOCATORS, &textureSampler) );
-
-	gfx.textureSampler = textureSampler;
+	Texture texture = {};
+	texture.image = image;
+	texture.imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT);
+	return texture;
 }
 
 VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
@@ -1921,9 +1931,8 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 
 
 	// Create texture
-	CreateTextureImage(gfx);
-	CreateTextureImageView(gfx);
-	CreateTextureSampler(gfx);
+	gfx.texture = CreateTexture(gfx, "assets/image.png");
+	gfx.textureSampler = CreateSampler(gfx);
 
 
 	// Create Descriptor Pool
@@ -1994,6 +2003,30 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	gfx.camera.orientation = {0, -0.45f};
 
 
+	// Materials
+
+	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
+
+	u32 descriptorWriteCount = 0;
+
+	VkDescriptorImageInfo imageInfo = {};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = gfx.texture.imageView;
+	imageInfo.sampler = VK_NULL_HANDLE;
+
+	descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrites[descriptorWriteCount].dstSet = gfx.materialDescriptorSets[0];
+	descriptorWrites[descriptorWriteCount].dstBinding = 0;
+	descriptorWrites[descriptorWriteCount].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	descriptorWrites[descriptorWriteCount].descriptorCount = 1;
+	descriptorWrites[descriptorWriteCount].pImageInfo = &imageInfo;
+	descriptorWriteCount++;
+
+	if ( descriptorWriteCount > 0 )
+	{
+		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
+	}
+
 	// Entities
 	u32 entityIndex = 0;
 
@@ -2001,24 +2034,28 @@ bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
 	entities[entityIndex].position = { -1, 0, -1 };
 	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
+	entities[entityIndex].materialIndex = 0;
 	entityIndex++;
 
 	entities[entityIndex].visible = true;
 	entities[entityIndex].position = {  1, 0, -1 };
 	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
+	entities[entityIndex].materialIndex = 0;
 	entityIndex++;
 
 	entities[entityIndex].visible = true;
 	entities[entityIndex].position = {  1, 0,  1 };
 	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
+	entities[entityIndex].materialIndex = 0;
 	entityIndex++;
 
 	entities[entityIndex].visible = true;
 	entities[entityIndex].position = { -1, 0,  1 };
 	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
 	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
+	entities[entityIndex].materialIndex = 0;
 	entityIndex++;
 
 	// Copy the temporary device into the output parameter
@@ -2066,10 +2103,10 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyDescriptorPool( gfx.device, gfx.imGuiDescriptorPool, VULKAN_ALLOCATORS );
 #endif
 
-	vkDestroySampler( gfx.device, gfx.textureSampler, VULKAN_ALLOCATORS );
+	vkDestroySampler( gfx.device, gfx.textureSampler.sampler, VULKAN_ALLOCATORS );
 
-	vkDestroyImageView( gfx.device, gfx.textureImageView, VULKAN_ALLOCATORS );
-	vkDestroyImage( gfx.device, gfx.textureImage.image, VULKAN_ALLOCATORS );
+	vkDestroyImageView( gfx.device, gfx.texture.imageView, VULKAN_ALLOCATORS );
+	vkDestroyImage( gfx.device, gfx.texture.image.image, VULKAN_ALLOCATORS );
 
 	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
@@ -2198,25 +2235,18 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Update descriptor sets
 
-	const u32 materialDescriptorSetCount = MAX_MATERIALS;
-	const u32 globalDescriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-	VkWriteDescriptorSet *descriptorWrites =  PushArray(frameArena, VkWriteDescriptorSet, materialDescriptorSetCount + globalDescriptorSetCount);
+	VkWriteDescriptorSet descriptorWrites[MAX_FRAMES_IN_FLIGHT] = {};
 
 	// -- update global descriptor set
-	VkDescriptorBufferInfo *bufferInfo = PushStruct(frameArena, VkDescriptorBufferInfo);
-	bufferInfo->buffer = gfx.uniformBuffers[frameIndex].buffer;
-	bufferInfo->offset = 0;
-	bufferInfo->range = sizeof(Globals);
+	VkDescriptorBufferInfo bufferInfo = {};
+	bufferInfo.buffer = gfx.uniformBuffers[frameIndex].buffer;
+	bufferInfo.offset = 0;
+	bufferInfo.range = sizeof(Globals);
 
-	VkDescriptorImageInfo *imageInfo = PushStruct(frameArena, VkDescriptorImageInfo);
-	imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageInfo->imageView = gfx.textureImageView;
-	imageInfo->sampler = VK_NULL_HANDLE;
-
-	VkDescriptorImageInfo *samplerInfo = PushStruct(frameArena, VkDescriptorImageInfo);
-	samplerInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	samplerInfo->imageView = VK_NULL_HANDLE;
-	samplerInfo->sampler = gfx.textureSampler;
+	VkDescriptorImageInfo samplerInfo = {};
+	samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	samplerInfo.imageView = VK_NULL_HANDLE;
+	samplerInfo.sampler = gfx.textureSampler.sampler;
 
 	u32 descriptorWriteCount = 0;
 
@@ -2227,36 +2257,17 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	descriptorWrites[i0].dstArrayElement = 0;
 	descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	descriptorWrites[i0].descriptorCount = 1;
-	descriptorWrites[i0].pBufferInfo = bufferInfo;
+	descriptorWrites[i0].pBufferInfo = &bufferInfo;
 	descriptorWrites[i0].pImageInfo = NULL;
 	descriptorWrites[i0].pTexelBufferView = NULL;
 
-	static bool first = true;
-	if (first)
-	{
-		first = false;
-		const u32 i1 = descriptorWriteCount++;
-		descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i1].dstSet = gfx.materialDescriptorSets[0];
-		descriptorWrites[i1].dstBinding = 0;
-		descriptorWrites[i1].dstArrayElement = 0;
-		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		descriptorWrites[i1].descriptorCount = 1;
-		descriptorWrites[i1].pBufferInfo = NULL;
-		descriptorWrites[i1].pImageInfo = imageInfo;
-		descriptorWrites[i1].pTexelBufferView = NULL;
-
-		const u32 i2 = descriptorWriteCount++;
-		descriptorWrites[i2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i2].dstSet = gfx.materialDescriptorSets[0];
-		descriptorWrites[i2].dstBinding = 1;
-		descriptorWrites[i2].dstArrayElement = 0;
-		descriptorWrites[i2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-		descriptorWrites[i2].descriptorCount = 1;
-		descriptorWrites[i2].pBufferInfo = NULL;
-		descriptorWrites[i2].pImageInfo = samplerInfo;
-		descriptorWrites[i2].pTexelBufferView = NULL;
-	}
+	const u32 i1 = descriptorWriteCount++;
+	descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrites[i1].dstSet = gfx.globalDescriptorSets[frameIndex];
+	descriptorWrites[i1].dstBinding = 1;
+	descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+	descriptorWrites[i1].descriptorCount = 1;
+	descriptorWrites[i1].pImageInfo = &samplerInfo;
 
 	if ( descriptorWriteCount > 0 )
 	{
@@ -2308,10 +2319,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 	{
+		// firstSet = 0
 		const u32 globalDescriptorSetIndex = frameIndex;
 		const VkDescriptorSet descriptorSets[] = { gfx.globalDescriptorSets[globalDescriptorSetIndex], };
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
-		// firstSet = 0
 	}
 
 	for (u32 entityIndex = 0; entityIndex < MAX_ENTITIES; ++entityIndex)
@@ -2329,10 +2340,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		vkCmdBindIndexBuffer(commandBuffer, indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
 
-		const u32 materialDescriptorSetIndex = 0; // TODO: Avoid hardcoding materials
-		const VkDescriptorSet descriptorSets[] = { gfx.materialDescriptorSets[materialDescriptorSetIndex], };
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 1, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
 		// firstSet = 1
+		const VkDescriptorSet descriptorSets[] = { gfx.materialDescriptorSets[entity.materialIndex], };
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 1, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
 
 		const float4x4 modelMatrix = Translate(entity.position); // TODO: Apply also rotation and scale
 		vkCmdPushConstants(commandBuffer, gfx.pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(modelMatrix), &modelMatrix);

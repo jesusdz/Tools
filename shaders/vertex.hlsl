@@ -1,3 +1,5 @@
+#include "globals.hlsl"
+
 struct VertexInput
 {
 	float3 position : POSITION;
@@ -12,19 +14,10 @@ struct VertexOutput
 	float2 texCoord : TEXCOORD0;
 };
 
-struct Globals
-{
-	float4x4 view;
-	float4x4 proj;
-};
-
 struct Constants
 {
 	float4x4 model;
 };
-
-// register( name<binding>, space<descriptor set> )
-ConstantBuffer<Globals> globals : register(b0, space0);
 
 [[vk::push_constant]] Constants constants;
 

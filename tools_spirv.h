@@ -191,8 +191,8 @@ struct SpvDescriptorSetList
 
 // Prototypes ////////////////////////////////////////////////////////////////////////////
 
-SpvParser SpvParserInit( spv_u8 *words, spv_u32 wordCount );
-SpvParser SpvParserInit( spv_u32 *bytes, spv_u32 byteCount );
+SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
+SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
 bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
 #if defined(SPV_PRINT_FUNCTIONS)
 void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
@@ -416,7 +416,7 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 			}
 			else
 			{
-				SPV_PRINTF( "Warning: descriptor(set:%u, binding:%u) - Type mismatch (%u / %u)\n", set, binding, descriptor->type, type );
+				SPV_PRINTF( "Warning: SpvParseDescriptors - descriptor(set:%u, binding:%u) - Type mismatch (%u / %u)\n", set, binding, descriptor->type, type );
 				SPV_ASSERT( firstTimeAccessed || descriptor->type == type );
 			}
 		}

@@ -1,3 +1,5 @@
+#include "globals.hlsl"
+
 struct PixelInput
 {
 	float4 position : SV_Position;
@@ -6,7 +8,6 @@ struct PixelInput
 };
 
 Texture2D<float4> tex : register(t0, space1);
-SamplerState texSampler : register(s1, space1);
 
 float4 main(PixelInput IN) : SV_Target
 {
