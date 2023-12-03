@@ -1071,6 +1071,14 @@ enum ButtonState
 	BUTTON_STATE_RELEASE,
 };
 
+enum TouchState
+{
+	TOUCH_STATE_IDLE,
+	TOUCH_STATE_PRESS,
+	TOUCH_STATE_PRESSED,
+	TOUCH_STATE_RELEASE,
+};
+
 struct Keyboard
 {
 	KeyState keys[KEY_COUNT];
@@ -1081,6 +1089,14 @@ struct Mouse
 	u32 x, y;
 	i32 dx, dy;
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
+};
+
+struct Touch
+{
+	u32 x0, y0;
+	u32 x, y;
+	i32 dx, dy;
+	TouchState state;
 };
 
 bool KeyPress(const Keyboard &keyboard, Key key)
@@ -1151,6 +1167,7 @@ struct Window
 	xcb_atom_t closeAtom;
 #elif USE_ANDROID
 	ANativeWindow *window;
+	android_app *app;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
@@ -1161,6 +1178,7 @@ struct Window
 
 	Keyboard keyboard;
 	Mouse mouse;
+	Touch touches[2];
 };
 
 
@@ -1679,7 +1697,26 @@ void ProcessWindowEvents(Window &window)
 
 #elif USE_ANDROID
 
-	// TODO: Event handling on Android
+	// Read all pending events.
+	int ident;
+	int events;
+	struct android_poll_source* source;
+
+	const int kWaitForever = -1;
+	const int kDontWait = 0;
+	while ((ident=ALooper_pollAll(kDontWait, NULL, &events, (void**)&source)) >= 0)
+	{
+		// Process this event.
+		if (source != NULL) {
+			source->process(window.app, source);
+		}
+
+		// Check if we are exiting.
+		if (window.app->destroyRequested != 0)
+		{
+			window.flags |= WindowFlags_Exiting;
+		}
+	}
 
 #elif USE_WINAPI
 
