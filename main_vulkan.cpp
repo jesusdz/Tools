@@ -207,7 +207,7 @@ struct Graphics
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 
-	VkCommandPool commandPool;
+	VkCommandPool commandPools[MAX_FRAMES_IN_FLIGHT];
 	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
 	VkCommandPool transientCommandPool;
 
@@ -636,7 +636,7 @@ void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
 	gfx.stagingBufferOffset = 0;
 }
 
-void CopyBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, VkDeviceSize size)
+void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
@@ -689,7 +689,7 @@ Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferU
 			gfx.heaps[HeapType_General]);
 
 	// Copy contents from the staging to the final buffer
-	CopyBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, size);
+	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, size);
 
 	return finalBuffer;
 }
@@ -1893,21 +1893,27 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	vkGetDeviceQueue(gfx.device, gfx.presentQueueFamilyIndex, 0, &gfx.presentQueue);
 
 
-	// Command pool
-	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	commandPoolCreateInfo.queueFamilyIndex = gfx.graphicsQueueFamilyIndex;
-	VK_CHECK_RESULT( vkCreateCommandPool(gfx.device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.commandPool) );
+	// Command pools
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.commandPools); ++i)
+	{
+		VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+		commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		commandPoolCreateInfo.queueFamilyIndex = gfx.graphicsQueueFamilyIndex;
+		VK_CHECK_RESULT( vkCreateCommandPool(gfx.device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.commandPools[i]) );
+	}
 
 
-	// Command buffer
-	VkCommandBufferAllocateInfo commandBufferAllocInfo = {};
-	commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	commandBufferAllocInfo.commandPool = gfx.commandPool;
-	commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	commandBufferAllocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
-	VK_CHECK_RESULT( vkAllocateCommandBuffers( gfx.device, &commandBufferAllocInfo, gfx.commandBuffers) );
+	// Command buffers
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.commandBuffers); ++i)
+	{
+		VkCommandBufferAllocateInfo commandBufferAllocInfo = {};
+		commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		commandBufferAllocInfo.commandPool = gfx.commandPools[i];
+		commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		commandBufferAllocInfo.commandBufferCount = 1;
+		VK_CHECK_RESULT( vkAllocateCommandBuffers( gfx.device, &commandBufferAllocInfo, &gfx.commandBuffers[i]) );
+	}
 
 
 	// Transient command pool
@@ -2205,7 +2211,11 @@ void CleanupGraphics(Graphics &gfx)
 	CleanupSwapchain( gfx, gfx.swapchain );
 
 	vkDestroyCommandPool( gfx.device, gfx.transientCommandPool, VULKAN_ALLOCATORS );
-	vkDestroyCommandPool( gfx.device, gfx.commandPool, VULKAN_ALLOCATORS );
+
+	for ( u32 i = 0; i < ARRAY_COUNT(gfx.commandPools); ++i )
+	{
+		vkDestroyCommandPool( gfx.device, gfx.commandPools[i], VULKAN_ALLOCATORS );
+	}
 
 	vkDestroyDevice(gfx.device, VULKAN_ALLOCATORS);
 
@@ -2440,6 +2450,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
 
+	// Reset commands for this frame
+	VkCommandPool commandPool = gfx.commandPools[frameIndex];
+	VK_CHECK_RESULT( vkResetCommandPool(gfx.device, commandPool, 0) );
 
 	// Record commands
 	VkCommandBuffer commandBuffer = gfx.commandBuffers[frameIndex];
@@ -2666,10 +2679,10 @@ int main(int argc, char **argv)
 	// Upload Fonts
 	{
 		// Use any command buffer
-		VkCommandPool commandPool = gfx.commandPool;
+		VkCommandPool commandPool = gfx.commandPools[0];
+		VK_CHECK_RESULT( vkResetCommandPool(gfx.device, commandPool, 0) );
 		VkCommandBuffer commandBuffer = gfx.commandBuffers[0];
 
-		VK_CHECK_RESULT( vkResetCommandPool(gfx.device, commandPool, 0) );
 		VkCommandBufferBeginInfo beginInfo = {};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
