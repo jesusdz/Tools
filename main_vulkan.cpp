@@ -1295,6 +1295,15 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	window.width = swapchain.extent.width;
 	window.height = swapchain.extent.height;
 
+#if PLATFORM_ANDROID
+	swapchain.extent.width = Max(surfaceCapabilities.minImageExtent.width, swapchain.extent.width / 2);
+	swapchain.extent.height = Max(surfaceCapabilities.minImageExtent.height, swapchain.extent.height / 2);
+	LOG(Info, "Swapchain:\n");
+	LOG(Info, "- cur extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
+	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
+	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
+#endif
+
 
 	// Image count
 	u32 imageCount = surfaceCapabilities.minImageCount + 1;
