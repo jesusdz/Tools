@@ -1296,10 +1296,15 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	window.height = swapchain.extent.height;
 
 #if PLATFORM_ANDROID
-	swapchain.extent.width = Max(surfaceCapabilities.minImageExtent.width, swapchain.extent.width / 2);
-	swapchain.extent.height = Max(surfaceCapabilities.minImageExtent.height, swapchain.extent.height / 2);
+	const u32 baseWidth = swapchain.extent.width;
+	const u32 baseHeight = swapchain.extent.height;
+	const u32 reducedWidth = Max(baseWidth/2, surfaceCapabilities.minImageExtent.width);
+	const u32 reducedHeight = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
+	swapchain.extent.width = reducedWidth;
+	swapchain.extent.height = reducedHeight;
 	LOG(Info, "Swapchain:\n");
-	LOG(Info, "- cur extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
+	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
+	LOG(Info, "- curr extent (%ux%u)\n", reducedWidth, reducedHeight);
 	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
 	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
 #endif
@@ -1464,7 +1469,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	return true;
 }
 
-bool InitializeGraphics(Arena &arena, Window window, Graphics &outGfx)
+bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 {
 	Graphics gfx = {};
 
@@ -2233,17 +2238,50 @@ float4x4 ViewMatrixFromCamera(const Camera &camera)
 
 #define USE_CAMERA_MOVEMENT 1
 #if USE_CAMERA_MOVEMENT
+
+#if PLATFORM_ANDROID
+bool GetOrientationTouchId(const Window &window, u32 *touchId)
+{
+	ASSERT( touchId != 0 );
+	for (u32 i = 0; i < ARRAY_COUNT(window.touches); ++i)
+	{
+		if (window.touches[i].state == TOUCH_STATE_PRESSED &&
+			window.touches[i].x0 > window.width/2 )
+		{
+			*touchId = i;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool GetMovementTouchId(const Window &window, u32 *touchId)
+{
+	ASSERT( touchId != 0 );
+	for (u32 i = 0; i < ARRAY_COUNT(window.touches); ++i)
+	{
+		if (window.touches[i].state == TOUCH_STATE_PRESSED &&
+			window.touches[i].x0 <= window.width/2 )
+		{
+			*touchId = i;
+			return true;
+		}
+	}
+	return false;
+}
+#endif
+
 void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 {
 	// Camera rotation
 	f32 deltaYaw = 0.0f;
 	f32 deltaPitch = 0.0f;
 #if PLATFORM_ANDROID
-	// TODO: Handle pressed state properly
-	//if (window.touches[0].state == TOUCH_STATE_PRESSED)
+	u32 touchId;
+	if ( GetOrientationTouchId(window, &touchId) )
 	{
-		deltaYaw = - window.touches[0].dx * ToRadians * 0.2f;
-		deltaPitch = - window.touches[0].dy * ToRadians * 0.2f;
+		deltaYaw = - window.touches[touchId].dx * ToRadians * 0.2f;
+		deltaPitch = - window.touches[touchId].dy * ToRadians * 0.2f;
 	}
 #else
 	if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
@@ -2258,10 +2296,21 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 
 	// Movement direction
 	float3 dir = { 0, 0, 0 };
+#if PLATFORM_ANDROID
+	if ( GetMovementTouchId(window, &touchId) )
+	{
+		const float3 forward = ForwardDirectionFromAngles(angles);
+		const float3 right = RightDirectionFromAngles(angles);
+		const float scaleForward = -window.touches[touchId].dy;
+		const float scaleRight = window.touches[touchId].dx;
+		dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
+	}
+#else
 	if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
 	if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
 	if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
 	if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+#endif
 	dir = NormalizeIfNotZero(dir);
 
 	// Accelerated translation

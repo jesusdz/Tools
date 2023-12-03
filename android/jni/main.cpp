@@ -27,8 +27,6 @@ struct Engine {
 	Graphics gfx;
 	bool initialized;
 
-    int32_t width;
-    int32_t height;
     SavedState state;
 };
 
@@ -47,10 +45,6 @@ static int engine_init_display(Engine* engine)
 	}
 
 	engine->initialized = true;
-	engine->width = engine->gfx.swapchain.extent.width;
-	engine->height = engine->gfx.swapchain.extent.height;
-	engine->window.width = engine->width;
-	engine->window.height = engine->height;
     return 0;
 }
 
@@ -79,37 +73,60 @@ static void engine_term_display(Engine* engine)
 /**
  * Process the next input event.
  */
-static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
-    Engine* engine = (Engine*)app->userData;
-	Window &window = engine->window;
+static int32_t engine_handle_input(struct android_app* app, AInputEvent* event)
+{
+	Engine* engine = (Engine*)app->userData;
+
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION)
 	{
 		const int32_t actionAndPointer = AMotionEvent_getAction( event );
 		const uint32_t action = actionAndPointer & AMOTION_EVENT_ACTION_MASK;
 		const uint32_t pointerIndex = (actionAndPointer & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
 		const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
-		if (pointerId < ARRAY_COUNT(window.touches))
+		const uint32_t pointerCount = AMotionEvent_getPointerCount(event);
+		const float x = AMotionEvent_getX(event, pointerIndex);
+		const float y = AMotionEvent_getY(event, pointerIndex);
+
+		if (pointerId < ARRAY_COUNT(engine->window.touches))
 		{
-			const float x = AMotionEvent_getX(event, pointerIndex);
-			const float y = AMotionEvent_getY(event, pointerIndex);
+			Touch *touches = engine->window.touches;
+
 			switch( action )
 			{
 				case AMOTION_EVENT_ACTION_DOWN:
-					window.touches[pointerId].x0 = x;
-					window.touches[pointerId].y0 = y;
+				case AMOTION_EVENT_ACTION_POINTER_DOWN:
+					{
+						touches[pointerId].state = TOUCH_STATE_PRESS;
+						touches[pointerId].x0 = x;
+						touches[pointerId].y0 = y;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
+					break;
 				case AMOTION_EVENT_ACTION_UP:
-					window.touches[pointerId].x = x;
-					window.touches[pointerId].y = y;
+				case AMOTION_EVENT_ACTION_POINTER_UP:
+					{
+						touches[pointerId].state = TOUCH_STATE_RELEASE;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
 					break;
 				case AMOTION_EVENT_ACTION_MOVE:
-					window.touches[pointerId].dx = x - window.touches[pointerId].x;
-					window.touches[pointerId].dy = y - window.touches[pointerId].y;
-					window.touches[pointerId].x = x;
-					window.touches[pointerId].y = y;
+					// On move ements, we are meant to handle all pointers in the gesture
+					for (u32 pointerIndex = 0; pointerIndex < pointerCount; ++pointerIndex)
+					{
+						const float x = AMotionEvent_getX(event, pointerIndex);
+						const float y = AMotionEvent_getY(event, pointerIndex);
+						const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
+						touches[pointerId].dx = x - touches[pointerId].x;
+						touches[pointerId].dy = y - touches[pointerId].y;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
 					break;
 			}
 		}
-        return 1;
+		return 1;
     }
     return 0;
 }
