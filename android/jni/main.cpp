@@ -81,13 +81,18 @@ static void engine_term_display(Engine* engine)
  */
 static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
     Engine* engine = (Engine*)app->userData;
+	Window &window = engine->window;
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
 		uint32_t pointerCount = AMotionEvent_getPointerCount(event);
 		for (u32 i = 0; i < pointerCount; ++i) {
-			engine->state.x = AMotionEvent_getX(event, i);
-			engine->state.y = AMotionEvent_getY(event, i);
+			const float x = AMotionEvent_getX(event, i);
+			const float y = AMotionEvent_getY(event, i);
+			window.touches[i].dx = x - window.touches[i].x;
+			window.touches[i].dy = y - window.touches[i].y;
+			window.touches[i].x = x;
+			window.touches[i].y = y;
 			uint32_t id = AMotionEvent_getPointerId(event, i);
-			LOG(Info, "%u: %u,%u\n", id, engine->state.x, engine->state.y);
+			LOG(Info, "%u: %f,%f\n", id, window.touches[i].dx, window.touches[i].dy);
 		}
         return 1;
     }
@@ -171,6 +176,10 @@ void android_main(struct android_app* app) {
 		lastFrameClock = currentFrameClock;
 
 		ProcessWindowEvents(engine.window);
+
+#if USE_CAMERA_MOVEMENT
+		AnimateCamera(engine.window, engine.gfx.camera, engine.state.deltaSeconds);
+#endif
 
 		if ( engine.window.flags & WindowFlags_Resized )
 		{

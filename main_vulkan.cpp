@@ -2231,6 +2231,58 @@ float4x4 ViewMatrixFromCamera(const Camera &camera)
 	return res;
 }
 
+#define USE_CAMERA_MOVEMENT 1
+#if USE_CAMERA_MOVEMENT
+void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
+{
+	// Camera rotation
+	f32 deltaYaw = 0.0f;
+	f32 deltaPitch = 0.0f;
+#if PLATFORM_ANDROID
+	// TODO: Handle pressed state properly
+	//if (window.touches[0].state == TOUCH_STATE_PRESSED)
+	{
+		deltaYaw = - window.touches[0].dx * ToRadians * 0.2f;
+		deltaPitch = - window.touches[0].dy * ToRadians * 0.2f;
+	}
+#else
+	if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
+		deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
+		deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
+	}
+#endif
+	float2 angles = camera.orientation;
+	angles.x = angles.x + deltaYaw;
+	angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
+	camera.orientation = angles;
+
+	// Movement direction
+	float3 dir = { 0, 0, 0 };
+	if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
+	if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
+	if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
+	if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+	dir = NormalizeIfNotZero(dir);
+
+	// Accelerated translation
+	static constexpr f32 MAX_SPEED = 100.0f;
+	static constexpr f32 ACCELERATION = 50.0f;
+	static float3 speed = { 0, 0, 0 };
+	const float3 speed0 = speed;
+
+	// Apply acceleration, then limit speed
+	speed = Add(speed, Mul(dir, ACCELERATION * deltaSeconds));
+	speed = Length(speed) > MAX_SPEED ?  Mul( Normalize(speed), MAX_SPEED) : speed;
+
+	// Based on speed, translate camera position
+	const float3 translation = Add( Mul(speed0, deltaSeconds), Mul(speed, 0.5f * deltaSeconds) );
+	camera.position = Add(camera.position, translation);
+
+	// Apply deceleration
+	speed = Mul(speed, 0.9);
+}
+#endif // USE_CAMERA_MOVEMENT
+
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	// TODO: create as many fences as swap images to improve synchronization
@@ -2581,44 +2633,8 @@ int main(int argc, char **argv)
 
 		ProcessWindowEvents(window);
 
-#define USE_CAMERA_MOVEMENT 1
 #if USE_CAMERA_MOVEMENT
-
-		// Camera rotation
-		float2 angles = gfx.camera.orientation;
-		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT))
-		{
-			const f32 deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
-			const f32 deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
-			angles.x = angles.x + deltaYaw;
-			angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
-		}
-		gfx.camera.orientation = angles;
-
-		// Movement direction
-		float3 dir = { 0, 0, 0 };
-		if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
-		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
-		dir = NormalizeIfNotZero(dir);
-
-		// Accelerated translation
-		static constexpr f32 MAX_SPEED = 100.0f;
-		static constexpr f32 ACCELERATION = 50.0f;
-		static float3 speed = { 0, 0, 0 };
-		const float3 speed0 = speed;
-
-		// Apply acceleration, then limit speed
-		speed = Add(speed, Mul(dir, ACCELERATION * deltaSeconds));
-		speed = Length(speed) > MAX_SPEED ?  Mul( Normalize(speed), MAX_SPEED) : speed;
-
-		// Based on speed, translate camera position
-		const float3 translation = Add( Mul(speed0, deltaSeconds), Mul(speed, 0.5f * deltaSeconds) );
-		gfx.camera.position = Add(gfx.camera.position, translation);
-
-		// Apply deceleration
-		speed = Mul(speed, 0.9);
+		AnimateCamera(window, gfx.camera, deltaSeconds);
 #endif
 
 #if USE_IMGUI
@@ -2789,6 +2805,5 @@ int main(int argc, char **argv)
 }
 
 // TODO:
-// - Create the most common samplers in the global descriptor set.
 // - Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 

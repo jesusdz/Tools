@@ -1093,9 +1093,9 @@ struct Mouse
 
 struct Touch
 {
-	u32 x0, y0;
-	u32 x, y;
-	i32 dx, dy;
+	f32 x0, y0;
+	f32 x, y;
+	f32 dx, dy;
 	TouchState state;
 };
 
@@ -1685,6 +1685,17 @@ void ProcessWindowEvents(Window &window)
 
 	window.mouse.dx = 0.0f;
 	window.mouse.dy = 0.0f;
+
+	// Transition touch states
+	for ( u32 i = 0; i < ARRAY_COUNT(window.touches); ++i ) {
+		if ( window.touches[i].state == TOUCH_STATE_PRESS ) {
+			window.touches[i].state = TOUCH_STATE_PRESSED;
+		} else if ( window.touches[i].state == TOUCH_STATE_RELEASE ) {
+			window.touches[i].state = TOUCH_STATE_IDLE;
+		}
+		window.touches[i].dx = 0.0f;
+		window.touches[i].dy = 0.0f;
+	}
 
 #if USE_XCB
 
