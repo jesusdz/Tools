@@ -188,6 +188,10 @@ struct Entity
 struct Alignment
 {
 	u32 uniformBufferOffset;
+	u32 optimalBufferCopyOffset;
+	u32 optimalBufferCopyRowPitch;
+	// u32 nonCoherentAtomSize;
+	// VkExtent3D minImageTransferGranularity;
 };
 
 struct Graphics
@@ -228,6 +232,9 @@ struct Graphics
 	RenderTargets renderTargets;
 
 	Pipeline pipeline;
+
+	Buffer stagingBuffer;
+	u32 stagingBufferOffset;
 
 	Buffer cubeVertices;
 	Buffer cubeIndices;
@@ -574,7 +581,7 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(gfx.device, buffer, &memoryRequirements);
 	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
-	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
+	ASSERT( offset + memoryRequirements.size <= memoryHeap.size );
 	memoryHeap.used = offset + memoryRequirements.size;
 
 	VK_CHECK_RESULT( vkBindBufferMemory(gfx.device, buffer, memory, offset) );
@@ -613,7 +620,7 @@ VkCommandBuffer BeginTransientCommandBuffer(const Graphics &gfx)
 	return commandBuffer;
 }
 
-void EndTransientCommandBuffer(const Graphics &gfx, VkCommandBuffer commandBuffer)
+void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
 {
 	vkEndCommandBuffer(commandBuffer);
 
@@ -625,14 +632,16 @@ void EndTransientCommandBuffer(const Graphics &gfx, VkCommandBuffer commandBuffe
 	vkQueueWaitIdle(gfx.graphicsQueue);
 
 	vkFreeCommandBuffers(gfx.device, gfx.transientCommandPool, 1, &commandBuffer);
+
+	gfx.stagingBufferOffset = 0;
 }
 
-void CopyBuffer(Graphics &gfx, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+void CopyBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
 	VkBufferCopy copyRegion = {};
-	copyRegion.srcOffset = 0;
+	copyRegion.srcOffset = srcOffset;
 	copyRegion.dstOffset = 0;
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
@@ -640,20 +649,37 @@ void CopyBuffer(Graphics &gfx, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceS
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
+struct StagedData
+{
+	VkBuffer buffer;
+	u32 offset;
+};
+
+StagedData StageData(Graphics &gfx, const void *data, u32 size)
+{
+	StagedData staging = {};
+	staging.buffer = gfx.stagingBuffer.buffer;
+	staging.offset = gfx.stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
+
+	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
+	void* stagingData = stagingHeap.data + staging.offset;
+	MemCopy(stagingData, data, (size_t) size);
+
+	gfx.stagingBufferOffset = AlignUp(gfx.stagingBufferOffset + size, gfx.alignment.optimalBufferCopyOffset);
+
+	return staging;
+}
+
+Buffer CreateStagingBuffer(Graphics &gfx)
 {
 	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
+	Buffer stagingBuffer = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingHeap);
+	return stagingBuffer;
+}
 
-	// Create a staging buffer backed with locally accessible memory
-	Buffer stagingBuffer = CreateBuffer(
-			gfx,
-			size,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			stagingHeap);
-
-	// Fill staging buffer memory
-	void* dstData = stagingHeap.data + stagingBuffer.alloc.offset;
-	MemCopy(dstData, data, (size_t) size);
+Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
+{
+	StagedData staged = StageData(gfx, data, size);
 
 	// Create a buffer in device local memory
 	Buffer finalBuffer = CreateBuffer(
@@ -663,9 +689,7 @@ Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferU
 			gfx.heaps[HeapType_General]);
 
 	// Copy contents from the staging to the final buffer
-	CopyBuffer(gfx, stagingBuffer.buffer, finalBuffer.buffer, size);
-
-	vkDestroyBuffer( gfx.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
+	CopyBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, size);
 
 	return finalBuffer;
 }
@@ -1094,7 +1118,7 @@ bool HasStencilComponent(VkFormat format)
 	return hasStencil;
 }
 
-void TransitionImageLayout(const Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
@@ -1156,12 +1180,12 @@ void TransitionImageLayout(const Graphics &gfx, VkImage image, VkFormat format, 
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, VkImage image, u32 width, u32 height)
+void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage image, u32 width, u32 height)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
 	VkBufferImageCopy region{};
-	region.bufferOffset = 0;
+	region.bufferOffset = bufferOffset;
 	region.bufferRowLength = 0;
 	region.bufferImageHeight = 0;
 
@@ -1200,20 +1224,9 @@ Texture CreateTexture(Graphics &gfx, const char *filePath)
 		texChannels = 4;
 	}
 
-	u32 imageSize = texWidth * texHeight * 4;
+	const u32 size = texWidth * texHeight * 4;
 
-	// Create a staging buffer backed with locally accessible memory
-	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
-	Buffer stagingBuffer = CreateBuffer(
-			gfx,
-			imageSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			stagingHeap);
-
-	// Fill staging buffer memory
-	ASSERT( stagingHeap.data != 0 );
-	void* dstData = stagingHeap.data + stagingBuffer.alloc.offset;
-	MemCopy(dstData, pixels, imageSize);
+	StagedData staged = StageData(gfx, pixels, size);
 
 	if ( originalPixels )
 	{
@@ -1227,10 +1240,8 @@ Texture CreateTexture(Graphics &gfx, const char *filePath)
 			gfx.heaps[HeapType_General]);
 
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	CopyBufferToImage(gfx, stagingBuffer.buffer, image.image, texWidth, texHeight);
+	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.image, texWidth, texHeight);
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-	vkDestroyBuffer( gfx.device, stagingBuffer.buffer, VULKAN_ALLOCATORS );
 
 	Texture texture = {};
 	texture.image = image;
@@ -1865,6 +1876,8 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 
 	// Get alignments
 	gfx.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
+	gfx.alignment.optimalBufferCopyOffset = properties.limits.optimalBufferCopyOffsetAlignment;
+	gfx.alignment.optimalBufferCopyRowPitch = properties.limits.optimalBufferCopyRowPitchAlignment;
 
 
 	// Create heaps
@@ -1943,6 +1956,9 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	// Create pipeline
 	gfx.pipeline = CreatePipeline(gfx, scratch);
 
+
+	// Create staging buffer
+	gfx.stagingBuffer = CreateStagingBuffer(gfx);
 
 	// Create vertex/index buffers
 	gfx.cubeVertices = CreateVertexBuffer(gfx, cubeVertices, sizeof(cubeVertices));
@@ -2102,9 +2118,11 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	return true;
 }
 
-void WaitDeviceIdle(const Graphics &gfx)
+void WaitDeviceIdle(Graphics &gfx)
 {
 	vkDeviceWaitIdle( gfx.device );
+
+	gfx.stagingBufferOffset = 0;
 }
 
 void CleanupSwapchain(const Graphics &gfx, const Swapchain &swapchain)
@@ -2153,6 +2171,7 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.planeIndices.buffer, VULKAN_ALLOCATORS );
 	vkDestroyBuffer( gfx.device, gfx.planeVertices.buffer, VULKAN_ALLOCATORS );
+	vkDestroyBuffer( gfx.device, gfx.stagingBuffer.buffer, VULKAN_ALLOCATORS );
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
