@@ -82,17 +82,32 @@ static void engine_term_display(Engine* engine)
 static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
     Engine* engine = (Engine*)app->userData;
 	Window &window = engine->window;
-    if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
-		uint32_t pointerCount = AMotionEvent_getPointerCount(event);
-		for (u32 i = 0; i < pointerCount; ++i) {
-			const float x = AMotionEvent_getX(event, i);
-			const float y = AMotionEvent_getY(event, i);
-			window.touches[i].dx = x - window.touches[i].x;
-			window.touches[i].dy = y - window.touches[i].y;
-			window.touches[i].x = x;
-			window.touches[i].y = y;
-			uint32_t id = AMotionEvent_getPointerId(event, i);
-			LOG(Info, "%u: %f,%f\n", id, window.touches[i].dx, window.touches[i].dy);
+    if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION)
+	{
+		const int32_t actionAndPointer = AMotionEvent_getAction( event );
+		const uint32_t action = actionAndPointer & AMOTION_EVENT_ACTION_MASK;
+		const uint32_t pointerIndex = (actionAndPointer & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+		const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
+		if (pointerId < ARRAY_COUNT(window.touches))
+		{
+			const float x = AMotionEvent_getX(event, pointerIndex);
+			const float y = AMotionEvent_getY(event, pointerIndex);
+			switch( action )
+			{
+				case AMOTION_EVENT_ACTION_DOWN:
+					window.touches[pointerId].x0 = x;
+					window.touches[pointerId].y0 = y;
+				case AMOTION_EVENT_ACTION_UP:
+					window.touches[pointerId].x = x;
+					window.touches[pointerId].y = y;
+					break;
+				case AMOTION_EVENT_ACTION_MOVE:
+					window.touches[pointerId].dx = x - window.touches[pointerId].x;
+					window.touches[pointerId].dy = y - window.touches[pointerId].y;
+					window.touches[pointerId].x = x;
+					window.touches[pointerId].y = y;
+					break;
+			}
 		}
         return 1;
     }
