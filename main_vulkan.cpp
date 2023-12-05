@@ -48,6 +48,8 @@
 #define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
+#include "shaders/structs.hlsl"
+
 
 #define USE_VULKAN_ALLOCATION_CALLBACKS 0
 #if USE_VULKAN_ALLOCATION_CALLBACKS
@@ -138,12 +140,6 @@ struct Vertex
 	float3 pos;
 	float3 normal;
 	float2 texCoord;
-};
-
-struct Globals
-{
-	float4x4 view;
-	float4x4 proj;
 };
 
 struct SwapchainInfo
@@ -2402,6 +2398,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	Globals globals;
 	globals.view = viewMatrix;
 	globals.proj = projectionMatrix;
+	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
 	Buffer &uniformBuffer = gfx.uniformBuffers[frameIndex];
 	Heap &uniformBufferHeap = gfx.heaps[uniformBuffer.alloc.heap];
 	void *ptr = uniformBufferHeap.data + uniformBuffer.alloc.offset;

@@ -643,6 +643,12 @@ static constexpr f32 Pi = 3.14159265358979323846f;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
 
+float4 Float4(float3 xyz, f32 w)
+{
+	const float4 res = { xyz.x, xyz.y, xyz.z, w };
+	return res;
+}
+
 f32 Sin(f32 value)
 {
 	const f32 res = ::sinf(value);
