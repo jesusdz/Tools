@@ -8,12 +8,6 @@ struct PixelInput
 	float2 texCoord : TEXCOORD0;
 };
 
-struct SunLight
-{
-	float3 color;
-	float3 direction;
-};
-
 float Lambert(float3 L, float3 N)
 {
 	float res = saturate(dot(L, N));
@@ -26,7 +20,7 @@ float BlinnPhong(float3 H, float3 N)
 	return res;
 }
 
-float Atenuate(float dist, float maxDist)
+float Attenuate(float dist, float maxDist)
 {
 	float res = 1.0 - saturate(dist / maxDist);
 	res = res * res;
@@ -56,7 +50,7 @@ float4 main(PixelInput IN) : SV_Target
 	float3 L = normalize(lightVector);
 	float lightDist = length(lightVector);
 	float maxDist = 14.0f;
-	float attenuationFactor = Atenuate(length(lightVector), maxDist);
+	float attenuationFactor = Attenuate(length(lightVector), maxDist);
 #endif
 
 	float3 N = normalize(IN.normalWs);
