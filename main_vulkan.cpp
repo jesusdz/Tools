@@ -265,6 +265,9 @@ struct Graphics
 	VkDebugReportCallbackEXT debugReportCallback;
 
 	Camera camera;
+
+	Entity entities[MAX_ENTITIES];
+	u32 entityCount;
 };
 
 
@@ -320,8 +323,6 @@ static const Vertex planeVertices[] = {
 static const u16 planeIndices[] = {
 	0, 1, 2, 2, 3, 0,
 };
-
-static Entity entities[MAX_ENTITIES] = {};
 
 
 const char *VkPhysicalDeviceTypeToString( VkPhysicalDeviceType type )
@@ -1252,6 +1253,16 @@ Material CreateMaterial( Texture &texture )
 	return material;
 }
 
+void CreateEntity(Graphics &gfx, float3 position, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
+{
+	const u32 entityIndex = gfx.entityCount++;
+	gfx.entities[entityIndex].visible = true;
+	gfx.entities[entityIndex].position = position;
+	gfx.entities[entityIndex].vertexBuffer = vertexBuffer;
+	gfx.entities[entityIndex].indexBuffer = indexBuffer;
+	gfx.entities[entityIndex].materialIndex = materialIndex;
+}
+
 VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
 {
 	for (u32 i = 0; i < candidateCount; ++i)
@@ -1955,10 +1966,6 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	// Render targets
 	CreateRenderTargets( gfx, gfx.renderTargets );
 
-	// Create pipeline
-	gfx.pipeline = CreatePipeline(gfx, scratch);
-
-
 	// Create staging buffer
 	gfx.stagingBuffer = CreateStagingBuffer(gfx);
 
@@ -2016,6 +2023,8 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	}
 #endif
 
+	// Create pipeline
+	gfx.pipeline = CreatePipeline(gfx, scratch);
 
 	// DescriptorSets for globals
 	{
@@ -2084,35 +2093,11 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	}
 
 	// Entities
-	u32 entityIndex = 0;
-
-	entities[entityIndex].visible = true;
-	entities[entityIndex].position = { -1, 0, -1 };
-	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
-	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
-	entities[entityIndex].materialIndex = 0;
-	entityIndex++;
-
-	entities[entityIndex].visible = true;
-	entities[entityIndex].position = {  1, 0, -1 };
-	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
-	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
-	entities[entityIndex].materialIndex = 0;
-	entityIndex++;
-
-	entities[entityIndex].visible = true;
-	entities[entityIndex].position = {  1, 0,  1 };
-	entities[entityIndex].vertexBuffer = &outGfx.cubeVertices;
-	entities[entityIndex].indexBuffer = &outGfx.cubeIndices;
-	entities[entityIndex].materialIndex = 1;
-	entityIndex++;
-
-	entities[entityIndex].visible = true;
-	entities[entityIndex].position = { -1, 0,  1 };
-	entities[entityIndex].vertexBuffer = &outGfx.planeVertices;
-	entities[entityIndex].indexBuffer = &outGfx.planeIndices;
-	entities[entityIndex].materialIndex = 1;
-	entityIndex++;
+	CreateEntity(gfx, float3{-1, 0, -1}, &outGfx.cubeVertices, &outGfx.cubeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0, -1}, &outGfx.planeVertices, &outGfx.planeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0,  1}, &outGfx.cubeVertices, &outGfx.cubeIndices, 1);
+	CreateEntity(gfx, float3{ 1, 0, -1}, &outGfx.planeVertices, &outGfx.planeIndices, 1);
+	// TODO: Fix (and watchout) with assigning pointers in this struct, as it is copied to another one (outGfx = gfx).
 
 	// Copy the temporary device into the output parameter
 	outGfx = gfx;
@@ -2501,9 +2486,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx.pipeline.layout, 0, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
 	}
 
-	for (u32 entityIndex = 0; entityIndex < MAX_ENTITIES; ++entityIndex)
+	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
-		const Entity &entity = entities[entityIndex];
+		const Entity &entity = gfx.entities[entityIndex];
 
 		if ( !entity.visible ) continue;
 
@@ -2817,6 +2802,21 @@ int main(int argc, char **argv)
 				ImGui::Text("  - size: %u %s\n", heap.size / unitBytes[unit], unitSuffix[unit]);
 				ImGui::Text("  - used: %u %s\n", heap.used / unitBytes[unit], unitSuffix[unit]);
 				ImGui::Text("  - memoryTypeIndex: %u\n", heap.memoryTypeIndex);
+				ImGui::Separator();
+			}
+		}
+		if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
+		{
+			ImGui::Text("Entity count: %u", gfx.entityCount);
+			ImGui::Separator();
+
+			for ( u32 i = 0; i < gfx.entityCount; ++i )
+			{
+				const Entity &entity = gfx.entities[i];
+				const Heap &heap = gfx.heaps[i];
+				ImGui::Text("- entity[%u]", i);
+				ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
+				ImGui::Text("  - materialIndex: %u", entity.materialIndex);
 				ImGui::Separator();
 			}
 		}
