@@ -125,10 +125,14 @@ struct Texture
 	VkImageView imageView;
 };
 
+typedef u32 TextureH;
+
 struct Material
 {
 	Texture *albedoTexture;
 };
+
+typedef u32 MaterialH;
 
 struct Sampler
 {
@@ -901,6 +905,7 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 				binding.descriptorCount = 1;
 				binding.stageFlags = SpvStageFlagsToVulkan(descriptor.stageFlags);
 				binding.pImmutableSamplers = NULL;
+				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
 
@@ -1206,7 +1211,7 @@ void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-Texture CreateTexture(Graphics &gfx, const char *filePath)
+TextureH CreateTexture(Graphics &gfx, const char *filePath)
 {
 	int texWidth, texHeight, texChannels;
 	FilePath imagePath = MakePath(filePath);
@@ -1240,17 +1245,23 @@ Texture CreateTexture(Graphics &gfx, const char *filePath)
 	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.image, texWidth, texHeight);
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-	Texture texture = {};
-	texture.image = image;
-	texture.imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT);
+	TextureH textureHandle = gfx.textureCount++;
+	gfx.textures[textureHandle].image = image;
+	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT);
+	return textureHandle;
+}
+
+Texture &GetTexture(Graphics &gfx, TextureH handle)
+{
+	Texture &texture = gfx.textures[handle];
 	return texture;
 }
 
-Material CreateMaterial( Texture &texture )
+MaterialH CreateMaterial( Graphics &gfx, TextureH textureHandle )
 {
-	Material material = {};
-	material.albedoTexture = &texture;
-	return material;
+	MaterialH materialHandle = gfx.materialCount++;
+	gfx.materials[materialHandle].albedoTexture = &GetTexture(gfx, textureHandle);
+	return materialHandle;
 }
 
 void CreateEntity(Graphics &gfx, float3 position, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
@@ -2062,13 +2073,13 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 
 
 	// Textures
-	gfx.textures[gfx.textureCount++] = CreateTexture(gfx, "assets/diamond.png");
-	gfx.textures[gfx.textureCount++] = CreateTexture(gfx, "assets/dirt.jpg");
+	TextureH textureDiamond = CreateTexture(gfx, "assets/diamond.png");
+	TextureH textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
 
 
 	// Materials
-	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textures[0] );
-	gfx.materials[gfx.materialCount++] = CreateMaterial( gfx.textures[1] );
+	MaterialH materialDiamond = CreateMaterial(gfx, textureDiamond);
+	MaterialH materialDirt = CreateMaterial(gfx, textureDirt);
 
 	u32 descriptorWriteCount = 0;
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
@@ -2092,17 +2103,19 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
 
-	// Entities
-	CreateEntity(gfx, float3{-1, 0, -1}, &outGfx.cubeVertices, &outGfx.cubeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0, -1}, &outGfx.planeVertices, &outGfx.planeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0,  1}, &outGfx.cubeVertices, &outGfx.cubeIndices, 1);
-	CreateEntity(gfx, float3{ 1, 0, -1}, &outGfx.planeVertices, &outGfx.planeIndices, 1);
-	// TODO: Fix (and watchout) with assigning pointers in this struct, as it is copied to another one (outGfx = gfx).
-
 	// Copy the temporary device into the output parameter
 	outGfx = gfx;
 
 	return true;
+}
+
+void InitializeScene(Graphics &gfx)
+{
+	// Entities
+	CreateEntity(gfx, float3{-1, 0, -1}, &gfx.cubeVertices, &gfx.cubeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0,  1}, &gfx.cubeVertices, &gfx.cubeIndices, 1);
+	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 1);
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -2621,11 +2634,14 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	InitializeScene(gfx);
+
 #if USE_IMGUI
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.FontGlobalScale = 1.5f;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;	 // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	  // Enable Gamepad Controls
 
