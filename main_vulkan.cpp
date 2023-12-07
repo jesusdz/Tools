@@ -1264,6 +1264,12 @@ MaterialH CreateMaterial( Graphics &gfx, TextureH textureHandle )
 	return materialHandle;
 }
 
+Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
+{
+	Material &material = gfx.materials[materialHandle];
+	return material;
+}
+
 void CreateEntity(Graphics &gfx, float3 position, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
 {
 	const u32 entityIndex = gfx.entityCount++;
@@ -2063,24 +2069,32 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	}
 
 
-	// Camera
-	gfx.camera.position = {0, 1, 2};
-	gfx.camera.orientation = {0, -0.45f};
-
-
 	// Samplers
 	gfx.textureSampler = CreateSampler(gfx);
 
+
+	// Copy the temporary device into the output parameter
+	outGfx = gfx;
+
+	return true;
+}
+
+void InitializeScene(Graphics &gfx)
+{
+	// Camera
+	gfx.camera.position = {0, 1, 2};
+	gfx.camera.orientation = {0, -0.45f};
 
 	// Textures
 	TextureH textureDiamond = CreateTexture(gfx, "assets/diamond.png");
 	TextureH textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
 
-
 	// Materials
 	MaterialH materialDiamond = CreateMaterial(gfx, textureDiamond);
 	MaterialH materialDirt = CreateMaterial(gfx, textureDirt);
 
+
+	// Update material descriptors
 	u32 descriptorWriteCount = 0;
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
 	VkDescriptorImageInfo imageInfos[MAX_MATERIALS] = {};
@@ -2103,14 +2117,7 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
 
-	// Copy the temporary device into the output parameter
-	outGfx = gfx;
 
-	return true;
-}
-
-void InitializeScene(Graphics &gfx)
-{
 	// Entities
 	CreateEntity(gfx, float3{-1, 0, -1}, &gfx.cubeVertices, &gfx.cubeIndices, 0);
 	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 0);
