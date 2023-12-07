@@ -44,6 +44,8 @@ static int engine_init_display(Engine* engine)
 		return -1;
 	}
 
+	InitializeScene(engine->gfx);
+
 	engine->initialized = true;
     return 0;
 }

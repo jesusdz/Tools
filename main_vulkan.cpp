@@ -129,7 +129,7 @@ typedef u32 TextureH;
 
 struct Material
 {
-	Texture *albedoTexture;
+	TextureH albedoTexture;
 };
 
 typedef u32 MaterialH;
@@ -1260,7 +1260,7 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 MaterialH CreateMaterial( Graphics &gfx, TextureH textureHandle )
 {
 	MaterialH materialHandle = gfx.materialCount++;
-	gfx.materials[materialHandle].albedoTexture = &GetTexture(gfx, textureHandle);
+	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	return materialHandle;
 }
 
@@ -2072,7 +2072,6 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	// Samplers
 	gfx.textureSampler = CreateSampler(gfx);
 
-
 	// Copy the temporary device into the output parameter
 	outGfx = gfx;
 
@@ -2101,7 +2100,7 @@ void InitializeScene(Graphics &gfx)
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfos[i].imageView = gfx.materials[i].albedoTexture->imageView;
+		imageInfos[i].imageView = GetTexture( gfx, gfx.materials[i].albedoTexture ).imageView;
 		imageInfos[i].sampler = VK_NULL_HANDLE;
 
 		descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2117,12 +2116,11 @@ void InitializeScene(Graphics &gfx)
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
 
-
 	// Entities
 	CreateEntity(gfx, float3{-1, 0, -1}, &gfx.cubeVertices, &gfx.cubeIndices, 0);
 	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 0);
 	CreateEntity(gfx, float3{ 1, 0,  1}, &gfx.cubeVertices, &gfx.cubeIndices, 1);
-	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 1);
+	CreateEntity(gfx, float3{-1, 0,  1}, &gfx.planeVertices, &gfx.planeIndices, 1);
 }
 
 void WaitDeviceIdle(Graphics &gfx)
