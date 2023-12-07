@@ -35,7 +35,7 @@ Check the following link for reference on the implementation of Spirv tools:
 #define SPV_INDEX_INSTRUCTION 5u
 #define SPV_MAX_DESCRIPTOR_SETS 4u
 #define SPV_MAX_DESCRIPTORS_PER_SET 8u
-#define SPV_MAX_IDS 128
+#define SPV_MAX_IDS 128u
 
 #define SPV_CT_ASSERT3(expression, line) static int ct_assert_##line[(expression) ? 1 : 0]
 #define SPV_CT_ASSERT2(expression, line) SPV_CT_ASSERT3(expression, line)
@@ -176,6 +176,7 @@ struct SpvDescriptor
 	spv_u8 set;
 	spv_u8 type;
 	spv_u8 stageFlags;
+	const char *name;
 };
 
 struct SpvDescriptorSet
@@ -298,6 +299,7 @@ struct SpvId
 	spv_u8 set;
 	spv_u8 type;
 	spv_u8 flags;
+	const char *name;
 };
 
 static void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
@@ -379,6 +381,18 @@ static void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
+static void SpvTryParseName(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+{
+	const spv_u32 *words = parser->instructionWords;
+	const spv_u32 opCode = SpvParserInstructionOpCode(parser);
+
+	if ( opCode == SpvOpName )
+	{
+		const spv_u32 targetId = words[1];
+		ids[targetId].name = (const char*)&words[2];
+	}
+}
+
 bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList)
 {
 	spv_u32 executionModel = 0;
@@ -391,6 +405,7 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 		SpvTryParseType(parser, ids);
 		SpvTryParseDescriptor(parser, ids);
 		SpvTryParseDescriptorId(parser, ids);
+		SpvTryParseName(parser, ids);
 		SpvParserAdvance(parser);
 	}
 
@@ -413,6 +428,7 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 				descriptor->type = ids[id].type;
 				descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
 				descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
+				descriptor->name = ids[id].name;
 			}
 			else
 			{
