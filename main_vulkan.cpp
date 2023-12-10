@@ -127,6 +127,17 @@ struct Texture
 
 typedef u32 TextureH;
 
+struct ShaderSource
+{
+	u8 *data;
+	u64 dataSize;
+};
+
+struct ShaderModule
+{
+	VkShaderModule handle;
+};
+
 struct Material
 {
 	TextureH albedoTexture;
@@ -728,36 +739,46 @@ static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
 	return vkStageFlags;
 }
 
-Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
+ShaderSource GetShaderSource(Arena &arena, const char *filename)
+{
+	FilePath shaderPath = MakePath(filename);
+	DataChunk *chunk = PushFile( arena, shaderPath.str );
+	if ( !chunk ) {
+		LOG( Error, "Could not open shader file %s.\n", shaderPath.str );
+		QUIT_ABNORMALLY();
+	}
+	ShaderSource shaderSource = { chunk->data, chunk->size };
+	return shaderSource;
+}
+
+ShaderModule CreateShaderModule(const Graphics &gfx, const ShaderSource &source)
+{
+	VkShaderModule moduleHandle = CreateShaderModule( gfx.device, source.data, source.dataSize );
+
+	ShaderModule shaderModule = {};
+	shaderModule.handle = moduleHandle;
+	return shaderModule;
+}
+
+void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
+{
+	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
+}
+
+Pipeline CreatePipeline(const Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderSource &vertexSource, const ShaderSource &fragmentSource)
 {
 	Arena scratch = MakeSubArena(arena);
-
-	FilePath vertexShaderPath = MakePath("shaders/vertex.spv");
-	FilePath fragmentShaderPath = MakePath("shaders/fragment.spv");
-	DataChunk *vertexFile = PushFile( scratch, vertexShaderPath.str );
-	if ( !vertexFile ) {
-		LOG( Error, "Could not open shader file %s.\n", vertexShaderPath.str );
-		QUIT_ABNORMALLY();
-	}
-	DataChunk *fragmentFile = PushFile( scratch, fragmentShaderPath.str );
-	if ( !fragmentFile ) {
-		LOG( Error, "Could not open shader file %s.\n", fragmentShaderPath.str );
-		QUIT_ABNORMALLY();
-	}
-
-	VkShaderModule vertexShaderModule = CreateShaderModule( gfx.device, vertexFile->data, vertexFile->size );
-	VkShaderModule fragmentShaderModule = CreateShaderModule( gfx.device, fragmentFile->data, fragmentFile->size );
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexShaderStageCreateInfo.module = vertexShaderModule;
+	vertexShaderStageCreateInfo.module = vertexModule.handle;
 	vertexShaderStageCreateInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
 	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentShaderStageCreateInfo.module = fragmentShaderModule;
+	fragmentShaderStageCreateInfo.module = fragmentModule.handle;
 	fragmentShaderStageCreateInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
@@ -882,8 +903,8 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS];
 	u32 descriptorSetLayoutCount = 0;
 
-	SpvParser parserForVertex = SpvParserInit( vertexFile->data, vertexFile->size );
-	SpvParser parserForFragment = SpvParserInit( fragmentFile->data, fragmentFile->size );
+	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
+	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
 	SpvDescriptorSetList spvDescriptorList = {};
 	SpvParseDescriptors( &parserForVertex, &spvDescriptorList );
 	SpvParseDescriptors( &parserForFragment, &spvDescriptorList );
@@ -1003,9 +1024,6 @@ Pipeline CreatePipeline(const Graphics &gfx, Arena &arena)
 
 	VkPipeline pipelineHandle;
 	VK_CHECK_RESULT( vkCreateGraphicsPipelines( gfx.device, gfx.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &pipelineHandle ) );
-
-	vkDestroyShaderModule(gfx.device, vertexShaderModule, VULKAN_ALLOCATORS);
-	vkDestroyShaderModule(gfx.device, fragmentShaderModule, VULKAN_ALLOCATORS);
 
 	Pipeline pipeline = {};
 	pipeline.globalDescriptorSetLayout = globalDescriptorSetLayout;
@@ -2041,7 +2059,13 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 #endif
 
 	// Create pipeline
-	gfx.pipeline = CreatePipeline(gfx, scratch);
+	ShaderSource vertexShaderSource = GetShaderSource(scratch, "shaders/vertex.spv");
+	ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
+	ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
+	ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
+	gfx.pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, vertexShaderSource, fragmentShaderSource);
+	DestroyShaderModule(gfx, vertexShaderModule);
+	DestroyShaderModule(gfx, fragmentShaderModule);
 
 	// DescriptorSets for globals
 	{
@@ -2057,6 +2081,7 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	}
 	// DescriptorSets for materials
 	{
+		// TODO: Allocate this once per material when creating the material, instead of all at once maybe?
 		const u32 descriptorSetCount = ARRAY_COUNT(gfx.materialDescriptorSets);
 		VkDescriptorSetLayout descriptorSetLayouts[descriptorSetCount] = {};
 		for (u32 i = 0; i < descriptorSetCount; ++i) descriptorSetLayouts[i] = gfx.pipeline.materialDescriptorSetLayout;
