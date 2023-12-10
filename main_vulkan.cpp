@@ -2398,6 +2398,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
+		LOG(Error, "acquireResult = VK_ERROR_OUT_OF_DATE_KHR\n");
 		gfx.swapchain.shouldRecreate = true;
 		return false;
 	}
@@ -2598,9 +2599,16 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	VkResult presentResult = vkQueuePresentKHR( gfx.presentQueue, &presentInfo );
 
-	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR || gfx.swapchain.shouldRecreate)
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
 	{
-		gfx.swapchain.shouldRecreate = true;
+#if PLATFORM_ANDROID
+		// TODO: Remove this condition on Android, but check why we are having suboptimal swapchains all the time first
+		if (presentResult != VK_SUBOPTIMAL_KHR)
+#endif
+		{
+			LOG(Error, "presentResult = VK_ERROR_OUT_OF_DATE_KHR | VK_SUBOPTIMAL_KHR\n");
+			gfx.swapchain.shouldRecreate = true;
+		}
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
