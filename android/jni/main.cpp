@@ -13,7 +13,6 @@ struct SavedState
 {
 	int32_t x;
 	int32_t y;
-	f32 deltaSeconds;
 };
 
 /**
@@ -24,55 +23,12 @@ struct Engine
 	struct android_app* app;
 
 	Arena arena;
-	Arena frameArena;
 	Window window;
 	Graphics gfx;
 	bool initialized;
 
 	SavedState state;
 };
-
-/**
- * Initialize a graphics context for the current display.
- */
-static int engine_init_display(Engine* engine)
-{
-	engine->window.window = engine->app->window;
-
-	// Initialize graphics
-	if ( !InitializeGraphics(engine->arena, engine->window, engine->gfx) )
-	{
-		LOG(Error, "InitializeGraphics failed!");
-		return -1;
-	}
-
-	InitializeScene(engine->gfx);
-
-	engine->initialized = true;
-	return 0;
-}
-
-/**
- * Just the current frame in the display.
- */
-static void engine_draw_frame(Engine* engine)
-{
-	if ( !engine->initialized )
-	{
-		return;
-	}
-
-	RenderGraphics(engine->gfx, engine->window, engine->frameArena, engine->state.deltaSeconds);
-}
-
-/**
- * Tear down the graphics context currently associated with the display.
- */
-static void engine_term_display(Engine* engine)
-{
-	engine->initialized = false;
-	CleanupGraphics(engine->gfx);
-}
 
 /**
  * Process the next input event.
@@ -164,23 +120,28 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
 	{
 		case APP_CMD_INIT_WINDOW:
 			// The window is being shown, get it ready.
-			if (engine->app->window != NULL)
+			if (app->window != NULL)
 			{
-				int status = engine_init_display(engine);
-				if ( status == 0 )
+				engine->window.nativeWindow = app->window;
+				// Initialize graphics
+				if ( !InitializeGraphics(engine->arena, engine->window, engine->gfx) )
 				{
-					//engine_draw_frame(engine);
+					LOG(Error, "InitializeGraphics failed!");
+					return;
 				}
+				InitializeScene(engine->gfx);
+				engine->initialized = true;
 			}
 			break;
 		case APP_CMD_TERM_WINDOW:
 			// The window is being hidden or closed, clean it up.
-			engine_term_display(engine);
+			engine->initialized = false;
+			CleanupGraphics(engine->gfx);
 			break;
 		case APP_CMD_WINDOW_RESIZED:
 			{
-				int32_t newWidth = ANativeWindow_getWidth(engine->window.window);
-				int32_t newHeight = ANativeWindow_getHeight(engine->window.window);
+				int32_t newWidth = ANativeWindow_getWidth(app->window);
+				int32_t newHeight = ANativeWindow_getHeight(app->window);
 				if ( newWidth != engine->window.width || newHeight != engine->window.height )
 				{
 					engine->window.width = newWidth;
@@ -235,7 +196,7 @@ void android_main(struct android_app* app) {
 	// Frame allocator
 	u32 frameMemorySize = MB(16);
 	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
-	engine.frameArena = MakeArena(frameMemory, frameMemorySize);
+	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
 
 	app->userData = &engine;
 	app->onAppCmd = engine_handle_cmd;
@@ -254,14 +215,14 @@ void android_main(struct android_app* app) {
 	// Application loop
 	while ( 1 )
 	{
-		Clock currentFrameClock = GetClock();
-		engine.state.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
+		const Clock currentFrameClock = GetClock();
+		const f32 deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
 		lastFrameClock = currentFrameClock;
 
 		ProcessWindowEvents(window);
 
 #if USE_CAMERA_MOVEMENT
-		AnimateCamera(window, gfx.camera, engine.state.deltaSeconds);
+		AnimateCamera(window, gfx.camera, deltaSeconds);
 #endif
 
 		if ( window.flags & WindowFlags_Exiting )
@@ -273,8 +234,10 @@ void android_main(struct android_app* app) {
 			break;
 		}
 
-		engine_draw_frame(&engine);
+		if ( engine.initialized )
+		{
+			RenderGraphics(gfx, window, frameArena, deltaSeconds);
+			ResetArena(frameArena);
+		}
 	}
-
-	engine_term_display(&engine);
 }

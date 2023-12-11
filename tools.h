@@ -1199,7 +1199,7 @@ struct Window
 	xcb_window_t window;
 	xcb_atom_t closeAtom;
 #elif USE_ANDROID
-	ANativeWindow *window;
+	ANativeWindow *nativeWindow;
 	android_app *app;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
