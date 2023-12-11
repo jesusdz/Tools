@@ -172,7 +172,7 @@ struct Swapchain
 	VkImage images[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkImageView imageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
 	float preRotationDegrees;
-	bool shouldRecreate;
+	bool outdated;
 };
 
 struct RenderTargets
@@ -532,6 +532,13 @@ static void CheckVulkanResult(VkResult result, const char *callString)
 	if (result < VK_SUCCESS)
 		QUIT_ABNORMALLY();
 }
+
+#if USE_IMGUI
+static void CheckVulkanResultImGui(VkResult result)
+{
+	CheckVulkanResult(result, "ImGui");
+}
+#endif
 
 #define VK_CHECK_RESULT( call ) CheckVulkanResult( call, #call )
 
@@ -1368,17 +1375,16 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	if ( surfaceCapabilities.currentExtent.width != 0xFFFFFFFF )
 	{
 		swapchain.extent = surfaceCapabilities.currentExtent;
+
+		// This is the size of the window. We get it here just in case it was not set by the window manager yet.
+		window.width = swapchain.extent.width;
+		window.height = swapchain.extent.height;
 	}
 	else
 	{
 		swapchain.extent.width = Clamp( window.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
 		swapchain.extent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
 	}
-
-	// We want to update the Window size just in case the swapchain recreation was
-	// requested from the Vulkan driver before being notified by the window manager.
-	window.width = swapchain.extent.width;
-	window.height = swapchain.extent.height;
 
 #if PLATFORM_ANDROID
 	const u32 baseWidth = swapchain.extent.width;
@@ -2476,6 +2482,16 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
+	if ( gfx.swapchain.outdated || window.flags & WindowFlags_Resized )
+	{
+		WaitDeviceIdle(gfx);
+		CleanupSwapchain(gfx, gfx.swapchain);
+		CleanupRenderTargets(gfx, gfx.renderTargets);
+		CreateSwapchain(gfx, window, gfx.swapchainInfo, gfx.swapchain);
+		CreateRenderTargets(gfx, gfx.renderTargets);
+		gfx.swapchain.outdated = false;
+	}
+
 	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfx.currentFrame;
 
@@ -2488,7 +2504,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
 		LOG(Warning, "vkAcquireNextImageKHR - result: VK_ERROR_OUT_OF_DATE_KHR\n");
-		gfx.swapchain.shouldRecreate = true;
+		gfx.swapchain.outdated = true;
 		return false;
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
@@ -2501,14 +2517,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 
 	// Update uniform data
-	static f32 angle = 0.0f;
-	angle += 45.0f * deltaSeconds;
-#if PLATFORM_ANDROID
-	const f32 ar = static_cast<f32>(window.height) / static_cast<f32>(window.width);
-#else
-	// TODO: Make this depend on swapchain config, not platform
-	const f32 ar = static_cast<f32>(window.width) / static_cast<f32>(window.height);
-#endif
+	const f32 ar = static_cast<f32>(gfx.swapchain.extent.width) / static_cast<f32>(gfx.swapchain.extent.height);
 	const float orthox = ar > 1.0f ? ar : 1.0f;
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
@@ -2704,7 +2713,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
 	{
 		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
-		gfx.swapchain.shouldRecreate = true;
+		gfx.swapchain.outdated = true;
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
@@ -2805,7 +2814,7 @@ int main(int argc, char **argv)
 	init_info.ImageCount = gfx.swapchain.imageCount;
 	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	init_info.Allocator = VULKAN_ALLOCATORS;
-	init_info.CheckVkResultFn = CheckVulkanResult;
+	init_info.CheckVkResultFn = CheckVulkanResultImGui;
 	ImGui_ImplVulkan_Init(&init_info, gfx.renderPass);
 
 	// Upload Fonts
@@ -2977,15 +2986,6 @@ int main(int argc, char **argv)
 		ImGui::Render(); // Generate the draw data
 #endif
 
-		if ( window.flags & WindowFlags_Resized || gfx.swapchain.shouldRecreate )
-		{
-			WaitDeviceIdle(gfx);
-			CleanupSwapchain(gfx, gfx.swapchain);
-			CleanupRenderTargets(gfx, gfx.renderTargets);
-			CreateSwapchain(gfx, window, gfx.swapchainInfo, gfx.swapchain);
-			CreateRenderTargets(gfx, gfx.renderTargets);
-			gfx.swapchain.shouldRecreate = false;
-		}
 		if ( window.flags & WindowFlags_Exiting )
 		{
 			break;

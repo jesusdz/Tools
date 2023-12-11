@@ -178,7 +178,16 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
 			engine_term_display(engine);
 			break;
 		case APP_CMD_WINDOW_RESIZED:
-			engine->window.flags |= WindowFlags_Resized;
+			{
+				int32_t newWidth = ANativeWindow_getWidth(engine->window.window);
+				int32_t newHeight = ANativeWindow_getHeight(engine->window.window);
+				if ( newWidth != engine->window.width || newHeight != engine->window.height )
+				{
+					engine->window.width = newWidth;
+					engine->window.height = newHeight;
+					engine->window.flags |= WindowFlags_Resized;
+				}
+			}
 			break;
 		//case APP_CMD_WINDOW_REDRAW_NEEDED: break;
 		//case APP_CMD_CONTENT_RECT_CHANGED: break;
@@ -202,6 +211,7 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
 			//LOG( Info, "UNKNOWN ANDROID COMMAND: %d\n", cmd);
 			break;
 	}
+	//LOG( Info, "ANDROID APP COMMAND: %d\n", cmd);
 }
 
 /**
@@ -254,16 +264,6 @@ void android_main(struct android_app* app) {
 		AnimateCamera(window, gfx.camera, engine.state.deltaSeconds);
 #endif
 
-		if ( window.flags & WindowFlags_Resized || gfx.swapchain.shouldRecreate )
-		{
-			LOG(Info, "Recreating swapchain...\n");
-			WaitDeviceIdle(gfx);
-			CleanupSwapchain(gfx, gfx.swapchain);
-			CleanupRenderTargets(gfx, gfx.renderTargets);
-			CreateSwapchain(gfx, window, gfx.swapchainInfo, gfx.swapchain);
-			CreateRenderTargets(gfx, gfx.renderTargets);
-			gfx.swapchain.shouldRecreate = false;
-		}
 		if ( window.flags & WindowFlags_Exiting )
 		{
 			break;
