@@ -60,17 +60,37 @@ sdkmanager --install "ndk;25.2.9519653"
 sdkmanager --install "platforms;android-33"
 ```
 
+## Prepare your phone for debugging
+
+### Enable debugging
+
+- Make sure to have USB debugging enabled on your phone:
+  - [Unlock the developer options](https://developer.android.com/studio/debug/dev-options).
+- Enable the option *USB debugging*
+- Enable the option *Wireless debugging* (for debugging over wireless connections)
+
+### Renderdoc captures
+
+On some devices, the global `VK_LAYER_RENDERDOC_Capture` layer doesn't seem to be visible by Vulkan and it returns a `VK_ERROR_LAYER_NOT_PRESENT` when calling `vkCreateInstance`.
+
+To fix this, open the developer options on your phone and:
+- Enable the option *Disable permission monitoring*.
+
+### Other useful options
+
+- Enable the option *Keep screen on while charging* or *Stay awake*
+
 ## Debugging an APK
 
 - Make sure your APK is debuggable:
   - Open your `AndroidManifest.xml` file.
   - The `application` tag needs the `android:debuggable="true"` attribute.
 - Make the APK and install it in your device.
-- Open the Developer Settings:
+- Again, in the developer options on your phone:
   - Press *Select debug app* and select your app here.
   - Enable the *Wait for debugger* option.
 
-## Commands
+## Debugging commands
 
 ```
 adb shell pm dump com.tools.game | grep versionCode
