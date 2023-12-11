@@ -171,6 +171,7 @@ struct Swapchain
 	u32 imageCount;
 	VkImage images[MAX_SWAPCHAIN_IMAGE_COUNT];
 	VkImageView imageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
+	float preRotationDegrees;
 	bool shouldRecreate;
 };
 
@@ -1363,10 +1364,77 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 #endif
 
 
+	// Pre transform
+	VkSurfaceTransformFlagBitsKHR preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR;
+		const u32 temp = swapchain.extent.width;
+		swapchain.extent.width = swapchain.extent.height;
+		swapchain.extent.height = temp;
+		swapchain.preRotationDegrees = 90.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR;
+		swapchain.preRotationDegrees = 180.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR;
+		const u32 temp = swapchain.extent.width;
+		swapchain.extent.width = swapchain.extent.height;
+		swapchain.extent.height = temp;
+		swapchain.preRotationDegrees = 270.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR ) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else {
+		INVALID_CODE_PATH();
+	}
+	LOG(Info, "- preRotationDegrees: %f\n", swapchain.preRotationDegrees);
+
+
 	// Image count
 	u32 imageCount = surfaceCapabilities.minImageCount + 1;
 	if ( surfaceCapabilities.maxImageCount > 0 )
 		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
+
+
+	// Queues
+	u32 queueFamilyIndices[] = {
+		gfx.graphicsQueueFamilyIndex,
+		gfx.presentQueueFamilyIndex
+	};
+
+	VkSharingMode imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	u32 queueFamilyIndexCount = 0;
+	u32 *pQueueFamilyIndices = NULL;
+	if ( gfx.graphicsQueueFamilyIndex != gfx.presentQueueFamilyIndex )
+	{
+		imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
+		pQueueFamilyIndices = queueFamilyIndices;
+	}
+
+
+	// Composite alpha
+	VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+	} else {
+		INVALID_CODE_PATH();
+	}
 
 
 	// Swapchain
@@ -1380,30 +1448,14 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	swapchainCreateInfo.imageArrayLayers = 1;
 	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
 	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
-
-	u32 queueFamilyIndices[] = {
-		gfx.graphicsQueueFamilyIndex,
-		gfx.presentQueueFamilyIndex
-	};
-
-	if ( gfx.graphicsQueueFamilyIndex != gfx.presentQueueFamilyIndex )
-	{
-		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-		swapchainCreateInfo.queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
-		swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices;
-	}
-	else
-	{
-		swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		swapchainCreateInfo.queueFamilyIndexCount = 0; // Optional
-		swapchainCreateInfo.pQueueFamilyIndices = NULL; // Optional
-	}
-
-	swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // Ignore, no compositing over other windows
+	swapchainCreateInfo.imageSharingMode = imageSharingMode;
+	swapchainCreateInfo.queueFamilyIndexCount = queueFamilyIndexCount;
+	swapchainCreateInfo.pQueueFamilyIndices = pQueueFamilyIndices;
+	swapchainCreateInfo.compositeAlpha = compositeAlpha;
 	swapchainCreateInfo.presentMode = swapchainInfo.presentMode;
 	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
 	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
-	swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	swapchainCreateInfo.preTransform = preTransform;
 
 	VK_CHECK_RESULT( vkCreateSwapchainKHR(gfx.device, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain.handle) );
 
@@ -1835,14 +1887,20 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	u32 queueCount = 1;
 	float queuePriorities[1] = { 1.0f };
 	VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
-	queueCreateInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queueCreateInfos[0].queueFamilyIndex = gfx.graphicsQueueFamilyIndex;
-	queueCreateInfos[0].queueCount = queueCount;
-	queueCreateInfos[0].pQueuePriorities = queuePriorities;
-	queueCreateInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queueCreateInfos[1].queueFamilyIndex = gfx.presentQueueFamilyIndex;
-	queueCreateInfos[1].queueCount = queueCount;
-	queueCreateInfos[1].pQueuePriorities = queuePriorities;
+	u32 queueCreateInfoCount = 0;
+	u32 queueCreateInfoIndex = queueCreateInfoCount++;
+	queueCreateInfos[queueCreateInfoIndex].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueCreateInfos[queueCreateInfoIndex].queueFamilyIndex = gfx.graphicsQueueFamilyIndex;
+	queueCreateInfos[queueCreateInfoIndex].queueCount = queueCount;
+	queueCreateInfos[queueCreateInfoIndex].pQueuePriorities = queuePriorities;
+	if ( gfx.presentQueueFamilyIndex != gfx.graphicsQueueFamilyIndex )
+	{
+		queueCreateInfoIndex = queueCreateInfoCount++;
+		queueCreateInfos[queueCreateInfoIndex].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfos[queueCreateInfoIndex].queueFamilyIndex = gfx.presentQueueFamilyIndex;
+		queueCreateInfos[queueCreateInfoIndex].queueCount = queueCount;
+		queueCreateInfos[queueCreateInfoIndex].pQueuePriorities = queuePriorities;
+	}
 
 #if 0
 	u32 deviceExtensionCount;
@@ -1881,7 +1939,7 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	requiredPhysicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
 
 	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-	deviceCreateInfo.queueCreateInfoCount = ARRAY_COUNT(queueCreateInfos);
+	deviceCreateInfo.queueCreateInfoCount = queueCreateInfoCount;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
 	deviceCreateInfo.enabledLayerCount = 0;
 	deviceCreateInfo.ppEnabledLayerNames = NULL;
@@ -2398,13 +2456,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
-		LOG(Error, "acquireResult = VK_ERROR_OUT_OF_DATE_KHR\n");
+		LOG(Warning, "vkAcquireNextImageKHR - result: VK_ERROR_OUT_OF_DATE_KHR\n");
 		gfx.swapchain.shouldRecreate = true;
 		return false;
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
 	{
-		LOG( Error, "vkAcquireNextImageKHR failed.\n" );
+		LOG(Error, "vkAcquireNextImageKHR failed.\n");
 		return false;
 	}
 
@@ -2414,12 +2472,25 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Update uniform data
 	static f32 angle = 0.0f;
 	angle += 45.0f * deltaSeconds;
+#if PLATFORM_ANDROID
+	const f32 ar = static_cast<f32>(window.height) / static_cast<f32>(window.width);
+#else
+	// TODO: Make this depend on swapchain config, not platform
 	const f32 ar = static_cast<f32>(window.width) / static_cast<f32>(window.height);
+#endif
 	const float orthox = ar > 1.0f ? ar : 1.0f;
 	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
 	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
 	//const float4x4 = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
-	const float4x4 projectionMatrix = Perspective(60.0f, ar, 0.1f, 1000.0f);
+	const float preRotationDegrees = gfx.swapchain.preRotationDegrees;
+	const float4x4 preTransformMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
+#if PLATFORM_ANDROID
+	const float4x4 perspectiveMatrix = Perspective(90.0f, ar, 0.1f, 1000.0f);
+#else
+	// TODO: Make this depend on swapchain config, not platform
+	const float4x4 perspectiveMatrix = Perspective(60.0f, ar, 0.1f, 1000.0f);
+#endif
+	const float4x4 projectionMatrix = Mul(preTransformMatrix, perspectiveMatrix);
 
 	u32 uniformBufferOffset = 0;
 
@@ -2601,18 +2672,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
 	{
-#if PLATFORM_ANDROID
-		// TODO: Remove this condition on Android, but check why we are having suboptimal swapchains all the time first
-		if (presentResult != VK_SUBOPTIMAL_KHR)
-#endif
-		{
-			LOG(Error, "presentResult = VK_ERROR_OUT_OF_DATE_KHR | VK_SUBOPTIMAL_KHR\n");
-			gfx.swapchain.shouldRecreate = true;
-		}
+		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
+		gfx.swapchain.shouldRecreate = true;
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
-		LOG( Error, "vkQueuePresentKHR failed.\n" );
+		LOG(Error, "vkQueuePresentKHR failed.\n");
 		return false;
 	}
 

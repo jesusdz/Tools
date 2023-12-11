@@ -178,7 +178,7 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
 			engine_term_display(engine);
 			break;
 		case APP_CMD_WINDOW_RESIZED:
-			engine->gfx.swapchain.shouldRecreate = true;
+			engine->window.flags |= WindowFlags_Resized;
 			break;
 		//case APP_CMD_WINDOW_REDRAW_NEEDED: break;
 		//case APP_CMD_CONTENT_RECT_CHANGED: break;

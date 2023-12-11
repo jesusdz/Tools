@@ -79,6 +79,7 @@
 #define TB(x) (1024ul * GB(x))
 
 #if PLATFORM_ANDROID
+#define Debug ANDROID_LOG_DEBUG
 #define Info ANDROID_LOG_INFO
 #define Warning ANDROID_LOG_WARN
 #define Error ANDROID_LOG_ERROR
