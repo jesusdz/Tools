@@ -102,6 +102,8 @@ if [[ ${target} = "apk" ]]; then
 	${AAPT} add bin/NativeActivity.unaligned.apk "${OUT_LIB_DIR}/libgame.so"
 	cp "${TOOLCHAIN_LIB_DIR}/libc++_shared.so" ${OUT_LIB_DIR}
 	${AAPT} add bin/NativeActivity.unaligned.apk "${OUT_LIB_DIR}/libc++_shared.so"
+	cp "../vulkan/lib/arm64_v8a/libVkLayer_khronos_validation.so" ${OUT_LIB_DIR}
+	${AAPT} add bin/NativeActivity.unaligned.apk "${OUT_LIB_DIR}/libVkLayer_khronos_validation.so"
 
 
 	# ------------------------------------------------------
