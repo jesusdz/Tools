@@ -7,27 +7,14 @@
 #include <string.h>
 
 /**
- * Our saved state data.
- */
-struct SavedState
-{
-	int32_t x;
-	int32_t y;
-};
-
-/**
  * Shared state for our app.
  */
 struct Engine
 {
-	struct android_app* app;
-
 	Arena arena;
 	Window window;
 	Graphics gfx;
 	bool initialized;
-
-	SavedState state;
 };
 
 /**
@@ -160,9 +147,7 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
 		//case APP_CMD_RESUME: break;
 		case APP_CMD_SAVE_STATE:
 			// The system has asked us to save our current state.  Do so.
-			engine->app->savedState = malloc(sizeof(SavedState));
-			*((SavedState*)engine->app->savedState) = engine->state;
-			engine->app->savedStateSize = sizeof(SavedState);
+			// TODO
 			break;
 		//case APP_CMD_PAUSE: break;
 		//case APP_CMD_STOP: break;
@@ -180,13 +165,18 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd)
  * android_native_app_glue.  It runs in its own thread, with its own
  * event loop for receiving input events and doing other things.
  */
-void android_main(struct android_app* app) {
-
+void android_main(struct android_app* app)
+{
 	LOG(Info, "Hello native activity!");
 
 	Engine engine = {};
 	Graphics &gfx = engine.gfx;
 	Window &window = engine.window;
+
+	engine.window.app = app;
+	app->userData = &engine;
+	app->onAppCmd = engine_handle_cmd;
+	app->onInputEvent = engine_handle_input;
 
 	// Allocate base memory
 	u32 baseMemorySize = MB(64);
@@ -197,18 +187,6 @@ void android_main(struct android_app* app) {
 	u32 frameMemorySize = MB(16);
 	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
 	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
-
-	app->userData = &engine;
-	app->onAppCmd = engine_handle_cmd;
-	app->onInputEvent = engine_handle_input;
-
-	engine.app = app;
-	engine.window.app = app;
-
-	if (app->savedState != NULL) {
-		// We are starting with a previous saved state; restore from it.
-		engine.state = *(SavedState*)app->savedState;
-	}
 
 	Clock lastFrameClock = GetClock();
 
