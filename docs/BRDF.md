@@ -48,3 +48,6 @@ float DistributionGGX(float3 n, float3 h, float alpha)
     return alpha2 / max((float)PI * denom * denom, 1e-7f);
 }
 ```
+
+Explained in:
+*[Correct form of the GGX geometry term](https://computergraphics.stackexchange.com/questions/2489/correct-form-of-the-ggx-geometry-term)
