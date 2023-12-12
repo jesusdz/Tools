@@ -2749,41 +2749,14 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 
 
-int main(int argc, char **argv)
-{
-	// Create Window
-	Window window = {};
-	if ( !InitializeWindow(window) )
-	{
-		LOG(Error, "InitializeWindow failed!\n");
-		return -1;
-	}
-
-	// Allocate base memory
-	u32 baseMemorySize = MB(64);
-	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
-	Arena arena = MakeArena(baseMemory, baseMemorySize);
-
-	// Frame allocator
-	u32 frameMemorySize = MB(16);
-	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
-	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
-
-	// Initialize graphics
-	Graphics gfx = {};
-	if ( !InitializeGraphics(arena, window, gfx) )
-	{
-		LOG(Error, "InitializeGraphics failed!\n");
-		return -1;
-	}
-
-	InitializeScene(gfx);
 
 #if USE_IMGUI
+void InitializeImGui(Graphics &gfx, const Window &window)
+{
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGuiIO& io = ImGui::GetIO();
 	io.FontGlobalScale = 1.5f;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;	 // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	  // Enable Gamepad Controls
@@ -2842,6 +2815,186 @@ int main(int argc, char **argv)
 
 		ImGui_ImplVulkan_DestroyFontUploadObjects();
 	}
+}
+
+void UpdateImGui(Graphics &gfx)
+{
+	// Start the Dear ImGui frame
+	ImGui_ImplVulkan_NewFrame();
+#if USE_WINAPI
+	ImGui_ImplWin32_NewFrame();
+#elif USE_XCB
+	ImGui_ImplXcb_NewFrame();
+#else
+#error "Missing codepath"
+#endif
+	ImGui::NewFrame();
+	ImGui::Begin("Hello, world!");
+
+
+	if ( ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen) )
+	{
+		static bool sceneLoaded = false;
+		if ( ImGui::Button("Load") && !sceneLoaded )
+		{
+			LoadScene(gfx);
+		}
+		if ( ImGui::Button("Cleanup") && sceneLoaded )
+		{
+			CleanupScene(gfx);
+		}
+	}
+
+	ImGui::Separator();
+
+#if 0 // Example ImGui code
+	  // Create some fancy UI
+	static bool checked = true;
+	static f32 floatValue = 0.0f;
+	static float clear_color[3] = {};
+	static u32 counter = 0;
+
+	ImGui::Text("This is some useful text.");
+	ImGui::Checkbox("Example checkbox", &checked);
+	ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);
+	ImGui::ColorEdit3("clear color", (float*)&clear_color);
+	if (ImGui::Button("Button"))
+		counter++;
+	ImGui::SameLine();
+	ImGui::Text("counter = %d", counter);
+#endif
+
+	char tmpString[4092] = {};
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &memoryProperties);
+
+
+	ImGui::Text("Memory units");
+	static int unit = 1;
+	static const char *unitSuffix[] = {"B", "KB", "MB"};
+	static const u32 unitBytes[] = {1, KB(1), MB(1)};
+	if (ImGui::BeginTable("##mem_units", 3)) {
+		for (int i = 0; i < ARRAY_COUNT(unitSuffix); i++) {
+			ImGui::TableNextColumn();
+			if (ImGui::RadioButton(unitSuffix[i], i == unit)) {
+				unit = i;
+			}
+		}
+		ImGui::EndTable();
+	}
+
+	if ( ImGui::CollapsingHeader("Vulkan memory types", ImGuiTreeNodeFlags_None) )
+	{
+		for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
+		{
+			const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
+
+			// Some devices expose memory types we cannot use
+			if ( memoryType.propertyFlags == 0 ) continue;
+
+			ImGui::Text("- type[%u]", i);
+			ImGui::Text("- propertyFlags: %s", VkMemoryPropertyFlagsToString(memoryType.propertyFlags, tmpString));
+			ImGui::Text("- heapIndex: %u", memoryType.heapIndex);
+			ImGui::Separator();
+		}
+	}
+
+	if ( ImGui::CollapsingHeader("Vulkan memory heaps", ImGuiTreeNodeFlags_None) )
+	{
+		for ( u32 i = 0; i < memoryProperties.memoryHeapCount; ++i )
+		{
+			const VkMemoryHeap &memoryHeap = memoryProperties.memoryHeaps[i];
+			ImGui::Text("- heap[%u]", i );
+			ImGui::Text("- size: %u %s", memoryHeap.size / unitBytes[unit], unitSuffix[unit]);
+			ImGui::Text("- flags: %s", VkMemoryHeapFlagsToString(memoryHeap.flags, tmpString));
+			ImGui::Separator();
+		}
+	}
+
+	if ( ImGui::CollapsingHeader("Application memory heaps", ImGuiTreeNodeFlags_None) )
+	{
+		for ( u32 i = 0; i < HeapType_COUNT; ++i )
+		{
+			const Heap &heap = gfx.heaps[i];
+			ImGui::Text("- %s", HeapTypeToString((HeapType)i));
+			ImGui::Text("  - size: %u %s\n", heap.size / unitBytes[unit], unitSuffix[unit]);
+			ImGui::Text("  - used: %u %s\n", heap.used / unitBytes[unit], unitSuffix[unit]);
+			ImGui::Text("  - memoryTypeIndex: %u\n", heap.memoryTypeIndex);
+			ImGui::Separator();
+		}
+	}
+	if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
+	{
+		ImGui::Text("Entity count: %u", gfx.entityCount);
+		ImGui::Separator();
+
+		for ( u32 i = 0; i < gfx.entityCount; ++i )
+		{
+			const Entity &entity = gfx.entities[i];
+			const Heap &heap = gfx.heaps[i];
+			ImGui::Text("- entity[%u]", i);
+			ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
+			ImGui::Text("  - materialIndex: %u", entity.materialIndex);
+			ImGui::Separator();
+		}
+	}
+
+	const ImGuiIO& io = ImGui::GetIO();
+	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+	ImGui::End();
+	ImGui::Render(); // Generate the draw data
+}
+
+void CleanupImGui()
+{
+	ImGui_ImplVulkan_Shutdown();
+#if USE_WINAPI
+	ImGui_ImplWin32_Shutdown();
+#elif USE_XCB
+	ImGui_ImplXcb_Shutdown();
+#else
+#error "Missing codepath"
+#endif
+	ImGui::DestroyContext();
+}
+#endif // USE_IMGUI
+
+
+
+
+int main(int argc, char **argv)
+{
+	// Create Window
+	Window window = {};
+	if ( !InitializeWindow(window) )
+	{
+		LOG(Error, "InitializeWindow failed!\n");
+		return -1;
+	}
+
+	// Allocate base memory
+	u32 baseMemorySize = MB(64);
+	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
+	Arena arena = MakeArena(baseMemory, baseMemorySize);
+
+	// Frame allocator
+	u32 frameMemorySize = MB(16);
+	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
+	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
+
+	// Initialize graphics
+	Graphics gfx = {};
+	if ( !InitializeGraphics(arena, window, gfx) )
+	{
+		LOG(Error, "InitializeGraphics failed!\n");
+		return -1;
+	}
+
+	InitializeScene(gfx);
+
+#if USE_IMGUI
+	InitializeImGui(gfx, window);
 #endif
 
 	Clock lastFrameClock = GetClock();
@@ -2860,130 +3013,7 @@ int main(int argc, char **argv)
 #endif
 
 #if USE_IMGUI
-		// Start the Dear ImGui frame
-		ImGui_ImplVulkan_NewFrame();
-#if USE_WINAPI
-		ImGui_ImplWin32_NewFrame();
-#elif USE_XCB
-		ImGui_ImplXcb_NewFrame();
-#else
-#error "Missing codepath"
-#endif
-		ImGui::NewFrame();
-		ImGui::Begin("Hello, world!");
-
-
-		if ( ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen) )
-		{
-			static bool sceneLoaded = false;
-			if ( ImGui::Button("Load") && !sceneLoaded )
-			{
-				LoadScene(gfx);
-			}
-			if ( ImGui::Button("Cleanup") && sceneLoaded )
-			{
-				CleanupScene(gfx);
-			}
-		}
-
-		ImGui::Separator();
-
-#if 0 // Example ImGui code
-		// Create some fancy UI
-		static bool checked = true;
-		static f32 floatValue = 0.0f;
-		static float clear_color[3] = {};
-		static u32 counter = 0;
-
-		ImGui::Text("This is some useful text.");
-		ImGui::Checkbox("Example checkbox", &checked);
-		ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);
-		ImGui::ColorEdit3("clear color", (float*)&clear_color);
-		if (ImGui::Button("Button"))
-			counter++;
-		ImGui::SameLine();
-		ImGui::Text("counter = %d", counter);
-#endif
-
-		char tmpString[4092] = {};
-		VkPhysicalDeviceMemoryProperties memoryProperties;
-		vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &memoryProperties);
-
-
-		ImGui::Text("Memory units");
-		static int unit = 1;
-		static const char *unitSuffix[] = {"B", "KB", "MB"};
-		static const u32 unitBytes[] = {1, KB(1), MB(1)};
-		if (ImGui::BeginTable("##mem_units", 3)) {
-			for (int i = 0; i < ARRAY_COUNT(unitSuffix); i++) {
-				ImGui::TableNextColumn();
-				if (ImGui::RadioButton(unitSuffix[i], i == unit)) {
-					unit = i;
-				}
-			}
-			ImGui::EndTable();
-		}
-
-		if ( ImGui::CollapsingHeader("Vulkan memory types", ImGuiTreeNodeFlags_None) )
-		{
-			for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
-			{
-				const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
-
-				// Some devices expose memory types we cannot use
-				if ( memoryType.propertyFlags == 0 ) continue;
-
-				ImGui::Text("- type[%u]", i);
-				ImGui::Text("- propertyFlags: %s", VkMemoryPropertyFlagsToString(memoryType.propertyFlags, tmpString));
-				ImGui::Text("- heapIndex: %u", memoryType.heapIndex);
-				ImGui::Separator();
-			}
-		}
-
-		if ( ImGui::CollapsingHeader("Vulkan memory heaps", ImGuiTreeNodeFlags_None) )
-		{
-			for ( u32 i = 0; i < memoryProperties.memoryHeapCount; ++i )
-			{
-				const VkMemoryHeap &memoryHeap = memoryProperties.memoryHeaps[i];
-				ImGui::Text("- heap[%u]", i );
-				ImGui::Text("- size: %u %s", memoryHeap.size / unitBytes[unit], unitSuffix[unit]);
-				ImGui::Text("- flags: %s", VkMemoryHeapFlagsToString(memoryHeap.flags, tmpString));
-				ImGui::Separator();
-			}
-		}
-
-		if ( ImGui::CollapsingHeader("Application memory heaps", ImGuiTreeNodeFlags_None) )
-		{
-			for ( u32 i = 0; i < HeapType_COUNT; ++i )
-			{
-				const Heap &heap = gfx.heaps[i];
-				ImGui::Text("- %s", HeapTypeToString((HeapType)i));
-				ImGui::Text("  - size: %u %s\n", heap.size / unitBytes[unit], unitSuffix[unit]);
-				ImGui::Text("  - used: %u %s\n", heap.used / unitBytes[unit], unitSuffix[unit]);
-				ImGui::Text("  - memoryTypeIndex: %u\n", heap.memoryTypeIndex);
-				ImGui::Separator();
-			}
-		}
-		if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
-		{
-			ImGui::Text("Entity count: %u", gfx.entityCount);
-			ImGui::Separator();
-
-			for ( u32 i = 0; i < gfx.entityCount; ++i )
-			{
-				const Entity &entity = gfx.entities[i];
-				const Heap &heap = gfx.heaps[i];
-				ImGui::Text("- entity[%u]", i);
-				ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
-				ImGui::Text("  - materialIndex: %u", entity.materialIndex);
-				ImGui::Separator();
-			}
-		}
-
-		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-
-		ImGui::End();
-		ImGui::Render(); // Generate the draw data
+		UpdateImGui(gfx);
 #endif
 
 		if ( window.flags & WindowFlags_Exiting )
@@ -3002,15 +3032,7 @@ int main(int argc, char **argv)
 	WaitDeviceIdle(gfx);
 
 #if USE_IMGUI
-	ImGui_ImplVulkan_Shutdown();
-#if USE_WINAPI
-	ImGui_ImplWin32_Shutdown();
-#elif USE_XCB
-	ImGui_ImplXcb_Shutdown();
-#else
-#error "Missing codepath"
-#endif
-	ImGui::DestroyContext();
+	CleanupImGui();
 #endif
 
 	CleanupGraphics(gfx);
