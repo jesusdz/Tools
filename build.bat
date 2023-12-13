@@ -31,7 +31,7 @@ if "%target%" == "main_interpreter.cpp" (
 ) else if "%target%" == "main_vulkan.cpp" (
 
 	REM set VULKAN_SDK_DIR=C:\Program Files\VulkanSDK
-	set VULKAN_SDK_DIR="D:\CORE-DEV-1\code_source\external\VulkanSDK\1.3.226"
+	set VULKAN_SDK_DIR=D:\CORE-DEV-1\code_source\external\VulkanSDK\1.3.226
 	set CommonCompilerFlags=%CommonCompilerFlags% -I "%VULKAN_SDK_DIR%\Include"
 	set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 
