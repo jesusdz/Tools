@@ -1,6 +1,6 @@
 #include "main_vulkan.cpp"
 
-Graphics &PlatformGraphics(Platform &platform)
+Graphics &GetPlatformGraphics(Platform &platform)
 {
 	Graphics *gfx = (Graphics*)platform.userData;
 	ASSERT(gfx != NULL);
@@ -9,7 +9,7 @@ Graphics &PlatformGraphics(Platform &platform)
 
 void PlatformWindowInit(Platform &platform)
 {
-	Graphics &gfx = PlatformGraphics(platform);
+	Graphics &gfx = GetPlatformGraphics(platform);
 
 	if ( !InitializeGraphics(platform.globalArena, platform.window, gfx) )
 	{
@@ -22,7 +22,7 @@ void PlatformWindowInit(Platform &platform)
 
 void PlatformWindowCleanup(Platform &platform)
 {
-	Graphics &gfx = PlatformGraphics(platform);
+	Graphics &gfx = GetPlatformGraphics(platform);
 
 	CleanupGraphics(gfx);
 }

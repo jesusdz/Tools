@@ -2969,29 +2969,22 @@ void CleanupImGui()
 
 
 
-int main(int argc, char **argv)
+Graphics &GetPlatformGraphics(Platform &platform)
 {
-	// Create platform
-	Platform platform = {};
-	PlatformConfig config = {};
-	config.globalMemorySize = MB(64);
-	config.frameMemorySize = MB(16);
-	if ( !PlatformInit(config, platform) )
-	{
-		LOG(Error, "PlatformInit failed!\n");
-		return -1;
-	}
+	Graphics *gfx = (Graphics*)platform.userData;
+	ASSERT(gfx != NULL);
+	return *gfx;
+}
 
-	Window &window = platform.window;
-	Arena &globalArena = platform.globalArena;
-	Arena &frameArena = platform.frameArena;
+void EngineInit(Platform &platform)
+{
+	Graphics &gfx = GetPlatformGraphics(platform);
 
 	// Initialize graphics
-	Graphics gfx = {};
-	if ( !InitializeGraphics(globalArena, window, gfx) )
+	if ( !InitializeGraphics(platform.globalArena, platform.window, gfx) )
 	{
 		LOG(Error, "InitializeGraphics failed!\n");
-		return -1;
+		return;
 	}
 
 	platform.userData = &gfx;
@@ -2999,40 +2992,28 @@ int main(int argc, char **argv)
 	InitializeScene(gfx);
 
 #if USE_IMGUI
-	InitializeImGui(gfx, window);
+	InitializeImGui(gfx, platform.window);
 #endif
+}
 
-	Clock lastFrameClock = GetClock();
-
-	// Application loop
-	while ( 1 )
-	{
-		const Clock currentFrameClock = GetClock();
-		const f32 deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
-		lastFrameClock = currentFrameClock;
-
-		PlatformUpdate(platform);
+void EngineUpdate(Platform &platform)
+{
+	Graphics &gfx = GetPlatformGraphics(platform);
 
 #if USE_CAMERA_MOVEMENT
-		AnimateCamera(window, gfx.camera, deltaSeconds);
+	AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
 #endif
 
 #if USE_IMGUI
-		UpdateImGui(gfx);
+	UpdateImGui(gfx);
 #endif
 
-		if ( window.flags & WindowFlags_Exiting )
-		{
-			break;
-		}
-		if ( window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
-		{
-			break;
-		}
+	RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+}
 
-		RenderGraphics(gfx, window, frameArena, deltaSeconds);
-		ResetArena(frameArena);
-	}
+void EngineCleanup(Platform &platform)
+{
+	Graphics &gfx = GetPlatformGraphics(platform);
 
 	WaitDeviceIdle(gfx);
 
@@ -3042,9 +3023,9 @@ int main(int argc, char **argv)
 
 	CleanupGraphics(gfx);
 
-	CleanupWindow(window);
+	CleanupWindow(platform.window);
 
-	PrintArenaUsage(globalArena);
+	PrintArenaUsage(platform.globalArena);
 
 #if USE_VULKAN_ALLOCATION_CALLBACKS
 	LOG(Info, "Vulkan system memory usage:\n");
@@ -3055,6 +3036,27 @@ int main(int argc, char **argv)
 		LOG(Info, "- Max size for %s: %u kB\n", VkSystemAllocationScopeToString(scopeId), scope.maxAllocatedBytes / KB(1));
 	}
 #endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
+}
+
+int main(int argc, char **argv)
+{
+	Platform platform = {};
+	PlatformConfig config = {};
+	config.globalMemorySize = MB(64);
+	config.frameMemorySize = MB(16);
+	if ( !PlatformInit(config, platform) )
+	{
+		LOG(Error, "PlatformInit failed!\n");
+		return -1;
+	}
+
+	Graphics gfx = {};
+	platform.userData = &gfx;
+	platform.InitCallback = EngineInit;
+	platform.UpdateCallback = EngineUpdate;
+	platform.CleanupCallback = EngineCleanup;
+
+	PlatformRun(platform);
 
 	return 1;
 }

@@ -1232,9 +1232,14 @@ struct Platform
 #endif // PLATFORM_ANDROID
 	void *userData;
 
+	f32 deltaSeconds;
+
 	// Callbacks
 	void (*WindowInitCallback)(Platform &);
 	void (*WindowCleanupCallback)(Platform &);
+	void (*InitCallback)(Platform &);
+	void (*UpdateCallback)(Platform &);
+	void (*CleanupCallback)(Platform &);
 };
 
 
@@ -1854,7 +1859,7 @@ void CleanupWindow(Window &window)
 
 
 
-void PlatformUpdate(Platform &platform)
+void PlatformUpdateEventLoop(Platform &platform)
 {
 	Window &window = platform.window;
 
@@ -1963,6 +1968,36 @@ bool PlatformInit(const PlatformConfig &config, Platform &platform)
 #endif // PLATFORM_ANDROID
 	}
 	return ok;
+}
+
+void PlatformRun(Platform &platform)
+{
+	platform.InitCallback(platform);
+
+	Clock lastFrameClock = GetClock();
+
+	while ( 1 )
+	{
+		ResetArena(platform.frameArena);
+
+		const Clock currentFrameClock = GetClock();
+		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
+		lastFrameClock = currentFrameClock;
+
+		PlatformUpdateEventLoop(platform);
+		platform.UpdateCallback(platform);
+
+		if ( platform.window.flags & WindowFlags_Exiting )
+		{
+			break;
+		}
+		if ( platform.window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
+		{
+			break;
+		}
+	}
+
+	platform.CleanupCallback(platform);
 }
 
 #endif // #if defined(TOOLS_WINDOW)
