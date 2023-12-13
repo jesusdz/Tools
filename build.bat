@@ -2,6 +2,9 @@
 
 IF NOT EXIST build mkdir build
 
+set RootDir=%~dp0
+set RootDir=%RootDir:~0,-1%
+
 :: Target to build
 set target=%1
 if [%target%]==[] set target=main_d3d12.cpp
@@ -30,9 +33,7 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_vulkan.cpp" (
 
-	REM set VULKAN_SDK_DIR=C:\Program Files\VulkanSDK
-	set VULKAN_SDK_DIR=D:\CORE-DEV-1\code_source\external\VulkanSDK\1.3.226
-	set CommonCompilerFlags=%CommonCompilerFlags% -I "%VULKAN_SDK_DIR%\Include"
+	set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 	set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 
 ) else if "%target%" == "main_d3d12.cpp" (
