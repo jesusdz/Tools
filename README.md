@@ -36,11 +36,13 @@ Currently, there are the following *in-progress* projects:
 
 To the greatest extent possible, the projects and tools here present will not have heavy external dependencies. At most, dependencies will be included within this repository itself and will consist of lightweight source code files compiled along with the projects.
 
-This is the list of the currently used dependencies:
+This is the list of the dependencies currently included in this repository:
 
 * [Volk](https://github.com/zeux/volk) (a meta-loader for Vulkan by Zeux)
 * [stb_image](https://github.com/nothings/stb) (public domain image loader by Seann Barrett)
 * [Dear ImGui](https://github.com/ocornut/imgui) (bloat-free graphical user interface library for C++ by Omar Cornut)
+* [DXC](https://github.com/microsoft/DirectXShaderCompiler) (the DirectX Shader Compiler binary and library)
+* [Android SDK](https://developer.android.com/studio) (actually all the tools and packages required to build and deploy .APK files)
 
 
 ## Supported platforms

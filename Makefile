@@ -1,12 +1,14 @@
 .PHONY: default main_interpreter main_vulkan main_spirv shaders clean
 
+export PATH:=$(PATH):dxc/linux/bin
+
 default: main_vulkan
 
 main_interpreter:
 	g++ -g -o main_interpreter main_interpreter.cpp
 
 main_vulkan:
-	g++ -g -o main_vulkan  main_vulkan.cpp -DVK_NO_PROTOTYPES -lxcb
+	g++ -g -o main_vulkan  main_vulkan.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
 
 main_spirv:
 	g++ -g -o main_spirv main_spirv.cpp
