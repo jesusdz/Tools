@@ -284,6 +284,8 @@ struct Graphics
 
 	Entity entities[MAX_ENTITIES];
 	u32 entityCount;
+
+	bool initialized;
 };
 
 
@@ -2192,6 +2194,8 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	// Samplers
 	gfx.textureSampler = CreateSampler(gfx);
 
+	gfx.initialized = true;
+
 	// Copy the temporary device into the output parameter
 	outGfx = gfx;
 
@@ -2277,6 +2281,8 @@ void CleanupRenderTargets(Graphics &gfx, const RenderTargets &renderTargets)
 
 void CleanupGraphics(Graphics &gfx)
 {
+	gfx.initialized = false;
+
 	WaitDeviceIdle( gfx );
 
 	vkDestroyDescriptorPool( gfx.device, gfx.descriptorPool, VULKAN_ALLOCATORS );
@@ -2965,31 +2971,30 @@ void CleanupImGui()
 
 int main(int argc, char **argv)
 {
-	// Create Window
-	Window window = {};
-	if ( !InitializeWindow(window) )
+	// Create platform
+	Platform platform = {};
+	PlatformConfig config = {};
+	config.globalMemorySize = MB(64);
+	config.frameMemorySize = MB(16);
+	if ( !PlatformInit(config, platform) )
 	{
-		LOG(Error, "InitializeWindow failed!\n");
+		LOG(Error, "PlatformInit failed!\n");
 		return -1;
 	}
 
-	// Allocate base memory
-	u32 baseMemorySize = MB(64);
-	byte *baseMemory = (byte*)AllocateVirtualMemory(baseMemorySize);
-	Arena arena = MakeArena(baseMemory, baseMemorySize);
-
-	// Frame allocator
-	u32 frameMemorySize = MB(16);
-	byte *frameMemory = (byte*)AllocateVirtualMemory(frameMemorySize);
-	Arena frameArena = MakeArena(frameMemory, frameMemorySize);
+	Window &window = platform.window;
+	Arena &globalArena = platform.globalArena;
+	Arena &frameArena = platform.frameArena;
 
 	// Initialize graphics
 	Graphics gfx = {};
-	if ( !InitializeGraphics(arena, window, gfx) )
+	if ( !InitializeGraphics(globalArena, window, gfx) )
 	{
 		LOG(Error, "InitializeGraphics failed!\n");
 		return -1;
 	}
+
+	platform.userData = &gfx;
 
 	InitializeScene(gfx);
 
@@ -3006,7 +3011,7 @@ int main(int argc, char **argv)
 		const f32 deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
 		lastFrameClock = currentFrameClock;
 
-		ProcessWindowEvents(window);
+		PlatformUpdate(platform);
 
 #if USE_CAMERA_MOVEMENT
 		AnimateCamera(window, gfx.camera, deltaSeconds);
@@ -3039,7 +3044,7 @@ int main(int argc, char **argv)
 
 	CleanupWindow(window);
 
-	PrintArenaUsage(arena);
+	PrintArenaUsage(globalArena);
 
 #if USE_VULKAN_ALLOCATION_CALLBACKS
 	LOG(Info, "Vulkan system memory usage:\n");

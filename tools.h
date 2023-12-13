@@ -1200,7 +1200,6 @@ struct Window
 	xcb_atom_t closeAtom;
 #elif USE_ANDROID
 	ANativeWindow *nativeWindow;
-	android_app *app;
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
@@ -1212,6 +1211,30 @@ struct Window
 	Keyboard keyboard;
 	Mouse mouse;
 	Touch touches[2];
+};
+
+struct PlatformConfig
+{
+	u32 globalMemorySize;
+	u32 frameMemorySize;
+#if PLATFORM_ANDROID
+	struct android_app *androidApp;
+#endif // PLATFORM_ANDROID
+};
+
+struct Platform
+{
+	Arena globalArena;
+	Arena frameArena;
+	Window window;
+#if PLATFORM_ANDROID
+	struct android_app *androidApp;
+#endif // PLATFORM_ANDROID
+	void *userData;
+
+	// Callbacks
+	void (*WindowInitCallback)(Platform &);
+	void (*WindowCleanupCallback)(Platform &);
 };
 
 
@@ -1372,7 +1395,144 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 	// Clear mouse/keyboard events if handled by ImGui
 	if ( io.WantCaptureMouse ) window.mouse = {};
 	if ( io.WantCaptureKeyboard ) window.keyboard = {};
-#endif
+#endif // USE_IMGUI
+}
+
+#elif USE_ANDROID
+
+/**
+ * Process the next main command.
+ * enum NativeAppGlueAppCmd {
+ *   UNUSED_APP_CMD_INPUT_CHANGED = 0
+ *   APP_CMD_INIT_WINDOW = 1
+ *   APP_CMD_TERM_WINDOW = 2
+ *   APP_CMD_WINDOW_RESIZED = 3
+ *   APP_CMD_WINDOW_REDRAW_NEEDED = 4
+ *   APP_CMD_CONTENT_RECT_CHANGED = 5
+ *   APP_CMD_GAINED_FOCUS = 6
+ *   APP_CMD_LOST_FOCUS = 7
+ *   APP_CMD_CONFIG_CHANGED = 8
+ *   APP_CMD_LOW_MEMORY = 9
+ *   APP_CMD_START = 10
+ *   APP_CMD_RESUME = 11
+ *   APP_CMD_SAVE_STATE = 12
+ *   APP_CMD_PAUSE = 13
+ *   APP_CMD_STOP = 14
+ *   APP_CMD_DESTROY = 15
+ *   APP_CMD_WINDOW_INSETS_CHANGED = 16
+ * }
+ */
+void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
+{
+	Platform *platform = (Platform*)app->userData;
+
+	switch (cmd)
+	{
+		case APP_CMD_INIT_WINDOW:
+			// The window is being shown, get it ready.
+			if (app->window != NULL)
+			{
+				platform->window.nativeWindow = app->window;
+				ASSERT(platform->WindowInitCallback != NULL);
+				platform->WindowInitCallback(*platform);
+			}
+			break;
+		case APP_CMD_TERM_WINDOW:
+			// The window is being hidden or closed, clean it up.
+			ASSERT(platform->WindowCleanupCallback != NULL);
+			platform->WindowCleanupCallback(*platform);
+			break;
+		case APP_CMD_WINDOW_RESIZED:
+			{
+				int32_t newWidth = ANativeWindow_getWidth(app->window);
+				int32_t newHeight = ANativeWindow_getHeight(app->window);
+				if ( newWidth != platform->window.width || newHeight != platform->window.height )
+				{
+					platform->window.width = newWidth;
+					platform->window.height = newHeight;
+					platform->window.flags |= WindowFlags_Resized;
+				}
+			}
+			break;
+		//case APP_CMD_WINDOW_REDRAW_NEEDED: break;
+		//case APP_CMD_CONTENT_RECT_CHANGED: break;
+		//case APP_CMD_GAINED_FOCUS: break;
+		//case APP_CMD_LOST_FOCUS: break;
+		//case APP_CMD_CONFIG_CHANGED: break;
+		//case APP_CMD_LOW_MEMORY: break;
+		//case APP_CMD_START: break;
+		//case APP_CMD_RESUME: break;
+		case APP_CMD_SAVE_STATE:
+			// The system has asked us to save our current state.  Do so.
+			// TODO
+			break;
+		//case APP_CMD_PAUSE: break;
+		//case APP_CMD_STOP: break;
+		//case APP_CMD_DESTROY: break;
+		//case APP_CMD_WINDOW_INSETS_CHANGED: break;
+		default:
+			//LOG( Info, "UNKNOWN ANDROID COMMAND: %d\n", cmd);
+			break;
+	}
+	//LOG( Info, "ANDROID APP COMMAND: %d\n", cmd);
+}
+
+int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
+{
+	Platform *platform = (Platform*)app->userData;
+
+	if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION)
+	{
+		const int32_t actionAndPointer = AMotionEvent_getAction( event );
+		const uint32_t action = actionAndPointer & AMOTION_EVENT_ACTION_MASK;
+		const uint32_t pointerIndex = (actionAndPointer & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+		const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
+		const uint32_t pointerCount = AMotionEvent_getPointerCount(event);
+		const float x = AMotionEvent_getX(event, pointerIndex);
+		const float y = AMotionEvent_getY(event, pointerIndex);
+
+		if (pointerId < ARRAY_COUNT(platform->window.touches))
+		{
+			Touch *touches = platform->window.touches;
+
+			switch( action )
+			{
+				case AMOTION_EVENT_ACTION_DOWN:
+				case AMOTION_EVENT_ACTION_POINTER_DOWN:
+					{
+						touches[pointerId].state = TOUCH_STATE_PRESS;
+						touches[pointerId].x0 = x;
+						touches[pointerId].y0 = y;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
+					break;
+				case AMOTION_EVENT_ACTION_UP:
+				case AMOTION_EVENT_ACTION_POINTER_UP:
+					{
+						touches[pointerId].state = TOUCH_STATE_RELEASE;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
+					break;
+				case AMOTION_EVENT_ACTION_MOVE:
+					// On move ements, we are meant to handle all pointers in the gesture
+					for (u32 pointerIndex = 0; pointerIndex < pointerCount; ++pointerIndex)
+					{
+						const float x = AMotionEvent_getX(event, pointerIndex);
+						const float y = AMotionEvent_getY(event, pointerIndex);
+						const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
+						touches[pointerId].dx = x - touches[pointerId].x;
+						touches[pointerId].dy = y - touches[pointerId].y;
+						touches[pointerId].x = x;
+						touches[pointerId].y = y;
+					}
+					break;
+			}
+		}
+		return 1;
+	}
+	return 0;
 }
 
 #elif USE_WINAPI
@@ -1694,8 +1854,10 @@ void CleanupWindow(Window &window)
 
 
 
-void ProcessWindowEvents(Window &window)
+void PlatformUpdate(Platform &platform)
 {
+	Window &window = platform.window;
+
 	window.flags = 0;
 
 	// Transition key states
@@ -1751,12 +1913,13 @@ void ProcessWindowEvents(Window &window)
 	while ((ident=ALooper_pollAll(kDontWait, NULL, &events, (void**)&source)) >= 0)
 	{
 		// Process this event.
-		if (source != NULL) {
-			source->process(window.app, source);
+		if (source != NULL)
+		{
+			source->process(platform.androidApp, source);
 		}
 
 		// Check if we are exiting.
-		if (window.app->destroyRequested != 0)
+		if (platform.androidApp->destroyRequested != 0)
 		{
 			window.flags |= WindowFlags_Exiting;
 		}
@@ -1779,6 +1942,27 @@ void ProcessWindowEvents(Window &window)
 	}
 
 #endif
+}
+
+bool PlatformInit(const PlatformConfig &config, Platform &platform)
+{
+	bool ok = InitializeWindow(platform.window);
+	if ( ok )
+	{
+		byte *baseMemory = (byte*)AllocateVirtualMemory(config.globalMemorySize);
+		platform.globalArena = MakeArena(baseMemory, config.globalMemorySize);
+
+		byte *frameMemory = (byte*)AllocateVirtualMemory(config.frameMemorySize);
+		platform.frameArena = MakeArena(frameMemory, config.frameMemorySize);
+
+#if PLATFORM_ANDROID
+		platform.androidApp = config.androidApp;
+		platform.androidApp->onAppCmd = AndroidHandleAppCommand;
+		platform.androidApp->onInputEvent = AndroidHandleInputEvent;
+		platform.androidApp->userData = &platform;
+#endif // PLATFORM_ANDROID
+	}
+	return ok;
 }
 
 #endif // #if defined(TOOLS_WINDOW)
