@@ -1,5 +1,8 @@
 @echo off
 
+REM Prepare the VC compiler environment
+call vcenv.bat
+
 IF NOT EXIST build mkdir build
 
 set RootDir=%~dp0
@@ -7,11 +10,11 @@ set RootDir=%RootDir:~0,-1%
 
 set DXC=%RootDir%\dxc\windows\bin\x64\dxc.exe
 
-:: Target to build
+REM Target to build
 set target=%1
 if [%target%]==[] set target=main_d3d12.cpp
 
-:: Build binaries
+REM Build binaries
 pushd build
 
 del /Q *.* > NUL 2> NUL
@@ -64,7 +67,7 @@ cl %CommonCompilerFlags% ..\%target% /link %CommonLinkerFlags%
 
 popd
 
-:: Build shaders
+REM Build shaders
 pushd shaders
 
 del /Q *.spv *.dxil *.pdb *.cso 2>nul
