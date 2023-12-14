@@ -5,6 +5,8 @@ IF NOT EXIST build mkdir build
 set RootDir=%~dp0
 set RootDir=%RootDir:~0,-1%
 
+set DXC=%RootDir%\dxc\windows\bin\x64\dxc.exe
+
 :: Target to build
 set target=%1
 if [%target%]==[] set target=main_d3d12.cpp
@@ -68,15 +70,15 @@ pushd shaders
 del /Q *.spv *.dxil *.pdb *.cso 2>nul
 
 if "%target%"=="main_vulkan.cpp" (
-	dxc -spirv -T vs_6_7 -Fo vertex.spv -Fc vertex.dis vertex.hlsl
-	dxc -spirv -T ps_6_7 -Fo fragment.spv -Fc fragment.dis fragment.hlsl
+	%DXC% -spirv -T vs_6_7 -Fo vertex.spv -Fc vertex.dis vertex.hlsl
+	%DXC% -spirv -T ps_6_7 -Fo fragment.spv -Fc fragment.dis fragment.hlsl
 	REM glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
 	REM glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
 )
 
 if "%target%"=="main_d3d12.cpp" (
-	dxc -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hlsl
-	dxc -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.cso fragment.hlsl
+	%DXC% -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hlsl
+	%DXC% -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.cso fragment.hlsl
 )
 
 popd
