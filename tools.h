@@ -1188,10 +1188,10 @@ bool MouseChanged(const Mouse &mouse)
 
 enum WindowFlags
 {
-	WindowFlags_Open    = 1 << 0,
-	WindowFlags_Close   = 1 << 1,
-	WindowFlags_Resized = 1 << 2,
-	WindowFlags_Quit    = 1 << 3,
+	WindowFlags_WasCreated  = 1 << 0,
+	WindowFlags_WillDestroy = 1 << 1,
+	WindowFlags_WasResized  = 1 << 2,
+	WindowFlags_Exit        = 1 << 3,
 };
 
 struct Window
@@ -1209,6 +1209,7 @@ struct Window
 	u32 width;
 	u32 height;
 	u32 flags;
+	bool active;
 
 	Keyboard keyboard;
 	Mouse mouse;
@@ -1355,7 +1356,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				{
 					window.width = ev->width;
 					window.height = ev->height;
-					window.flags |= WindowFlags_Resized;
+					window.flags |= WindowFlags_WasResized;
 				}
 				break;
 			}
@@ -1365,8 +1366,8 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
 				if ( ev->data.data32[0] == window.closeAtom )
 				{
-					window.flags |= WindowFlags_Close;
-					window.flags |= WindowFlags_Quit;
+					window.flags |= WindowFlags_WillDestroy;
+					window.flags |= WindowFlags_Exit;
 				}
 				break;
 			}
@@ -1443,15 +1444,18 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 	{
 		case APP_CMD_INIT_WINDOW:
 			// The window is being shown, get it ready.
-			if (app->window != NULL)
+			ASSERT(app->window != NULL);
+			if (app->window && app->window != platform->window.nativeWindow)
 			{
 				platform->window.nativeWindow = app->window;
-				platform->window.flags |= WindowFlags_Open;
+				platform->window.flags |= WindowFlags_WasCreated;
+				platform->window.active = true;
 			}
 			break;
 		case APP_CMD_TERM_WINDOW:
 			// The window is being hidden or closed, clean it up.
-			platform->window.flags |= WindowFlags_Close;
+			platform->window =  {};
+			platform->window.flags |= WindowFlags_WillDestroy;
 			break;
 		case APP_CMD_WINDOW_RESIZED:
 			{
@@ -1461,7 +1465,7 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 				{
 					platform->window.width = newWidth;
 					platform->window.height = newHeight;
-					platform->window.flags |= WindowFlags_Resized;
+					platform->window.flags |= WindowFlags_WasResized;
 				}
 			}
 			break;
@@ -1473,11 +1477,13 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 		//case APP_CMD_LOW_MEMORY: break;
 		//case APP_CMD_START: break;
 		//case APP_CMD_RESUME: break;
-		case APP_CMD_SAVE_STATE:
-			// The system has asked us to save our current state.  Do so.
-			// TODO
+		//case APP_CMD_SAVE_STATE: break;
+		case APP_CMD_PAUSE:
+			{
+				platform->window.active = false;
+				// Gets activated at APP_CMD_INIT_WINDOW
+			}
 			break;
-		//case APP_CMD_PAUSE: break;
 		//case APP_CMD_STOP: break;
 		//case APP_CMD_DESTROY: break;
 		//case APP_CMD_WINDOW_INSETS_CHANGED: break;
@@ -1637,7 +1643,8 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
 		case WM_CREATE:
 			{
-				window->flags |= WindowFlags_Open;
+				window->flags |= WindowFlags_WasCreated;
+				platform->window.active = true;
 				break;
 			}
 
@@ -1650,7 +1657,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				{
 					window->width = Max(width, 1);
 					window->height = Max(height, 1);
-					window->flags |= WindowFlags_Resized;
+					window->flags |= WindowFlags_WasResized;
 				}
 				break;
 			}
@@ -1671,7 +1678,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				window->flags |= WindowFlags_Close;
+				window->flags |= WindowFlags_WillDestroy;
 				PostQuitMessage(0);
 				break;
 			}
@@ -1798,7 +1805,8 @@ bool InitializeWindow(
 	window.height = reply->height;
 
 	// In XCB we don't receive a "window created" event, so we set this flag here
-	window.flags = WindowFlags_Open;
+	window.flags = WindowFlags_WasCreated;
+	window.active = true;
 
 #endif
 
@@ -1866,7 +1874,6 @@ bool InitializeWindow(
 
 void CleanupWindow(Window &window)
 {
-	LOG( Info, "CleanupWindow\n" );
 #if USE_XCB
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
@@ -1941,7 +1948,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 		// Check if we are exiting.
 		if (platform.androidApp->destroyRequested != 0)
 		{
-			window.flags |= WindowFlags_Quit;
+			window.flags |= WindowFlags_Exit;
 		}
 	}
 
@@ -1952,7 +1959,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 	{
 		if ( LOWORD( msg.message ) == WM_QUIT )
 		{
-			window.flags |= WindowFlags_Quit;
+			window.flags |= WindowFlags_Exit;
 		}
 		else
 		{
@@ -2008,20 +2015,24 @@ bool PlatformRun(Platform &platform)
 		lastFrameClock = currentFrameClock;
 
 		PlatformUpdateEventLoop(platform);
-		platform.UpdateCallback(platform);
 
-		if ( platform.window.flags & WindowFlags_Open )
+		if ( platform.window.flags & WindowFlags_WasCreated )
 		{
 			platform.WindowInitCallback(platform);
 		}
-		if ( platform.window.flags & WindowFlags_Close )
+		if ( platform.window.flags & WindowFlags_WillDestroy )
 		{
 			platform.WindowCleanupCallback(platform);
 			CleanupWindow(platform.window);
 		}
-		if ( platform.window.flags & WindowFlags_Quit )
+		if ( platform.window.flags & WindowFlags_Exit )
 		{
 			break;
+		}
+
+		if ( platform.window.active )
+		{
+			platform.UpdateCallback(platform);
 		}
 
 		platform.window.flags = 0;

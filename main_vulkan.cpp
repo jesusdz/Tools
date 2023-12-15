@@ -285,7 +285,8 @@ struct Graphics
 	Entity entities[MAX_ENTITIES];
 	u32 entityCount;
 
-	bool initialized;
+	bool deviceInitialized;
+	bool sceneInitialized;
 };
 
 
@@ -1613,12 +1614,9 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	return true;
 }
 
-bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
+bool InitializeGraphicsPre(Arena &arena, Graphics &gfx)
 {
-	Graphics gfx = {};
-
 	Arena scratch = MakeSubArena(arena);
-
 
 	// Initialize Volk -- load basic Vulkan function pointers
 	VkResult result = volkInitialize();
@@ -1742,7 +1740,11 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 		VK_CHECK_RESULT( vkCreateDebugReportCallbackEXT( gfx.instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &gfx.debugReportCallback) );
 	}
 
+	return true;
+}
 
+bool InitializeGraphicsSurface(Window &window, Graphics &gfx)
+{
 #if VK_USE_PLATFORM_XCB_KHR
 	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
 	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
@@ -1761,6 +1763,14 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	surfaceCreateInfo.hwnd = window.hWnd;
 	VK_CHECK_RESULT( vkCreateWin32SurfaceKHR( gfx.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &gfx.surface ) );
 #endif
+
+	return true;
+}
+
+bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
+{
+	Arena scratch = MakeSubArena(arena);
+	VkResult result = VK_RESULT_MAX_ENUM;
 
 
 	// List of physical devices
@@ -2194,16 +2204,16 @@ bool InitializeGraphics(Arena &arena, Window &window, Graphics &outGfx)
 	// Samplers
 	gfx.textureSampler = CreateSampler(gfx);
 
-	gfx.initialized = true;
-
-	// Copy the temporary device into the output parameter
-	outGfx = gfx;
+	gfx.deviceInitialized = true;
 
 	return true;
 }
 
 void InitializeScene(Graphics &gfx)
 {
+	if ( gfx.sceneInitialized )
+		return;
+
 	// Camera
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45f};
@@ -2245,6 +2255,8 @@ void InitializeScene(Graphics &gfx)
 	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 0);
 	CreateEntity(gfx, float3{ 1, 0,  1}, &gfx.cubeVertices, &gfx.cubeIndices, 1);
 	CreateEntity(gfx, float3{-1, 0,  1}, &gfx.planeVertices, &gfx.planeIndices, 1);
+
+	gfx.sceneInitialized = true;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -2254,7 +2266,7 @@ void WaitDeviceIdle(Graphics &gfx)
 	gfx.stagingBufferOffset = 0;
 }
 
-void CleanupSwapchain(const Graphics &gfx, const Swapchain &swapchain)
+void CleanupSwapchain(const Graphics &gfx, Swapchain &swapchain)
 {
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
@@ -2262,9 +2274,11 @@ void CleanupSwapchain(const Graphics &gfx, const Swapchain &swapchain)
 	}
 
 	vkDestroySwapchainKHR(gfx.device, swapchain.handle, VULKAN_ALLOCATORS);
+
+	swapchain = {};
 }
 
-void CleanupRenderTargets(Graphics &gfx, const RenderTargets &renderTargets)
+void CleanupRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	vkDestroyImageView(gfx.device, renderTargets.depthImageView, VULKAN_ALLOCATORS);
 	vkDestroyImage(gfx.device, renderTargets.depthImage.image, VULKAN_ALLOCATORS);
@@ -2277,11 +2291,13 @@ void CleanupRenderTargets(Graphics &gfx, const RenderTargets &renderTargets)
 	{
 		vkDestroyFramebuffer( gfx.device, renderTargets.framebuffers[i], VULKAN_ALLOCATORS );
 	}
+
+	renderTargets = {};
 }
 
-void CleanupGraphics(Graphics &gfx)
+void CleanupGraphicsDevice(Graphics &gfx)
 {
-	gfx.initialized = false;
+	gfx.deviceInitialized = false;
 
 	WaitDeviceIdle( gfx );
 
@@ -2319,8 +2335,6 @@ void CleanupGraphics(Graphics &gfx)
 	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
 	vkDestroyDescriptorSetLayout( gfx.device, gfx.pipeline.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
 
-	CleanupRenderTargets( gfx, gfx.renderTargets );
-
 	vkDestroyRenderPass( gfx.device, gfx.renderPass, VULKAN_ALLOCATORS );
 
 
@@ -2332,8 +2346,6 @@ void CleanupGraphics(Graphics &gfx)
 		vkDestroySemaphore( gfx.device, gfx.renderFinishedSemaphores[i], VULKAN_ALLOCATORS );
 		vkDestroyFence( gfx.device, gfx.inFlightFences[i], VULKAN_ALLOCATORS );
 	}
-
-	CleanupSwapchain( gfx, gfx.swapchain );
 
 	vkDestroyCommandPool( gfx.device, gfx.transientCommandPool, VULKAN_ALLOCATORS );
 
@@ -2364,6 +2376,7 @@ void LoadScene(Graphics &gfx)
 void CleanupScene(Graphics &gfx)
 {
 	// TODO
+	gfx.sceneInitialized = false;
 }
 
 float3 ForwardDirectionFromAngles(const float2 &angles)
@@ -2488,16 +2501,6 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
-	if ( gfx.swapchain.outdated || window.flags & WindowFlags_Resized )
-	{
-		WaitDeviceIdle(gfx);
-		CleanupSwapchain(gfx, gfx.swapchain);
-		CleanupRenderTargets(gfx, gfx.renderTargets);
-		CreateSwapchain(gfx, window, gfx.swapchainInfo, gfx.swapchain);
-		CreateRenderTargets(gfx, gfx.renderTargets);
-		gfx.swapchain.outdated = false;
-	}
-
 	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfx.currentFrame;
 
@@ -2757,7 +2760,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 
 #if USE_IMGUI
-void InitializeImGui(Graphics &gfx, const Window &window)
+void InitializeImGuiContext()
 {
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -2770,7 +2773,10 @@ void InitializeImGui(Graphics &gfx, const Window &window)
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
 	//ImGui::StyleColorsLight();
+}
 
+void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
+{
 	// Setup Platform/Renderer backends
 #if USE_WINAPI
 	ImGui_ImplWin32_Init(window.hWnd);
@@ -2963,18 +2969,17 @@ bool EngineInit(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
+#if USE_IMGUI
+	InitializeImGuiContext();
+#endif
+
 	// Initialize graphics
-	if ( !InitializeGraphics(platform.globalArena, platform.window, gfx) )
+	if ( !InitializeGraphicsPre(platform.globalArena, gfx) )
 	{
-		LOG(Error, "InitializeGraphics failed!\n");
+		// TODO: Actually we could throw a system error and exit...
+		LOG(Error, "InitializeGraphicsPre failed!\n");
 		return false;
 	}
-
-	InitializeScene(gfx);
-
-#if USE_IMGUI
-	InitializeImGui(gfx, platform.window);
-#endif
 
 	return true;
 }
@@ -2983,6 +2988,33 @@ bool EngineWindowInit(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
+	if ( !InitializeGraphicsSurface(platform.window, gfx) )
+	{
+		// TODO: Actually we could throw a system error and exit...
+		LOG(Error, "InitializeGraphicsSurface failed!\n");
+		return false;
+	}
+
+	if ( gfx.deviceInitialized )
+	{
+		// TODO: Check the current device still supports the new surface
+	}
+	else
+	{
+		if ( !InitializeGraphicsDevice(platform.globalArena, platform.window, gfx) )
+		{
+			// TODO: Actually we could throw a system error and exit...
+			LOG(Error, "InitializeGraphicsDevice failed!\n");
+			return false;
+		}
+	}
+
+	InitializeScene(gfx);
+
+#if USE_IMGUI
+	InitializeImGuiGraphics(gfx, platform.window);
+#endif
+
 	return true;
 }
 
@@ -2990,20 +3022,37 @@ void EngineUpdate(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
+	if ( gfx.swapchain.outdated || platform.window.flags & WindowFlags_WasResized )
+	{
+		WaitDeviceIdle(gfx);
+		CleanupRenderTargets(gfx, gfx.renderTargets);
+		CleanupSwapchain(gfx, gfx.swapchain);
+		CreateSwapchain(gfx, platform.window, gfx.swapchainInfo, gfx.swapchain);
+		CreateRenderTargets(gfx, gfx.renderTargets);
+		gfx.swapchain.outdated = false;
+	}
+
+	if ( gfx.deviceInitialized && gfx.swapchain.handle != VK_NULL_HANDLE )
+	{
 #if USE_CAMERA_MOVEMENT
-	AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
+		AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
 #endif
 
 #if USE_IMGUI
-	UpdateImGui(gfx);
+		UpdateImGui(gfx);
 #endif
 
-	RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+	}
 }
 
 void EngineWindowCleanup(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
+
+	WaitDeviceIdle(gfx);
+	CleanupRenderTargets(gfx, gfx.renderTargets);
+	CleanupSwapchain(gfx, gfx.swapchain);
 }
 
 void EngineCleanup(Platform &platform)
@@ -3016,7 +3065,12 @@ void EngineCleanup(Platform &platform)
 	CleanupImGui();
 #endif
 
-	CleanupGraphics(gfx);
+	CleanupScene(gfx);
+
+	CleanupRenderTargets(gfx, gfx.renderTargets);
+	CleanupSwapchain(gfx, gfx.swapchain);
+
+	CleanupGraphicsDevice(gfx);
 
 #if USE_VULKAN_ALLOCATION_CALLBACKS
 	LOG(Info, "Vulkan system memory usage:\n");
