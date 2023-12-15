@@ -1641,13 +1641,6 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				break;
 			}
 
-		case WM_CREATE:
-			{
-				window->flags |= WindowFlags_WasCreated;
-				platform->window.active = true;
-				break;
-			}
-
 		case WM_SIZE:
 			{
 				ASSERT(window);
@@ -1804,7 +1797,6 @@ bool InitializeWindow(
 	window.width = reply->width;
 	window.height = reply->height;
 
-	// In XCB we don't receive a "window created" event, so we set this flag here
 	window.flags = WindowFlags_WasCreated;
 	window.active = true;
 
@@ -1865,6 +1857,9 @@ bool InitializeWindow(
 
 	window.hInstance = hInstance;
 	window.hWnd = hWnd;
+
+	window.flags = WindowFlags_WasCreated;
+	window.active = true;
 
 #endif
 
