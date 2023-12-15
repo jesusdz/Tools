@@ -1,12 +1,5 @@
 #include "main_vulkan.cpp"
 
-Graphics &GetPlatformGraphics(Platform &platform)
-{
-	Graphics *gfx = (Graphics*)platform.userData;
-	ASSERT(gfx != NULL);
-	return *gfx;
-}
-
 void PlatformWindowInit(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
@@ -29,17 +22,26 @@ void PlatformWindowCleanup(Platform &platform)
 
 void android_main(struct android_app* app)
 {
-	// Create platform
 	Platform platform = {};
-	PlatformConfig config = {};
-	config.globalMemorySize = MB(64);
-	config.frameMemorySize = MB(16);
-	config.androidApp = app;
-	if ( !PlatformInit(config, platform) )
-	{
-		LOG(Error, "PlatformInit failed!\n");
-		return;
-	}
+
+	// Memory
+	platform.globalMemorySize = MB(64);
+	platform.frameMemorySize = MB(16);
+
+	// Callbacks
+	platform.InitCallback = EngineInit;
+	platform.UpdateCallback = EngineUpdate;
+	platform.CleanupCallback = EngineCleanup;
+	platform.WindowInitCallback = EngineWindowInit;
+	platform.WindowCleanupCallback = EngineWindowCleanup;
+
+	// User data
+	Graphics gfx = {};
+	platform.userData = &gfx;
+
+	PlatformRun(platform);
+
+#if 0
 
 	Window &window = platform.window;
 	Arena &globalArena = platform.globalArena;
@@ -59,7 +61,7 @@ void android_main(struct android_app* app)
 		const f32 deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
 		lastFrameClock = currentFrameClock;
 
-		PlatformUpdate(platform);
+		PlatformUpdateEventLoop(platform);
 
 #if USE_CAMERA_MOVEMENT
 		AnimateCamera(window, gfx.camera, deltaSeconds);
@@ -80,4 +82,5 @@ void android_main(struct android_app* app)
 			ResetArena(frameArena);
 		}
 	}
+#endif
 }

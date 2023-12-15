@@ -2853,23 +2853,6 @@ void UpdateImGui(Graphics &gfx)
 
 	ImGui::Separator();
 
-#if 0 // Example ImGui code
-	  // Create some fancy UI
-	static bool checked = true;
-	static f32 floatValue = 0.0f;
-	static float clear_color[3] = {};
-	static u32 counter = 0;
-
-	ImGui::Text("This is some useful text.");
-	ImGui::Checkbox("Example checkbox", &checked);
-	ImGui::SliderFloat("float", &floatValue, 0.0f, 1.0f);
-	ImGui::ColorEdit3("clear color", (float*)&clear_color);
-	if (ImGui::Button("Button"))
-		counter++;
-	ImGui::SameLine();
-	ImGui::Text("counter = %d", counter);
-#endif
-
 	char tmpString[4092] = {};
 	VkPhysicalDeviceMemoryProperties memoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(gfx.physicalDevice, &memoryProperties);
@@ -2976,7 +2959,7 @@ Graphics &GetPlatformGraphics(Platform &platform)
 	return *gfx;
 }
 
-void EngineInit(Platform &platform)
+bool EngineInit(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
@@ -2984,16 +2967,23 @@ void EngineInit(Platform &platform)
 	if ( !InitializeGraphics(platform.globalArena, platform.window, gfx) )
 	{
 		LOG(Error, "InitializeGraphics failed!\n");
-		return;
+		return false;
 	}
-
-	platform.userData = &gfx;
 
 	InitializeScene(gfx);
 
 #if USE_IMGUI
 	InitializeImGui(gfx, platform.window);
 #endif
+
+	return true;
+}
+
+bool EngineWindowInit(Platform &platform)
+{
+	Graphics &gfx = GetPlatformGraphics(platform);
+
+	return true;
 }
 
 void EngineUpdate(Platform &platform)
@@ -3011,6 +3001,11 @@ void EngineUpdate(Platform &platform)
 	RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
 }
 
+void EngineWindowCleanup(Platform &platform)
+{
+	Graphics &gfx = GetPlatformGraphics(platform);
+}
+
 void EngineCleanup(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
@@ -3022,10 +3017,6 @@ void EngineCleanup(Platform &platform)
 #endif
 
 	CleanupGraphics(gfx);
-
-	CleanupWindow(platform.window);
-
-	PrintArenaUsage(platform.globalArena);
 
 #if USE_VULKAN_ALLOCATION_CALLBACKS
 	LOG(Info, "Vulkan system memory usage:\n");
@@ -3041,20 +3032,21 @@ void EngineCleanup(Platform &platform)
 int main(int argc, char **argv)
 {
 	Platform platform = {};
-	PlatformConfig config = {};
-	config.globalMemorySize = MB(64);
-	config.frameMemorySize = MB(16);
-	if ( !PlatformInit(config, platform) )
-	{
-		LOG(Error, "PlatformInit failed!\n");
-		return -1;
-	}
 
-	Graphics gfx = {};
-	platform.userData = &gfx;
+	// Memory
+	platform.globalMemorySize = MB(64);
+	platform.frameMemorySize = MB(16);
+
+	// Callbacks
 	platform.InitCallback = EngineInit;
 	platform.UpdateCallback = EngineUpdate;
 	platform.CleanupCallback = EngineCleanup;
+	platform.WindowInitCallback = EngineWindowInit;
+	platform.WindowCleanupCallback = EngineWindowCleanup;
+
+	// User data
+	Graphics gfx = {};
+	platform.userData = &gfx;
 
 	PlatformRun(platform);
 

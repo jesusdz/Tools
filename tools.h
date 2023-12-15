@@ -1188,8 +1188,10 @@ bool MouseChanged(const Mouse &mouse)
 
 enum WindowFlags
 {
-	WindowFlags_Resized = 1 << 0,
-	WindowFlags_Exiting = 1 << 1,
+	WindowFlags_Open    = 1 << 0,
+	WindowFlags_Close   = 1 << 1,
+	WindowFlags_Resized = 1 << 2,
+	WindowFlags_Quit    = 1 << 3,
 };
 
 struct Window
@@ -1215,8 +1217,6 @@ struct Window
 
 struct PlatformConfig
 {
-	u32 globalMemorySize;
-	u32 frameMemorySize;
 #if PLATFORM_ANDROID
 	struct android_app *androidApp;
 #endif // PLATFORM_ANDROID
@@ -1224,22 +1224,29 @@ struct PlatformConfig
 
 struct Platform
 {
-	Arena globalArena;
-	Arena frameArena;
-	Window window;
+	// To configure by the client app
+
+	u32 globalMemorySize;
+	u32 frameMemorySize;
+
+	bool (*InitCallback)(Platform &);
+	void (*UpdateCallback)(Platform &);
+	void (*CleanupCallback)(Platform &);
+	bool (*WindowInitCallback)(Platform &);
+	void (*WindowCleanupCallback)(Platform &);
+
+	void *userData;
+
 #if PLATFORM_ANDROID
 	struct android_app *androidApp;
 #endif // PLATFORM_ANDROID
-	void *userData;
 
+	// Platform components
+
+	Arena globalArena;
+	Arena frameArena;
+	Window window;
 	f32 deltaSeconds;
-
-	// Callbacks
-	void (*WindowInitCallback)(Platform &);
-	void (*WindowCleanupCallback)(Platform &);
-	void (*InitCallback)(Platform &);
-	void (*UpdateCallback)(Platform &);
-	void (*CleanupCallback)(Platform &);
 };
 
 
@@ -1358,7 +1365,8 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
 				if ( ev->data.data32[0] == window.closeAtom )
 				{
-					window.flags |= WindowFlags_Exiting;
+					window.flags |= WindowFlags_Close;
+					window.flags |= WindowFlags_Quit;
 				}
 				break;
 			}
@@ -1438,14 +1446,12 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 			if (app->window != NULL)
 			{
 				platform->window.nativeWindow = app->window;
-				ASSERT(platform->WindowInitCallback != NULL);
-				platform->WindowInitCallback(*platform);
+				platform->window.flags |= WindowFlags_Open;
 			}
 			break;
 		case APP_CMD_TERM_WINDOW:
 			// The window is being hidden or closed, clean it up.
-			ASSERT(platform->WindowCleanupCallback != NULL);
-			platform->WindowCleanupCallback(*platform);
+			platform->window.flags |= WindowFlags_Close;
 			break;
 		case APP_CMD_WINDOW_RESIZED:
 			{
@@ -1629,6 +1635,12 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				break;
 			}
 
+		case WM_CREATE:
+			{
+				window->flags |= WindowFlags_Open;
+				break;
+			}
+
 		case WM_SIZE:
 			{
 				ASSERT(window);
@@ -1659,6 +1671,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
+				window->flags |= WindowFlags_Close;
 				PostQuitMessage(0);
 				break;
 			}
@@ -1784,6 +1797,9 @@ bool InitializeWindow(
 	window.width = reply->width;
 	window.height = reply->height;
 
+	// In XCB we don't receive a "window created" event, so we set this flag here
+	window.flags = WindowFlags_Open;
+
 #endif
 
 #if USE_WINAPI
@@ -1847,8 +1863,10 @@ bool InitializeWindow(
 	return true;
 }
 
+
 void CleanupWindow(Window &window)
 {
+	LOG( Info, "CleanupWindow\n" );
 #if USE_XCB
 	xcb_destroy_window(window.connection, window.window);
 	xcb_disconnect(window.connection);
@@ -1858,12 +1876,9 @@ void CleanupWindow(Window &window)
 }
 
 
-
 void PlatformUpdateEventLoop(Platform &platform)
 {
 	Window &window = platform.window;
-
-	window.flags = 0;
 
 	// Transition key states
 	for ( u32 i = 0; i < KEY_COUNT; ++i ) {
@@ -1926,7 +1941,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 		// Check if we are exiting.
 		if (platform.androidApp->destroyRequested != 0)
 		{
-			window.flags |= WindowFlags_Exiting;
+			window.flags |= WindowFlags_Quit;
 		}
 	}
 
@@ -1937,7 +1952,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 	{
 		if ( LOWORD( msg.message ) == WM_QUIT )
 		{
-			window.flags |= WindowFlags_Exiting;
+			window.flags |= WindowFlags_Quit;
 		}
 		else
 		{
@@ -1949,30 +1964,38 @@ void PlatformUpdateEventLoop(Platform &platform)
 #endif
 }
 
-bool PlatformInit(const PlatformConfig &config, Platform &platform)
+bool PlatformRun(Platform &platform)
 {
-	bool ok = InitializeWindow(platform.window);
-	if ( ok )
-	{
-		byte *baseMemory = (byte*)AllocateVirtualMemory(config.globalMemorySize);
-		platform.globalArena = MakeArena(baseMemory, config.globalMemorySize);
+	ASSERT( platform.globalMemorySize > 0 );
+	ASSERT( platform.frameMemorySize > 0 );
+	ASSERT( platform.InitCallback );
+	ASSERT( platform.UpdateCallback );
+	ASSERT( platform.CleanupCallback );
+	ASSERT( platform.WindowInitCallback );
+	ASSERT( platform.WindowCleanupCallback );
 
-		byte *frameMemory = (byte*)AllocateVirtualMemory(config.frameMemorySize);
-		platform.frameArena = MakeArena(frameMemory, config.frameMemorySize);
+	if ( !InitializeWindow(platform.window) )
+	{
+		return false;
+	}
+
+	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
+	platform.globalArena = MakeArena(baseMemory, platform.globalMemorySize);
+
+	byte *frameMemory = (byte*)AllocateVirtualMemory(platform.frameMemorySize);
+	platform.frameArena = MakeArena(frameMemory, platform.frameMemorySize);
 
 #if PLATFORM_ANDROID
-		platform.androidApp = config.androidApp;
-		platform.androidApp->onAppCmd = AndroidHandleAppCommand;
-		platform.androidApp->onInputEvent = AndroidHandleInputEvent;
-		platform.androidApp->userData = &platform;
+	platform.androidApp = platform.androidApp;
+	platform.androidApp->onAppCmd = AndroidHandleAppCommand;
+	platform.androidApp->onInputEvent = AndroidHandleInputEvent;
+	platform.androidApp->userData = &platform;
 #endif // PLATFORM_ANDROID
-	}
-	return ok;
-}
 
-void PlatformRun(Platform &platform)
-{
-	platform.InitCallback(platform);
+	if ( !platform.InitCallback(platform) )
+	{
+		return false;
+	}
 
 	Clock lastFrameClock = GetClock();
 
@@ -1987,17 +2010,28 @@ void PlatformRun(Platform &platform)
 		PlatformUpdateEventLoop(platform);
 		platform.UpdateCallback(platform);
 
-		if ( platform.window.flags & WindowFlags_Exiting )
+		if ( platform.window.flags & WindowFlags_Open )
+		{
+			platform.WindowInitCallback(platform);
+		}
+		if ( platform.window.flags & WindowFlags_Close )
+		{
+			platform.WindowCleanupCallback(platform);
+			CleanupWindow(platform.window);
+		}
+		if ( platform.window.flags & WindowFlags_Quit )
 		{
 			break;
 		}
-		if ( platform.window.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESSED )
-		{
-			break;
-		}
+
+		platform.window.flags = 0;
 	}
 
 	platform.CleanupCallback(platform);
+
+	PrintArenaUsage(platform.globalArena);
+
+	return false;
 }
 
 #endif // #if defined(TOOLS_WINDOW)
