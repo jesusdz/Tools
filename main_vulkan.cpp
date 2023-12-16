@@ -51,12 +51,7 @@
 #include "shaders/structs.hlsl"
 
 
-#define USE_VULKAN_ALLOCATION_CALLBACKS 0
-#if USE_VULKAN_ALLOCATION_CALLBACKS
-#define VULKAN_ALLOCATORS &g_VulkanAllocators
-#else
 #define VULKAN_ALLOCATORS NULL
-#endif
 
 
 #if PLATFORM_ANDROID
@@ -398,87 +393,6 @@ const char *HeapTypeToString(HeapType heapType)
 
 #undef CONCAT_FLAG
 
-#if USE_VULKAN_ALLOCATION_CALLBACKS
-
-// TODO: Remove this include from here
-#include <stdlib.h>
-
-struct VulkanAllocationScope
-{
-	u32 allocatedBytes;
-	u32 maxAllocatedBytes;
-};
-
-struct VulkanAllocationInfo
-{
-	u32 size;
-	u32 maxSize;
-	VulkanAllocationScope scopes[VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE + 1];
-};
-
-const char *VkSystemAllocationScopeToString( VkSystemAllocationScope scope )
-{
-	static const char *toString[] = {
-		"VK_SYSTEM_ALLOCATION_SCOPE_COMMAND", // = 0,
-		"VK_SYSTEM_ALLOCATION_SCOPE_OBJECT", // = 1,
-		"VK_SYSTEM_ALLOCATION_SCOPE_CACHE", // = 2,
-		"VK_SYSTEM_ALLOCATION_SCOPE_DEVICE", // = 3,
-		"VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE", // = 4,
-	};
-	ASSERT( scope < ARRAY_COUNT(toString) );
-	return toString[scope];
-}
-
-static void* VulkanAllocate(void* userData, size_t size, size_t alignment, VkSystemAllocationScope scope)
-{
-	//LOG(Debug,"- VulkanAllocate size: %u - align: %u - scope: %s\n", size, alignment, VkSystemAllocationScopeToString(scope));
-	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
-	VulkanAllocationScope &allocationScope = allocationInfo->scopes[scope];
-	allocationScope.allocatedBytes += size;
-	allocationScope.maxAllocatedBytes = Max(allocationScope.maxAllocatedBytes, allocationScope.allocatedBytes);
-	return malloc(size);
-}
-
-static void* VulkanReallocate(void* userData, void* original, size_t size, size_t alignment, VkSystemAllocationScope scope)
-{
-	//LOG(Debug,"- VulkanReallocate size: %u - align: %u - scope: %s\n", size, alignment, VkSystemAllocationScopeToString(scope));
-	return realloc(original, size);
-}
-
-static void VulkanFree(void* userData, void* memory)
-{
-	//LOG(Debug,"- VulkanFree\n");
-	free(memory);
-}
-
-static void VulkanAllocNotification(void* userData, size_t size, VkInternalAllocationType type, VkSystemAllocationScope scope)
-{
-	LOG(Debug,"- VulkanAllocate size: %u\n", size);
-	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
-	allocationInfo->size += size;
-	allocationInfo->maxSize = Max(allocationInfo->maxSize, allocationInfo->size);
-}
-
-static void VulkanFreeNotification(void* userData, size_t size, VkInternalAllocationType type, VkSystemAllocationScope scope)
-{
-	LOG(Debug,"- VulkanReallocate size: %u\n", size);
-	VulkanAllocationInfo *allocationInfo = (VulkanAllocationInfo*)userData;
-	allocationInfo->size -= size;
-	allocationInfo->maxSize = Max(allocationInfo->maxSize, allocationInfo->size);
-}
-
-static VulkanAllocationInfo g_VulkanAllocationInfo = {};
-
-static VkAllocationCallbacks g_VulkanAllocators = {
-	&g_VulkanAllocationInfo, // void*
-	VulkanAllocate, // PFN_vkAllocationFunction
-	VulkanReallocate, // PFN_vkReallocationFunction
-	VulkanFree, // PFN_vkFreeFunction
-	VulkanAllocNotification, // PFN_vkInternalAllocationNotification
-	VulkanFreeNotification, // PFN_vkInternalFreeNotification
-};
-
-#endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 		VkDebugReportFlagsEXT       flags,
@@ -2501,7 +2415,6 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
-	// TODO: create as many fences as swap images to improve synchronization
 	u32 frameIndex = gfx.currentFrame;
 
 	// Swapchain sync
@@ -2689,11 +2602,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Submit commands
 	VkSemaphore waitSemaphores[] = { gfx.imageAvailableSemaphores[frameIndex] };
 	VkSemaphore signalSemaphores[] = { gfx.renderFinishedSemaphores[frameIndex] };
-	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
-	// NOTE: With the following, the render pass drawing on the swapchain image should have
-	// an external subpass dependency to handle the case of waiting for this stage before
-	// the initial render pass transition.
-	//VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
@@ -3071,16 +2980,6 @@ void EngineCleanup(Platform &platform)
 	CleanupSwapchain(gfx, gfx.swapchain);
 
 	CleanupGraphicsDevice(gfx);
-
-#if USE_VULKAN_ALLOCATION_CALLBACKS
-	LOG(Info, "Vulkan system memory usage:\n");
-	for ( u32 i = 0; i < ARRAY_COUNT( g_VulkanAllocationInfo.scopes ); ++i )
-	{
-		VkSystemAllocationScope scopeId = (VkSystemAllocationScope)i;
-		VulkanAllocationScope &scope = g_VulkanAllocationInfo.scopes[scopeId];
-		LOG(Info, "- Max size for %s: %u kB\n", VkSystemAllocationScopeToString(scopeId), scope.maxAllocatedBytes / KB(1));
-	}
-#endif // #if USE_VULKAN_ALLOCATION_CALLBACKS
 }
 
 int main(int argc, char **argv)
