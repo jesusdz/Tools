@@ -810,23 +810,23 @@ float4x4 Rotate(const float3 &axis, f32 degrees)
 	const f32 t = 1.0f - c;
 
 	const f32 m00 = c + axis.x*axis.x*t;
-    const f32 m11 = c + axis.y*axis.y*t;
-    const f32 m22 = c + axis.z*axis.z*t;
+	const f32 m11 = c + axis.y*axis.y*t;
+	const f32 m22 = c + axis.z*axis.z*t;
 
-    const f32 tmp1 = axis.x*axis.y*t;
-    const f32 tmp2 = axis.z*s;
-    const f32 m10 = tmp1 + tmp2;
-    const f32 m01 = tmp1 - tmp2;
+	const f32 tmp1 = axis.x*axis.y*t;
+	const f32 tmp2 = axis.z*s;
+	const f32 m10 = tmp1 + tmp2;
+	const f32 m01 = tmp1 - tmp2;
 
-    const f32 tmp3 = axis.x*axis.z*t;
-    const f32 tmp4 = axis.y*s;
-    const f32 m20 = tmp3 - tmp4;
-    const f32 m02 = tmp3 + tmp4;
+	const f32 tmp3 = axis.x*axis.z*t;
+	const f32 tmp4 = axis.y*s;
+	const f32 m20 = tmp3 - tmp4;
+	const f32 m02 = tmp3 + tmp4;
 
 	const f32 tmp5 = axis.y*axis.z*t;
-    const f32 tmp6 = axis.x*s;
-    const f32 m21 = tmp5 + tmp6;
-    const f32 m12 = tmp5 - tmp6;
+	const f32 tmp6 = axis.x*s;
+	const f32 m21 = tmp5 + tmp6;
+	const f32 m12 = tmp5 - tmp6;
 
 	const float4x4 mat = {
 		m00, m01, m02, 0,
@@ -932,7 +932,7 @@ INSTANTIATE_MATH_OPS_FOR_TYPE( u32 )
 bool IsPowerOfTwo(u32 value)
 {
 	// First value in the below expression is for the case when value is 0
-    return value && (!(value & (value - 1)));
+	return value && (!(value & (value - 1)));
 }
 
 u32 AlignUp(u32 value, u32 alignment)
@@ -1209,7 +1209,6 @@ struct Window
 	u32 width;
 	u32 height;
 	u32 flags;
-	bool active;
 
 	Keyboard keyboard;
 	Mouse mouse;
@@ -1381,7 +1380,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 #if USE_IMGUI
 	const Mouse &mouse = window.mouse;
 
-    ImGuiIO& io = ImGui::GetIO();
+	ImGuiIO& io = ImGui::GetIO();
 	if (MouseChanged(mouse))
 	{
 		if (MouseMoved(mouse))
@@ -1449,7 +1448,6 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 			{
 				platform->window.nativeWindow = app->window;
 				platform->window.flags |= WindowFlags_WasCreated;
-				platform->window.active = true;
 			}
 			break;
 		case APP_CMD_TERM_WINDOW:
@@ -1480,7 +1478,6 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 		//case APP_CMD_SAVE_STATE: break;
 		case APP_CMD_PAUSE:
 			{
-				platform->window.active = false;
 				// Gets activated at APP_CMD_INIT_WINDOW
 			}
 			break;
@@ -1567,7 +1564,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 {
 #if USE_IMGUI
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
-        return true;
+		return true;
 #endif
 
 	Window *window = (Window*)GetPropA(hWnd, "WindowPtr");
@@ -1798,7 +1795,6 @@ bool InitializeWindow(
 	window.height = reply->height;
 
 	window.flags = WindowFlags_WasCreated;
-	window.active = true;
 
 #endif
 
@@ -1859,7 +1855,6 @@ bool InitializeWindow(
 	window.hWnd = hWnd;
 
 	window.flags = WindowFlags_WasCreated;
-	window.active = true;
 
 #endif
 
@@ -1943,6 +1938,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 		// Check if we are exiting.
 		if (platform.androidApp->destroyRequested != 0)
 		{
+			LOG(Info, "androidApp->destroyRequesteds\n");
 			window.flags |= WindowFlags_Exit;
 		}
 	}
@@ -1996,10 +1992,15 @@ bool PlatformRun(Platform &platform)
 
 	if ( !platform.InitCallback(platform) )
 	{
+#if PLATFORM_ANDROID
+		ANativeActivity_finish(platform.androidApp->activity);
+#endif // PLATFORM_ANDROID
 		return false;
 	}
 
 	Clock lastFrameClock = GetClock();
+
+	bool windowCreated = false;
 
 	while ( 1 )
 	{
@@ -2011,21 +2012,23 @@ bool PlatformRun(Platform &platform)
 
 		PlatformUpdateEventLoop(platform);
 
+		if ( platform.window.flags & WindowFlags_Exit )
+		{
+			break;
+		}
 		if ( platform.window.flags & WindowFlags_WasCreated )
 		{
 			platform.WindowInitCallback(platform);
+			windowCreated = true;
 		}
 		if ( platform.window.flags & WindowFlags_WillDestroy )
 		{
 			platform.WindowCleanupCallback(platform);
 			CleanupWindow(platform.window);
-		}
-		if ( platform.window.flags & WindowFlags_Exit )
-		{
-			break;
+			windowCreated = false;
 		}
 
-		if ( platform.window.active )
+		if ( windowCreated )
 		{
 			platform.UpdateCallback(platform);
 		}
