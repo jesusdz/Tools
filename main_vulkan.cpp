@@ -1296,6 +1296,7 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 		// This is the size of the window. We get it here just in case it was not set by the window manager yet.
 		window.width = swapchain.extent.width;
 		window.height = swapchain.extent.height;
+		window.flags &= ~WindowFlags_WasResized;
 	}
 	else
 	{
@@ -1303,6 +1304,8 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 		swapchain.extent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
 	}
 
+
+	LOG(Info, "Swapchain:\n");
 #if PLATFORM_ANDROID
 	const u32 baseWidth = swapchain.extent.width;
 	const u32 baseHeight = swapchain.extent.height;
@@ -1310,12 +1313,11 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	const u32 reducedHeight = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
 	swapchain.extent.width = reducedWidth;
 	swapchain.extent.height = reducedHeight;
-	LOG(Info, "Swapchain:\n");
-	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
-	LOG(Info, "- curr extent (%ux%u)\n", reducedWidth, reducedHeight);
 	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
 	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
+	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
 #endif
+	LOG(Info, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
 
 
 	// Pre transform
