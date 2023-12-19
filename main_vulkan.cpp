@@ -61,9 +61,11 @@
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
 #define MAX_TEXTURES 4
+#define MAX_SAMPLERS 4
 #define MAX_PIPELINES 8
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 8
+#define MAX_MATERIAL_BINDINGS 8
 #define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
 
 
@@ -148,6 +150,8 @@ struct Sampler
 {
 	VkSampler sampler;
 };
+
+typedef u32 SamplerH;
 
 struct Vertex
 {
@@ -252,7 +256,10 @@ struct Graphics
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
 
-	Sampler textureSampler;
+	SamplerH textureSampler;
+
+	Sampler samplers[MAX_SAMPLERS];
+	u32 samplerCount;
 
 	Texture textures[MAX_TEXTURES];
 	u32 textureCount;
@@ -726,6 +733,55 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
+#if 0
+struct ShaderReflection
+{
+};
+
+ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+{
+	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
+	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
+	SpvDescriptorSetList spvDescriptorList = {};
+	SpvParseDescriptors( &parserForVertex, &spvDescriptorList );
+	SpvParseDescriptors( &parserForFragment, &spvDescriptorList );
+
+	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
+	{
+		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+		u32 bindingCount = 0;
+
+		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
+		{
+			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
+
+			if ( descriptor.type != SpvTypeNone )
+			{
+				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
+				binding.binding = descriptor.binding;
+				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)descriptor.type);
+				binding.descriptorCount = 1;
+				binding.stageFlags = SpvStageFlagsToVulkan(descriptor.stageFlags);
+				binding.pImmutableSamplers = NULL;
+				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
+			}
+		}
+
+		if (bindingCount > 0)
+		{
+			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
+			descriptorSetLayoutCreateInfo.pBindings = bindings;
+			VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
+		}
+	}
+
+	globalDescriptorSetLayout = descriptorSetLayouts[0];
+	materialDescriptorSetLayout = descriptorSetLayouts[1];
+}
+#endif
+
 PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderSource &vertexSource, const ShaderSource &fragmentSource)
 {
 	Arena scratch = MakeSubArena(arena);
@@ -858,9 +914,6 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
 
 	// Pipeline layout
-	VkDescriptorSetLayout globalDescriptorSetLayout;
-	VkDescriptorSetLayout materialDescriptorSetLayout;
-#if 1
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS];
 	u32 descriptorSetLayoutCount = 0;
 
@@ -901,53 +954,8 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 		}
 	}
 
-	globalDescriptorSetLayout = descriptorSetLayouts[0];
-	materialDescriptorSetLayout = descriptorSetLayouts[1];
-#else
-	// -- For globals
-	{
-		VkDescriptorSetLayoutBinding bindings[] = {
-			{
-				0, // binding
-				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, // descriptorType
-				1, // descriptorCount
-				VK_SHADER_STAGE_VERTEX_BIT, // stageFlags
-				NULL // pImmutableSamplers
-			},
-		};
-
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
-		descriptorSetLayoutCreateInfo.pBindings = bindings;
-		VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &globalDescriptorSetLayout) );
-	}
-
-	// -- For materials
-	{
-		VkDescriptorSetLayoutBinding bindings[] = {
-			{
-				0, // binding
-				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // descriptorType
-				1, // descriptorCount
-				VK_SHADER_STAGE_FRAGMENT_BIT, // stageFlags
-				NULL // pImmutableSamplers
-			},
-		};
-
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		descriptorSetLayoutCreateInfo.bindingCount = ARRAY_COUNT(bindings);
-		descriptorSetLayoutCreateInfo.pBindings = bindings;
-		VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &materialDescriptorSetLayout) );
-	}
-
-	VkDescriptorSetLayout descriptorSetLayouts[] = {
-		globalDescriptorSetLayout,
-		materialDescriptorSetLayout,
-	};
-	const u32 descriptorSetLayoutCount = ARRAY_COUNT(descriptorSetLayouts);
-#endif
+	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
+	VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
 
 	// TODO: Get this from SPIRV as well
 	VkPushConstantRange pushConstantRanges[1] = {};
@@ -1061,7 +1069,7 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	return imageView;
 }
 
-Sampler CreateSampler(Graphics &gfx)
+SamplerH CreateSampler(Graphics &gfx)
 {
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
@@ -1088,7 +1096,10 @@ Sampler CreateSampler(Graphics &gfx)
 	VK_CALL( vkCreateSampler(gfx.device, &samplerCreateInfo, VULKAN_ALLOCATORS, &vkSampler) );
 
 	Sampler sampler = {vkSampler};
-	return sampler;
+
+	SamplerH samplerHandle = gfx.samplerCount++;
+	gfx.samplers[samplerHandle] = sampler;
+	return samplerHandle;
 }
 
 bool HasStencilComponent(VkFormat format)
@@ -2102,6 +2113,11 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 
 	// Create materials
 	MaterialH materialDiamond = CreateMaterial(gfx, pipeline, textureDiamond);
+#if 0
+	SetMaterialBuffer(materialDiamond, "globals", globalBuffer);
+	SetMaterialTexture(materialDiamond, "tex", textureDiamond);
+	SetMaterialSampler(materialDiamond, "texSampler", sampler);
+#endif
 	MaterialH materialDirt = CreateMaterial(gfx, pipeline, textureDirt);
 
 	// DescriptorSets for materials
@@ -2236,7 +2252,10 @@ void CleanupGraphicsDevice(Graphics &gfx)
 	vkDestroyDescriptorPool( gfx.device, gfx.imGuiDescriptorPool, VULKAN_ALLOCATORS );
 #endif
 
-	vkDestroySampler( gfx.device, gfx.textureSampler.sampler, VULKAN_ALLOCATORS );
+	for (u32 i = 0; i < gfx.samplerCount; ++i)
+	{
+		vkDestroySampler( gfx.device, gfx.samplers[i].sampler, VULKAN_ALLOCATORS );
+	}
 
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
@@ -2488,14 +2507,59 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	uniformBufferOffset = AlignUp(uniformBufferOffset + sizeof(globals), gfx.alignment.uniformBufferOffset);
 
 
-	for (u32 i = 0; i < gfx.materialCount; ++i)
+	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
-		const Material &material = gfx.materials[i];
+		const Material &material = gfx.materials[materialIndex];
 		const Pipeline &pipeline = gfx.pipelines[material.pipeline];
 
+#if 0
 		// Update descriptor sets
-		VkWriteDescriptorSet descriptorWrites[MAX_FRAMES_IN_FLIGHT] = {};
+		VkWriteDescriptorSet descriptorWrites[MAX_MATERIAL_BINDINGS] = {};
+		VkDescriptorBufferInfo bufferInfos[MAX_MATERIAL_BINDINGS] = {};
+		VkDescriptorImageInfo imageInfos[MAX_MATERIAL_BINDINGS] = {};
 
+		u32 descriptorWriteCount = 0;
+		u32 bufferInfoCount = 0;
+		u32 imageInfoCount = 0;
+
+		for ( u32 bindingIndex = 0; bindingIndex < material.bindingCount; ++bindingIndex )
+		{
+			VkDescriptorImageInfo *imageInfo = 0;
+			VkDescriptorBufferInfo *bufferInfo = 0;
+			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+
+			if ( material.binding[bindingIndex].type == BINDING_TYPE_SAMPLER )
+			{
+				descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+				VkDescriptorImageInfo &samplerInfo = &imageInfos[imageInfoCount++];
+				samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				samplerInfo.imageView = VK_NULL_HANDLE;
+				samplerInfo.sampler = gfx.textureSampler.sampler; // ?
+			}
+			else if ( material.binding[bindingIndex].type == BINDING_TYPE_BUFFER )
+			{
+				VkDescriptorBufferInfo bufferInfo = &bufferInfos[bufferInfoCount++];
+				bufferInfo.buffer = gfx.uniformBuffers[frameIndex].buffer;
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(Globals);
+			}
+			else
+			{
+				INVALID_CODE_PATH();
+			}
+
+			const u32 i0 = descriptorWriteCount++;
+			descriptorWrites[i0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[i0].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
+			descriptorWrites[i0].dstBinding = 0;
+			descriptorWrites[i0].dstArrayElement = 0;
+			descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[i0].descriptorCount = 1;
+			descriptorWrites[i0].pBufferInfo = bufferInfo;
+			descriptorWrites[i0].pImageInfo = imageInfo;
+			descriptorWrites[i0].pTexelBufferView = NULL;
+		}
+#else
 		// -- update global descriptor set
 		VkDescriptorBufferInfo bufferInfo = {};
 		bufferInfo.buffer = gfx.uniformBuffers[frameIndex].buffer;
@@ -2505,13 +2569,14 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		VkDescriptorImageInfo samplerInfo = {};
 		samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		samplerInfo.imageView = VK_NULL_HANDLE;
-		samplerInfo.sampler = gfx.textureSampler.sampler;
+		samplerInfo.sampler = gfx.samplers[gfx.textureSampler].sampler;
 
+		VkWriteDescriptorSet descriptorWrites[MAX_MATERIAL_BINDINGS] = {};
 		u32 descriptorWriteCount = 0;
 
 		const u32 i0 = descriptorWriteCount++;
 		descriptorWrites[i0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i0].dstSet = gfx.globalDescriptorSets[i][frameIndex];
+		descriptorWrites[i0].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
 		descriptorWrites[i0].dstBinding = 0;
 		descriptorWrites[i0].dstArrayElement = 0;
 		descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2523,11 +2588,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		// TODO: If the tex sampler is removed, this should not be executed
 		const u32 i1 = descriptorWriteCount++;
 		descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i1].dstSet = gfx.globalDescriptorSets[i][frameIndex];
+		descriptorWrites[i1].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
 		descriptorWrites[i1].dstBinding = 1;
 		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
 		descriptorWrites[i1].descriptorCount = 1;
 		descriptorWrites[i1].pImageInfo = &samplerInfo;
+#endif
 
 		if ( descriptorWriteCount > 0 )
 		{
