@@ -63,9 +63,10 @@
 #define MAX_TEXTURES 4
 #define MAX_SAMPLERS 4
 #define MAX_PIPELINES 8
+#define MAX_SHADER_REFLECTIONS 8
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 8
-#define MAX_MATERIAL_BINDINGS 8
+#define MAX_SHADER_BINDINGS 8
 #define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
 
 
@@ -95,6 +96,23 @@ struct Alloc
 	u64 offset;
 	u64 size;
 };
+
+struct ShaderBinding
+{
+	u8 set;
+	u8 binding;
+	SpvType type;
+	SpvStageFlags stageFlags;
+	const char *name;
+};
+
+struct ShaderReflection
+{
+	ShaderBinding bindings[MAX_SHADER_BINDINGS];
+	u8 bindingCount;
+};
+
+typedef u32 ShaderReflectionH;
 
 struct Pipeline
 {
@@ -140,7 +158,8 @@ struct ShaderModule
 
 struct Material
 {
-	PipelineH pipeline;
+	PipelineH pipelineH;
+	ShaderReflectionH shaderReflectionH;
 	TextureH albedoTexture;
 };
 
@@ -266,6 +285,9 @@ struct Graphics
 
 	Pipeline pipelines[MAX_PIPELINES];
 	u32 pipelineCount;
+
+	ShaderReflection shaderReflections[MAX_SHADER_REFLECTIONS];
+	u32 shaderReflectionCount;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -733,24 +755,7 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-#if 1
-struct ShaderBinding
-{
-	u8 set;
-	u8 binding;
-	SpvType type;
-	SpvStageFlags stageFlags;
-	const char *name;
-};
-
-#define MAX_SHADER_RESOURCES 16
-struct ShaderReflection
-{
-	ShaderBinding bindings[MAX_SHADER_RESOURCES];
-	u8 bindingCount;
-};
-
-ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+ShaderReflectionH CreateShaderReflection( Graphics &gfx, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
 {
 	ShaderReflection reflection = {};
 
@@ -768,6 +773,7 @@ ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const
 
 			if ( descriptor.type != SpvTypeNone )
 			{
+				ASSERT( reflection.bindingCount < ARRAY_COUNT(reflection.bindings) );
 				ShaderBinding &shaderBinding = reflection.bindings[reflection.bindingCount++];
 				shaderBinding.binding = descriptor.binding;
 				shaderBinding.set = setIndex;
@@ -779,9 +785,22 @@ ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const
 		}
 	}
 
+	ShaderReflectionH shaderReflectionHandle = gfx.shaderReflectionCount++;
+	gfx.shaderReflections[shaderReflectionHandle] = reflection;
+	return shaderReflectionHandle;
+}
+
+const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflectionH handle )
+{
+	const ShaderReflection &reflection = gfx.shaderReflections[handle];
 	return reflection;
 }
-#endif
+
+bool IsGlobalBinding( const ShaderBinding &binding )
+{
+	bool isGlobal = ( binding.set == 0 );
+	return isGlobal;
+}
 
 PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderReflection &shaderReflection)
 {
@@ -996,6 +1015,12 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	return pipelineHandle;
 }
 
+const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
+{
+	const Pipeline &pipeline = gfx.pipelines[handle];
+	return pipeline;
+}
+
 Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
 {
 	// Image
@@ -1094,6 +1119,12 @@ SamplerH CreateSampler(Graphics &gfx)
 	SamplerH samplerHandle = gfx.samplerCount++;
 	gfx.samplers[samplerHandle] = sampler;
 	return samplerHandle;
+}
+
+const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
+{
+	const Sampler &sampler = gfx.samplers[handle];
+	return sampler;
 }
 
 bool HasStencilComponent(VkFormat format)
@@ -1244,7 +1275,7 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, TextureH textureHandle )
 {
 	MaterialH materialHandle = gfx.materialCount++;
-	gfx.materials[materialHandle].pipeline = pipelineHandle;
+	gfx.materials[materialHandle].pipelineH = pipelineHandle;
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	return materialHandle;
 }
@@ -2097,7 +2128,8 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
 	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	const ShaderReflection shaderReflection = CreateShaderReflection( vertexShaderSource, fragmentShaderSource );
+	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, vertexShaderSource, fragmentShaderSource);
+	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
 	PipelineH pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, shaderReflection );
 	DestroyShaderModule(gfx, vertexShaderModule);
 	DestroyShaderModule(gfx, fragmentShaderModule);
@@ -2118,8 +2150,8 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// DescriptorSets for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
-		const Material &material = gfx.materials[i];
-		const Pipeline &pipeline = gfx.pipelines[material.pipeline];
+		const Material &material = GetMaterial(gfx, i);
+		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		if ( pipeline.globalDescriptorSetLayout )
 		{
 			const u32 globalDescriptorSetLayoutCount = ARRAY_COUNT(gfx.globalDescriptorSets[i]);
@@ -2276,7 +2308,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.pipelineCount; ++i )
 	{
-		const Pipeline &pipeline = gfx.pipelines[i];
+		const Pipeline &pipeline = GetPipeline(gfx, i);
 		vkDestroyPipeline( gfx.device, pipeline.handle, VULKAN_ALLOCATORS );
 		vkDestroyPipelineLayout( gfx.device, pipeline.layout, VULKAN_ALLOCATORS );
 		vkDestroyDescriptorSetLayout( gfx.device, pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
@@ -2504,39 +2536,46 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
-		const Material &material = gfx.materials[materialIndex];
-		const Pipeline &pipeline = gfx.pipelines[material.pipeline];
+		const Material &material = GetMaterial(gfx, materialIndex);
+		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
+		const ShaderReflection &reflection = GetShaderReflection(gfx, material.shaderReflectionH);
 
-#if 0
 		// Update descriptor sets
-		VkWriteDescriptorSet descriptorWrites[MAX_MATERIAL_BINDINGS] = {};
-		VkDescriptorBufferInfo bufferInfos[MAX_MATERIAL_BINDINGS] = {};
-		VkDescriptorImageInfo imageInfos[MAX_MATERIAL_BINDINGS] = {};
+		VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
+		VkDescriptorBufferInfo bufferInfos[MAX_SHADER_BINDINGS] = {};
+		VkDescriptorImageInfo imageInfos[MAX_SHADER_BINDINGS] = {};
 
 		u32 descriptorWriteCount = 0;
 		u32 bufferInfoCount = 0;
 		u32 imageInfoCount = 0;
 
-		for ( u32 bindingIndex = 0; bindingIndex < material.bindingCount; ++bindingIndex )
+		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
 		{
 			VkDescriptorImageInfo *imageInfo = 0;
 			VkDescriptorBufferInfo *bufferInfo = 0;
 			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
 
-			if ( material.binding[bindingIndex].type == BINDING_TYPE_SAMPLER )
+			const ShaderBinding &binding = reflection.bindings[bindingIndex];
+
+			if ( !IsGlobalBinding(binding) ) {
+				continue;
+			}
+
+			if ( binding.type == SpvTypeSampler )
 			{
 				descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-				VkDescriptorImageInfo &samplerInfo = &imageInfos[imageInfoCount++];
-				samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				samplerInfo.imageView = VK_NULL_HANDLE;
-				samplerInfo.sampler = gfx.textureSampler.sampler; // ?
+				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo->imageView = VK_NULL_HANDLE;
+				imageInfo->sampler = GetSampler(gfx, gfx.textureSampler).sampler;
 			}
-			else if ( material.binding[bindingIndex].type == BINDING_TYPE_BUFFER )
+			else if ( binding.type == SpvTypeUniformBuffer )
 			{
-				VkDescriptorBufferInfo bufferInfo = &bufferInfos[bufferInfoCount++];
-				bufferInfo.buffer = gfx.uniformBuffers[frameIndex].buffer;
-				bufferInfo.offset = 0;
-				bufferInfo.range = sizeof(Globals);
+				descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				bufferInfo = &bufferInfos[bufferInfoCount++];
+				bufferInfo->buffer = gfx.uniformBuffers[frameIndex].buffer;
+				bufferInfo->offset = 0;
+				bufferInfo->range = sizeof(Globals);
 			}
 			else
 			{
@@ -2546,49 +2585,14 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const u32 i0 = descriptorWriteCount++;
 			descriptorWrites[i0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[i0].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
-			descriptorWrites[i0].dstBinding = 0;
+			descriptorWrites[i0].dstBinding = binding.binding;
 			descriptorWrites[i0].dstArrayElement = 0;
-			descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[i0].descriptorType = descriptorType;
 			descriptorWrites[i0].descriptorCount = 1;
 			descriptorWrites[i0].pBufferInfo = bufferInfo;
 			descriptorWrites[i0].pImageInfo = imageInfo;
 			descriptorWrites[i0].pTexelBufferView = NULL;
 		}
-#else
-		// -- update global descriptor set
-		VkDescriptorBufferInfo bufferInfo = {};
-		bufferInfo.buffer = gfx.uniformBuffers[frameIndex].buffer;
-		bufferInfo.offset = 0;
-		bufferInfo.range = sizeof(Globals);
-
-		VkDescriptorImageInfo samplerInfo = {};
-		samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		samplerInfo.imageView = VK_NULL_HANDLE;
-		samplerInfo.sampler = gfx.samplers[gfx.textureSampler].sampler;
-
-		VkWriteDescriptorSet descriptorWrites[MAX_MATERIAL_BINDINGS] = {};
-		u32 descriptorWriteCount = 0;
-
-		const u32 i0 = descriptorWriteCount++;
-		descriptorWrites[i0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i0].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
-		descriptorWrites[i0].dstBinding = 0;
-		descriptorWrites[i0].dstArrayElement = 0;
-		descriptorWrites[i0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrites[i0].descriptorCount = 1;
-		descriptorWrites[i0].pBufferInfo = &bufferInfo;
-		descriptorWrites[i0].pImageInfo = NULL;
-		descriptorWrites[i0].pTexelBufferView = NULL;
-
-		// TODO: If the tex sampler is removed, this should not be executed
-		const u32 i1 = descriptorWriteCount++;
-		descriptorWrites[i1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[i1].dstSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
-		descriptorWrites[i1].dstBinding = 1;
-		descriptorWrites[i1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-		descriptorWrites[i1].descriptorCount = 1;
-		descriptorWrites[i1].pImageInfo = &samplerInfo;
-#endif
 
 		if ( descriptorWriteCount > 0 )
 		{
@@ -2648,7 +2652,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		if ( !entity.visible ) continue;
 
 		const Material &material = gfx.materials[entity.materialIndex];
-		const Pipeline &pipeline = gfx.pipelines[material.pipeline];
+		const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
 		vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle );
 
 		// firstSet = 0
