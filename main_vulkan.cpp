@@ -740,7 +740,7 @@ struct ShaderBinding
 	u8 binding;
 	SpvType type;
 	SpvStageFlags stageFlags;
-	char name[32];
+	const char *name;
 };
 
 #define MAX_SHADER_RESOURCES 16
@@ -773,8 +773,7 @@ ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const
 				shaderBinding.set = setIndex;
 				shaderBinding.type = (SpvType)descriptor.type;
 				shaderBinding.stageFlags = descriptor.stageFlags;
-				ASSERT( StrLen(descriptor.name) < ARRAY_COUNT(shaderBinding.name) );
-				StrCopy( shaderBinding.name, descriptor.name );
+				shaderBinding.name = InternString( descriptor.name );
 				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
@@ -3081,6 +3080,7 @@ int main(int argc, char **argv)
 	Platform platform = {};
 
 	// Memory
+	platform.stringMemorySize = KB(16);
 	platform.globalMemorySize = MB(64);
 	platform.frameMemorySize = MB(16);
 

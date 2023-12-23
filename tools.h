@@ -337,10 +337,10 @@ void* AllocateVirtualMemory(u32 size)
 
 #endif
 
-void MemSet(void *ptr, u32 size)
+void MemSet(void *ptr, u32 size, byte value)
 {
 	byte *bytePtr = (byte*)ptr;
-	while (size-- > 0) *bytePtr++ = 0;
+	while (size-- > 0) *bytePtr++ = value;
 }
 
 void MemCopy(void *dst, const void *src, u32 size)
@@ -349,6 +349,59 @@ void MemCopy(void *dst, const void *src, u32 size)
 	const byte *pEnd = pSrc + size;
 	byte *pDst = (byte*) dst;
 	while (pSrc != pEnd) *pDst++ = *pSrc++;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// String interning
+
+struct StringIntern
+{
+	u32 size; // size of `size` field + string at `str` (including character `\0`)
+	char *str;
+};
+
+struct StringInterning
+{
+	byte *data; // Raw pointer to memory to contain all the string interns
+	u32 size; // Size of the chunk of memory pointed to by `data`
+	StringIntern *firstIntern;
+};
+
+StringInterning g_stringInterning = {};
+
+void SetStringInterningMemory(byte *data, u32 size)
+{
+	ASSERT(g_stringInterning.data == 0);
+	g_stringInterning.data = data;
+	g_stringInterning.size = size;
+	g_stringInterning.firstIntern = (StringIntern*)data;
+	MemSet(data, size, 0);
+}
+
+const char *InternString(const char *str)
+{
+	ASSERT(g_stringInterning.data != 0);
+
+	StringIntern *currIntern = g_stringInterning.firstIntern;
+	u32 currInternOffset = 0;
+	while (currIntern->size > 0)
+	{
+		if ( StrEq(str, currIntern->str) )
+		{
+			return currIntern->str;
+		}
+		currInternOffset += currIntern->size;
+		currIntern = (StringIntern*)g_stringInterning.data + currInternOffset;
+	}
+
+	const u32 currInternSize = sizeof(StringIntern) + StrLen(str) + 1;
+	ASSERT( currInternOffset + currInternSize <= g_stringInterning.size );
+	currIntern->size = currInternSize;
+	currIntern->str = (char*)g_stringInterning.data + currInternOffset + sizeof(StringIntern);
+	StrCopy(currIntern->str, str);
+	return currIntern->str;
 }
 
 
@@ -413,7 +466,7 @@ void PrintArenaUsage(Arena &arena)
 	LOG(Info, "- used: %u B / %u kB\n", arena.used, arena.used/1024);
 }
 
-#define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer) )
+#define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer), 0)
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 
@@ -1224,10 +1277,11 @@ struct PlatformConfig
 
 struct Platform
 {
-	// To configure by the client app
+	// To be configured by the client app
 
-	u32 globalMemorySize;
-	u32 frameMemorySize;
+	u32 globalMemorySize = MB(64);
+	u32 frameMemorySize = MB(16);
+	u32 stringMemorySize = KB(16);
 
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
@@ -1976,6 +2030,9 @@ bool PlatformRun(Platform &platform)
 	{
 		return false;
 	}
+
+	byte *stringMemory = (byte*)AllocateVirtualMemory(platform.stringMemorySize);
+	SetStringInterningMemory(stringMemory, platform.stringMemorySize);
 
 	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
 	platform.globalArena = MakeArena(baseMemory, platform.globalMemorySize);
