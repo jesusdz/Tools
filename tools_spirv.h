@@ -140,11 +140,13 @@ enum SpvStorageClass
 	SpvStorageClassPushConstant = 9,
 };
 
-enum SpvStageFlags
+enum SpvStageFlagBits
 {
 	SpvStageFlagsVertexBit = (1<<0),
 	SpvStageFlagsFragmentBit = (1<<1),
 };
+
+typedef spv_u8 SpvStageFlags;
 
 struct SpvHeader
 {
@@ -175,7 +177,7 @@ struct SpvDescriptor
 	spv_u8 binding;
 	spv_u8 set;
 	spv_u8 type;
-	spv_u8 stageFlags;
+	SpvStageFlags stageFlags;
 	const char *name;
 };
 

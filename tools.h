@@ -190,7 +190,7 @@ String MakeString(const char *str, u32 size)
 	return string;
 }
 
-u32 StrLen(char *str)
+u32 StrLen(const char *str)
 {
 	u32 len = 0;
 	while (*str++) ++len;

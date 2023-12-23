@@ -733,13 +733,27 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-#if 0
+#if 1
+struct ShaderBinding
+{
+	u8 set;
+	u8 binding;
+	SpvType type;
+	SpvStageFlags stageFlags;
+	char name[32];
+};
+
+#define MAX_SHADER_RESOURCES 16
 struct ShaderReflection
 {
+	ShaderBinding bindings[MAX_SHADER_RESOURCES];
+	u8 bindingCount;
 };
 
 ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
 {
+	ShaderReflection reflection = {};
+
 	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
 	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
 	SpvDescriptorSetList spvDescriptorList = {};
@@ -748,41 +762,29 @@ ShaderReflection CreateShaderReflection( const ShaderSource &vertexSource, const
 
 	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
 	{
-		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-		u32 bindingCount = 0;
-
 		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
 		{
 			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
 
 			if ( descriptor.type != SpvTypeNone )
 			{
-				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
-				binding.binding = descriptor.binding;
-				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)descriptor.type);
-				binding.descriptorCount = 1;
-				binding.stageFlags = SpvStageFlagsToVulkan(descriptor.stageFlags);
-				binding.pImmutableSamplers = NULL;
+				ShaderBinding &shaderBinding = reflection.bindings[reflection.bindingCount++];
+				shaderBinding.binding = descriptor.binding;
+				shaderBinding.set = setIndex;
+				shaderBinding.type = (SpvType)descriptor.type;
+				shaderBinding.stageFlags = descriptor.stageFlags;
+				ASSERT( StrLen(descriptor.name) < ARRAY_COUNT(shaderBinding.name) );
+				StrCopy( shaderBinding.name, descriptor.name );
 				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
-
-		if (bindingCount > 0)
-		{
-			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
-			descriptorSetLayoutCreateInfo.pBindings = bindings;
-			VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
-		}
 	}
 
-	globalDescriptorSetLayout = descriptorSetLayouts[0];
-	materialDescriptorSetLayout = descriptorSetLayouts[1];
+	return reflection;
 }
 #endif
 
-PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderSource &vertexSource, const ShaderSource &fragmentSource)
+PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderReflection &shaderReflection)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -917,30 +919,23 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS];
 	u32 descriptorSetLayoutCount = 0;
 
-	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
-	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
-	SpvDescriptorSetList spvDescriptorList = {};
-	SpvParseDescriptors( &parserForVertex, &spvDescriptorList );
-	SpvParseDescriptors( &parserForFragment, &spvDescriptorList );
-
-	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
+	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
 	{
 		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
 		u32 bindingCount = 0;
 
-		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
+		for (u32 bindingIndex = 0; bindingIndex < shaderReflection.bindingCount; ++bindingIndex)
 		{
-			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
+			const ShaderBinding &shaderBinding = shaderReflection.bindings[bindingIndex];
 
-			if ( descriptor.type != SpvTypeNone )
+			if ( shaderBinding.set == set )
 			{
 				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
-				binding.binding = descriptor.binding;
-				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)descriptor.type);
+				binding.binding = shaderBinding.binding;
+				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
 				binding.descriptorCount = 1;
-				binding.stageFlags = SpvStageFlagsToVulkan(descriptor.stageFlags);
+				binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
 				binding.pImmutableSamplers = NULL;
-				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
 
@@ -2099,11 +2094,12 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 #endif
 
 	// Create pipeline
-	ShaderSource vertexShaderSource = GetShaderSource(scratch, "shaders/vertex.spv");
-	ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
-	ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
-	ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	PipelineH pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, vertexShaderSource, fragmentShaderSource);
+	const ShaderSource vertexShaderSource = GetShaderSource(scratch, "shaders/vertex.spv");
+	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
+	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
+	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
+	const ShaderReflection shaderReflection = CreateShaderReflection( vertexShaderSource, fragmentShaderSource );
+	PipelineH pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, shaderReflection );
 	DestroyShaderModule(gfx, vertexShaderModule);
 	DestroyShaderModule(gfx, fragmentShaderModule);
 
