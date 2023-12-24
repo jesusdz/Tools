@@ -803,6 +803,12 @@ bool IsGlobalBinding( const ShaderBinding &binding )
 	return isGlobal;
 }
 
+bool IsLocalBinding( const ShaderBinding &binding )
+{
+	bool isLocal = ( binding.set == 1 );
+	return isLocal;
+}
+
 PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderReflection &shaderReflection)
 {
 	Arena scratch = MakeSubArena(arena);
@@ -2203,35 +2209,84 @@ void InitializeScene(Graphics &gfx)
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45f};
 
-// NOTE: If disabled, don't forget to stop using them in the shaders
-#define UPDATE_MATERIAL_DESCRIPTORS 1
-#if UPDATE_MATERIAL_DESCRIPTORS
 	// Update material descriptors
-	u32 descriptorWriteCount = 0;
-	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
-	VkDescriptorImageInfo imageInfos[MAX_MATERIALS] = {};
-	for (u32 i = 0; i < gfx.materialCount; ++i)
-	{
-		if ( gfx.materialDescriptorSets[i] )
-		{
-			imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			imageInfos[i].imageView = GetTexture( gfx, gfx.materials[i].albedoTexture ).imageView;
-			imageInfos[i].sampler = VK_NULL_HANDLE;
+	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
+	VkDescriptorImageInfo imageInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
+	VkDescriptorBufferInfo bufferInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 
-			descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[descriptorWriteCount].dstSet = gfx.materialDescriptorSets[i];
-			descriptorWrites[descriptorWriteCount].dstBinding = 1;
-			descriptorWrites[descriptorWriteCount].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-			descriptorWrites[descriptorWriteCount].descriptorCount = 1;
-			descriptorWrites[descriptorWriteCount].pImageInfo = &imageInfos[i];
-			descriptorWriteCount++;
+	u32 descriptorWriteCount = 0;
+	u32 bufferInfoCount = 0;
+	u32 imageInfoCount = 0;
+
+	// TODO: Unify this... This code is repeated for the descriptor writes happening for globals in the render loop
+	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
+	{
+		const Material &material = GetMaterial(gfx, materialIndex);
+		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
+		const ShaderReflection &reflection = GetShaderReflection(gfx, material.shaderReflectionH);
+
+		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
+		{
+			VkDescriptorImageInfo *imageInfo = 0;
+			VkDescriptorBufferInfo *bufferInfo = 0;
+			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+
+			const ShaderBinding &binding = reflection.bindings[bindingIndex];
+
+			if ( !IsLocalBinding(binding) ) { // Changes with respect to code for globals
+				continue;
+			}
+
+			if ( binding.type == SpvTypeSampler )
+			{
+				descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo->imageView = VK_NULL_HANDLE;
+				imageInfo->sampler = GetSampler(gfx, gfx.textureSampler).sampler;
+			}
+			else if ( binding.type == SpvTypeImage )
+			{
+				descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo->imageView = GetTexture( gfx, material.albedoTexture ).imageView; // TODO: Somehow get the right texture
+				imageInfo->sampler = VK_NULL_HANDLE;
+			}
+			else if ( binding.type == SpvTypeUniformBuffer )
+			{
+#if USE_MATERIAL_BUFFER
+				descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				bufferInfo = &bufferInfos[bufferInfoCount++];
+				bufferInfo->buffer = gfx.materialBuffer.buffer; // TODO: Somehow get the right buffer here
+				bufferInfo->offset = material.bufferOffset; // TODO: Somehow get the right buffer offset here
+				bufferInfo->range = sizeof(SMaterial);
+#else
+				continue;
+#endif
+			}
+			else
+			{
+				INVALID_CODE_PATH();
+			}
+
+			const u32 index = descriptorWriteCount++;
+			descriptorWrites[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[index].dstSet = gfx.materialDescriptorSets[materialIndex]; // Changes with respect to code for globals
+			descriptorWrites[index].dstBinding = binding.binding;
+			descriptorWrites[index].dstArrayElement = 0;
+			descriptorWrites[index].descriptorType = descriptorType;
+			descriptorWrites[index].descriptorCount = 1;
+			descriptorWrites[index].pBufferInfo = bufferInfo;
+			descriptorWrites[index].pImageInfo = imageInfo;
+			descriptorWrites[index].pTexelBufferView = NULL;
 		}
 	}
+
 	if ( descriptorWriteCount > 0 )
 	{
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
-#endif
 
 	// Entities
 	CreateEntity(gfx, float3{-1, 0, -1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 0);
