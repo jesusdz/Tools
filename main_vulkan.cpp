@@ -160,6 +160,8 @@ struct Material
 	PipelineH pipelineH;
 	ShaderReflectionH shaderReflectionH;
 	TextureH albedoTexture;
+	f32 uvScale;
+	u32 bufferOffset;
 };
 
 typedef u32 MaterialH;
@@ -274,6 +276,7 @@ struct Graphics
 	Buffer planeIndices;
 
 	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
+	Buffer materialBuffer;
 
 	SamplerH textureSampler;
 
@@ -638,13 +641,13 @@ void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
 	gfx.stagingBufferOffset = 0;
 }
 
-void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, VkDeviceSize size)
+void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, u32 dstOffset, VkDeviceSize size)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
 	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = srcOffset;
-	copyRegion.dstOffset = 0;
+	copyRegion.dstOffset = dstOffset;
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
@@ -691,7 +694,7 @@ Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferU
 			gfx.heaps[HeapType_General]);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, size);
+	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, 0, size);
 
 	return finalBuffer;
 }
@@ -1282,12 +1285,14 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 	return texture;
 }
 
-MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, TextureH textureHandle )
+MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, TextureH textureHandle, f32 uvScale = 1.0f )
 {
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
 	gfx.materials[materialHandle].pipelineH = pipelineHandle;
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
+	gfx.materials[materialHandle].uvScale = uvScale;
+	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.alignment.uniformBufferOffset);
 	return materialHandle;
 }
 
@@ -2102,6 +2107,10 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			gfx.heaps[HeapType_Dynamic]);
 	}
 
+	// Create material buffer
+	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.alignment.uniformBufferOffset );
+	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx.heaps[HeapType_General]);
+
 
 	// Create Descriptor Pool
 	{
@@ -2158,7 +2167,16 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// Create materials
 	MaterialH materialDiamond = CreateMaterial(gfx, pipeline, textureDiamond);
 	MaterialH materialDirt = CreateMaterial(gfx, pipeline, textureDirt);
-	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass);
+	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass, 11.0f);
+
+	// Copy material info to buffer
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		const Material &material = GetMaterial(gfx, i);
+		SMaterial shaderMaterial = { material.uvScale };
+		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
+		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, gfx.materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
+	}
 
 	// DescriptorSets for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
@@ -2255,15 +2273,11 @@ void InitializeScene(Graphics &gfx)
 			}
 			else if ( binding.type == SpvTypeUniformBuffer )
 			{
-#if USE_MATERIAL_BUFFER
 				descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 				bufferInfo = &bufferInfos[bufferInfoCount++];
 				bufferInfo->buffer = gfx.materialBuffer.buffer; // TODO: Somehow get the right buffer here
 				bufferInfo->offset = material.bufferOffset; // TODO: Somehow get the right buffer offset here
 				bufferInfo->range = sizeof(SMaterial);
-#else
-				continue;
-#endif
 			}
 			else
 			{
@@ -2369,6 +2383,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 	{
 		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, VULKAN_ALLOCATORS);
 	}
+
+	vkDestroyBuffer( gfx.device, gfx.materialBuffer.buffer, VULKAN_ALLOCATORS );
 
 	for (u32 i = 0; i < HeapType_COUNT; ++i)
 	{

@@ -21,7 +21,7 @@ VertexOutput main(VertexInput IN)
 	OUT.positionWs = mul(constants.model, float4(IN.position, 1.0f));
 	OUT.position = mul(globals.proj, mul(globals.view, OUT.positionWs));
 	OUT.normalWs = mul( constants.model, float4( IN.normal, 0.0 ) ).xyz;
-	OUT.texCoord = IN.texCoord;// * material.uvScale;
+	OUT.texCoord = IN.texCoord * material.uvScale;
 	return OUT;
 }
 
