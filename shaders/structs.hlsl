@@ -6,3 +6,8 @@ struct Globals
 	float4 eyePosition;
 };
 
+struct SMaterial
+{
+	float uvScale;
+};
+

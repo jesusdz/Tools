@@ -1,12 +1,5 @@
 #include "globals.hlsl"
-
-struct PixelInput
-{
-	float4 position : SV_Position;
-	float4 positionWs : POSITION0;
-	float3 normalWs : NORMAL0;
-	float2 texCoord : TEXCOORD0;
-};
+#include "interpolators.hlsl"
 
 float Lambert(float3 L, float3 N)
 {
@@ -35,8 +28,6 @@ float Luminance(float3 color)
 	return res;
 }
 
-Texture2D<float4> tex : register(t0, space1);
-
 float4 main(PixelInput IN) : SV_Target
 {
 	// Directional light
@@ -57,7 +48,8 @@ float4 main(PixelInput IN) : SV_Target
 	float3 V = normalize(globals.eyePosition.xyz - IN.positionWs.xyz);
 	float3 H = normalize(V + L);
 
-	float3 albedo = tex.Sample(texSampler, IN.texCoord).rgb;
+	float3 albedo = albedoTexture.Sample(linearSampler, IN.texCoord).rgb;
+	//float3 albedo = float3(0.5, 0.5, 0.5);
 
 	float ambient = 0.1;
 	float diffuse = Lambert(L, N);

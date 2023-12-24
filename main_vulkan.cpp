@@ -2211,7 +2211,7 @@ void InitializeScene(Graphics &gfx)
 
 			descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[descriptorWriteCount].dstSet = gfx.materialDescriptorSets[i];
-			descriptorWrites[descriptorWriteCount].dstBinding = 0;
+			descriptorWrites[descriptorWriteCount].dstBinding = 1;
 			descriptorWrites[descriptorWriteCount].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 			descriptorWrites[descriptorWriteCount].descriptorCount = 1;
 			descriptorWrites[descriptorWriteCount].pImageInfo = &imageInfos[i];
@@ -2484,7 +2484,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	u32 frameIndex = gfx.currentFrame;
 
 	// Swapchain sync
-	vkWaitForFences( gfx.device, 1, &gfx.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX );
+	VK_CALL( vkWaitForFences( gfx.device, 1, &gfx.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
 
 	u32 imageIndex;
 	VkResult acquireResult = vkAcquireNextImageKHR( gfx.device, gfx.swapchain.handle, UINT64_MAX, gfx.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
@@ -2501,7 +2501,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		return false;
 	}
 
-	vkResetFences( gfx.device, 1, &gfx.inFlightFences[frameIndex] );
+	VK_CALL( vkResetFences( gfx.device, 1, &gfx.inFlightFences[frameIndex] ) );
 
 
 	// Update uniform data
