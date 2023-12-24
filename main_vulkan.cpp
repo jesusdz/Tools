@@ -67,7 +67,6 @@
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 8
 #define MAX_SHADER_BINDINGS 8
-#define MAX_DESCRIPTOR_SETS ( MAX_ENTITIES * MAX_FRAMES_IN_FLIGHT )
 
 
 enum HeapType
@@ -213,6 +212,7 @@ struct Camera
 struct Entity
 {
 	float3 position;
+	float scale;
 	bool visible;
 	Buffer *vertexBuffer;
 	Buffer *indexBuffer;
@@ -785,6 +785,7 @@ ShaderReflectionH CreateShaderReflection( Graphics &gfx, const ShaderSource &ver
 		}
 	}
 
+	ASSERT( gfx.shaderReflectionCount < ARRAY_COUNT(gfx.shaderReflections) );
 	ShaderReflectionH shaderReflectionHandle = gfx.shaderReflectionCount++;
 	gfx.shaderReflections[shaderReflectionHandle] = reflection;
 	return shaderReflectionHandle;
@@ -934,7 +935,7 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
 
 	// Pipeline layout
-	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS];
+	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
 	u32 descriptorSetLayoutCount = 0;
 
 	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
@@ -1007,6 +1008,7 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	VkPipeline vkPipelineHandle;
 	VK_CALL( vkCreateGraphicsPipelines( gfx.device, gfx.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &vkPipelineHandle ) );
 
+	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	gfx.pipelines[pipelineHandle].globalDescriptorSetLayout = globalDescriptorSetLayout;
 	gfx.pipelines[pipelineHandle].materialDescriptorSetLayout = materialDescriptorSetLayout;
@@ -1116,6 +1118,7 @@ SamplerH CreateSampler(Graphics &gfx)
 
 	Sampler sampler = {vkSampler};
 
+	ASSERT( gfx.samplerCount < ARRAY_COUNT( gfx.samplers ) );
 	SamplerH samplerHandle = gfx.samplerCount++;
 	gfx.samplers[samplerHandle] = sampler;
 	return samplerHandle;
@@ -1260,6 +1263,7 @@ TextureH CreateTexture(Graphics &gfx, const char *filePath)
 	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.image, texWidth, texHeight);
 	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
+	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].image = image;
 	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1274,6 +1278,7 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 
 MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, TextureH textureHandle )
 {
+	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
 	gfx.materials[materialHandle].pipelineH = pipelineHandle;
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
@@ -1286,11 +1291,13 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 	return material;
 }
 
-void CreateEntity(Graphics &gfx, float3 position, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
+void CreateEntity(Graphics &gfx, float3 position, f32 scale, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
 {
+	ASSERT(gfx.entityCount < MAX_ENTITIES);
 	const u32 entityIndex = gfx.entityCount++;
 	gfx.entities[entityIndex].visible = true;
 	gfx.entities[entityIndex].position = position;
+	gfx.entities[entityIndex].scale = scale;
 	gfx.entities[entityIndex].vertexBuffer = vertexBuffer;
 	gfx.entities[entityIndex].indexBuffer = indexBuffer;
 	gfx.entities[entityIndex].materialIndex = materialIndex;
@@ -1971,7 +1978,10 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
 	LOG(Info, "Physical device info:\n");
 	LOG(Info, "- apiVersion: %u\n", properties.apiVersion); // uint32_t
-	LOG(Info, "- driverVersion: %u\n", properties.driverVersion); // uint32_t
+	LOG(Info, "- driverVersion: %u.%u.%u\n",
+			VK_VERSION_MAJOR(properties.driverVersion),
+			VK_VERSION_MINOR(properties.driverVersion),
+			VK_VERSION_PATCH(properties.driverVersion)); // uint32_t
 	LOG(Info, "- vendorID: %u\n", properties.vendorID); // uint32_t
 	LOG(Info, "- deviceID: %u\n", properties.deviceID); // uint32_t
 	LOG(Info, "- deviceType: %s\n", VkPhysicalDeviceTypeToString(properties.deviceType)); // VkPhysicalDeviceType
@@ -2005,7 +2015,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	{
 		VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 		commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-		commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		commandPoolCreateInfo.flags = 0; // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT allows individual resets using vkResetCommandBuffer
 		commandPoolCreateInfo.queueFamilyIndex = gfx.graphicsQueueFamilyIndex;
 		VK_CALL( vkCreateCommandPool(gfx.device, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.commandPools[i]) );
 	}
@@ -2137,15 +2147,12 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// Create textures
 	TextureH textureDiamond = CreateTexture(gfx, "assets/diamond.png");
 	TextureH textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
+	TextureH textureGrass = CreateTexture(gfx, "assets/grass.jpg");
 
 	// Create materials
 	MaterialH materialDiamond = CreateMaterial(gfx, pipeline, textureDiamond);
-#if 0
-	SetMaterialBuffer(materialDiamond, "globals", globalBuffer);
-	SetMaterialTexture(materialDiamond, "tex", textureDiamond);
-	SetMaterialSampler(materialDiamond, "texSampler", sampler);
-#endif
 	MaterialH materialDirt = CreateMaterial(gfx, pipeline, textureDirt);
+	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass);
 
 	// DescriptorSets for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
@@ -2196,7 +2203,9 @@ void InitializeScene(Graphics &gfx)
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45f};
 
-
+// NOTE: If disabled, don't forget to stop using them in the shaders
+#define UPDATE_MATERIAL_DESCRIPTORS 1
+#if UPDATE_MATERIAL_DESCRIPTORS
 	// Update material descriptors
 	u32 descriptorWriteCount = 0;
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS] = {};
@@ -2222,12 +2231,17 @@ void InitializeScene(Graphics &gfx)
 	{
 		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
+#endif
 
 	// Entities
-	CreateEntity(gfx, float3{-1, 0, -1}, &gfx.cubeVertices, &gfx.cubeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0, -1}, &gfx.planeVertices, &gfx.planeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0,  1}, &gfx.cubeVertices, &gfx.cubeIndices, 1);
-	CreateEntity(gfx, float3{-1, 0,  1}, &gfx.planeVertices, &gfx.planeIndices, 1);
+	CreateEntity(gfx, float3{-1, 0, -1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0, -1}, 1.0f, &gfx.planeVertices, &gfx.planeIndices, 0);
+	CreateEntity(gfx, float3{ 1, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
+	CreateEntity(gfx, float3{-1, 0,  1}, 1.0f, &gfx.planeVertices, &gfx.planeIndices, 1);
+	CreateEntity(gfx, float3{-3, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
+	CreateEntity(gfx, float3{ 3, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
+	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, &gfx.planeVertices, &gfx.planeIndices, 2);
+	gfx.entities[gfx.entityCount-1].visible = true;
 
 	gfx.sceneInitialized = true;
 }
@@ -2533,21 +2547,20 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	MemCopy( ptr, &globals, sizeof(globals) );
 	uniformBufferOffset = AlignUp(uniformBufferOffset + sizeof(globals), gfx.alignment.uniformBufferOffset);
 
+	// Update descriptor sets
+	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
+	VkDescriptorBufferInfo bufferInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
+	VkDescriptorImageInfo imageInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
+
+	u32 descriptorWriteCount = 0;
+	u32 bufferInfoCount = 0;
+	u32 imageInfoCount = 0;
 
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		const ShaderReflection &reflection = GetShaderReflection(gfx, material.shaderReflectionH);
-
-		// Update descriptor sets
-		VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
-		VkDescriptorBufferInfo bufferInfos[MAX_SHADER_BINDINGS] = {};
-		VkDescriptorImageInfo imageInfos[MAX_SHADER_BINDINGS] = {};
-
-		u32 descriptorWriteCount = 0;
-		u32 bufferInfoCount = 0;
-		u32 imageInfoCount = 0;
 
 		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
 		{
@@ -2593,11 +2606,11 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			descriptorWrites[i0].pImageInfo = imageInfo;
 			descriptorWrites[i0].pTexelBufferView = NULL;
 		}
+	}
 
-		if ( descriptorWriteCount > 0 )
-		{
-			vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
-		}
+	if ( descriptorWriteCount > 0 )
+	{
+		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
 	}
 
 	// Reset commands for this frame
@@ -2606,9 +2619,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Record commands
 	VkCommandBuffer commandBuffer = gfx.commandBuffers[frameIndex];
-
-	VkCommandBufferResetFlags resetFlags = 0;
-	vkResetCommandBuffer( commandBuffer, resetFlags );
 
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
 	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2645,32 +2655,55 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	scissor.extent = gfx.swapchain.extent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+	VkPipeline prevPipeline = VK_NULL_HANDLE;
+	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
+	VkDescriptorSet prevMaterialSet = VK_NULL_HANDLE;
+
 	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
 		const Entity &entity = gfx.entities[entityIndex];
 
 		if ( !entity.visible ) continue;
 
-		const Material &material = gfx.materials[entity.materialIndex];
+		const u32 materialIndex = entity.materialIndex;
+		const Material &material = gfx.materials[materialIndex];
 		const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
-		vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle );
+
+		// Pipeline
+		const VkPipeline vkPipeline = pipeline.handle;
+		if ( vkPipeline != prevPipeline )
+		{
+			prevPipeline = vkPipeline;
+			vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vkPipeline );
+		}
+
+		// Descriptor sets
+		VkDescriptorSet descriptorSets[4] = {};
+		u32 descriptorSetCount = 0;
+		u32 descriptorSetFirst = UINT32_MAX;
 
 		// firstSet = 0
-		const u32 globalDescriptorSetIndex = frameIndex;
-		if ( gfx.globalDescriptorSets[entity.materialIndex][globalDescriptorSetIndex] )
-		{
-			const VkDescriptorSet descriptorSets[] = { gfx.globalDescriptorSets[entity.materialIndex][globalDescriptorSetIndex], };
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
+		const VkDescriptorSet globalSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
+		if ( globalSet && globalSet != prevGlobalSet ) {
+			prevGlobalSet = globalSet;
+			descriptorSetFirst = 0;
+			descriptorSets[descriptorSetCount++] = globalSet;
 		}
 
 		// firstSet = 1
-		if ( gfx.materialDescriptorSets[entity.materialIndex] )
-		{
-			const VkDescriptorSet descriptorSets[] = { gfx.materialDescriptorSets[entity.materialIndex], };
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 1, ARRAY_COUNT(descriptorSets), descriptorSets, 0, NULL);
+		const VkDescriptorSet materialSet = gfx.materialDescriptorSets[materialIndex];
+		if ( materialSet && materialSet != prevMaterialSet ) {
+			prevMaterialSet = materialSet;
+			descriptorSetFirst = Min(descriptorSetFirst, 1u);
+			descriptorSets[descriptorSetCount++] = materialSet;
 		}
 
-		const float4x4 modelMatrix = Translate(entity.position); // TODO: Apply also rotation and scale
+		if ( descriptorSetCount > 0 ) {
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+		}
+
+		// Push constants
+		const float4x4 modelMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		vkCmdPushConstants(commandBuffer, pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(modelMatrix), &modelMatrix);
 
 		Buffer *vertexBuffer = entity.vertexBuffer;
@@ -2737,27 +2770,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
-
-
-#if 0
-	static Clock clock0 = GetClock();
-	Clock clock1 = GetClock();
-	float deltaSeconds = GetSecondsElapsed(clock0, clock1);
-	clock0 = clock1;
-
-	static float elapsedSeconds = 0.0f;
-	static u64 frameCount = 0;
-	elapsedSeconds += deltaSeconds;
-	frameCount++;
-	if ( elapsedSeconds > 1.0f )
-	{
-		float framesPerSecond = frameCount / elapsedSeconds;
-		LOG(Info, "FPS: %f\n", framesPerSecond);
-		elapsedSeconds = 0.0f;
-		frameCount = 0;
-	}
-#endif
-
 
 	return true;
 }
