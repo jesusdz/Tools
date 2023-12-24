@@ -697,6 +697,12 @@ static constexpr f32 Pi = 3.14159265358979323846f;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
 
+float3 Float3(float value)
+{
+	const float3 res = {value, value, value};
+	return res;
+}
+
 float4 Float4(float3 xyz, f32 w)
 {
 	const float4 res = { xyz.x, xyz.y, xyz.z, w };
@@ -753,6 +759,30 @@ float3 Mul(const float3 &a, f32 b)
 
 float4x4 Mul(const float4x4 &a, const float4x4 &b)
 {
+#define USE_ROWS_TIMES_COLUMNS_MATRIX_MULTIPLICATION 1
+#if USE_ROWS_TIMES_COLUMNS_MATRIX_MULTIPLICATION
+	const float4x4 res = {
+		a.m00*b.m00 + a.m10*b.m01 + a.m20*b.m02 + a.m30*b.m03,
+		a.m01*b.m00 + a.m11*b.m01 + a.m21*b.m02 + a.m31*b.m03,
+		a.m02*b.m00 + a.m12*b.m01 + a.m22*b.m02 + a.m32*b.m03,
+		a.m03*b.m00 + a.m13*b.m01 + a.m23*b.m02 + a.m33*b.m03,
+
+		a.m00*b.m10 + a.m10*b.m11 + a.m20*b.m12 + a.m30*b.m13,
+		a.m01*b.m10 + a.m11*b.m11 + a.m21*b.m12 + a.m31*b.m13,
+		a.m02*b.m10 + a.m12*b.m11 + a.m22*b.m12 + a.m32*b.m13,
+		a.m03*b.m10 + a.m13*b.m11 + a.m23*b.m12 + a.m33*b.m13,
+
+		a.m00*b.m20 + a.m10*b.m21 + a.m20*b.m22 + a.m30*b.m23,
+		a.m01*b.m20 + a.m11*b.m21 + a.m21*b.m22 + a.m31*b.m23,
+		a.m02*b.m20 + a.m12*b.m21 + a.m22*b.m22 + a.m32*b.m23,
+		a.m03*b.m20 + a.m13*b.m21 + a.m23*b.m22 + a.m33*b.m23,
+
+		a.m00*b.m30 + a.m10*b.m31 + a.m20*b.m32 + a.m30*b.m33,
+		a.m01*b.m30 + a.m11*b.m31 + a.m21*b.m32 + a.m31*b.m33,
+		a.m02*b.m30 + a.m12*b.m31 + a.m22*b.m32 + a.m32*b.m33,
+		a.m03*b.m30 + a.m13*b.m31 + a.m23*b.m32 + a.m33*b.m33,
+	};
+#else // columns times rows
 	const float4x4 res = {
 		a.m00*b.m00 + a.m01*b.m10 + a.m02*b.m20 + a.m03*b.m30,
 		a.m00*b.m01 + a.m01*b.m11 + a.m02*b.m21 + a.m03*b.m31,
@@ -774,6 +804,7 @@ float4x4 Mul(const float4x4 &a, const float4x4 &b)
 		a.m30*b.m02 + a.m31*b.m12 + a.m32*b.m22 + a.m33*b.m32,
 		a.m30*b.m03 + a.m31*b.m13 + a.m32*b.m23 + a.m33*b.m33,
 	};
+#endif
 	return res;
 }
 

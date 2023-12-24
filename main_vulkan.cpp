@@ -2518,7 +2518,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// TODO: Make this depend on swapchain config, not platform
 	const float4x4 perspectiveMatrix = Perspective(60.0f, ar, 0.1f, 1000.0f);
 #endif
-	const float4x4 projectionMatrix = Mul(preTransformMatrix, perspectiveMatrix);
+	const float4x4 projectionMatrix = Mul(perspectiveMatrix, preTransformMatrix);
 
 	u32 uniformBufferOffset = 0;
 
