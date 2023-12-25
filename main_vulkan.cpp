@@ -139,6 +139,7 @@ struct Image
 struct Texture
 {
 	Image image;
+	u32 mipLevels;
 	VkImageView imageView;
 };
 
@@ -1033,7 +1034,7 @@ const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
 	return pipeline;
 }
 
-Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
+Image CreateImage(const Graphics &gfx, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
 {
 	// Image
 	VkImageCreateInfo imageCreateInfo = {};
@@ -1042,7 +1043,7 @@ Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, V
 	imageCreateInfo.extent.width = width;
 	imageCreateInfo.extent.height = height;
 	imageCreateInfo.extent.depth = 1;
-	imageCreateInfo.mipLevels = 1;
+	imageCreateInfo.mipLevels = mipLevels;
 	imageCreateInfo.arrayLayers = 1;
 	imageCreateInfo.format = format;
 	imageCreateInfo.tiling = tiling;
@@ -1078,7 +1079,7 @@ Image CreateImage(const Graphics &gfx, u32 width, u32 height, VkFormat format, V
 	return imageStruct;
 }
 
-VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, u32 mipLevels)
 {
 	VkImageViewCreateInfo viewInfo = {};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1091,7 +1092,7 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
 	viewInfo.subresourceRange.baseMipLevel = 0;
-	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.levelCount = mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0;
 	viewInfo.subresourceRange.layerCount = 1;
 
@@ -1121,7 +1122,7 @@ SamplerH CreateSampler(Graphics &gfx)
 	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerCreateInfo.mipLodBias = 0.0f;
 	samplerCreateInfo.minLod = 0.0f;
-	samplerCreateInfo.maxLod = 0.0f;
+	samplerCreateInfo.maxLod = VK_LOD_CLAMP_NONE;
 
 	VkSampler vkSampler;
 	VK_CALL( vkCreateSampler(gfx.device, &samplerCreateInfo, VULKAN_ALLOCATORS, &vkSampler) );
@@ -1148,7 +1149,7 @@ bool HasStencilComponent(VkFormat format)
 	return hasStencil;
 }
 
-void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
 {
 	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
 
@@ -1160,7 +1161,7 @@ void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImag
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.levelCount = mipLevels;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
@@ -1239,6 +1240,98 @@ void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
+void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i32 height, u32 mipLevels)
+{
+	VkFormatProperties formatProperties;
+	vkGetPhysicalDeviceFormatProperties(gfx.physicalDevice, format, &formatProperties);
+
+	if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+		LOG(Error, "GenerateMipmaps() - Linera filtering not supported for the given format.\n");
+		QUIT_ABNORMALLY();
+	}
+
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.image = image;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.subresourceRange.levelCount = 1;
+
+	i32 mipWidth = width;
+	i32 mipHeight = height;
+
+	for (u32 i = 1; i < mipLevels; ++i)
+	{
+		barrier.subresourceRange.baseMipLevel = i - 1;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+		vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+				0, NULL,
+				0, NULL,
+				1, &barrier);
+
+		const i32 dstMipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+		const i32 dstMipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+
+		VkImageBlit blit = {};
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.mipLevel = i - 1;
+		blit.srcSubresource.baseArrayLayer = 0;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { dstMipWidth, dstMipHeight, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.mipLevel = i;
+		blit.dstSubresource.baseArrayLayer = 0;
+		blit.dstSubresource.layerCount = 1;
+
+		vkCmdBlitImage(commandBuffer,
+				image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				1, &blit,
+				VK_FILTER_LINEAR);
+
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(commandBuffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+				0, nullptr,
+				0, nullptr,
+				1, &barrier);
+
+		mipWidth = dstMipWidth;
+		mipHeight = dstMipHeight;
+	}
+
+	barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(commandBuffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier);
+
+	EndTransientCommandBuffer(gfx, commandBuffer);
+}
+
 TextureH CreateTexture(Graphics &gfx, const char *filePath)
 {
 	int texWidth, texHeight, texChannels;
@@ -1263,20 +1356,29 @@ TextureH CreateTexture(Graphics &gfx, const char *filePath)
 		stbi_image_free(originalPixels);
 	}
 
+	const u32 mipLevels = static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1;
+
 	Image image = CreateImage(gfx,
-			texWidth, texHeight,
+			texWidth, texHeight, mipLevels,
 			VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // for mipmap blits
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // for intitial copy from buffer and blits
+			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
 			gfx.heaps[HeapType_General]);
 
-	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
 	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.image, texWidth, texHeight);
-	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	// GenerateMipmaps takes care of this transition after generating the mip levels
+	//TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
+
+	GenerateMipmaps(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].image = image;
-	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT);
+	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+	gfx.textures[textureHandle].mipLevels = mipLevels;
 	return textureHandle;
 }
 
@@ -1495,7 +1597,7 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	{
 		const VkImage image = swapchain.images[i];
 		const VkFormat format = swapchainInfo.format;
-		swapchain.imageViews[i] = CreateImageView(gfx, image, format, VK_IMAGE_ASPECT_COLOR_BIT);
+		swapchain.imageViews[i] = CreateImageView(gfx, image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
 	}
 
 
@@ -1568,13 +1670,13 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	// Depth buffer
 	VkFormat depthFormat = FindDepthFormat(gfx);
 	renderTargets.depthImage = CreateImage(gfx,
-			gfx.swapchain.extent.width, gfx.swapchain.extent.height,
+			gfx.swapchain.extent.width, gfx.swapchain.extent.height, 1,
 			depthFormat,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 			gfx.heaps[HeapType_RTs]);
-	VkImageView depthImageView = CreateImageView(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-	TransitionImageLayout(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+	VkImageView depthImageView = CreateImageView(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	TransitionImageLayout(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	renderTargets.depthImageView = depthImageView;
 
 
