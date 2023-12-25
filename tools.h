@@ -95,7 +95,7 @@
 #endif
 
 #define ASSERT(expression) if ( !(expression) ) { \
-		LOG(Error, "%s", "assertion failed( " #expression " )" ); \
+		LOG(Error, "%s", "Assertion failed: ASSERT( " #expression " )\n" ); \
 		QUIT_ABNORMALLY(); \
 	}
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
