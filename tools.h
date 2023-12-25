@@ -999,6 +999,20 @@ float4x4 Transpose(const float4x4 &m)
 	return res;
 }
 
+i32 Floor(f32 value)
+{
+	const f32 res = ::floorf(value);
+	return static_cast<i32>(res);
+}
+
+f32 Log2(f32 value)
+{
+	const f32 res = ::log2f(value);
+	return res;
+}
+
+
+
 #define INSTANTIATE_MATH_OPS_FOR_TYPE( Type ) \
 Type Min( Type a, Type b ) { return a < b ? a : b; } \
 Type Max( Type a, Type b ) { return a > b ? a : b; } \
