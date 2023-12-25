@@ -65,7 +65,7 @@
 #define MAX_PIPELINES 8
 #define MAX_SHADER_REFLECTIONS 8
 #define MAX_MATERIALS 4
-#define MAX_ENTITIES 8
+#define MAX_ENTITIES 32
 #define MAX_SHADER_BINDINGS 8
 
 
@@ -295,7 +295,8 @@ struct Graphics
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
 
-	VkDescriptorPool descriptorPool;
+	VkDescriptorPool globalDescriptorPool;
+	VkDescriptorPool materialDescriptorPool;
 #if USE_IMGUI
 	VkDescriptorPool imGuiDescriptorPool;
 #endif
@@ -1304,14 +1305,21 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 
 void CreateEntity(Graphics &gfx, float3 position, f32 scale, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
 {
-	ASSERT(gfx.entityCount < MAX_ENTITIES);
-	const u32 entityIndex = gfx.entityCount++;
-	gfx.entities[entityIndex].visible = true;
-	gfx.entities[entityIndex].position = position;
-	gfx.entities[entityIndex].scale = scale;
-	gfx.entities[entityIndex].vertexBuffer = vertexBuffer;
-	gfx.entities[entityIndex].indexBuffer = indexBuffer;
-	gfx.entities[entityIndex].materialIndex = materialIndex;
+	ASSERT ( gfx.entityCount < MAX_ENTITIES );
+	if ( gfx.entityCount < MAX_ENTITIES )
+	{
+		const u32 entityIndex = gfx.entityCount++;
+		gfx.entities[entityIndex].visible = true;
+		gfx.entities[entityIndex].position = position;
+		gfx.entities[entityIndex].scale = scale;
+		gfx.entities[entityIndex].vertexBuffer = vertexBuffer;
+		gfx.entities[entityIndex].indexBuffer = indexBuffer;
+		gfx.entities[entityIndex].materialIndex = materialIndex;
+	}
+	else
+	{
+		LOG(Warning, "CreateEntity() - MAX_ENTITIES limit reached.\n");
+	}
 }
 
 VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
@@ -2112,21 +2120,33 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx.heaps[HeapType_General]);
 
 
-	// Create Descriptor Pool
+	// Create Global Descriptor Pool
 	{
 		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) },
-			//{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES) }
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
 		};
 		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
 		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_ENTITIES);
-		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.descriptorPool ) );
+		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS);
+		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.globalDescriptorPool ) );
+	}
+	// Create Material Descriptor Pool
+	{
+		VkDescriptorPoolSize descriptorPoolSizes[] = {
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_MATERIALS) },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<u32>(MAX_MATERIALS) }
+		};
+		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
+		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
+		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_MATERIALS);
+		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.materialDescriptorPool ) );
 	}
 
 
@@ -2167,6 +2187,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// Create materials
 	MaterialH materialDiamond = CreateMaterial(gfx, pipeline, textureDiamond);
 	MaterialH materialDirt = CreateMaterial(gfx, pipeline, textureDirt);
+	//MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass);
 	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass, 11.0f);
 
 	// Copy material info to buffer
@@ -2193,7 +2214,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			}
 			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.descriptorPool;
+			descriptorSetAllocateInfo.descriptorPool = gfx.globalDescriptorPool;
 			descriptorSetAllocateInfo.descriptorSetCount = globalDescriptorSetLayoutCount;
 			descriptorSetAllocateInfo.pSetLayouts = globalDescriptorSetLayouts;
 			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.globalDescriptorSets[i]) );
@@ -2202,7 +2223,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 		{
 			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.descriptorPool;
+			descriptorSetAllocateInfo.descriptorPool = gfx.materialDescriptorPool;
 			descriptorSetAllocateInfo.descriptorSetCount = 1;
 			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
 			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialDescriptorSets[i]) );
@@ -2303,14 +2324,16 @@ void InitializeScene(Graphics &gfx)
 	}
 
 	// Entities
-	CreateEntity(gfx, float3{-1, 0, -1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0, -1}, 1.0f, &gfx.planeVertices, &gfx.planeIndices, 0);
-	CreateEntity(gfx, float3{ 1, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
-	CreateEntity(gfx, float3{-1, 0,  1}, 1.0f, &gfx.planeVertices, &gfx.planeIndices, 1);
-	CreateEntity(gfx, float3{-3, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
-	CreateEntity(gfx, float3{ 3, 0,  1}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, 1);
+	for (i32 i = 0; i < 4; ++i)
+	{
+		for (i32 j = 0; j < 4; ++j)
+		{
+			const f32 x = -3 + i * 2;
+			const f32 z = -3 + j * 2;
+			CreateEntity(gfx, float3{x, 0, z}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, (i+j)%2);
+		}
+	}
 	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, &gfx.planeVertices, &gfx.planeIndices, 2);
-	gfx.entities[gfx.entityCount-1].visible = true;
 
 	gfx.sceneInitialized = true;
 }
@@ -2357,7 +2380,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	WaitDeviceIdle( gfx );
 
-	vkDestroyDescriptorPool( gfx.device, gfx.descriptorPool, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.globalDescriptorPool, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.materialDescriptorPool, VULKAN_ALLOCATORS );
 #if USE_IMGUI
 	vkDestroyDescriptorPool( gfx.device, gfx.imGuiDescriptorPool, VULKAN_ALLOCATORS );
 #endif
