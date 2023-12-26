@@ -1,5 +1,6 @@
 #include "globals.hlsl"
 #include "interpolators.hlsl"
+#include "brdf.hlsl"
 
 float Lambert(float3 L, float3 N)
 {
@@ -51,11 +52,39 @@ float4 main(PixelInput IN) : SV_Target
 	float3 albedo = albedoTexture.Sample(linearSampler, IN.texCoord).rgb;
 	//float3 albedo = float3(0.5, 0.5, 0.5);
 
+#if 1
 	float ambient = 0.1;
 	float diffuse = Lambert(L, N);
 	float specular = BlinnPhong(H, N) * Luminance(albedo);
 
 	float3 shadedColor = ((ambient + diffuse) * albedo + specular) * attenuationFactor;
+#else
+	// Material properties
+	float3 diffColor = albedo;
+	float3 specColor = float3(1.0f, 1.0f, 1.0f);// albedo;
+	float3 R0 = float3(0.04f, 0.04f, 0.04f);
+	float roughness = 0.9f;
+	float alpha = roughness * roughness;
+
+	float NoL = saturate(dot(N, L));
+	float NoV = saturate(dot(N, V));
+	float LoH = saturate(dot(L, H));
+	float HoV = saturate(dot(H, V));
+
+	float3 Ra = (diffColor);
+
+	float3 Rd = (diffColor / PI);
+
+	float3 F = Fresnel(HoV, R0);
+	float  G = GeometryUE4(N, V, roughness);
+	float  D = DistributionGGX(N, H, alpha);
+	float3 Rs = (specColor / PI) * F * G * D / (4.0f * NoL * NoV);
+
+	const float lightPower = 50.0f;
+	const float3 lightColor = float3(1.0, 0.9, 0.9) * lightPower;
+	float3 shadedColor = Ra + lightColor * NoL * lerp(Rs, Rd, F);
+#endif
+
 	return float4(shadedColor, 1.0);
 }
 

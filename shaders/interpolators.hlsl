@@ -1,5 +1,5 @@
 
-struct VertexOutput
+struct Interpolators
 {
 	float4 position : SV_Position;
 	float4 positionWs : POSITION0;
@@ -7,5 +7,6 @@ struct VertexOutput
 	float2 texCoord : TEXCOORD0;
 };
 
-#define PixelInput VertexOutput
+typedef Interpolators VertexOutput;
+typedef Interpolators PixelInput;
 
