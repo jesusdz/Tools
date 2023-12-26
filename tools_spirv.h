@@ -6,20 +6,20 @@ binary SPIRV streams and print some information.
 
 These are the publicly exposed functions:
 ```
-  SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
-  SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
-  bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
-  void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
-  void SpvPrintDisassembly(SpvParser *parser);
+	SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
+	SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
+	bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
+	void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
+	void SpvPrintDisassembly(SpvParser *parser);
 ```
 
 Before including this header file, some customization macros can be defined:
 ```
-  #define SPV_IMPLEMENTATION  // To include function implementations
-  #define SPV_PRINT_FUNCTIONS // To include print functions
-  #define SPV_PRINTF printf   // To provide a custom print function
-  #define SPV_ASSERT assert   // To provide a custom assert macro
-  #include "tools_spirv.h"
+	#define SPV_IMPLEMENTATION  // To include function implementations
+	#define SPV_PRINT_FUNCTIONS // To include print functions
+	#define SPV_PRINTF printf   // To provide a custom print function
+	#define SPV_ASSERT assert   // To provide a custom assert macro
+	#include "tools_spirv.h"
 ```
 
 Check the following link for reference on the implementation of Spirv tools:
@@ -35,7 +35,6 @@ Check the following link for reference on the implementation of Spirv tools:
 #define SPV_INDEX_INSTRUCTION 5u
 #define SPV_MAX_DESCRIPTOR_SETS 4u
 #define SPV_MAX_DESCRIPTORS_PER_SET 8u
-#define SPV_MAX_IDS 128u
 
 #define SPV_CT_ASSERT3(expression, line) static int ct_assert_##line[(expression) ? 1 : 0]
 #define SPV_CT_ASSERT2(expression, line) SPV_CT_ASSERT3(expression, line)
@@ -304,7 +303,7 @@ struct SpvId
 	const char *name;
 };
 
-static void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseType(SpvParser *parser, SpvId *ids)
 {
 	const spv_u32 *words = parser->instructionWords;
 	const spv_u32 opCode = SpvParserInstructionOpCode(parser);
@@ -338,7 +337,7 @@ static void SpvTryParseType(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	};
 }
 
-static void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseDescriptor(SpvParser *parser, SpvId *ids)
 {
 	const spv_u32 *words = parser->instructionWords;
 	const spv_u32 opCode = SpvParserInstructionOpCode(parser);
@@ -359,7 +358,7 @@ static void SpvTryParseDescriptor(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
-static void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseDescriptorId(SpvParser *parser, SpvId *ids)
 {
 	const spv_u32 *words = parser->instructionWords;
 	const spv_u32 opCode = SpvParserInstructionOpCode(parser);
@@ -383,7 +382,7 @@ static void SpvTryParseDescriptorId(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
-static void SpvTryParseName(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
+static void SpvTryParseName(SpvParser *parser, SpvId *ids)
 {
 	const spv_u32 *words = parser->instructionWords;
 	const spv_u32 opCode = SpvParserInstructionOpCode(parser);
@@ -395,11 +394,20 @@ static void SpvTryParseName(SpvParser *parser, SpvId ids[SPV_MAX_IDS])
 	}
 }
 
-bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList)
+bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList, void *tempMem, spv_u32 tempMemSize)
 {
-	spv_u32 executionModel = 0;
+	SPV_ASSERT( parser );
+	SPV_ASSERT( parser->header );
 
-	SpvId ids[SPV_MAX_IDS] = {};
+	const spv_u32 idCount = parser->header->bound;
+	SPV_ASSERT( sizeof(SpvId) * idCount < tempMemSize );
+
+	SpvId *ids = (SpvId*)tempMem;
+	for ( spv_u32 id = 0; id < idCount; ++id ) {
+		ids[id] = {};
+	}
+
+	spv_u32 executionModel = 0;
 
 	SpvParserRewind(parser);
 	while ( !SpvParserFinished(parser) ) {
@@ -411,7 +419,7 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 		SpvParserAdvance(parser);
 	}
 
-	for (spv_u32 id = 0; id < SPV_MAX_IDS; ++id)
+	for (spv_u32 id = 0; id < idCount; ++id)
 	{
 		if (ids[id].flags & SpvIdFlagDescriptor)
 		{
@@ -495,11 +503,7 @@ SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount )
 		}
 	}
 
-	if ( header->bound >= SPV_MAX_IDS )
-		SPV_PRINTF( "Error: Maximum number of SPIRV IDs (%u) reached.\n", SPV_MAX_IDS );
-	SPV_ASSERT(header->bound < SPV_MAX_IDS);
-
-	SpvParser parser = { words, wordCount };
+	SpvParser parser = { words, wordCount, header };
 	SpvParserRewind( &parser );
 	return parser;
 }

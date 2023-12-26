@@ -760,15 +760,18 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-ShaderReflectionH CreateShaderReflection( Graphics &gfx, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
 {
 	ShaderReflection reflection = {};
+
+	void *tempMem = scratch.base + scratch.used;
+	const u32 tempMemSize = scratch.size - scratch.used;
 
 	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
 	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
 	SpvDescriptorSetList spvDescriptorList = {};
-	SpvParseDescriptors( &parserForVertex, &spvDescriptorList );
-	SpvParseDescriptors( &parserForFragment, &spvDescriptorList );
+	SpvParseDescriptors( &parserForVertex, &spvDescriptorList, tempMem, tempMemSize );
+	SpvParseDescriptors( &parserForFragment, &spvDescriptorList, tempMem, tempMemSize );
 
 	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
 	{
@@ -2275,7 +2278,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
 	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, vertexShaderSource, fragmentShaderSource);
+	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
 	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
 	PipelineH pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, shaderReflection );
 	DestroyShaderModule(gfx, vertexShaderModule);
