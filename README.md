@@ -60,6 +60,7 @@ Here are some interesting links that I have been looking while writing some code
 * [XCB Documentation](https://xcb.freedesktop.org/manual/index.html)
 * [XCB tricks](http://metan.ucw.cz/blog/things-i-wanted-to-know-about-libxcb.html)
 * [Vulkan tutorial](https://vulkan-tutorial.com/)
+* [Vulkan guide: GPU driven rendering](https://vkguide.dev/docs/gpudriven/gpu_driven_engines)
 * [D3D12 tutorial](https://www.3dgep.com/category/graphics-programming/directx/)
 * [Handmade Math](https://github.com/HandmadeMath/HandmadeMath)
 * [Untangling Lifetimes: The Arena Allocator](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator)

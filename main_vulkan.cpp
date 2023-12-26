@@ -3276,4 +3276,7 @@ int main(int argc, char **argv)
 
 // TODO:
 // - Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
+// - Put all the geometry in the same buffer.
+// - Avoid using push constants and put transformation matrices in buffers instead.
+// - Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
 
