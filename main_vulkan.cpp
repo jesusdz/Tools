@@ -475,6 +475,7 @@ static const char *VkResultToString(VkResult result)
 		case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
 		case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
 		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
 		case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
 		default: break;
 	}
@@ -2226,6 +2227,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 		VkDescriptorPoolSize descriptorPoolSizes[] = {
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
 			{ VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
 		};
 		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
