@@ -6,6 +6,11 @@ struct Globals
 	float4 eyePosition;
 };
 
+struct SEntity
+{
+	float4x4 world;
+};
+
 struct SMaterial
 {
 	float uvScale;

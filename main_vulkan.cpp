@@ -279,7 +279,8 @@ struct Graphics
 	Buffer planeVertices;
 	Buffer planeIndices;
 
-	Buffer uniformBuffers[MAX_FRAMES_IN_FLIGHT];
+	Buffer globalsBuffer[MAX_FRAMES_IN_FLIGHT];
+	Buffer entityBuffer[MAX_FRAMES_IN_FLIGHT];
 	Buffer materialBuffer;
 
 	SamplerH textureSampler;
@@ -724,6 +725,7 @@ static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
 		case SpvTypeSampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
 		case SpvTypeSampledImage: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		case SpvTypeUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		case SpvTypeStorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; // Should be DYNAMIC if we use dynamic offsets
 		default: INVALID_CODE_PATH();
 	}
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
@@ -976,18 +978,10 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
 	VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
 
-	// TODO: Get this from SPIRV as well
-	VkPushConstantRange pushConstantRanges[1] = {};
-	pushConstantRanges[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	pushConstantRanges[0].offset = 0;
-	pushConstantRanges[0].size = sizeof(float4x4);
-
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutCreateInfo.setLayoutCount = descriptorSetLayoutCount;
 	pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts;
-	pipelineLayoutCreateInfo.pushConstantRangeCount = ARRAY_COUNT(pushConstantRanges);
-	pipelineLayoutCreateInfo.pPushConstantRanges = pushConstantRanges;
 
 	VkPipelineLayout pipelineLayout;
 	VK_CALL( vkCreatePipelineLayout(gfx.device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
@@ -2200,14 +2194,25 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	gfx.planeVertices = CreateVertexBuffer(gfx, planeVertices, sizeof(planeVertices));
 	gfx.planeIndices = CreateIndexBuffer(gfx, planeIndices, sizeof(cubeIndices));
 
-	// Create uniform buffers
+	// Create globals buffer
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
-		const u32 uniformBufferSize = KB(512);
-		gfx.uniformBuffers[i] = CreateBuffer(
+		const u32 globalsBufferSize = sizeof(Globals);
+		gfx.globalsBuffer[i] = CreateBuffer(
 			gfx,
-			uniformBufferSize,
+			globalsBufferSize,
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			gfx.heaps[HeapType_Dynamic]);
+	}
+
+	// Create entities buffer
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		const u32 entityBufferSize = MAX_ENTITIES * AlignUp( sizeof(SEntity), gfx.alignment.uniformBufferOffset );
+		gfx.entityBuffer[i] = CreateBuffer(
+			gfx,
+			entityBufferSize,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			gfx.heaps[HeapType_Dynamic]);
 	}
 
@@ -2379,9 +2384,17 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 				{
 					descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 					bufferInfo = &bufferInfos[bufferInfoCount++];
-					bufferInfo->buffer = gfx.uniformBuffers[frameIndex].buffer;
+					bufferInfo->buffer = gfx.globalsBuffer[frameIndex].buffer;
 					bufferInfo->offset = 0;
 					bufferInfo->range = sizeof(Globals);
+				}
+				else if ( binding.type == SpvTypeStorageBuffer )
+				{
+					descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+					bufferInfo = &bufferInfos[bufferInfoCount++];
+					bufferInfo->buffer = gfx.entityBuffer[frameIndex].buffer;
+					bufferInfo->offset = 0;
+					bufferInfo->range = sizeof(SEntity) * MAX_ENTITIES;
 				}
 				else
 				{
@@ -2532,7 +2545,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		vkDestroyBuffer(gfx.device, gfx.uniformBuffers[i].buffer, VULKAN_ALLOCATORS);
+		vkDestroyBuffer(gfx.device, gfx.globalsBuffer[i].buffer, VULKAN_ALLOCATORS);
+		vkDestroyBuffer(gfx.device, gfx.entityBuffer[i].buffer, VULKAN_ALLOCATORS);
 	}
 
 	vkDestroyBuffer( gfx.device, gfx.materialBuffer.buffer, VULKAN_ALLOCATORS );
@@ -2756,15 +2770,26 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 #endif
 	const float4x4 projectionMatrix = Mul(perspectiveMatrix, preTransformMatrix);
 
-	// Update uniform buffer of globals
+	// Update globals data
 	Globals globals;
 	globals.view = viewMatrix;
 	globals.proj = projectionMatrix;
 	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
-	Buffer &uniformBuffer = gfx.uniformBuffers[frameIndex];
-	Heap &uniformBufferHeap = gfx.heaps[uniformBuffer.alloc.heap];
-	void *ptr = uniformBufferHeap.data + uniformBuffer.alloc.offset;
+	Buffer &globalsBuffer = gfx.globalsBuffer[frameIndex];
+	Heap &globalsBufferHeap = gfx.heaps[globalsBuffer.alloc.heap];
+	void *ptr = globalsBufferHeap.data + globalsBuffer.alloc.offset;
 	MemCopy( ptr, &globals, sizeof(globals) );
+
+	// Update entity data
+	Buffer &entityBuffer = gfx.entityBuffer[frameIndex];
+	Heap &entityBufferHeap = gfx.heaps[entityBuffer.alloc.heap];
+	SEntity *entities = (SEntity*)(entityBufferHeap.data + entityBuffer.alloc.offset);
+	for (u32 i = 0; i < gfx.entityCount; ++i)
+	{
+		const Entity &entity = gfx.entities[i];
+		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
+		entities[i].world = worldMatrix;
+	}
 
 	// Update global descriptor sets
 	const bool updateGlobalDS = true;
@@ -2860,10 +2885,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		}
 
-		// Push constants
-		const float4x4 modelMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
-		vkCmdPushConstants(commandBuffer, pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(modelMatrix), &modelMatrix);
-
 		Buffer *vertexBuffer = entity.vertexBuffer;
 		Buffer *indexBuffer = entity.indexBuffer;
 
@@ -2873,7 +2894,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		vkCmdBindIndexBuffer(commandBuffer, indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
 
-		vkCmdDrawIndexed(commandBuffer, indexBuffer->alloc.size/2, 1, 0, 0, 0);
+		vkCmdDrawIndexed(commandBuffer, indexBuffer->alloc.size/2, 1, 0, 0, entityIndex);
 	}
 
 #if USE_IMGUI

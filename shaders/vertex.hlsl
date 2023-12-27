@@ -13,14 +13,14 @@ struct Constants
 	float4x4 model;
 };
 
-[[vk::push_constant]] Constants constants;
-
-VertexOutput main(VertexInput IN)
+VertexOutput main(VertexInput IN, uint instanceID : SV_InstanceID)
 {
 	VertexOutput OUT;
-	OUT.positionWs = mul(constants.model, float4(IN.position, 1.0f));
+	uint entityId = instanceID;
+	float4x4 worldMatrix = entities.Load<SEntity>(entityId * sizeof(SEntity)).world;
+	OUT.positionWs = mul(worldMatrix, float4(IN.position, 1.0f));
 	OUT.position = mul(globals.proj, mul(globals.view, OUT.positionWs));
-	OUT.normalWs = mul( constants.model, float4( IN.normal, 0.0 ) ).xyz;
+	OUT.normalWs = mul( worldMatrix, float4( IN.normal, 0.0 ) ).xyz;
 	OUT.texCoord = IN.texCoord * material.uvScale;
 	return OUT;
 }
