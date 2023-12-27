@@ -48,7 +48,9 @@
 #define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
+// C/HLSL shared structs and defines
 #include "shaders/structs.hlsl"
+#include "shaders/defines.hlsl"
 
 
 #define VULKAN_ALLOCATORS NULL
@@ -66,10 +68,10 @@
 #define MAX_SHADER_REFLECTIONS 8
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
-#define MAX_SHADER_BINDINGS 8
+#define MAX_GLOBAL_BINDINGS 4
+#define MAX_MATERIAL_BINDINGS 4
+#define MAX_SHADER_BINDINGS ( MAX_GLOBAL_BINDINGS + MAX_MATERIAL_BINDINGS )
 
-#define DESCRIPTOR_SET_GLOBAL 0
-#define DESCRIPTOR_SET_MATERIAL 1
 
 
 enum HeapType
@@ -114,6 +116,30 @@ struct ShaderReflection
 	u8 bindingCount;
 };
 
+struct BufferBinding
+{
+	VkBuffer handle;
+	u32 offset;
+	u32 range;
+};
+
+struct TextureBinding
+{
+	VkImageView handle;
+};
+
+struct SamplerBinding
+{
+	VkSampler handle;
+};
+
+union ResourceBinding
+{
+	BufferBinding buffer;
+	TextureBinding texture;
+	SamplerBinding sampler;
+};
+
 typedef u32 ShaderReflectionH;
 
 struct Pipeline
@@ -130,6 +156,7 @@ struct Buffer
 {
 	VkBuffer buffer;
 	Alloc alloc;
+	u32 size;
 };
 
 struct Image
@@ -607,6 +634,7 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 	Buffer gfxBuffer = {
 		buffer,
 		alloc,
+		size,
 	};
 
 	return gfxBuffer;
@@ -788,6 +816,9 @@ ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const Sh
 			if ( descriptor.type != SpvTypeNone )
 			{
 				ASSERT( reflection.bindingCount < ARRAY_COUNT(reflection.bindings) );
+				ASSERT( ( setIndex == DESCRIPTOR_SET_GLOBAL && descriptor.binding < MAX_GLOBAL_BINDINGS ) ||
+						( setIndex == DESCRIPTOR_SET_MATERIAL && descriptor.binding < MAX_MATERIAL_BINDINGS ) ||
+						( setIndex > DESCRIPTOR_SET_MATERIAL ) );
 				ShaderBinding &shaderBinding = reflection.bindings[reflection.bindingCount++];
 				shaderBinding.binding = descriptor.binding;
 				shaderBinding.set = setIndex;
@@ -1371,9 +1402,9 @@ TextureH CreateTexture(Graphics &gfx, const char *filePath)
 	return textureHandle;
 }
 
-Texture &GetTexture(Graphics &gfx, TextureH handle)
+const Texture &GetTexture(const Graphics &gfx, TextureH handle)
 {
-	Texture &texture = gfx.textures[handle];
+	const Texture &texture = gfx.textures[handle];
 	return texture;
 }
 
@@ -2342,11 +2373,49 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	return true;
 }
 
-void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMaterialDS )
+void BindResource(ResourceBinding *bindingTable, u32 binding, const Buffer &buffer, u32 offset = 0, u32 range = 0)
+{
+	BufferBinding &bufferBinding = bindingTable[binding].buffer;
+	bufferBinding.handle = buffer.buffer;
+	bufferBinding.offset = offset;
+	bufferBinding.range = range > 0 ? range : buffer.size;
+}
+
+void BindResource(ResourceBinding *bindingTable, u32 binding, const Texture &texture)
+{
+	TextureBinding &textureBinding = bindingTable[binding].texture;
+	textureBinding.handle = texture.imageView;
+}
+
+void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sampler)
+{
+	SamplerBinding &samplerBinding = bindingTable[binding].sampler;
+	samplerBinding.handle = sampler.sampler;
+}
+
+void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 {
 	const u32 frameIndex = gfx.currentFrame;
+	const Buffer &globalsBuffer = gfx.globalsBuffer[frameIndex];
+	const Buffer &entityBuffer = gfx.entityBuffer[frameIndex];
+	const Sampler &textureSampler = GetSampler(gfx, gfx.textureSampler);
 
-	// Update material descriptors
+	BindResource(bindingTable, BINDING_GLOBALS, globalsBuffer);
+	BindResource(bindingTable, BINDING_ENTITIES, entityBuffer);
+	BindResource(bindingTable, BINDING_SAMPLER, textureSampler);
+}
+
+void BindMaterialResources(const Graphics &gfx, const Material &material, ResourceBinding bindingTable[])
+{
+	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
+	const Buffer &materialBuffer = gfx.materialBuffer;
+
+	BindResource(bindingTable, BINDING_MATERIAL, materialBuffer, material.bufferOffset, sizeof(SMaterial));
+	BindResource(bindingTable, BINDING_ALBEDO, albedoTexture);
+}
+
+void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMaterialDS )
+{
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	VkDescriptorImageInfo imageInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	VkDescriptorBufferInfo bufferInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
@@ -2355,94 +2424,89 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 	u32 bufferInfoCount = 0;
 	u32 imageInfoCount = 0;
 
+	ResourceBinding globalBindingTable[MAX_GLOBAL_BINDINGS];
+	ResourceBinding materialBindingTable[MAX_MATERIAL_BINDINGS];
+
+	BindGlobalResources(gfx, globalBindingTable);
+
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		const ShaderReflection &reflection = GetShaderReflection(gfx, material.shaderReflectionH);
 
+		BindMaterialResources(gfx, material, materialBindingTable);
+
 		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
 		{
-			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-			VkDescriptorImageInfo *imageInfo = 0;
-			VkDescriptorBufferInfo *bufferInfo = 0;
-			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-
 			const ShaderBinding &binding = reflection.bindings[bindingIndex];
 
-			if ( binding.set == DESCRIPTOR_SET_GLOBAL && updateGlobalDS )
-			{
-				descriptorSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
+			if ( binding.set == DESCRIPTOR_SET_GLOBAL && !updateGlobalDS ) continue;
+			if ( binding.set == DESCRIPTOR_SET_MATERIAL && !updateMaterialDS ) continue;
 
-				if ( binding.type == SpvTypeSampler )
-				{
-					descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-					imageInfo = &imageInfos[imageInfoCount++];
-					imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					imageInfo->imageView = VK_NULL_HANDLE;
-					imageInfo->sampler = GetSampler(gfx, gfx.textureSampler).sampler;
-				}
-				else if ( binding.type == SpvTypeUniformBuffer )
-				{
-					descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-					bufferInfo = &bufferInfos[bufferInfoCount++];
-					bufferInfo->buffer = gfx.globalsBuffer[frameIndex].buffer;
-					bufferInfo->offset = 0;
-					bufferInfo->range = sizeof(Globals);
-				}
-				else if ( binding.type == SpvTypeStorageBuffer )
-				{
-					descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-					bufferInfo = &bufferInfos[bufferInfoCount++];
-					bufferInfo->buffer = gfx.entityBuffer[frameIndex].buffer;
-					bufferInfo->offset = 0;
-					bufferInfo->range = sizeof(SEntity) * MAX_ENTITIES;
-				}
-				else
-				{
-					INVALID_CODE_PATH();
-				}
-			}
-			else if ( binding.set == DESCRIPTOR_SET_MATERIAL && updateMaterialDS )
+			ResourceBinding *bindingTable = 0;
+			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+
+			if ( binding.set == DESCRIPTOR_SET_GLOBAL )
 			{
+				bindingTable = globalBindingTable;
+				descriptorSet = gfx.globalDescriptorSets[materialIndex][gfx.currentFrame];
+				descriptorType = SpvDescriptorTypeToVulkan( binding.type );
+			}
+			else if ( binding.set == DESCRIPTOR_SET_MATERIAL )
+			{
+				bindingTable = materialBindingTable;
 				descriptorSet = gfx.materialDescriptorSets[materialIndex];
-
-				if ( binding.type == SpvTypeImage )
-				{
-					descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					imageInfo = &imageInfos[imageInfoCount++];
-					imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					imageInfo->imageView = GetTexture( gfx, material.albedoTexture ).imageView; // TODO: Somehow get the right texture
-					imageInfo->sampler = VK_NULL_HANDLE;
-				}
-				else if ( binding.type == SpvTypeUniformBuffer )
-				{
-					descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-					bufferInfo = &bufferInfos[bufferInfoCount++];
-					bufferInfo->buffer = gfx.materialBuffer.buffer; // TODO: Somehow get the right buffer here
-					bufferInfo->offset = material.bufferOffset; // TODO: Somehow get the right buffer offset here
-					bufferInfo->range = sizeof(SMaterial);
-				}
-				else
-				{
-					INVALID_CODE_PATH();
-				}
+				descriptorType = SpvDescriptorTypeToVulkan( binding.type );
 			}
-
-			if ( descriptorType != VK_DESCRIPTOR_TYPE_MAX_ENUM )
+			else
 			{
-				const u32 index = descriptorWriteCount++;
-				descriptorWrites[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				descriptorWrites[index].dstSet = descriptorSet;
-				descriptorWrites[index].dstBinding = binding.binding;
-				descriptorWrites[index].dstArrayElement = 0;
-				descriptorWrites[index].descriptorType = descriptorType;
-				descriptorWrites[index].descriptorCount = 1;
-				descriptorWrites[index].pBufferInfo = bufferInfo;
-				descriptorWrites[index].pImageInfo = imageInfo;
-				descriptorWrites[index].pTexelBufferView = NULL;
-				descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+				LOG(Warning, "Unhandled descriptor set (%u) in UpdateDescriptorSets.\n", binding.set);
+				continue;
 			}
+
+			const ResourceBinding &resourceBinding = bindingTable[binding.binding];
+			VkDescriptorImageInfo *imageInfo = 0;
+			VkDescriptorBufferInfo *bufferInfo = 0;
+
+			if ( binding.type == SpvTypeSampler )
+			{
+				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo->imageView = VK_NULL_HANDLE;
+				imageInfo->sampler = resourceBinding.sampler.handle;
+			}
+			else if ( binding.type == SpvTypeImage )
+			{
+				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo->imageView = resourceBinding.texture.handle;
+				imageInfo->sampler = VK_NULL_HANDLE;
+			}
+			else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
+			{
+				bufferInfo = &bufferInfos[bufferInfoCount++];
+				bufferInfo->buffer = resourceBinding.buffer.handle;
+				bufferInfo->offset = resourceBinding.buffer.offset;
+				bufferInfo->range = resourceBinding.buffer.range;
+			}
+			else
+			{
+				LOG(Warning, "Unhandled binding descriptor type (%u) in UpdateDescriptorSets.\n", binding.type);
+				continue;
+			}
+
+			const u32 index = descriptorWriteCount++;
+			descriptorWrites[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[index].dstSet = descriptorSet;
+			descriptorWrites[index].dstBinding = binding.binding;
+			descriptorWrites[index].dstArrayElement = 0;
+			descriptorWrites[index].descriptorType = descriptorType;
+			descriptorWrites[index].descriptorCount = 1;
+			descriptorWrites[index].pBufferInfo = bufferInfo;
+			descriptorWrites[index].pImageInfo = imageInfo;
+			descriptorWrites[index].pTexelBufferView = NULL;
 		}
 	}
 
@@ -3298,7 +3362,6 @@ int main(int argc, char **argv)
 }
 
 // TODO:
-// - [ ] Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 // - [ ] Put all the geometry in the same buffer.
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
 // - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
@@ -3307,4 +3370,5 @@ int main(int argc, char **argv)
 //
 // DONE:
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
+// - [X] Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 
