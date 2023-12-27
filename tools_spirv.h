@@ -108,6 +108,7 @@ enum SpvType
 	SpvTypeSampler,
 	SpvTypeSampledImage,
 	SpvTypeUniformBuffer,
+	SpvTypeStorageBuffer,
 	SpvTypeCount
 };
 
@@ -310,6 +311,7 @@ static void SpvTryParseType(SpvParser *parser, SpvId *ids)
 
 	spv_u32 resultId = 0;
 	spv_u32 typeId = 0;
+	spv_u32 firstFieldTypeId = 0;
 
 	switch ( opCode ) {
 		case SpvOpTypeImage:
@@ -326,13 +328,22 @@ static void SpvTryParseType(SpvParser *parser, SpvId *ids)
 			break;
 		case SpvOpTypeStruct:
 			resultId = words[1];
-			ids[resultId].type = SpvTypeUniformBuffer;
+			firstFieldTypeId = words[2];
+			if ( ids[firstFieldTypeId].type == SpvTypeStorageBuffer ) {
+				ids[resultId].type = SpvTypeStorageBuffer;
+			} else {
+				ids[resultId].type = SpvTypeUniformBuffer;
+			}
 			break;
 		case SpvOpTypePointer:
 			resultId = words[1];
 			//storageClass = words[2];
 			typeId = words[3];
 			ids[resultId].type = ids[typeId].type;
+			break;
+		case SpvOpTypeRuntimeArray:
+			resultId = words[1];
+			ids[resultId].type = SpvTypeStorageBuffer;
 			break;
 	};
 }
