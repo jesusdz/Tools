@@ -2417,12 +2417,14 @@ void BindMaterialResources(const Graphics &gfx, const Material &material, Resour
 void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMaterialDS )
 {
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
-	VkDescriptorImageInfo imageInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
-	VkDescriptorBufferInfo bufferInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
-
 	u32 descriptorWriteCount = 0;
-	u32 bufferInfoCount = 0;
-	u32 imageInfoCount = 0;
+
+	union VkDescriptorGenericInfo
+	{
+		VkDescriptorImageInfo imageInfo;
+		VkDescriptorBufferInfo bufferInfo;
+	};
+	VkDescriptorGenericInfo descriptorInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 
 	ResourceBinding globalBindingTable[MAX_GLOBAL_BINDINGS];
 	ResourceBinding materialBindingTable[MAX_MATERIAL_BINDINGS];
@@ -2432,7 +2434,6 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
-		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		const ShaderReflection &reflection = GetShaderReflection(gfx, material.shaderReflectionH);
 
 		BindMaterialResources(gfx, material, materialBindingTable);
@@ -2446,19 +2447,16 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 
 			ResourceBinding *bindingTable = 0;
 			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-			VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
 
 			if ( binding.set == DESCRIPTOR_SET_GLOBAL )
 			{
 				bindingTable = globalBindingTable;
 				descriptorSet = gfx.globalDescriptorSets[materialIndex][gfx.currentFrame];
-				descriptorType = SpvDescriptorTypeToVulkan( binding.type );
 			}
 			else if ( binding.set == DESCRIPTOR_SET_MATERIAL )
 			{
 				bindingTable = materialBindingTable;
 				descriptorSet = gfx.materialDescriptorSets[materialIndex];
-				descriptorType = SpvDescriptorTypeToVulkan( binding.type );
 			}
 			else
 			{
@@ -2467,46 +2465,47 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 			}
 
 			const ResourceBinding &resourceBinding = bindingTable[binding.binding];
+
 			VkDescriptorImageInfo *imageInfo = 0;
 			VkDescriptorBufferInfo *bufferInfo = 0;
 
 			if ( binding.type == SpvTypeSampler )
 			{
-				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				imageInfo->imageView = VK_NULL_HANDLE;
 				imageInfo->sampler = resourceBinding.sampler.handle;
 			}
 			else if ( binding.type == SpvTypeImage )
 			{
-				imageInfo = &imageInfos[imageInfoCount++];
+				imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 				imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				imageInfo->imageView = resourceBinding.texture.handle;
 				imageInfo->sampler = VK_NULL_HANDLE;
 			}
 			else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
 			{
-				bufferInfo = &bufferInfos[bufferInfoCount++];
+				bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
 				bufferInfo->buffer = resourceBinding.buffer.handle;
 				bufferInfo->offset = resourceBinding.buffer.offset;
 				bufferInfo->range = resourceBinding.buffer.range;
 			}
 			else
 			{
-				LOG(Warning, "Unhandled binding descriptor type (%u) in UpdateDescriptorSets.\n", binding.type);
+				LOG(Warning, "Unhandled descriptor type (%u) in UpdateDescriptorSets.\n", binding.type);
 				continue;
 			}
 
-			const u32 index = descriptorWriteCount++;
-			descriptorWrites[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			descriptorWrites[index].dstSet = descriptorSet;
-			descriptorWrites[index].dstBinding = binding.binding;
-			descriptorWrites[index].dstArrayElement = 0;
-			descriptorWrites[index].descriptorType = descriptorType;
-			descriptorWrites[index].descriptorCount = 1;
-			descriptorWrites[index].pBufferInfo = bufferInfo;
-			descriptorWrites[index].pImageInfo = imageInfo;
-			descriptorWrites[index].pTexelBufferView = NULL;
+			descriptorWrites[descriptorWriteCount].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[descriptorWriteCount].dstSet = descriptorSet;
+			descriptorWrites[descriptorWriteCount].dstBinding = binding.binding;
+			descriptorWrites[descriptorWriteCount].dstArrayElement = 0;
+			descriptorWrites[descriptorWriteCount].descriptorType = SpvDescriptorTypeToVulkan( binding.type );
+			descriptorWrites[descriptorWriteCount].descriptorCount = 1;
+			descriptorWrites[descriptorWriteCount].pBufferInfo = bufferInfo;
+			descriptorWrites[descriptorWriteCount].pImageInfo = imageInfo;
+			descriptorWrites[descriptorWriteCount].pTexelBufferView = NULL;
+			descriptorWriteCount++;
 		}
 	}
 
