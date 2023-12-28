@@ -162,6 +162,20 @@ struct Buffer
 
 typedef u32 BufferH;
 
+struct BufferArena
+{
+	BufferH buffer;
+	u32 used;
+	u32 size;
+};
+
+struct BufferChunk
+{
+	BufferH buffer;
+	u32 offset;
+	u32 size;
+};
+
 struct Image
 {
 	VkImage image;
@@ -250,8 +264,8 @@ struct Entity
 	float3 position;
 	float scale;
 	bool visible;
-	Buffer *vertexBuffer;
-	Buffer *indexBuffer;
+	BufferChunk vertices;
+	BufferChunk indices;
 	u16 materialIndex;
 };
 
@@ -307,10 +321,13 @@ struct Graphics
 	BufferH stagingBuffer;
 	u32 stagingBufferOffset;
 
-	BufferH cubeVertices;
-	BufferH cubeIndices;
-	BufferH planeVertices;
-	BufferH planeIndices;
+	BufferArena globalVertexArena;
+	BufferArena globalIndexArena;
+
+	BufferChunk cubeVertices;
+	BufferChunk cubeIndices;
+	BufferChunk planeVertices;
+	BufferChunk planeIndices;
 
 	BufferH globalsBuffer[MAX_FRAMES_IN_FLIGHT];
 	BufferH entityBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -788,6 +805,35 @@ BufferH CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
 {
 	BufferH indexBufferHandle = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	return indexBufferHandle;
+}
+
+BufferArena MakeBufferArena(Graphics &gfx, BufferH bufferHandle)
+{
+	Buffer &buffer = GetBuffer(gfx, bufferHandle);
+
+	BufferArena arena = {};
+	arena.buffer = bufferHandle;
+	arena.size = buffer.size;
+	return arena;
+}
+
+BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 size)
+{
+	StagedData staged = StageData(gfx, data, size);
+
+	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
+
+	// Copy contents from the staging to the final buffer
+	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, arena.used, size);
+
+	BufferChunk chunk = {};
+	chunk.buffer = arena.buffer;
+	chunk.offset = arena.used;
+	chunk.size = size;
+
+	arena.used += size;
+
+	return chunk;
 }
 
 static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
@@ -1468,7 +1514,7 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 	return material;
 }
 
-void CreateEntity(Graphics &gfx, float3 position, f32 scale, Buffer *vertexBuffer, Buffer *indexBuffer, u32 materialIndex)
+void CreateEntity(Graphics &gfx, float3 position, f32 scale, BufferChunk vertices, BufferChunk indices, u32 materialIndex)
 {
 	ASSERT ( gfx.entityCount < MAX_ENTITIES );
 	if ( gfx.entityCount < MAX_ENTITIES )
@@ -1477,8 +1523,8 @@ void CreateEntity(Graphics &gfx, float3 position, f32 scale, Buffer *vertexBuffe
 		gfx.entities[entityIndex].visible = true;
 		gfx.entities[entityIndex].position = position;
 		gfx.entities[entityIndex].scale = scale;
-		gfx.entities[entityIndex].vertexBuffer = vertexBuffer;
-		gfx.entities[entityIndex].indexBuffer = indexBuffer;
+		gfx.entities[entityIndex].vertices = vertices;
+		gfx.entities[entityIndex].indices = indices;
 		gfx.entities[entityIndex].materialIndex = materialIndex;
 	}
 	else
@@ -2263,11 +2309,15 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// Create staging buffer
 	gfx.stagingBuffer = CreateStagingBuffer(gfx);
 
+	// Create global geometry buffers
+	gfx.globalVertexArena = MakeBufferArena( gfx, CreateVertexBuffer(gfx, MB(4)) );
+	gfx.globalIndexArena = MakeBufferArena( gfx, CreateIndexBuffer(gfx, MB(4)) );
+
 	// Create vertex/index buffers
-	gfx.cubeVertices = CreateVertexBuffer(gfx, cubeVertices, sizeof(cubeVertices));
-	gfx.cubeIndices = CreateIndexBuffer(gfx, cubeIndices, sizeof(cubeIndices));
-	gfx.planeVertices = CreateVertexBuffer(gfx, planeVertices, sizeof(planeVertices));
-	gfx.planeIndices = CreateIndexBuffer(gfx, planeIndices, sizeof(cubeIndices));
+	gfx.cubeVertices = PushData(gfx, gfx.globalVertexArena, cubeVertices, sizeof(cubeVertices));
+	gfx.cubeIndices = PushData(gfx, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
+	gfx.planeVertices = PushData(gfx, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
+	gfx.planeIndices = PushData(gfx, gfx.globalIndexArena, planeIndices, sizeof(cubeIndices));
 
 	// Create globals buffer
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -2573,11 +2623,6 @@ void InitializeScene(Graphics &gfx)
 	const bool updateMaterialDS = true;
 	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
-	Buffer &cubeVertices = GetBuffer(gfx, gfx.cubeVertices);
-	Buffer &cubeIndices = GetBuffer(gfx, gfx.cubeIndices);
-	Buffer &planeVertices = GetBuffer(gfx, gfx.planeVertices);
-	Buffer &planeIndices = GetBuffer(gfx, gfx.planeIndices);
-
 	// Entities
 	for (i32 i = 0; i < 4; ++i)
 	{
@@ -2585,10 +2630,10 @@ void InitializeScene(Graphics &gfx)
 		{
 			const f32 x = -3 + i * 2;
 			const f32 z = -3 + j * 2;
-			CreateEntity(gfx, float3{x, 0, z}, 1.0f, &cubeVertices, &cubeIndices, (i+j)%2);
+			CreateEntity(gfx, float3{x, 0, z}, 1.0f, gfx.cubeVertices, gfx.cubeIndices, (i+j)%2);
 		}
 	}
-	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, &planeVertices, &planeIndices, 2);
+	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, gfx.planeVertices, gfx.planeIndices, 2);
 
 	gfx.sceneInitialized = true;
 }
@@ -2948,6 +2993,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
 	VkDescriptorSet prevMaterialSet = VK_NULL_HANDLE;
 
+	VkBuffer prevVertexBuffer = VK_NULL_HANDLE;
+	VkBuffer prevIndexBuffer = VK_NULL_HANDLE;
+
 	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
 		const Entity &entity = gfx.entities[entityIndex];
@@ -2987,20 +3035,35 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			descriptorSets[descriptorSetCount++] = materialSet;
 		}
 
+		// Bind descriptor sets
 		if ( descriptorSetCount > 0 ) {
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		}
 
-		Buffer *vertexBuffer = entity.vertexBuffer;
-		Buffer *indexBuffer = entity.indexBuffer;
+		// Vertex buffer
+		const VkBuffer vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer).buffer;
+		if ( vertexBuffer && vertexBuffer != prevVertexBuffer )
+		{
+			prevVertexBuffer = vertexBuffer;
+			VkBuffer vertexBuffers[] = { vertexBuffer };
+			VkDeviceSize vertexBufferOffsets[] = { 0 };
+			vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
+		}
 
-		VkBuffer vertexBuffers[] = { vertexBuffer->buffer };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, offsets);
+		// Index buffer
+		const VkBuffer indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer ).buffer;
+		if ( indexBuffer && indexBuffer != prevIndexBuffer )
+		{
+			prevIndexBuffer = indexBuffer;
+			VkDeviceSize indexBufferOffset = 0;
+			vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indexBufferOffset, VK_INDEX_TYPE_UINT16);
+		}
 
-		vkCmdBindIndexBuffer(commandBuffer, indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT16);
-
-		vkCmdDrawIndexed(commandBuffer, indexBuffer->alloc.size/2, 1, 0, 0, entityIndex);
+		// Draw!!!
+		const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
+		const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+		const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+		vkCmdDrawIndexed(commandBuffer, indexCount, 1, firstIndex, firstVertex, entityIndex);
 	}
 
 #if USE_IMGUI
@@ -3402,7 +3465,6 @@ int main(int argc, char **argv)
 }
 
 // TODO:
-// - [ ] Put all the geometry in the same buffer.
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
 // - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
 // - [ ] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
@@ -3411,4 +3473,5 @@ int main(int argc, char **argv)
 // DONE:
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
 // - [X] Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
+// - [X] Put all the geometry in the same buffer.
 
