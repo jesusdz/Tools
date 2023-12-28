@@ -3469,6 +3469,7 @@ int main(int argc, char **argv)
 // - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
 // - [ ] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
+// - [ ] Avoid duplicated global descriptor sets.
 //
 // DONE:
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
