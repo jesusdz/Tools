@@ -70,6 +70,7 @@
 #define MAX_ENTITIES 32
 #define MAX_GLOBAL_BINDINGS 4
 #define MAX_MATERIAL_BINDINGS 4
+#define MAX_BUFFERS 64
 #define MAX_SHADER_BINDINGS ( MAX_GLOBAL_BINDINGS + MAX_MATERIAL_BINDINGS )
 
 
@@ -158,6 +159,8 @@ struct Buffer
 	Alloc alloc;
 	u32 size;
 };
+
+typedef u32 BufferH;
 
 struct Image
 {
@@ -298,17 +301,20 @@ struct Graphics
 
 	RenderTargets renderTargets;
 
-	Buffer stagingBuffer;
+	Buffer buffers[MAX_BUFFERS];
+	u32 bufferCount;
+
+	BufferH stagingBuffer;
 	u32 stagingBufferOffset;
 
-	Buffer cubeVertices;
-	Buffer cubeIndices;
-	Buffer planeVertices;
-	Buffer planeIndices;
+	BufferH cubeVertices;
+	BufferH cubeIndices;
+	BufferH planeVertices;
+	BufferH planeIndices;
 
-	Buffer globalsBuffer[MAX_FRAMES_IN_FLIGHT];
-	Buffer entityBuffer[MAX_FRAMES_IN_FLIGHT];
-	Buffer materialBuffer;
+	BufferH globalsBuffer[MAX_FRAMES_IN_FLIGHT];
+	BufferH entityBuffer[MAX_FRAMES_IN_FLIGHT];
+	BufferH materialBuffer;
 
 	SamplerH textureSampler;
 
@@ -603,7 +609,7 @@ Heap CreateHeap(const Graphics &gfx, HeapType heapType, u32 size, bool mapMemory
 	return heap;
 }
 
-Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, Heap &memoryHeap)
+BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, Heap &memoryHeap)
 {
 	// Buffer
 	VkBufferCreateInfo bufferCreateInfo = {};
@@ -631,13 +637,25 @@ Buffer CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags
 		memoryRequirements.size,
 	};
 
-	Buffer gfxBuffer = {
-		buffer,
-		alloc,
-		size,
-	};
+	ASSERT( gfx.bufferCount < ARRAY_COUNT(gfx.buffers) );
+	BufferH bufferHandle = gfx.bufferCount++;
+	Buffer &gfxBuffer = gfx.buffers[bufferHandle];
+	gfxBuffer.buffer = buffer;
+	gfxBuffer.alloc = alloc;
+	gfxBuffer.size = size;
+	return bufferHandle;
+}
 
-	return gfxBuffer;
+Buffer &GetBuffer(Graphics &gfx, BufferH bufferHandle)
+{
+	Buffer &buffer = gfx.buffers[bufferHandle];
+	return buffer;
+}
+
+const Buffer &GetBuffer(const Graphics &gfx, BufferH bufferHandle)
+{
+	const Buffer &buffer = gfx.buffers[bufferHandle];
+	return buffer;
 }
 
 VkCommandBuffer BeginTransientCommandBuffer(const Graphics &gfx)
@@ -697,9 +715,11 @@ struct StagedData
 
 StagedData StageData(Graphics &gfx, const void *data, u32 size)
 {
+	Buffer &stagingBuffer = GetBuffer(gfx, gfx.stagingBuffer);
+
 	StagedData staging = {};
-	staging.buffer = gfx.stagingBuffer.buffer;
-	staging.offset = gfx.stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
+	staging.buffer = stagingBuffer.buffer;
+	staging.offset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
 
 	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
 	void* stagingData = stagingHeap.data + staging.offset;
@@ -710,41 +730,64 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size)
 	return staging;
 }
 
-Buffer CreateStagingBuffer(Graphics &gfx)
+BufferH CreateStagingBuffer(Graphics &gfx)
 {
 	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
-	Buffer stagingBuffer = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingHeap);
-	return stagingBuffer;
+	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingHeap);
+	return stagingBufferHandle;
 }
 
-Buffer CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
+BufferH CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
 {
 	StagedData staged = StageData(gfx, data, size);
 
 	// Create a buffer in device local memory
-	Buffer finalBuffer = CreateBuffer(
+	BufferH finalBufferHandle = CreateBuffer(
 			gfx,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
 			gfx.heaps[HeapType_General]);
 
+	Buffer &finalBuffer = GetBuffer(gfx, finalBufferHandle);
+
 	// Copy contents from the staging to the final buffer
 	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, 0, size);
 
-	return finalBuffer;
+	return finalBufferHandle;
 }
 
-Buffer CreateVertexBuffer(Graphics &gfx, const void *data, u32 size )
+BufferH CreateVertexBuffer(Graphics &gfx, const void *data, u32 size )
 {
-	Buffer vertexBuffer = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-	return vertexBuffer;
+	BufferH vertexBufferHandle = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	return vertexBufferHandle;
 }
 
-
-Buffer CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
+BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 {
-	Buffer indexBuffer = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-	return indexBuffer;
+	BufferH vertexBufferHandle = CreateBuffer(
+			gfx,
+			size,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			gfx.heaps[HeapType_General]);
+
+	return vertexBufferHandle;
+}
+
+BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
+{
+	BufferH indexBufferHandle = CreateBuffer(
+			gfx,
+			size,
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			gfx.heaps[HeapType_General]);
+
+	return indexBufferHandle;
+}
+
+BufferH CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
+{
+	BufferH indexBufferHandle = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	return indexBufferHandle;
 }
 
 static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
@@ -2324,13 +2367,15 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	//MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass);
 	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass, 11.0f);
 
+	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
+
 	// Copy material info to buffer
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		const Material &material = GetMaterial(gfx, i);
 		SMaterial shaderMaterial = { material.uvScale };
 		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
-		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, gfx.materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
+		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
 	}
 
 	// DescriptorSets for materials
@@ -2396,8 +2441,8 @@ void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sam
 void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 {
 	const u32 frameIndex = gfx.currentFrame;
-	const Buffer &globalsBuffer = gfx.globalsBuffer[frameIndex];
-	const Buffer &entityBuffer = gfx.entityBuffer[frameIndex];
+	const Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
+	const Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
 	const Sampler &textureSampler = GetSampler(gfx, gfx.textureSampler);
 
 	BindResource(bindingTable, BINDING_GLOBALS, globalsBuffer);
@@ -2408,7 +2453,7 @@ void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 void BindMaterialResources(const Graphics &gfx, const Material &material, ResourceBinding bindingTable[])
 {
 	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
-	const Buffer &materialBuffer = gfx.materialBuffer;
+	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
 	BindResource(bindingTable, BINDING_MATERIAL, materialBuffer, material.bufferOffset, sizeof(SMaterial));
 	BindResource(bindingTable, BINDING_ALBEDO, albedoTexture);
@@ -2528,6 +2573,11 @@ void InitializeScene(Graphics &gfx)
 	const bool updateMaterialDS = true;
 	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
+	Buffer &cubeVertices = GetBuffer(gfx, gfx.cubeVertices);
+	Buffer &cubeIndices = GetBuffer(gfx, gfx.cubeIndices);
+	Buffer &planeVertices = GetBuffer(gfx, gfx.planeVertices);
+	Buffer &planeIndices = GetBuffer(gfx, gfx.planeIndices);
+
 	// Entities
 	for (i32 i = 0; i < 4; ++i)
 	{
@@ -2535,10 +2585,10 @@ void InitializeScene(Graphics &gfx)
 		{
 			const f32 x = -3 + i * 2;
 			const f32 z = -3 + j * 2;
-			CreateEntity(gfx, float3{x, 0, z}, 1.0f, &gfx.cubeVertices, &gfx.cubeIndices, (i+j)%2);
+			CreateEntity(gfx, float3{x, 0, z}, 1.0f, &cubeVertices, &cubeIndices, (i+j)%2);
 		}
 	}
-	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, &gfx.planeVertices, &gfx.planeIndices, 2);
+	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, &planeVertices, &planeIndices, 2);
 
 	gfx.sceneInitialized = true;
 }
@@ -2602,19 +2652,10 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		vkDestroyImage( gfx.device, gfx.textures[i].image.image, VULKAN_ALLOCATORS );
 	}
 
-	vkDestroyBuffer( gfx.device, gfx.cubeIndices.buffer, VULKAN_ALLOCATORS );
-	vkDestroyBuffer( gfx.device, gfx.cubeVertices.buffer, VULKAN_ALLOCATORS );
-	vkDestroyBuffer( gfx.device, gfx.planeIndices.buffer, VULKAN_ALLOCATORS );
-	vkDestroyBuffer( gfx.device, gfx.planeVertices.buffer, VULKAN_ALLOCATORS );
-	vkDestroyBuffer( gfx.device, gfx.stagingBuffer.buffer, VULKAN_ALLOCATORS );
-
-	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	for (u32 i = 0; i < gfx.bufferCount; ++i)
 	{
-		vkDestroyBuffer(gfx.device, gfx.globalsBuffer[i].buffer, VULKAN_ALLOCATORS);
-		vkDestroyBuffer(gfx.device, gfx.entityBuffer[i].buffer, VULKAN_ALLOCATORS);
+		vkDestroyBuffer( gfx.device, gfx.buffers[i].buffer, VULKAN_ALLOCATORS );
 	}
-
-	vkDestroyBuffer( gfx.device, gfx.materialBuffer.buffer, VULKAN_ALLOCATORS );
 
 	for (u32 i = 0; i < HeapType_COUNT; ++i)
 	{
@@ -2840,13 +2881,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	globals.view = viewMatrix;
 	globals.proj = projectionMatrix;
 	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
-	Buffer &globalsBuffer = gfx.globalsBuffer[frameIndex];
+	Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
 	Heap &globalsBufferHeap = gfx.heaps[globalsBuffer.alloc.heap];
 	void *ptr = globalsBufferHeap.data + globalsBuffer.alloc.offset;
 	MemCopy( ptr, &globals, sizeof(globals) );
 
 	// Update entity data
-	Buffer &entityBuffer = gfx.entityBuffer[frameIndex];
+	Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
 	Heap &entityBufferHeap = gfx.heaps[entityBuffer.alloc.heap];
 	SEntity *entities = (SEntity*)(entityBufferHeap.data + entityBuffer.alloc.offset);
 	for (u32 i = 0; i < gfx.entityCount; ++i)
