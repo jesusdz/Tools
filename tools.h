@@ -2147,5 +2147,5 @@ bool PlatformRun(Platform &platform)
 
 #endif // #if defined(TOOLS_WINDOW)
 
-#endif // #ifdef TOOLS_H
+#endif // #ifndef TOOLS_H
 
