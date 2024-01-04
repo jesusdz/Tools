@@ -3,7 +3,7 @@
 #define TOOLS_CPARSER_IMPLEMENTATION
 #include "tools_cparser.h"
 
-#include "asset_types.h"
+#include "assets/assets.h"
 
 //#define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
