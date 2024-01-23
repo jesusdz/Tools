@@ -15,6 +15,8 @@ enum TokenId
 	TOKEN_RIGHT_PAREN,
 	TOKEN_LEFT_BRACE,
 	TOKEN_RIGHT_BRACE,
+	TOKEN_LEFT_BRACKET,
+	TOKEN_RIGHT_BRACKET,
 	TOKEN_COMMA,
 	TOKEN_DOT,
 	TOKEN_MINUS,
@@ -44,7 +46,7 @@ enum TokenId
 	TOKEN_ELSE,
 	TOKEN_FOR,
 	TOKEN_WHILE,
-	TOKEN_CLASS,
+	TOKEN_STRUCT,
 	TOKEN_SUPER,
 	TOKEN_THIS,
 	TOKEN_FUN,
@@ -65,6 +67,8 @@ const char *TokenIdNames[] =
 	"TOKEN_RIGHT_PAREN",
 	"TOKEN_LEFT_BRACE",
 	"TOKEN_RIGHT_BRACE",
+	"TOKEN_LEFT_BRACKET",
+	"TOKEN_RIGHT_BRACKET",
 	"TOKEN_COMMA",
 	"TOKEN_DOT",
 	"TOKEN_MINUS",
@@ -94,7 +98,7 @@ const char *TokenIdNames[] =
 	"TOKEN_ELSE",
 	"TOKEN_FOR",
 	"TOKEN_WHILE",
-	"TOKEN_CLASS",
+	"TOKEN_STRUCT",
 	"TOKEN_SUPER",
 	"TOKEN_THIS",
 	"TOKEN_FUN",
@@ -145,6 +149,7 @@ struct TokenList
 {
 	Token *tokens;
 	i32 count;
+	bool valid;
 };
 
 struct ScanState
@@ -157,6 +162,25 @@ struct ScanState
 
 	const char *text;
 	u32 textSize;
+};
+
+struct CType
+{
+	const char *name;
+};
+
+struct CParseState
+{
+	const TokenList *tokenList;
+	u32 currentToken;
+	bool hasErrors;
+	bool hasFinished;
+};
+
+struct CData
+{
+	u32 typeCount;
+	CType types[128];
 };
 
 const char* TokenIdName(TokenId type)
@@ -286,6 +310,8 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 		case ')': AddToken(scanState, tokenList, TOKEN_RIGHT_PAREN); break;
 		case '{': AddToken(scanState, tokenList, TOKEN_LEFT_BRACE); break;
 		case '}': AddToken(scanState, tokenList, TOKEN_RIGHT_BRACE); break;
+		case '[': AddToken(scanState, tokenList, TOKEN_LEFT_BRACKET); break;
+		case ']': AddToken(scanState, tokenList, TOKEN_RIGHT_BRACKET); break;
 		case ',': AddToken(scanState, tokenList, TOKEN_COMMA); break;
 		case '.': AddToken(scanState, tokenList, TOKEN_DOT); break;
 		case '-': AddToken(scanState, tokenList, TOKEN_MINUS); break;
@@ -381,7 +407,7 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 				else if ( StrEq( word, "else" ) )   AddToken(scanState, tokenList, TOKEN_ELSE);
 				else if ( StrEq( word, "for" ) )    AddToken(scanState, tokenList, TOKEN_FOR);
 				else if ( StrEq( word, "while" ) )  AddToken(scanState, tokenList, TOKEN_WHILE);
-				else if ( StrEq( word, "class" ) )  AddToken(scanState, tokenList, TOKEN_CLASS);
+				else if ( StrEq( word, "struct" ) ) AddToken(scanState, tokenList, TOKEN_STRUCT);
 				else if ( StrEq( word, "super" ) )  AddToken(scanState, tokenList, TOKEN_SUPER);
 				else if ( StrEq( word, "this" ) )   AddToken(scanState, tokenList, TOKEN_THIS);
 				else if ( StrEq( word, "fun" ) )    AddToken(scanState, tokenList, TOKEN_FUN);
@@ -401,9 +427,9 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 	}
 }
 
-bool Scan(Arena &arena, const char *text, u32 textSize, TokenList &tokenList)
+TokenList Scan(Arena &arena, const char *text, u32 textSize)
 {
-	tokenList = {};
+	TokenList tokenList = {};
 	tokenList.tokens = PushArray(arena, Token, MAX_TOKEN_COUNT);
 
 	ScanState scanState = {};
@@ -419,7 +445,9 @@ bool Scan(Arena &arena, const char *text, u32 textSize, TokenList &tokenList)
 
 	AddToken(scanState, tokenList, TOKEN_EOF);
 
-	return !scanState.hasErrors;
+	tokenList.valid = !scanState.hasErrors;
+
+	return tokenList;
 }
 
 void PrintTokenList(const TokenList &tokenList)
@@ -437,16 +465,61 @@ void PrintTokenList(const TokenList &tokenList)
 	}
 }
 
+bool CParseState_HasFinished(const CParseState &parseState)
+{
+	const bool hasErrors = parseState.hasErrors;
+	const bool hasFinished = parseState.currentToken >= parseState.tokenList->count;
+	return hasErrors || hasFinished;
+}
+
+void CParseState_ParseDeclaration(Arena &arena, CParseState &parseState)
+{
+	// TODO
+}
+
+CData Parse(Arena &arena, const TokenList &tokenList)
+{
+	CData data = {};
+
+	CParseState parseState = {};
+	parseState.tokenList = &tokenList;
+
+	while ( !CParseState_HasFinished(parseState) )
+	{
+		CParseState_ParseDeclaration(arena, parseState);
+	}
+
+	return data;
+}
+
+const char *GetTypeName(const CData &data, u32 typeIndex)
+{
+	ASSERT(typeIndex < data.typeCount);
+	const CType &type = data.types[typeIndex];
+	return type.name;
+}
+
 void ParseFile(Arena arena, const char *text, u64 textSize)
 {
 	LOG(Info, "ParseFile()\n");
 
-	TokenList tokenList = {};
-	bool scanOk = Scan(arena, text, textSize, tokenList);
+	TokenList tokenList = Scan(arena, text, textSize);
 
-	if ( scanOk )
+	if ( tokenList.valid )
 	{
 		PrintTokenList(tokenList);
+
+		// TODO
+#if 0
+		CData data = Parse(arena, tokenList);
+
+		printf("Types:\n");
+		for (u32 typeIndex = 0; typeIndex < data.typeCount; ++typeIndex)
+		{
+			const char *typeName = GetTypeName(data, typeIndex);
+			printf("- %s\n", typeName);
+		}
+#endif
 	}
 }
 
