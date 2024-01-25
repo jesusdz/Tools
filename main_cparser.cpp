@@ -139,7 +139,7 @@ typedef Value Literal;
 
 struct Token
 {
-	TokenId type;
+	TokenId id;
 	String lexeme;
 	Literal literal;
 	i32 line;
@@ -183,9 +183,9 @@ struct CData
 	CType types[128];
 };
 
-const char* TokenIdName(TokenId type)
+const char* TokenIdName(TokenId id)
 {
-	return TokenIdNames[type];
+	return TokenIdNames[id];
 }
 
 bool IsEOL(char character)
@@ -256,7 +256,7 @@ String ScannedString(const ScanState &scanState)
 void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId, Literal literal)
 {
 	Token newToken = {};
-	newToken.type = tokenId;
+	newToken.id = tokenId;
 	newToken.lexeme = ScannedString(scanState);
 	newToken.literal = literal;
 	newToken.line = scanState.line;
@@ -459,9 +459,9 @@ void PrintTokenList(const TokenList &tokenList)
 	for (u32 i = 0; i < tokenList.count; ++i)
 	{
 		const Token& token = tokenList.tokens[i];
-		const size_t tokenIdLen = strlen(TokenIdNames[token.type]);
+		const size_t tokenIdLen = strlen(TokenIdNames[token.id]);
 		const size_t paddingSize = 32 - tokenIdLen;
-		printf("%s:%.*s%.*s\n", TokenIdNames[token.type], paddingSize, paddingStr, token.lexeme.size, token.lexeme.str);
+		printf("%s:%.*s%.*s\n", TokenIdNames[token.id], paddingSize, paddingStr, token.lexeme.size, token.lexeme.str);
 	}
 }
 
@@ -472,9 +472,79 @@ bool CParseState_HasFinished(const CParseState &parseState)
 	return hasErrors || hasFinished;
 }
 
+bool CParseState_IsCurrentToken( const CParseState &parseState, TokenId tokenId )
+{
+	if ( CParseState_HasFinished( parseState ) ) {
+		return tokenId == TOKEN_EOF;
+	} else {
+		return tokenId == parseState.tokenList->tokens[parseState.currentToken].id;
+	}
+}
+
+void CParseState_Consume( CParseState &parseState )
+{
+	if ( !CParseState_HasFinished( parseState ) ) {
+		parseState.currentToken++;
+	} else {
+		parseState.hasErrors = true;
+	}
+}
+
+void CParseState_Consume( CParseState &parseState, TokenId tokenId )
+{
+	if ( CParseState_IsCurrentToken( parseState, tokenId ) ) {
+		CParseState_Consume( parseState );
+	} else {
+		parseState.hasErrors = true;
+		parseState.hasFinished = true;
+	}
+}
+
+bool CParseState_TryConsume( CParseState &parseState, TokenId tokenId )
+{
+	if ( CParseState_IsCurrentToken( parseState, tokenId ) ) {
+		CParseState_Consume( parseState );
+		return true;
+	}
+	return false;
+}
+
+#if 0
+void ConsumeForced(ParseState &parseState, TokenId tokenId, const char *context)
+{
+	if ( !Consume(parseState, tokenId) )
+	{
+		char errorMessage[1024];
+		StrCopy(errorMessage, "Expected token ");
+		StrCat(errorMessage, TokenNames[tokenId]);
+		StrCat(errorMessage, " not found in context: ");
+		StrCat(errorMessage, context);
+		ReportError( parseState, errorMessage );
+	}
+}
+#endif
+
+void CParseState_ParseStruct(Arena &arena, CParseState &parseState)
+{
+	CParseState_Consume( parseState ); // Identifier
+	CParseState_Consume( parseState, TOKEN_LEFT_BRACE );
+	while ( !CParseState_TryConsume( parseState, TOKEN_RIGHT_BRACE ) && !CParseState_HasFinished( parseState ) )
+	{
+		CParseState_Consume( parseState ); // Inside of the struct
+	}
+	CParseState_Consume( parseState, TOKEN_SEMICOLON );
+}
+
 void CParseState_ParseDeclaration(Arena &arena, CParseState &parseState)
 {
-	// TODO
+	if ( CParseState_TryConsume( parseState, TOKEN_STRUCT ) )
+	{
+		CParseState_ParseStruct( arena, parseState );
+	}
+	else
+	{
+		CParseState_Consume( parseState );
+	}
 }
 
 CData Parse(Arena &arena, const TokenList &tokenList)
@@ -488,6 +558,11 @@ CData Parse(Arena &arena, const TokenList &tokenList)
 	{
 		CParseState_ParseDeclaration(arena, parseState);
 	}
+
+	if ( parseState.hasErrors )
+		printf("Parse finished with errors.\n");
+	else
+		printf("Parse finished successfully.\n");
 
 	return data;
 }
@@ -510,7 +585,6 @@ void ParseFile(Arena arena, const char *text, u64 textSize)
 		PrintTokenList(tokenList);
 
 		// TODO
-#if 0
 		CData data = Parse(arena, tokenList);
 
 		printf("Types:\n");
@@ -519,7 +593,6 @@ void ParseFile(Arena arena, const char *text, u64 textSize)
 			const char *typeName = GetTypeName(data, typeIndex);
 			printf("- %s\n", typeName);
 		}
-#endif
 	}
 }
 
