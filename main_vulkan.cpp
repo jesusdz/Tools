@@ -378,6 +378,8 @@ struct Graphics
 };
 
 
+#include "assets.h"
+
 static const Vertex cubeVertices[] = {
 	// front
 	{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
@@ -2406,16 +2408,18 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	DestroyShaderModule(gfx, vertexShaderModule);
 	DestroyShaderModule(gfx, fragmentShaderModule);
 
-	// Create textures
-	TextureH textureDiamond = CreateTexture(gfx, "assets/diamond.png");
-	TextureH textureDirt = CreateTexture(gfx, "assets/dirt.jpg");
-	TextureH textureGrass = CreateTexture(gfx, "assets/grass.jpg");
+	for (uint i = 0; i < gAssets.textureCount; ++i)
+	{
+		TextureDesc &desc = gAssets.textures[i];
+		desc.handle = CreateTexture(gfx, desc.filename);
+	}
 
-	// Create materials
-	MaterialH materialDiamond = CreateMaterial(gfx, pipeline, textureDiamond);
-	MaterialH materialDirt = CreateMaterial(gfx, pipeline, textureDirt);
-	//MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass);
-	MaterialH materialGrass = CreateMaterial(gfx, pipeline, textureGrass, 11.0f);
+	for (uint i = 0; i < gAssets.materialCount; ++i)
+	{
+		MaterialDesc &desc = gAssets.materials[i];
+		TextureDesc &texDesc = gAssets.textures[desc.textureIndex];
+		desc.handle = CreateMaterial(gfx, pipeline, texDesc.handle, desc.uvScale);
+	}
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
@@ -2610,6 +2614,24 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 	}
 }
 
+BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
+{
+	if ( geometryType == GeometryTypeCube) {
+		return gfx.cubeVertices;
+	} else {
+		return gfx.planeVertices;
+	}
+}
+
+BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
+{
+	if ( geometryType == GeometryTypeCube) {
+		return gfx.cubeIndices;
+	} else {
+		return gfx.planeIndices;
+	}
+}
+
 void InitializeScene(Graphics &gfx)
 {
 	if ( gfx.sceneInitialized )
@@ -2624,16 +2646,14 @@ void InitializeScene(Graphics &gfx)
 	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
 	// Entities
-	for (i32 i = 0; i < 4; ++i)
+	for (uint i = 0; i < gAssets.entityCount; ++i)
 	{
-		for (i32 j = 0; j < 4; ++j)
-		{
-			const f32 x = -3 + i * 2;
-			const f32 z = -3 + j * 2;
-			CreateEntity(gfx, float3{x, 0, z}, 1.0f, gfx.cubeVertices, gfx.cubeIndices, (i+j)%2);
-		}
+		EntityDesc &desc = gAssets.entities[i];
+		MaterialDesc &matDesc = gAssets.materials[desc.materialIndex];
+		BufferChunk vertices = GetVerticesForGeometryType(gfx, desc.geometryType);
+		BufferChunk indices = GetIndicesForGeometryType(gfx, desc.geometryType);
+		CreateEntity(gfx, desc.pos, desc.scale, vertices, indices, matDesc.handle);
 	}
-	CreateEntity(gfx, float3{ 0, -0.5, 0}, 11.0f, gfx.planeVertices, gfx.planeIndices, 2);
 
 	gfx.sceneInitialized = true;
 }
