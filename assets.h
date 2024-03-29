@@ -49,7 +49,7 @@ struct Assets
 		{{ 1, 0, -1}, 1, 0, GeometryTypeCube},
 		{{-1, 0,  1}, 1, 1, GeometryTypeCube},
 		{{-1, 0, -1}, 1, 1, GeometryTypeCube},
-		{{ 0, -1,  0}, 11, 2, GeometryTypePlane},
+		{{ 0, -0.5,  0}, 11, 2, GeometryTypePlane},
 	};
 	uint entityCount = 5;
 };
