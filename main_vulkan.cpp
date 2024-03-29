@@ -1443,10 +1443,10 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-TextureH CreateTexture(Graphics &gfx, const char *filePath)
+TextureH CreateTexture(Graphics &gfx, TextureDesc &desc)
 {
 	int texWidth, texHeight, texChannels;
-	FilePath imagePath = MakePath(filePath);
+	FilePath imagePath = MakePath(desc.filename);
 	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	stbi_uc* pixels = originalPixels;
 	if ( !pixels )
@@ -1490,6 +1490,9 @@ TextureH CreateTexture(Graphics &gfx, const char *filePath)
 	gfx.textures[textureHandle].image = image;
 	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 	gfx.textures[textureHandle].mipLevels = mipLevels;
+
+	desc.handle = textureHandle;
+
 	return textureHandle;
 }
 
@@ -1499,14 +1502,19 @@ const Texture &GetTexture(const Graphics &gfx, TextureH handle)
 	return texture;
 }
 
-MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, TextureH textureHandle, f32 uvScale = 1.0f )
+MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, MaterialDesc &desc)
 {
+	TextureDesc &texDesc = gAssets.textures[desc.textureIndex];
+
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
 	gfx.materials[materialHandle].pipelineH = pipelineHandle;
-	gfx.materials[materialHandle].albedoTexture = textureHandle;
-	gfx.materials[materialHandle].uvScale = uvScale;
+	gfx.materials[materialHandle].albedoTexture = texDesc.handle;
+	gfx.materials[materialHandle].uvScale = desc.uvScale;
 	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.alignment.uniformBufferOffset);
+
+	desc.handle = materialHandle;
+
 	return materialHandle;
 }
 
@@ -1516,18 +1524,41 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 	return material;
 }
 
-void CreateEntity(Graphics &gfx, float3 position, f32 scale, BufferChunk vertices, BufferChunk indices, u32 materialIndex)
+BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
+{
+	if ( geometryType == GeometryTypeCube) {
+		return gfx.cubeVertices;
+	} else {
+		return gfx.planeVertices;
+	}
+}
+
+BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
+{
+	if ( geometryType == GeometryTypeCube) {
+		return gfx.cubeIndices;
+	} else {
+		return gfx.planeIndices;
+	}
+}
+
+void CreateEntity(Graphics &gfx, const EntityDesc &desc)
 {
 	ASSERT ( gfx.entityCount < MAX_ENTITIES );
 	if ( gfx.entityCount < MAX_ENTITIES )
 	{
+		BufferChunk vertices = GetVerticesForGeometryType(gfx, desc.geometryType);
+		BufferChunk indices = GetIndicesForGeometryType(gfx, desc.geometryType);
+		MaterialDesc &matDesc = gAssets.materials[desc.materialIndex];
+		//CreateEntity(gfx, desc.pos, desc.scale, vertices, indices, matDesc.handle);
+
 		const u32 entityIndex = gfx.entityCount++;
 		gfx.entities[entityIndex].visible = true;
-		gfx.entities[entityIndex].position = position;
-		gfx.entities[entityIndex].scale = scale;
+		gfx.entities[entityIndex].position = desc.pos;
+		gfx.entities[entityIndex].scale = desc.scale;
 		gfx.entities[entityIndex].vertices = vertices;
 		gfx.entities[entityIndex].indices = indices;
-		gfx.entities[entityIndex].materialIndex = materialIndex;
+		gfx.entities[entityIndex].materialIndex = matDesc.handle;
 	}
 	else
 	{
@@ -2410,15 +2441,12 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 
 	for (uint i = 0; i < gAssets.textureCount; ++i)
 	{
-		TextureDesc &desc = gAssets.textures[i];
-		desc.handle = CreateTexture(gfx, desc.filename);
+		CreateTexture(gfx, gAssets.textures[i]);
 	}
 
 	for (uint i = 0; i < gAssets.materialCount; ++i)
 	{
-		MaterialDesc &desc = gAssets.materials[i];
-		TextureDesc &texDesc = gAssets.textures[desc.textureIndex];
-		desc.handle = CreateMaterial(gfx, pipeline, texDesc.handle, desc.uvScale);
+		CreateMaterial(gfx, pipeline, gAssets.materials[i]);
 	}
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
@@ -2614,24 +2642,6 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 	}
 }
 
-BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
-{
-	if ( geometryType == GeometryTypeCube) {
-		return gfx.cubeVertices;
-	} else {
-		return gfx.planeVertices;
-	}
-}
-
-BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
-{
-	if ( geometryType == GeometryTypeCube) {
-		return gfx.cubeIndices;
-	} else {
-		return gfx.planeIndices;
-	}
-}
-
 void InitializeScene(Graphics &gfx)
 {
 	if ( gfx.sceneInitialized )
@@ -2648,11 +2658,7 @@ void InitializeScene(Graphics &gfx)
 	// Entities
 	for (uint i = 0; i < gAssets.entityCount; ++i)
 	{
-		EntityDesc &desc = gAssets.entities[i];
-		MaterialDesc &matDesc = gAssets.materials[desc.materialIndex];
-		BufferChunk vertices = GetVerticesForGeometryType(gfx, desc.geometryType);
-		BufferChunk indices = GetIndicesForGeometryType(gfx, desc.geometryType);
-		CreateEntity(gfx, desc.pos, desc.scale, vertices, indices, matDesc.handle);
+		CreateEntity(gfx, gAssets.entities[i]);
 	}
 
 	gfx.sceneInitialized = true;
