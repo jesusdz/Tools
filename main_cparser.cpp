@@ -1,8 +1,5 @@
 #include "tools.h"
 
-#define TOOLS_CPARSER_IMPLEMENTATION
-#include "tools_cparser.h"
-
 #include "assets/assets.h"
 
 //#define MAX_LINE_SIZE KB(1)
@@ -152,7 +149,7 @@ struct TokenList
 	bool valid;
 };
 
-struct ScanState
+struct CScanner
 {
 	i32 start;
 	i32 current;
@@ -169,7 +166,7 @@ struct CType
 	const char *name;
 };
 
-struct CParseState
+struct CParser
 {
 	const TokenList *tokenList;
 	u32 currentToken;
@@ -211,73 +208,73 @@ bool IsAlphaNumeric(char character)
 	return IsAlpha(character) || IsDigit(character);
 }
 
-bool IsAtEnd(const ScanState &scanState)
+bool IsAtEnd(const CScanner &scanner)
 {
-	return scanState.current >= scanState.textSize;
+	return scanner.current >= scanner.textSize;
 }
 
-char Advance(ScanState &scanState)
+char Advance(CScanner &scanner)
 {
-	ASSERT(scanState.current < scanState.textSize);
-	char currentChar = scanState.text[scanState.current];
-	scanState.current++;
-	scanState.currentInLine++;
+	ASSERT(scanner.current < scanner.textSize);
+	char currentChar = scanner.text[scanner.current];
+	scanner.current++;
+	scanner.currentInLine++;
 	return currentChar;
 }
 
-bool Consume(ScanState &scanState, char expected)
+bool Consume(CScanner &scanner, char expected)
 {
-	if ( IsAtEnd(scanState) ) return false;
-	if ( scanState.text[scanState.current] != expected ) return false;
-	scanState.current++;
-	scanState.currentInLine++;
+	if ( IsAtEnd(scanner) ) return false;
+	if ( scanner.text[scanner.current] != expected ) return false;
+	scanner.current++;
+	scanner.currentInLine++;
 	return true;
 }
 
-char Peek(const ScanState &scanState)
+char Peek(const CScanner &scanner)
 {
-	return IsAtEnd(scanState) ? '\0' : scanState.text[ scanState.current ];
+	return IsAtEnd(scanner) ? '\0' : scanner.text[ scanner.current ];
 }
 
-char PeekNext(const ScanState &scanState)
+char PeekNext(const CScanner &scanner)
 {
-	if (scanState.current + 1 >= scanState.textSize) return '\0';
-	return scanState.text[ scanState.current + 1 ];
+	if (scanner.current + 1 >= scanner.textSize) return '\0';
+	return scanner.text[ scanner.current + 1 ];
 }
 
-String ScannedString(const ScanState &scanState)
+String ScannedString(const CScanner &scanner)
 {
-	const char *lexemeStart = scanState.text + scanState.start;
-	u32 lexemeSize = scanState.current - scanState.start;
+	const char *lexemeStart = scanner.text + scanner.start;
+	u32 lexemeSize = scanner.current - scanner.start;
 	String scannedString = { lexemeStart, lexemeSize };
 	return scannedString;
 }
 
-void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId, Literal literal)
+void AddToken(const CScanner &scanner, TokenList &tokenList, TokenId tokenId, Literal literal)
 {
 	Token newToken = {};
 	newToken.id = tokenId;
-	newToken.lexeme = ScannedString(scanState);
+	newToken.lexeme = ScannedString(scanner);
 	newToken.literal = literal;
-	newToken.line = scanState.line;
+	newToken.line = scanner.line;
 
 	ASSERT( tokenList.count < MAX_TOKEN_COUNT );
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
-void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId)
+void AddToken(const CScanner &scanner, TokenList &tokenList, TokenId tokenId)
 {
 	Literal literal = {};
 
 	if ( tokenId == TOKEN_STRING )
 	{
 		literal.type = VALUE_TYPE_STRING;
-		literal.s = ScannedString(scanState);
+		literal.s = ScannedString(scanner);
 	}
 	else if ( tokenId == TOKEN_NUMBER )
 	{
 		literal.type = VALUE_TYPE_FLOAT;
-		literal.f = StrToFloat( ScannedString(scanState) );
+		literal.f = StrToFloat( ScannedString(scanner) );
 	}
 	else if ( tokenId == TOKEN_TRUE || tokenId == TOKEN_FALSE )
 	{
@@ -289,65 +286,65 @@ void AddToken(const ScanState &scanState, TokenList &tokenList, TokenId tokenId)
 		literal.type = VALUE_TYPE_NIL;
 	}
 
-	AddToken(scanState, tokenList, tokenId, literal);
+	AddToken(scanner, tokenList, tokenId, literal);
 }
 
-void ReportError(ScanState &scanState, const char *message)
+void ReportError(CScanner &scanner, const char *message)
 {
-	printf("ERROR: %d:%d: %s\n", scanState.line, scanState.currentInLine, message);
-	scanState.hasErrors = true;
+	printf("ERROR: %d:%d: %s\n", scanner.line, scanner.currentInLine, message);
+	scanner.hasErrors = true;
 }
 
-void ScanToken(ScanState &scanState, TokenList &tokenList)
+void ScanToken(CScanner &scanner, TokenList &tokenList)
 {
-	scanState.start = scanState.current;
+	scanner.start = scanner.current;
 
-	char c = Advance(scanState);
+	char c = Advance(scanner);
 
 	switch (c)
 	{
-		case '(': AddToken(scanState, tokenList, TOKEN_LEFT_PAREN); break;
-		case ')': AddToken(scanState, tokenList, TOKEN_RIGHT_PAREN); break;
-		case '{': AddToken(scanState, tokenList, TOKEN_LEFT_BRACE); break;
-		case '}': AddToken(scanState, tokenList, TOKEN_RIGHT_BRACE); break;
-		case '[': AddToken(scanState, tokenList, TOKEN_LEFT_BRACKET); break;
-		case ']': AddToken(scanState, tokenList, TOKEN_RIGHT_BRACKET); break;
-		case ',': AddToken(scanState, tokenList, TOKEN_COMMA); break;
-		case '.': AddToken(scanState, tokenList, TOKEN_DOT); break;
-		case '-': AddToken(scanState, tokenList, TOKEN_MINUS); break;
-		case '+': AddToken(scanState, tokenList, TOKEN_PLUS); break;
-		case '*': AddToken(scanState, tokenList, TOKEN_STAR); break;
-		case ';': AddToken(scanState, tokenList, TOKEN_SEMICOLON); break;
-		case '!': AddToken(scanState, tokenList, Consume(scanState, '=') ? TOKEN_NOT_EQUAL : TOKEN_NOT); break;
-		case '=': AddToken(scanState, tokenList, Consume(scanState, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL); break;
-		case '<': AddToken(scanState, tokenList, Consume(scanState, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS); break;
-		case '>': AddToken(scanState, tokenList, Consume(scanState, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER); break;
+		case '(': AddToken(scanner, tokenList, TOKEN_LEFT_PAREN); break;
+		case ')': AddToken(scanner, tokenList, TOKEN_RIGHT_PAREN); break;
+		case '{': AddToken(scanner, tokenList, TOKEN_LEFT_BRACE); break;
+		case '}': AddToken(scanner, tokenList, TOKEN_RIGHT_BRACE); break;
+		case '[': AddToken(scanner, tokenList, TOKEN_LEFT_BRACKET); break;
+		case ']': AddToken(scanner, tokenList, TOKEN_RIGHT_BRACKET); break;
+		case ',': AddToken(scanner, tokenList, TOKEN_COMMA); break;
+		case '.': AddToken(scanner, tokenList, TOKEN_DOT); break;
+		case '-': AddToken(scanner, tokenList, TOKEN_MINUS); break;
+		case '+': AddToken(scanner, tokenList, TOKEN_PLUS); break;
+		case '*': AddToken(scanner, tokenList, TOKEN_STAR); break;
+		case ';': AddToken(scanner, tokenList, TOKEN_SEMICOLON); break;
+		case '!': AddToken(scanner, tokenList, Consume(scanner, '=') ? TOKEN_NOT_EQUAL : TOKEN_NOT); break;
+		case '=': AddToken(scanner, tokenList, Consume(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL); break;
+		case '<': AddToken(scanner, tokenList, Consume(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS); break;
+		case '>': AddToken(scanner, tokenList, Consume(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER); break;
 		case '/':
-			if ( Consume(scanState, '/') )
+			if ( Consume(scanner, '/') )
 			{
 				// Discard all chars until the end of line is reached
-				while ( !IsEOL( Peek(scanState) ) && !IsAtEnd(scanState) ) Advance(scanState);
+				while ( !IsEOL( Peek(scanner) ) && !IsAtEnd(scanner) ) Advance(scanner);
 			}
-			else if ( Consume(scanState, '*') )
+			else if ( Consume(scanner, '*') )
 			{
-				while( Peek(scanState) != '*' && PeekNext(scanState) != '/' &&  !IsAtEnd(scanState) )
+				while( Peek(scanner) != '*' && PeekNext(scanner) != '/' &&  !IsAtEnd(scanner) )
 				{
-					if ( IsEOL( Peek(scanState) ) ) {
-						scanState.line++;
-						scanState.currentInLine = 0;
+					if ( IsEOL( Peek(scanner) ) ) {
+						scanner.line++;
+						scanner.currentInLine = 0;
 					}
-					Advance(scanState);
+					Advance(scanner);
 				}
 			}
 			else
 			{
-				AddToken(scanState, tokenList, TOKEN_SLASH);
+				AddToken(scanner, tokenList, TOKEN_SLASH);
 			}
 			break;
 
 		case '#':
 			// Discard all chars until the end of line is reached
-			while ( !IsEOL( Peek(scanState) ) && !IsAtEnd(scanState) ) Advance(scanState);
+			while ( !IsEOL( Peek(scanner) ) && !IsAtEnd(scanner) ) Advance(scanner);
 			break;
 
 		// Skip whitespaces
@@ -358,71 +355,71 @@ void ScanToken(ScanState &scanState, TokenList &tokenList)
 
 		// End of line counter
 		case '\n':
-			scanState.line++;
-			scanState.currentInLine = 0;
+			scanner.line++;
+			scanner.currentInLine = 0;
 			break;
 
 		case '\"':
-			while ( Peek(scanState) != '\"' && !IsAtEnd(scanState) )
+			while ( Peek(scanner) != '\"' && !IsAtEnd(scanner) )
 			{
-				if ( IsEOL( Peek(scanState) ) ) {
-					scanState.line++;
-					scanState.currentInLine = 0;
+				if ( IsEOL( Peek(scanner) ) ) {
+					scanner.line++;
+					scanner.currentInLine = 0;
 				}
-				Advance(scanState);
+				Advance(scanner);
 			}
 
-			if ( IsAtEnd(scanState) )
+			if ( IsAtEnd(scanner) )
 			{
-				ReportError( scanState, "Unterminated string." );
+				ReportError( scanner, "Unterminated string." );
 				return;
 			}
 
-			Advance(scanState);
+			Advance(scanner);
 
-			AddToken(scanState, tokenList, TOKEN_STRING);
+			AddToken(scanner, tokenList, TOKEN_STRING);
 			break;
 
 		default:
 			if ( IsDigit(c) )
 			{
-				while ( IsDigit( Peek(scanState) ) ) Advance(scanState);
+				while ( IsDigit( Peek(scanner) ) ) Advance(scanner);
 
-				if ( Peek(scanState) == '.' && IsDigit( PeekNext(scanState) ) )
+				if ( Peek(scanner) == '.' && IsDigit( PeekNext(scanner) ) )
 				{
-					Advance(scanState);
-					while ( IsDigit(Peek(scanState)) ) Advance(scanState);
+					Advance(scanner);
+					while ( IsDigit(Peek(scanner)) ) Advance(scanner);
 				}
 
-				AddToken(scanState, tokenList, TOKEN_NUMBER);
+				AddToken(scanner, tokenList, TOKEN_NUMBER);
 			}
 			else if ( IsAlpha(c) )
 			{
-				while ( IsAlphaNumeric( Peek(scanState) ) ) Advance(scanState);
+				while ( IsAlphaNumeric( Peek(scanner) ) ) Advance(scanner);
 
-				String word = ScannedString(scanState);
+				String word = ScannedString(scanner);
 
 				// Keywords // TODO: This keyword search could be much more efficient
-				if      ( StrEq( word, "if" ) )     AddToken(scanState, tokenList, TOKEN_IF);
-				else if ( StrEq( word, "else" ) )   AddToken(scanState, tokenList, TOKEN_ELSE);
-				else if ( StrEq( word, "for" ) )    AddToken(scanState, tokenList, TOKEN_FOR);
-				else if ( StrEq( word, "while" ) )  AddToken(scanState, tokenList, TOKEN_WHILE);
-				else if ( StrEq( word, "struct" ) ) AddToken(scanState, tokenList, TOKEN_STRUCT);
-				else if ( StrEq( word, "super" ) )  AddToken(scanState, tokenList, TOKEN_SUPER);
-				else if ( StrEq( word, "this" ) )   AddToken(scanState, tokenList, TOKEN_THIS);
-				else if ( StrEq( word, "fun" ) )    AddToken(scanState, tokenList, TOKEN_FUN);
-				else if ( StrEq( word, "return" ) ) AddToken(scanState, tokenList, TOKEN_RETURN);
-				else if ( StrEq( word, "true" ) )   AddToken(scanState, tokenList, TOKEN_TRUE);
-				else if ( StrEq( word, "false" ) )  AddToken(scanState, tokenList, TOKEN_FALSE);
-				else if ( StrEq( word, "nil" ) )    AddToken(scanState, tokenList, TOKEN_NIL);
-				else if ( StrEq( word, "var" ) )    AddToken(scanState, tokenList, TOKEN_VAR);
-				else if ( StrEq( word, "print" ) )  AddToken(scanState, tokenList, TOKEN_PRINT);
-				else if ( StrEq( word, "eof" ) )    AddToken(scanState, tokenList, TOKEN_EOF);
-				else                                AddToken(scanState, tokenList, TOKEN_IDENTIFIER);
+				if      ( StrEq( word, "if" ) )     AddToken(scanner, tokenList, TOKEN_IF);
+				else if ( StrEq( word, "else" ) )   AddToken(scanner, tokenList, TOKEN_ELSE);
+				else if ( StrEq( word, "for" ) )    AddToken(scanner, tokenList, TOKEN_FOR);
+				else if ( StrEq( word, "while" ) )  AddToken(scanner, tokenList, TOKEN_WHILE);
+				else if ( StrEq( word, "struct" ) ) AddToken(scanner, tokenList, TOKEN_STRUCT);
+				else if ( StrEq( word, "super" ) )  AddToken(scanner, tokenList, TOKEN_SUPER);
+				else if ( StrEq( word, "this" ) )   AddToken(scanner, tokenList, TOKEN_THIS);
+				else if ( StrEq( word, "fun" ) )    AddToken(scanner, tokenList, TOKEN_FUN);
+				else if ( StrEq( word, "return" ) ) AddToken(scanner, tokenList, TOKEN_RETURN);
+				else if ( StrEq( word, "true" ) )   AddToken(scanner, tokenList, TOKEN_TRUE);
+				else if ( StrEq( word, "false" ) )  AddToken(scanner, tokenList, TOKEN_FALSE);
+				else if ( StrEq( word, "nil" ) )    AddToken(scanner, tokenList, TOKEN_NIL);
+				else if ( StrEq( word, "var" ) )    AddToken(scanner, tokenList, TOKEN_VAR);
+				else if ( StrEq( word, "print" ) )  AddToken(scanner, tokenList, TOKEN_PRINT);
+				else if ( StrEq( word, "eof" ) )    AddToken(scanner, tokenList, TOKEN_EOF);
+				else                                AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
 			{
-				ReportError( scanState, "Unexpected character." );
+				ReportError( scanner, "Unexpected character." );
 			}
 	}
 }
@@ -432,20 +429,20 @@ TokenList Scan(Arena &arena, const char *text, u32 textSize)
 	TokenList tokenList = {};
 	tokenList.tokens = PushArray(arena, Token, MAX_TOKEN_COUNT);
 
-	ScanState scanState = {};
-	scanState.line = 1;
-	scanState.hasErrors = false;
-	scanState.text = text;
-	scanState.textSize = textSize;
+	CScanner scanner = {};
+	scanner.line = 1;
+	scanner.hasErrors = false;
+	scanner.text = text;
+	scanner.textSize = textSize;
 
-	while ( !IsAtEnd(scanState) )
+	while ( !IsAtEnd(scanner) )
 	{
-		ScanToken(scanState, tokenList);
+		ScanToken(scanner, tokenList);
 	}
 
-	AddToken(scanState, tokenList, TOKEN_EOF);
+	AddToken(scanner, tokenList, TOKEN_EOF);
 
-	tokenList.valid = !scanState.hasErrors;
+	tokenList.valid = !scanner.hasErrors;
 
 	return tokenList;
 }
@@ -465,112 +462,97 @@ void PrintTokenList(const TokenList &tokenList)
 	}
 }
 
-bool CParseState_HasFinished(const CParseState &parseState)
+bool CParser_HasFinished(const CParser &parser)
 {
-	const bool hasErrors = parseState.hasErrors;
-	const bool hasFinished = parseState.currentToken >= parseState.tokenList->count;
+	const bool hasErrors = parser.hasErrors;
+	const bool hasFinished = parser.currentToken >= parser.tokenList->count;
 	return hasErrors || hasFinished;
 }
 
-bool CParseState_IsCurrentToken( const CParseState &parseState, TokenId tokenId )
+bool CParser_IsCurrentToken( const CParser &parser, TokenId tokenId )
 {
-	if ( CParseState_HasFinished( parseState ) ) {
+	if ( CParser_HasFinished( parser ) ) {
 		return tokenId == TOKEN_EOF;
 	} else {
-		return tokenId == parseState.tokenList->tokens[parseState.currentToken].id;
+		return tokenId == parser.tokenList->tokens[parser.currentToken].id;
 	}
 }
 
-void CParseState_Consume( CParseState &parseState )
+void CParser_Consume( CParser &parser )
 {
-	if ( !CParseState_HasFinished( parseState ) ) {
-		parseState.currentToken++;
+	if ( !CParser_HasFinished( parser ) ) {
+		parser.currentToken++;
 	} else {
-		parseState.hasErrors = true;
+		parser.hasErrors = true;
 	}
 }
 
-void CParseState_Consume( CParseState &parseState, TokenId tokenId )
+void CParser_Consume( CParser &parser, TokenId tokenId )
 {
-	if ( CParseState_IsCurrentToken( parseState, tokenId ) ) {
-		CParseState_Consume( parseState );
+	if ( CParser_IsCurrentToken( parser, tokenId ) ) {
+		CParser_Consume( parser );
 	} else {
-		parseState.hasErrors = true;
-		parseState.hasFinished = true;
+		parser.hasErrors = true;
+		parser.hasFinished = true;
 	}
 }
 
-bool CParseState_TryConsume( CParseState &parseState, TokenId tokenId )
+bool CParser_TryConsume( CParser &parser, TokenId tokenId )
 {
-	if ( CParseState_IsCurrentToken( parseState, tokenId ) ) {
-		CParseState_Consume( parseState );
+	if ( CParser_IsCurrentToken( parser, tokenId ) ) {
+		CParser_Consume( parser );
 		return true;
 	}
 	return false;
 }
 
-#if 0
-void ConsumeForced(ParseState &parseState, TokenId tokenId, const char *context)
+void CParser_ParseStruct(CParser &parser, CData &cdata, Arena &arena)
 {
-	if ( !Consume(parseState, tokenId) )
+	CParser_Consume( parser ); // Identifier
+	CParser_Consume( parser, TOKEN_LEFT_BRACE );
+	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
 	{
-		char errorMessage[1024];
-		StrCopy(errorMessage, "Expected token ");
-		StrCat(errorMessage, TokenNames[tokenId]);
-		StrCat(errorMessage, " not found in context: ");
-		StrCat(errorMessage, context);
-		ReportError( parseState, errorMessage );
+		CParser_Consume( parser ); // Inside of the struct
 	}
-}
-#endif
-
-void CParseState_ParseStruct(Arena &arena, CParseState &parseState)
-{
-	CParseState_Consume( parseState ); // Identifier
-	CParseState_Consume( parseState, TOKEN_LEFT_BRACE );
-	while ( !CParseState_TryConsume( parseState, TOKEN_RIGHT_BRACE ) && !CParseState_HasFinished( parseState ) )
-	{
-		CParseState_Consume( parseState ); // Inside of the struct
-	}
-	CParseState_Consume( parseState, TOKEN_SEMICOLON );
+	CParser_Consume( parser, TOKEN_SEMICOLON );
 }
 
-void CParseState_ParseDeclaration(Arena &arena, CParseState &parseState)
+void CParser_ParseDeclaration(CParser &parser, CData &cdata, Arena &arena)
 {
-	if ( CParseState_TryConsume( parseState, TOKEN_STRUCT ) )
+	if ( CParser_TryConsume( parser, TOKEN_STRUCT ) )
 	{
-		CParseState_ParseStruct( arena, parseState );
+		CParser_ParseStruct( parser, cdata, arena );
 	}
 	else
 	{
-		CParseState_Consume( parseState );
+		CParser_Consume( parser );
 	}
 }
 
 CData Parse(Arena &arena, const TokenList &tokenList)
 {
-	CData data = {};
+	CData cdata = {};
 
-	CParseState parseState = {};
-	parseState.tokenList = &tokenList;
+	CParser parser = {};
+	parser.tokenList = &tokenList;
 
-	while ( !CParseState_HasFinished(parseState) )
+	while ( !CParser_HasFinished(parser) )
 	{
-		CParseState_ParseDeclaration(arena, parseState);
+		CParser_ParseDeclaration(parser, cdata, arena);
 	}
 
-	if ( parseState.hasErrors )
+	if ( parser.hasErrors )
 		printf("Parse finished with errors.\n");
 	else
 		printf("Parse finished successfully.\n");
 
-	return data;
+	return cdata;
 }
 
-const char *GetTypeName(const CData &data, u32 typeIndex)
+const char *GetTypeName(const CData &cdata, u32 typeIndex)
 {
-	ASSERT(typeIndex < data.typeCount);
-	const CType &type = data.types[typeIndex];
+	ASSERT(typeIndex < cdata.typeCount);
+	const CType &type = cdata.types[typeIndex];
 	return type.name;
 }
 
@@ -585,12 +567,12 @@ void ParseFile(Arena arena, const char *text, u64 textSize)
 		PrintTokenList(tokenList);
 
 		// TODO
-		CData data = Parse(arena, tokenList);
+		CData cdata = Parse(arena, tokenList);
 
 		printf("Types:\n");
-		for (u32 typeIndex = 0; typeIndex < data.typeCount; ++typeIndex)
+		for (u32 typeIndex = 0; typeIndex < cdata.typeCount; ++typeIndex)
 		{
-			const char *typeName = GetTypeName(data, typeIndex);
+			const char *typeName = GetTypeName(cdata, typeIndex);
 			printf("- %s\n", typeName);
 		}
 	}
@@ -618,6 +600,8 @@ int main(int argc, char **argv)
 		{
 			bytes[fileSize] = 0;
 			ParseFile(globalArena, bytes, fileSize);
+			//Clon clon = Clon_Parse(globalArena, bytes, fileSize);
+			//Clon_Print(data);
 		}
 		else
 		{
