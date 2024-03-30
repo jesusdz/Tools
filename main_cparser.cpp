@@ -1,7 +1,5 @@
 #include "tools.h"
 
-#include "assets/assets.h"
-
 //#define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
 
@@ -39,20 +37,20 @@ enum TokenId
 	TOKEN_STRING,
 	TOKEN_NUMBER,
 	// Keywords
-	TOKEN_IF,
-	TOKEN_ELSE,
-	TOKEN_FOR,
-	TOKEN_WHILE,
 	TOKEN_STRUCT,
-	TOKEN_SUPER,
-	TOKEN_THIS,
-	TOKEN_FUN,
-	TOKEN_RETURN,
+	TOKEN_ENUM,
 	TOKEN_TRUE,
 	TOKEN_FALSE,
-	TOKEN_NIL,
-	TOKEN_VAR,
-	TOKEN_PRINT,
+	TOKEN_STATIC,
+	TOKEN_CONST,
+	TOKEN_CHAR,
+	TOKEN_INT,
+	TOKEN_FLOAT,
+	TOKEN_NULL, // ad-hoc value
+	TOKEN_UINT, // ad-hoc type
+	TOKEN_FLOAT3, // ad-hoc type
+	TOKEN_ARR_COUNT, // ad-hoc macro
+	TOKEN_INVALID, // part of C but not included in this subset
 	TOKEN_EOF,
 	TOKEN_COUNT,
 };
@@ -91,20 +89,19 @@ const char *TokenIdNames[] =
 	"TOKEN_STRING",
 	"TOKEN_NUMBER",
 	// Keywords
-	"TOKEN_IF",
-	"TOKEN_ELSE",
-	"TOKEN_FOR",
-	"TOKEN_WHILE",
 	"TOKEN_STRUCT",
-	"TOKEN_SUPER",
-	"TOKEN_THIS",
-	"TOKEN_FUN",
-	"TOKEN_RETURN",
+	"TOKEN_ENUM",
 	"TOKEN_TRUE",
 	"TOKEN_FALSE",
-	"TOKEN_NIL",
-	"TOKEN_VAR",
-	"TOKEN_PRINT",
+	"TOKEN_STATIC",
+	"TOKEN_CONST",
+	"TOKEN_CHAR",
+	"TOKEN_INT",
+	"TOKEN_FLOAT",
+	"TOKEN_NULL",
+	"TOKEN_UINT",
+	"TOKEN_FLOAT3",
+	"TOKEN_ARR_COUNT",
 	"TOKEN_EOF",
 	"TOKEN_COUNT",
 };
@@ -117,7 +114,7 @@ enum ValueType
 	//VALUE_TYPE_INT,
 	VALUE_TYPE_FLOAT,
 	VALUE_TYPE_STRING,
-	VALUE_TYPE_NIL,
+	VALUE_TYPE_NULL,
 };
 
 struct Value
@@ -281,9 +278,9 @@ void AddToken(const CScanner &scanner, TokenList &tokenList, TokenId tokenId)
 		literal.type = VALUE_TYPE_BOOL;
 		literal.b = tokenId == TOKEN_TRUE;
 	}
-	else if ( tokenId == TOKEN_NIL )
+	else if ( tokenId == TOKEN_NULL )
 	{
-		literal.type = VALUE_TYPE_NIL;
+		literal.type = VALUE_TYPE_NULL;
 	}
 
 	AddToken(scanner, tokenList, tokenId, literal);
@@ -389,6 +386,7 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				{
 					Advance(scanner);
 					while ( IsDigit(Peek(scanner)) ) Advance(scanner);
+					Consume(scanner, 'f');
 				}
 
 				AddToken(scanner, tokenList, TOKEN_NUMBER);
@@ -400,21 +398,19 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				String word = ScannedString(scanner);
 
 				// Keywords // TODO: This keyword search could be much more efficient
-				if      ( StrEq( word, "if" ) )     AddToken(scanner, tokenList, TOKEN_IF);
-				else if ( StrEq( word, "else" ) )   AddToken(scanner, tokenList, TOKEN_ELSE);
-				else if ( StrEq( word, "for" ) )    AddToken(scanner, tokenList, TOKEN_FOR);
-				else if ( StrEq( word, "while" ) )  AddToken(scanner, tokenList, TOKEN_WHILE);
-				else if ( StrEq( word, "struct" ) ) AddToken(scanner, tokenList, TOKEN_STRUCT);
-				else if ( StrEq( word, "super" ) )  AddToken(scanner, tokenList, TOKEN_SUPER);
-				else if ( StrEq( word, "this" ) )   AddToken(scanner, tokenList, TOKEN_THIS);
-				else if ( StrEq( word, "fun" ) )    AddToken(scanner, tokenList, TOKEN_FUN);
-				else if ( StrEq( word, "return" ) ) AddToken(scanner, tokenList, TOKEN_RETURN);
+				if      ( StrEq( word, "struct" ) ) AddToken(scanner, tokenList, TOKEN_STRUCT);
+				else if ( StrEq( word, "enum" ) )   AddToken(scanner, tokenList, TOKEN_ENUM);
 				else if ( StrEq( word, "true" ) )   AddToken(scanner, tokenList, TOKEN_TRUE);
 				else if ( StrEq( word, "false" ) )  AddToken(scanner, tokenList, TOKEN_FALSE);
-				else if ( StrEq( word, "nil" ) )    AddToken(scanner, tokenList, TOKEN_NIL);
-				else if ( StrEq( word, "var" ) )    AddToken(scanner, tokenList, TOKEN_VAR);
-				else if ( StrEq( word, "print" ) )  AddToken(scanner, tokenList, TOKEN_PRINT);
-				else if ( StrEq( word, "eof" ) )    AddToken(scanner, tokenList, TOKEN_EOF);
+				else if ( StrEq( word, "static" ) ) AddToken(scanner, tokenList, TOKEN_STATIC);
+				else if ( StrEq( word, "const" ) )  AddToken(scanner, tokenList, TOKEN_CONST);
+				else if ( StrEq( word, "char" ) )   AddToken(scanner, tokenList, TOKEN_CHAR);
+				else if ( StrEq( word, "int" ) )    AddToken(scanner, tokenList, TOKEN_INT);
+				else if ( StrEq( word, "float" ) )  AddToken(scanner, tokenList, TOKEN_FLOAT);
+				else if ( StrEq( word, "NULL" ) )   AddToken(scanner, tokenList, TOKEN_NULL);
+				else if ( StrEq( word, "uint" ) )   AddToken(scanner, tokenList, TOKEN_UINT);
+				else if ( StrEq( word, "float3" ) ) AddToken(scanner, tokenList, TOKEN_FLOAT3);
+				else if ( StrEq( word, "ARRAY_COUNT" ) ) AddToken(scanner, tokenList, TOKEN_ARR_COUNT);
 				else                                AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
