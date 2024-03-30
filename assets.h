@@ -9,10 +9,18 @@ struct TextureDesc
 	const char *filename;
 };
 
+struct PipelineDesc
+{
+	const char *name;
+	const char *vsFilename;
+	const char *fsFilename;
+};
+
 struct MaterialDesc
 {
 	const char *name;
 	const char *textureName;
+	const char *pipelineName;
 	float uvScale;
 };
 
@@ -36,6 +44,9 @@ struct Assets
 	const TextureDesc *textures;
 	uint textureCount;
 
+	const PipelineDesc *pipelines;
+	uint pipelineCount;
+
 	const MaterialDesc *materials;
 	uint materialCount;
 
@@ -49,31 +60,39 @@ struct Assets
 
 static const TextureDesc textures[] =
 {
-	{"tex_diamond", "assets/diamond.png"},
-	{"tex_dirt", "assets/dirt.jpg"},
-	{"tex_grass", "assets/grass.jpg"},
+	{ .name = "tex_diamond", .filename = "assets/diamond.png" },
+	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg" },
+	{ .name = "tex_grass",   .filename = "assets/grass.jpg" },
+};
+
+static const PipelineDesc pipelines[] =
+{
+	{ .name = "pipeline", .vsFilename = "shaders/vertex.spv", .fsFilename = "shaders/fragment.spv" },
 };
 
 static const MaterialDesc materials[] =
 {
-	{ "mat_diamond", "tex_diamond", 1.0f },
-	{ "mat_dirt", "tex_dirt", 1.0f },
-	{ "mat_grass", "tex_grass", 11.0f },
+	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline", .uvScale = 1.0f },
+	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline", .uvScale = 1.0f },
+	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline", .uvScale = 11.0f },
 };
 
 static const EntityDesc entities[] =
 {
-	{"ent_cube0", "mat_diamond", { 1, 0,  1}, 1, GeometryTypeCube},
-	{"ent_cube1", "mat_diamond", { 1, 0, -1}, 1, GeometryTypeCube},
-	{"ent_cube2", "mat_dirt", {-1, 0,  1}, 1, GeometryTypeCube},
-	{"ent_cube3", "mat_dirt", {-1, 0, -1}, 1, GeometryTypeCube},
-	{"ent_plane", "mat_grass", { 0, -0.5,  0}, 11, GeometryTypePlane},
+	{ .name = "ent_cube0", .materialName = "mat_diamond", .pos = { 1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube1", .materialName = "mat_diamond", .pos = { 1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube2", .materialName = "mat_dirt",    .pos = {-1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube3", .materialName = "mat_dirt",    .pos = {-1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
 };
 
 static const Assets gAssets =
 {
 	.textures = textures,
 	.textureCount = ARRAY_COUNT(textures),
+
+	.pipelines = pipelines,
+	.pipelineCount = ARRAY_COUNT(pipelines),
 
 	.materials = materials,
 	.materialCount = ARRAY_COUNT(materials),

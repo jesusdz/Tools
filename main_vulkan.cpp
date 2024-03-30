@@ -147,6 +147,7 @@ typedef u32 ShaderReflectionH;
 
 struct Pipeline
 {
+	const char *name;
 	VkDescriptorSetLayout globalDescriptorSetLayout;
 	VkDescriptorSetLayout materialDescriptorSetLayout;
 	VkPipelineLayout layout;
@@ -938,20 +939,28 @@ const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflecti
 	return reflection;
 }
 
-PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertexModule, const ShaderModule &fragmentModule, const ShaderReflection &shaderReflection)
+PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 {
 	Arena scratch = MakeSubArena(arena);
+
+	// Create pipeline
+	const ShaderSource vertexShaderSource = GetShaderSource(scratch, desc.vsFilename);
+	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, desc.fsFilename);
+	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
+	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
+	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
+	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexShaderStageCreateInfo.module = vertexModule.handle;
+	vertexShaderStageCreateInfo.module = vertexShaderModule.handle;
 	vertexShaderStageCreateInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
 	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentShaderStageCreateInfo.module = fragmentModule.handle;
+	fragmentShaderStageCreateInfo.module = fragmentShaderModule.handle;
 	fragmentShaderStageCreateInfo.pName = "main";
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
@@ -1135,12 +1144,17 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const ShaderModule &vertex
 	VkPipeline vkPipelineHandle;
 	VK_CALL( vkCreateGraphicsPipelines( gfx.device, gfx.pipelineCache, 1, &graphicsPipelineCreateInfo, VULKAN_ALLOCATORS, &vkPipelineHandle ) );
 
+	DestroyShaderModule(gfx, vertexShaderModule);
+	DestroyShaderModule(gfx, fragmentShaderModule);
+
 	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
 	PipelineH pipelineHandle = gfx.pipelineCount++;
+	gfx.pipelines[pipelineHandle].name = desc.name;
 	gfx.pipelines[pipelineHandle].globalDescriptorSetLayout = globalDescriptorSetLayout;
 	gfx.pipelines[pipelineHandle].materialDescriptorSetLayout = materialDescriptorSetLayout;
 	gfx.pipelines[pipelineHandle].layout = pipelineLayout;
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
+
 	return pipelineHandle;
 }
 
@@ -1148,6 +1162,17 @@ const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
 {
 	const Pipeline &pipeline = gfx.pipelines[handle];
 	return pipeline;
+}
+
+PipelineH PipelineHandle(const Graphics &gfx, const char *name)
+{
+	for (uint i = 0; i < gfx.pipelineCount; ++i) {
+		if ( StrEq(gfx.pipelines[i].name, name) ) {
+			return i;
+		}
+	}
+	INVALID_CODE_PATH();
+	return INVALID_HANDLE;
 }
 
 Image CreateImage(const Graphics &gfx, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
@@ -1517,9 +1542,10 @@ TextureH TextureHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
-MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, const MaterialDesc &desc)
+MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 {
 	TextureH textureHandle = TextureHandle(gfx, desc.textureName);
+	PipelineH pipelineHandle = PipelineHandle(gfx, desc.pipelineName);
 
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
@@ -2452,16 +2478,10 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	}
 #endif
 
-	// Create pipeline
-	const ShaderSource vertexShaderSource = GetShaderSource(scratch, "shaders/vertex.spv");
-	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, "shaders/fragment.spv");
-	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
-	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
-	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
-	PipelineH pipeline = CreatePipeline(gfx, scratch, vertexShaderModule, fragmentShaderModule, shaderReflection );
-	DestroyShaderModule(gfx, vertexShaderModule);
-	DestroyShaderModule(gfx, fragmentShaderModule);
+	for (uint i = 0; i < gAssets.pipelineCount; ++i)
+	{
+		CreatePipeline(gfx, scratch, gAssets.pipelines[i]);
+	}
 
 	for (uint i = 0; i < gAssets.textureCount; ++i)
 	{
@@ -2470,7 +2490,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 
 	for (uint i = 0; i < gAssets.materialCount; ++i)
 	{
-		CreateMaterial(gfx, pipeline, gAssets.materials[i]);
+		CreateMaterial(gfx, gAssets.materials[i]);
 	}
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
