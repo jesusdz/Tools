@@ -28,30 +28,36 @@ struct EntityDesc
 	const GeometryType geometryType;
 };
 
+TextureDesc textures[] = {
+	{"assets/diamond.png"},
+	{"assets/dirt.jpg"},
+	{"assets/grass.jpg"},
+};
+
+MaterialDesc materials[] = {
+	{ 0, 1.0f },
+	{ 1, 1.0f },
+	{ 2, 11.0f },
+};
+
+const EntityDesc entities[] = {
+	{{ 1, 0,  1}, 1, 0, GeometryTypeCube},
+	{{ 1, 0, -1}, 1, 0, GeometryTypeCube},
+	{{-1, 0,  1}, 1, 1, GeometryTypeCube},
+	{{-1, 0, -1}, 1, 1, GeometryTypeCube},
+	{{ 0, -0.5,  0}, 11, 2, GeometryTypePlane},
+};
+
 struct Assets
 {
-	TextureDesc textures[3] = {
-		{"assets/diamond.png"},
-		{"assets/dirt.jpg"},
-		{"assets/grass.jpg"},
-	};
-	uint textureCount = 3;
+	TextureDesc *textures = ::textures;
+	uint textureCount = ARRAY_COUNT(::textures);
 
-	MaterialDesc materials[3] = {
-		{ 0, 1.0f },
-		{ 1, 1.0f },
-		{ 2, 11.0f },
-	};
-	uint materialCount = 3;
+	MaterialDesc *materials = ::materials;
+	uint materialCount = ARRAY_COUNT(::materials);
 
-	EntityDesc entities[5] = {
-		{{ 1, 0,  1}, 1, 0, GeometryTypeCube},
-		{{ 1, 0, -1}, 1, 0, GeometryTypeCube},
-		{{-1, 0,  1}, 1, 1, GeometryTypeCube},
-		{{-1, 0, -1}, 1, 1, GeometryTypeCube},
-		{{ 0, -0.5,  0}, 11, 2, GeometryTypePlane},
-	};
-	uint entityCount = 5;
+	const EntityDesc *entities = ::entities;
+	uint entityCount = ARRAY_COUNT(::entities);
 };
 
 static Assets gAssets = {};
