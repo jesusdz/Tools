@@ -73,6 +73,8 @@
 #define MAX_BUFFERS 64
 #define MAX_SHADER_BINDINGS ( MAX_GLOBAL_BINDINGS + MAX_MATERIAL_BINDINGS )
 
+#define INVALID_HANDLE -1
+
 
 
 enum HeapType
@@ -185,6 +187,7 @@ struct Image
 
 struct Texture
 {
+	const char *name;
 	Image image;
 	u32 mipLevels;
 	VkImageView imageView;
@@ -205,6 +208,7 @@ struct ShaderModule
 
 struct Material
 {
+	const char *name;
 	PipelineH pipelineH;
 	ShaderReflectionH shaderReflectionH;
 	TextureH albedoTexture;
@@ -261,6 +265,7 @@ struct Camera
 
 struct Entity
 {
+	const char *name;
 	float3 position;
 	float scale;
 	bool visible;
@@ -1443,7 +1448,7 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
 
-TextureH CreateTexture(Graphics &gfx, TextureDesc &desc)
+TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	int texWidth, texHeight, texChannels;
 	FilePath imagePath = MakePath(desc.filename);
@@ -1487,11 +1492,10 @@ TextureH CreateTexture(Graphics &gfx, TextureDesc &desc)
 
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
+	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = image;
 	gfx.textures[textureHandle].imageView = CreateImageView(gfx, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 	gfx.textures[textureHandle].mipLevels = mipLevels;
-
-	desc.handle = textureHandle;
 
 	return textureHandle;
 }
@@ -1502,18 +1506,28 @@ const Texture &GetTexture(const Graphics &gfx, TextureH handle)
 	return texture;
 }
 
-MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, MaterialDesc &desc)
+TextureH TextureHandle(const Graphics &gfx, const char *name)
 {
-	TextureDesc &texDesc = gAssets.textures[desc.textureIndex];
+	for (uint i = 0; i < gfx.textureCount; ++i) {
+		if ( StrEq(gfx.textures[i].name, name) ) {
+			return i;
+		}
+	}
+	INVALID_CODE_PATH();
+	return INVALID_HANDLE;
+}
+
+MaterialH CreateMaterial( Graphics &gfx, PipelineH pipelineHandle, const MaterialDesc &desc)
+{
+	TextureH textureHandle = TextureHandle(gfx, desc.textureName);
 
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
+	gfx.materials[materialHandle].name = desc.name;
 	gfx.materials[materialHandle].pipelineH = pipelineHandle;
-	gfx.materials[materialHandle].albedoTexture = texDesc.handle;
+	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	gfx.materials[materialHandle].uvScale = desc.uvScale;
 	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.alignment.uniformBufferOffset);
-
-	desc.handle = materialHandle;
 
 	return materialHandle;
 }
@@ -1522,6 +1536,17 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 {
 	Material &material = gfx.materials[materialHandle];
 	return material;
+}
+
+MaterialH MaterialHandle(const Graphics &gfx, const char *name)
+{
+	for (uint i = 0; i < gfx.materialCount; ++i) {
+		if ( StrEq(gfx.materials[i].name, name) ) {
+			return i;
+		}
+	}
+	INVALID_CODE_PATH();
+	return INVALID_HANDLE;
 }
 
 BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
@@ -1549,16 +1574,15 @@ void CreateEntity(Graphics &gfx, const EntityDesc &desc)
 	{
 		BufferChunk vertices = GetVerticesForGeometryType(gfx, desc.geometryType);
 		BufferChunk indices = GetIndicesForGeometryType(gfx, desc.geometryType);
-		MaterialDesc &matDesc = gAssets.materials[desc.materialIndex];
-		//CreateEntity(gfx, desc.pos, desc.scale, vertices, indices, matDesc.handle);
 
 		const u32 entityIndex = gfx.entityCount++;
+		gfx.entities[entityIndex].name = desc.name;
 		gfx.entities[entityIndex].visible = true;
 		gfx.entities[entityIndex].position = desc.pos;
 		gfx.entities[entityIndex].scale = desc.scale;
 		gfx.entities[entityIndex].vertices = vertices;
 		gfx.entities[entityIndex].indices = indices;
-		gfx.entities[entityIndex].materialIndex = matDesc.handle;
+		gfx.entities[entityIndex].materialIndex = MaterialHandle(gfx, desc.materialName);
 	}
 	else
 	{

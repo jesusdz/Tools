@@ -1,17 +1,19 @@
 #ifndef ASSETS_H
 #define ASSETS_H
 
+// Descriptor type definitions
+
 struct TextureDesc
 {
+	const char *name;
 	const char *filename;
-	TextureH handle; // output
 };
 
 struct MaterialDesc
 {
-	const uint textureIndex;
-	const float uvScale;
-	MaterialH handle; // output
+	const char *name;
+	const char *textureName;
+	float uvScale;
 };
 
 enum GeometryType
@@ -22,44 +24,62 @@ enum GeometryType
 
 struct EntityDesc
 {
+	const char *name;
+	const char *materialName;
 	float3 pos;
 	float scale;
-	const uint materialIndex;
-	const GeometryType geometryType;
-};
-
-TextureDesc textures[] = {
-	{"assets/diamond.png"},
-	{"assets/dirt.jpg"},
-	{"assets/grass.jpg"},
-};
-
-MaterialDesc materials[] = {
-	{ 0, 1.0f },
-	{ 1, 1.0f },
-	{ 2, 11.0f },
-};
-
-const EntityDesc entities[] = {
-	{{ 1, 0,  1}, 1, 0, GeometryTypeCube},
-	{{ 1, 0, -1}, 1, 0, GeometryTypeCube},
-	{{-1, 0,  1}, 1, 1, GeometryTypeCube},
-	{{-1, 0, -1}, 1, 1, GeometryTypeCube},
-	{{ 0, -0.5,  0}, 11, 2, GeometryTypePlane},
+	GeometryType geometryType;
 };
 
 struct Assets
 {
-	TextureDesc *textures = ::textures;
-	uint textureCount = ARRAY_COUNT(::textures);
+	const TextureDesc *textures;
+	uint textureCount;
 
-	MaterialDesc *materials = ::materials;
-	uint materialCount = ARRAY_COUNT(::materials);
+	const MaterialDesc *materials;
+	uint materialCount;
 
-	const EntityDesc *entities = ::entities;
-	uint entityCount = ARRAY_COUNT(::entities);
+	const EntityDesc *entities;
+	uint entityCount;
 };
 
-static Assets gAssets = {};
+
+
+// Descriptor definitions
+
+static const TextureDesc textures[] =
+{
+	{"tex_diamond", "assets/diamond.png"},
+	{"tex_dirt", "assets/dirt.jpg"},
+	{"tex_grass", "assets/grass.jpg"},
+};
+
+static const MaterialDesc materials[] =
+{
+	{ "mat_diamond", "tex_diamond", 1.0f },
+	{ "mat_dirt", "tex_dirt", 1.0f },
+	{ "mat_grass", "tex_grass", 11.0f },
+};
+
+static const EntityDesc entities[] =
+{
+	{"ent_cube0", "mat_diamond", { 1, 0,  1}, 1, GeometryTypeCube},
+	{"ent_cube1", "mat_diamond", { 1, 0, -1}, 1, GeometryTypeCube},
+	{"ent_cube2", "mat_dirt", {-1, 0,  1}, 1, GeometryTypeCube},
+	{"ent_cube3", "mat_dirt", {-1, 0, -1}, 1, GeometryTypeCube},
+	{"ent_plane", "mat_grass", { 0, -0.5,  0}, 11, GeometryTypePlane},
+};
+
+static const Assets gAssets =
+{
+	.textures = textures,
+	.textureCount = ARRAY_COUNT(textures),
+
+	.materials = materials,
+	.materialCount = ARRAY_COUNT(materials),
+
+	.entities = entities,
+	.entityCount = ARRAY_COUNT(entities),
+};
 
 #endif // ASSETS_H
