@@ -2,7 +2,8 @@
 
 //#define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
-#define MAX_TYPE_COUNT 64
+#define MAX_TYPE_COUNT 16
+#define MAX_STRUCT_FIELD_COUNT 16
 
 enum TokenId
 {
@@ -51,7 +52,6 @@ enum TokenId
 	TOKEN_UINT, // ad-hoc type
 	TOKEN_FLOAT3, // ad-hoc type
 	TOKEN_ARR_COUNT, // ad-hoc macro
-	TOKEN_INVALID, // part of C but not included in this subset
 	TOKEN_EOF,
 	TOKEN_COUNT,
 };
@@ -162,7 +162,7 @@ struct CScanner
 struct CParser
 {
 	const TokenList *tokenList;
-	u32 currentToken;
+	u32 nextToken;
 	bool hasErrors;
 	bool hasFinished;
 };
@@ -181,9 +181,17 @@ struct ClonTrivial
 	ClonTrivialEnum type;
 };
 
+struct ClonField
+{
+	// TODO: Add type info
+	String name;
+};
+
 struct ClonStruct
 {
 	String name;
+	ClonField fields[MAX_STRUCT_FIELD_COUNT];
+	u32 fieldCount;
 };
 
 struct ClonEnum
@@ -520,7 +528,7 @@ const ClonType *Clon_GetType(const Clon &clon, u32 index)
 
 ClonTrivial *Clon_CreateTrivial(Clon &clon, Arena &arena)
 {
-	ClonTrivial *clonSubtype = PushStruct(arena, ClonTrivial);
+	ClonTrivial *clonSubtype = PushZeroStruct(arena, ClonTrivial);
 	ClonType *clonType = Clon_CreateType(clon);
 	clonType->type = ClonType_Trivial;
 	clonType->cTrivial = clonSubtype;
@@ -537,7 +545,7 @@ const ClonTrivial *Clon_GetTrivial(const Clon &clon, u32 index)
 
 ClonStruct *Clon_CreateStruct(Clon &clon, Arena &arena)
 {
-	ClonStruct *clonSubtype = PushStruct(arena, ClonStruct);
+	ClonStruct *clonSubtype = PushZeroStruct(arena, ClonStruct);
 	ClonType *clonType = Clon_CreateType(clon);
 	clonType->type = ClonType_Struct;
 	clonType->cStruct = clonSubtype;
@@ -554,7 +562,7 @@ const ClonStruct *Clon_GetStruct(const Clon &clon, u32 index)
 
 ClonEnum *Clon_CreateEnum(Clon &clon, Arena &arena)
 {
-	ClonEnum *clonSubtype = PushStruct(arena, ClonEnum);
+	ClonEnum *clonSubtype = PushZeroStruct(arena, ClonEnum);
 	ClonType *clonType = Clon_CreateType(clon);
 	clonType->type = ClonType_Enum;
 	clonType->cEnum = clonSubtype;
@@ -569,74 +577,135 @@ const ClonEnum *Clon_GetEnum(const Clon &clon, u32 index)
 	return clonSubtype;
 }
 
+ClonField *Clon_AddStructField(ClonStruct *clonStruct)
+{
+	ASSERT(clonStruct->fieldCount < MAX_STRUCT_FIELD_COUNT);
+	ClonField *field = &clonStruct->fields[clonStruct->fieldCount++];
+	return field;
+}
+
 ////////////////////////////////////////////////////////////////////////
 // CParser
+
+u32 CParser_RemainingTokens(const CParser &parser)
+{
+	return parser.tokenList->count - parser.nextToken;
+}
 
 bool CParser_HasFinished(const CParser &parser)
 {
 	const bool hasErrors = parser.hasErrors;
-	const bool hasFinished = parser.currentToken >= parser.tokenList->count;
+	const bool hasFinished = parser.nextToken >= parser.tokenList->count;
 	return hasErrors || hasFinished;
 }
 
-bool CParser_IsCurrentToken( const CParser &parser, TokenId tokenId )
+bool CParser_IsNextToken( const CParser &parser, TokenId tokenId )
 {
 	if ( CParser_HasFinished( parser ) ) {
 		return tokenId == TOKEN_EOF;
 	} else {
-		return tokenId == parser.tokenList->tokens[parser.currentToken].id;
+		return tokenId == parser.tokenList->tokens[parser.nextToken].id;
 	}
 }
 
-const Token &CParser_GetCurrentToken( const CParser &parser )
+bool CParser_AreNextTokens( const CParser &parser, TokenId tokenId0, TokenId tokenId1 )
 {
-	return parser.tokenList->tokens[parser.currentToken];
+	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 2 ) {
+		return false;
+	} else {
+		return
+			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
+			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id;
+	}
 }
 
-void CParser_Consume( CParser &parser )
+bool CParser_AreNextTokens( const CParser &parser, TokenId tokenId0, TokenId tokenId1, TokenId tokenId2 )
+{
+	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 3 ) {
+		return false;
+	} else {
+		return
+			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
+			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id &&
+			tokenId2 == parser.tokenList->tokens[parser.nextToken+2].id;
+	}
+}
+
+const Token &CParser_GetNextToken( const CParser &parser )
+{
+	return parser.tokenList->tokens[parser.nextToken];
+}
+
+const Token &CParser_GetPreviousToken( const CParser &parser )
+{
+	ASSERT(parser.nextToken > 0);
+	return parser.tokenList->tokens[parser.nextToken-1];
+}
+
+const Token &CParser_Consume( CParser &parser )
 {
 	if ( !CParser_HasFinished( parser ) ) {
-		parser.currentToken++;
+		parser.nextToken++;
 	} else {
 		parser.hasErrors = true;
 	}
+	return CParser_GetPreviousToken(parser);
 }
 
-void CParser_Consume( CParser &parser, TokenId tokenId )
+const Token &CParser_Consume( CParser &parser, TokenId tokenId )
 {
-	if ( CParser_IsCurrentToken( parser, tokenId ) ) {
+	if ( CParser_IsNextToken( parser, tokenId ) ) {
 		CParser_Consume( parser );
 	} else {
 		parser.hasErrors = true;
 		parser.hasFinished = true;
 	}
+	return CParser_GetPreviousToken(parser);
 }
 
 bool CParser_TryConsume( CParser &parser, TokenId tokenId )
 {
-	if ( CParser_IsCurrentToken( parser, tokenId ) ) {
+	if ( CParser_IsNextToken( parser, tokenId ) ) {
 		CParser_Consume( parser );
 		return true;
 	}
 	return false;
 }
 
-void CParser_ParseField(CParser &parser, Clon &clon, Arena &arena)
+void CParser_ParseStructField(CParser &parser, Clon &clon, ClonStruct *clonStruct, Arena &arena)
 {
+	// Parse type
 	//CParser_TryConsume(parser, TOKEN_CONST);
-	CParser_Consume(parser);
+	if ( CParser_AreNextTokens(parser, TOKEN_CONST, TOKEN_CHAR, TOKEN_STAR) )
+	{
+		CParser_Consume(parser);
+		CParser_Consume(parser);
+		CParser_Consume(parser);
+
+		// Parse identifier
+		const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
+		CParser_Consume(parser, TOKEN_SEMICOLON);
+
+		ClonField *field = Clon_AddStructField(clonStruct);
+		field->name = identifier.lexeme;
+	}
+	else
+	{
+		CParser_Consume(parser);
+	}
+
 }
 
 void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
 {
 	ClonStruct *clonStruct = Clon_CreateStruct(clon, arena);
-	clonStruct->name = CParser_GetCurrentToken( parser ).lexeme;
+	clonStruct->name = CParser_GetNextToken( parser ).lexeme;
 
 	CParser_Consume( parser, TOKEN_IDENTIFIER );
 	CParser_Consume( parser, TOKEN_LEFT_BRACE );
 	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
 	{
-		CParser_ParseField(parser, clon, arena);
+		CParser_ParseStructField(parser, clon, clonStruct, arena);
 	}
 	CParser_Consume( parser, TOKEN_SEMICOLON );
 }
@@ -644,7 +713,7 @@ void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
 void CParser_ParseEnum(CParser &parser, Clon &clon, Arena &arena)
 {
 	ClonEnum *clonEnum = Clon_CreateEnum(clon, arena);
-	clonEnum->name = CParser_GetCurrentToken(parser).lexeme;
+	clonEnum->name = CParser_GetNextToken(parser).lexeme;
 
 	CParser_Consume( parser, TOKEN_IDENTIFIER );
 	CParser_Consume( parser, TOKEN_LEFT_BRACE );
@@ -725,9 +794,16 @@ void Clon_Print(const Clon &clon)
 		const ClonType *clonType = Clon_GetType(clon, index);
 		if ( clonType->type == ClonType_Struct )
 		{
+			ClonStruct *clonStruct = clonType->cStruct;
 			char nameStr[128];
-			StrCopy(nameStr, clonType->cStruct->name);
-			printf("- %s\n", nameStr);
+			StrCopy(nameStr, clonStruct->name);
+			printf("- %s:\n", nameStr);
+			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->fieldCount; ++fieldIndex)
+			{
+				ClonField *field = &clonStruct->fields[fieldIndex];
+				StrCopy(nameStr, field->name);
+				printf("  - %s\n", nameStr);
+			}
 		}
 	}
 
