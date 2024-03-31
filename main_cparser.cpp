@@ -2,6 +2,7 @@
 
 //#define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
+#define MAX_TYPE_COUNT 64
 
 enum TokenId
 {
@@ -166,9 +167,18 @@ struct CParser
 	bool hasFinished;
 };
 
-struct ClonType
+enum ClonTrivialEnum
 {
-	String name;
+	ClonTrivial_Bool,
+	ClonTrivial_Int,
+	ClonTrivial_Uint,
+	ClonTrivial_Float,
+	ClonTrivial_COUNT,
+};
+
+struct ClonTrivial
+{
+	ClonTrivialEnum type;
 };
 
 struct ClonStruct
@@ -181,16 +191,29 @@ struct ClonEnum
 	String name;
 };
 
+enum ClonTypeEnum
+{
+	ClonType_Trivial,
+	ClonType_Struct,
+	ClonType_Enum,
+	ClonType_COUNT,
+};
+
+struct ClonType
+{
+	ClonTypeEnum type;
+	union
+	{
+		ClonTrivial *cTrivial;
+		ClonStruct *cStruct;
+		ClonEnum *cEnum;
+	};
+};
+
 struct Clon
 {
 	u32 typeCount;
-	ClonType *types[128];
-
-	u32 structCount;
-	ClonStruct *structs[128];
-
-	u32 enumCount;
-	ClonEnum *enums[128];
+	ClonType types[MAX_TYPE_COUNT];
 };
 
 
@@ -481,49 +504,69 @@ void PrintTokenList(const TokenList &tokenList)
 ////////////////////////////////////////////////////////////////////////
 // Clon structure
 
-String Clon_TypeName(const Clon &clon, u32 index)
-{
-	ASSERT(index < clon.typeCount);
-	const ClonType &type = *clon.types[index];
-	return type.name;
-}
-
-ClonType *Clon_CreateType(Clon &clon, Arena &arena)
+ClonType *Clon_CreateType(Clon &clon)
 {
 	ASSERT(clon.typeCount < ARRAY_COUNT(clon.types));
-	ClonType *clonType = PushStruct(arena, ClonType);
-	clon.types[clon.typeCount++] = clonType;
+	ClonType *clonType = &clon.types[clon.typeCount++];
 	return clonType;
 }
 
-String Clon_StructName(const Clon &clon, u32 index)
+const ClonType *Clon_GetType(const Clon &clon, u32 index)
 {
-	ASSERT(index < clon.structCount);
-	const ClonStruct &type = *clon.structs[index];
-	return type.name;
+	ASSERT(index < clon.typeCount);
+	const ClonType *clonType = &clon.types[index];
+	return clonType;
+}
+
+ClonTrivial *Clon_CreateTrivial(Clon &clon, Arena &arena)
+{
+	ClonTrivial *clonSubtype = PushStruct(arena, ClonTrivial);
+	ClonType *clonType = Clon_CreateType(clon);
+	clonType->type = ClonType_Trivial;
+	clonType->cTrivial = clonSubtype;
+	return clonSubtype;
+}
+
+const ClonTrivial *Clon_GetTrivial(const Clon &clon, u32 index)
+{
+	const ClonType *clonType = Clon_GetType(clon, index);
+	ASSERT(clonType->type == ClonType_Trivial);
+	const ClonTrivial *clonSubtype = clonType->cTrivial;
+	return clonSubtype;
 }
 
 ClonStruct *Clon_CreateStruct(Clon &clon, Arena &arena)
 {
-	ASSERT(clon.structCount < ARRAY_COUNT(clon.structs));
-	ClonStruct *clonStruct = PushStruct(arena, ClonStruct);
-	clon.structs[clon.structCount++] = clonStruct;
-	return clonStruct;
+	ClonStruct *clonSubtype = PushStruct(arena, ClonStruct);
+	ClonType *clonType = Clon_CreateType(clon);
+	clonType->type = ClonType_Struct;
+	clonType->cStruct = clonSubtype;
+	return clonSubtype;
 }
 
-String Clon_EnumName(const Clon &clon, u32 index)
+const ClonStruct *Clon_GetStruct(const Clon &clon, u32 index)
 {
-	ASSERT(index < clon.enumCount);
-	const ClonEnum &type = *clon.enums[index];
-	return type.name;
+	const ClonType *clonType = Clon_GetType(clon, index);
+	ASSERT(clonType->type == ClonType_Struct);
+	const ClonStruct *clonSubtype = clonType->cStruct;
+	return clonSubtype;
 }
 
 ClonEnum *Clon_CreateEnum(Clon &clon, Arena &arena)
 {
-	ASSERT(clon.enumCount < ARRAY_COUNT(clon.enums));
-	ClonEnum *clonEnum = PushStruct(arena, ClonEnum);
-	clon.enums[clon.enumCount++] = clonEnum;
-	return clonEnum;
+	ClonEnum *clonSubtype = PushStruct(arena, ClonEnum);
+	ClonType *clonType = Clon_CreateType(clon);
+	clonType->type = ClonType_Enum;
+	clonType->cEnum = clonSubtype;
+	return clonSubtype;
+}
+
+const ClonEnum *Clon_GetEnum(const Clon &clon, u32 index)
+{
+	const ClonType *clonType = Clon_GetType(clon, index);
+	ASSERT(clonType->type == ClonType_Enum);
+	const ClonEnum *clonSubtype = clonType->cEnum;
+	return clonSubtype;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -666,41 +709,39 @@ Clon Clon_Read(Arena &arena, const char *text, u64 textSize)
 
 void Clon_Print(const Clon &clon)
 {
-	printf("Types:\n");
+	printf("Trivial types:\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
-		String name = Clon_TypeName(clon, index);
-		char nameStr[128];
-		StrCopy(nameStr, name);
-		printf("- %s\n", nameStr);
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Trivial )
+		{
+			printf("- %s\n", "TODO");
+		}
 	}
 
 	printf("Structs:\n");
-	for (u32 index = 0; index < clon.structCount; ++index)
+	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
-		String name = Clon_StructName(clon, index);
-		char nameStr[128];
-		StrCopy(nameStr, name);
-		printf("- %s\n", nameStr);
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Struct )
+		{
+			char nameStr[128];
+			StrCopy(nameStr, clonType->cStruct->name);
+			printf("- %s\n", nameStr);
+		}
 	}
 
 	printf("Enums:\n");
-	for (u32 index = 0; index < clon.enumCount; ++index)
+	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
-		String name = Clon_EnumName(clon, index);
-		char nameStr[128];
-		StrCopy(nameStr, name);
-		printf("- %s\n", nameStr);
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Enum )
+		{
+			char nameStr[128];
+			StrCopy(nameStr, clonType->cEnum->name);
+			printf("- %s\n", nameStr);
+		}
 	}
-}
-
-void ParseFile(Arena arena, const char *text, u64 textSize)
-{
-	LOG(Info, "ParseFile()\n");
-
-	const Clon clon = Clon_Read(arena, text, textSize);
-
-	Clon_Print(clon);
 }
 
 int main(int argc, char **argv)
@@ -724,7 +765,10 @@ int main(int argc, char **argv)
 		if ( ReadEntireFile(filename, bytes, fileSize) )
 		{
 			bytes[fileSize] = 0;
-			ParseFile(globalArena, bytes, fileSize);
+
+			const Clon clon = Clon_Read(globalArena, bytes, fileSize);
+
+			Clon_Print(clon);
 		}
 		else
 		{
