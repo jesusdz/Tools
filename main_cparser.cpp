@@ -45,6 +45,7 @@ enum TokenId
 	TOKEN_FALSE,
 	TOKEN_STATIC,
 	TOKEN_CONST,
+	TOKEN_BOOL,
 	TOKEN_CHAR,
 	TOKEN_INT,
 	TOKEN_FLOAT,
@@ -96,6 +97,7 @@ const char *TokenIdNames[] =
 	"TOKEN_FALSE",
 	"TOKEN_STATIC",
 	"TOKEN_CONST",
+	"TOKEN_BOOL",
 	"TOKEN_CHAR",
 	"TOKEN_INT",
 	"TOKEN_FLOAT",
@@ -181,7 +183,7 @@ struct ClonTrivial
 	ClonTrivialEnum type;
 };
 
-struct ClonField
+struct ClonMember
 {
 	// TODO: Add type info
 	String name;
@@ -190,8 +192,8 @@ struct ClonField
 struct ClonStruct
 {
 	String name;
-	ClonField fields[MAX_STRUCT_FIELD_COUNT];
-	u32 fieldCount;
+	ClonMember members[MAX_STRUCT_FIELD_COUNT];
+	u32 memberCount;
 };
 
 struct ClonEnum
@@ -220,8 +222,9 @@ struct ClonType
 
 struct Clon
 {
-	u32 typeCount;
 	ClonType types[MAX_TYPE_COUNT];
+	u32 typeCount;
+	bool valid;
 };
 
 
@@ -455,6 +458,7 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				else if ( StrEq( word, "false" ) )  AddToken(scanner, tokenList, TOKEN_FALSE);
 				else if ( StrEq( word, "static" ) ) AddToken(scanner, tokenList, TOKEN_STATIC);
 				else if ( StrEq( word, "const" ) )  AddToken(scanner, tokenList, TOKEN_CONST);
+				else if ( StrEq( word, "bool" ) )   AddToken(scanner, tokenList, TOKEN_BOOL);
 				else if ( StrEq( word, "char" ) )   AddToken(scanner, tokenList, TOKEN_CHAR);
 				else if ( StrEq( word, "int" ) )    AddToken(scanner, tokenList, TOKEN_INT);
 				else if ( StrEq( word, "float" ) )  AddToken(scanner, tokenList, TOKEN_FLOAT);
@@ -577,11 +581,11 @@ const ClonEnum *Clon_GetEnum(const Clon &clon, u32 index)
 	return clonSubtype;
 }
 
-ClonField *Clon_AddStructField(ClonStruct *clonStruct)
+ClonMember *Clon_AddMember(ClonStruct *clonStruct)
 {
-	ASSERT(clonStruct->fieldCount < MAX_STRUCT_FIELD_COUNT);
-	ClonField *field = &clonStruct->fields[clonStruct->fieldCount++];
-	return field;
+	ASSERT(clonStruct->memberCount < MAX_STRUCT_FIELD_COUNT);
+	ClonMember *member = &clonStruct->members[clonStruct->memberCount++];
+	return member;
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -672,25 +676,51 @@ bool CParser_TryConsume( CParser &parser, TokenId tokenId )
 	return false;
 }
 
-void CParser_ParseStructField(CParser &parser, Clon &clon, ClonStruct *clonStruct, Arena &arena)
+bool CParser_TryConsume( CParser &parser, TokenId tokenId0, TokenId tokenId1 )
+{
+	if ( CParser_AreNextTokens( parser, tokenId0, tokenId1 ) ) {
+		CParser_Consume( parser );
+		CParser_Consume( parser );
+		return true;
+	}
+	return false;
+}
+
+bool CParser_TryConsume( CParser &parser, TokenId tokenId0, TokenId tokenId1, TokenId tokenId2 )
+{
+	if ( CParser_AreNextTokens( parser, tokenId0, tokenId1, tokenId2 ) ) {
+		CParser_Consume( parser );
+		CParser_Consume( parser );
+		CParser_Consume( parser );
+		return true;
+	}
+	return false;
+}
+
+void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Arena &arena)
 {
 	// Parse type
-	//CParser_TryConsume(parser, TOKEN_CONST);
-	if ( CParser_AreNextTokens(parser, TOKEN_CONST, TOKEN_CHAR, TOKEN_STAR) )
-	{
-		CParser_Consume(parser);
-		CParser_Consume(parser);
-		CParser_Consume(parser);
+	const bool isConst = CParser_TryConsume(parser, TOKEN_CONST);
 
-		// Parse identifier
+	if (CParser_TryConsume(parser, TOKEN_BOOL) ||
+		CParser_TryConsume(parser, TOKEN_CHAR) ||
+		CParser_TryConsume(parser, TOKEN_INT) ||
+		CParser_TryConsume(parser, TOKEN_UINT) ||
+		CParser_TryConsume(parser, TOKEN_FLOAT) ||
+		CParser_TryConsume(parser, TOKEN_FLOAT3) ||
+		CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+	{
+		const bool isPtr = CParser_TryConsume(parser, TOKEN_STAR);
+
 		const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
 		CParser_Consume(parser, TOKEN_SEMICOLON);
 
-		ClonField *field = Clon_AddStructField(clonStruct);
-		field->name = identifier.lexeme;
+		ClonMember *member = Clon_AddMember(clonStruct);
+		member->name = identifier.lexeme;
 	}
 	else
 	{
+		// Invalid syntax
 		CParser_Consume(parser);
 	}
 
@@ -705,7 +735,7 @@ void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
 	CParser_Consume( parser, TOKEN_LEFT_BRACE );
 	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
 	{
-		CParser_ParseStructField(parser, clon, clonStruct, arena);
+		CParser_ParseMember(parser, clon, clonStruct, arena);
 	}
 	CParser_Consume( parser, TOKEN_SEMICOLON );
 }
@@ -752,10 +782,12 @@ Clon Parse(Arena &arena, const TokenList &tokenList)
 		CParser_ParseDeclaration(parser, clon, arena);
 	}
 
+	clon.valid = !parser.hasErrors;
+
 	if ( parser.hasErrors )
+	{
 		printf("Parse finished with errors.\n");
-	else
-		printf("Parse finished successfully.\n");
+	}
 
 	return clon;
 }
@@ -778,6 +810,11 @@ Clon Clon_Read(Arena &arena, const char *text, u64 textSize)
 
 void Clon_Print(const Clon &clon)
 {
+	if ( !clon.valid )
+	{
+		return;
+	}
+
 	printf("Trivial types:\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
@@ -798,10 +835,10 @@ void Clon_Print(const Clon &clon)
 			char nameStr[128];
 			StrCopy(nameStr, clonStruct->name);
 			printf("- %s:\n", nameStr);
-			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->fieldCount; ++fieldIndex)
+			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
 			{
-				ClonField *field = &clonStruct->fields[fieldIndex];
-				StrCopy(nameStr, field->name);
+				ClonMember *member = &clonStruct->members[fieldIndex];
+				StrCopy(nameStr, member->name);
 				printf("  - %s\n", nameStr);
 			}
 		}
