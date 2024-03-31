@@ -452,6 +452,13 @@ byte* PushSize(Arena &arena, u32 size)
 	return head;
 }
 
+byte* PushZeroSize(Arena &arena, u32 size)
+{
+	byte *bytes = PushSize(arena, size);
+	MemSet(bytes, size, 0);
+	return bytes;
+}
+
 void ResetArena(Arena &arena)
 {
 	// This tells the OS we don't need these pages
@@ -469,6 +476,8 @@ void PrintArenaUsage(Arena &arena)
 #define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer), 0)
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
+#define PushZeroStruct( arena, struct_type ) (struct_type*)PushZeroSize(arena, sizeof(struct_type))
+#define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * count)
 
 
 
