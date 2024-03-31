@@ -158,11 +158,6 @@ struct CScanner
 	u32 textSize;
 };
 
-struct CType
-{
-	const char *name;
-};
-
 struct CParser
 {
 	const TokenList *tokenList;
@@ -171,11 +166,36 @@ struct CParser
 	bool hasFinished;
 };
 
-struct CData
+struct ClonType
+{
+	String name;
+};
+
+struct ClonStruct
+{
+	String name;
+};
+
+struct ClonEnum
+{
+	String name;
+};
+
+struct Clon
 {
 	u32 typeCount;
-	CType types[128];
+	ClonType *types[128];
+
+	u32 structCount;
+	ClonStruct *structs[128];
+
+	u32 enumCount;
+	ClonEnum *enums[128];
 };
+
+
+////////////////////////////////////////////////////////////////////////
+// CScanner
 
 const char* TokenIdName(TokenId id)
 {
@@ -458,6 +478,57 @@ void PrintTokenList(const TokenList &tokenList)
 	}
 }
 
+////////////////////////////////////////////////////////////////////////
+// Clon structure
+
+String Clon_TypeName(const Clon &clon, u32 index)
+{
+	ASSERT(index < clon.typeCount);
+	const ClonType &type = *clon.types[index];
+	return type.name;
+}
+
+ClonType *Clon_CreateType(Clon &clon, Arena &arena)
+{
+	ASSERT(clon.typeCount < ARRAY_COUNT(clon.types));
+	ClonType *clonType = PushStruct(arena, ClonType);
+	clon.types[clon.typeCount++] = clonType;
+	return clonType;
+}
+
+String Clon_StructName(const Clon &clon, u32 index)
+{
+	ASSERT(index < clon.structCount);
+	const ClonStruct &type = *clon.structs[index];
+	return type.name;
+}
+
+ClonStruct *Clon_CreateStruct(Clon &clon, Arena &arena)
+{
+	ASSERT(clon.structCount < ARRAY_COUNT(clon.structs));
+	ClonStruct *clonStruct = PushStruct(arena, ClonStruct);
+	clon.structs[clon.structCount++] = clonStruct;
+	return clonStruct;
+}
+
+String Clon_EnumName(const Clon &clon, u32 index)
+{
+	ASSERT(index < clon.enumCount);
+	const ClonEnum &type = *clon.enums[index];
+	return type.name;
+}
+
+ClonEnum *Clon_CreateEnum(Clon &clon, Arena &arena)
+{
+	ASSERT(clon.enumCount < ARRAY_COUNT(clon.enums));
+	ClonEnum *clonEnum = PushStruct(arena, ClonEnum);
+	clon.enums[clon.enumCount++] = clonEnum;
+	return clonEnum;
+}
+
+////////////////////////////////////////////////////////////////////////
+// CParser
+
 bool CParser_HasFinished(const CParser &parser)
 {
 	const bool hasErrors = parser.hasErrors;
@@ -472,6 +543,11 @@ bool CParser_IsCurrentToken( const CParser &parser, TokenId tokenId )
 	} else {
 		return tokenId == parser.tokenList->tokens[parser.currentToken].id;
 	}
+}
+
+const Token &CParser_GetCurrentToken( const CParser &parser )
+{
+	return parser.tokenList->tokens[parser.currentToken];
 }
 
 void CParser_Consume( CParser &parser )
@@ -502,22 +578,49 @@ bool CParser_TryConsume( CParser &parser, TokenId tokenId )
 	return false;
 }
 
-void CParser_ParseStruct(CParser &parser, CData &cdata, Arena &arena)
+void CParser_ParseField(CParser &parser, Clon &clon, Arena &arena)
 {
-	CParser_Consume( parser ); // Identifier
+	//CParser_TryConsume(parser, TOKEN_CONST);
+	CParser_Consume(parser);
+}
+
+void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
+{
+	ClonStruct *clonStruct = Clon_CreateStruct(clon, arena);
+	clonStruct->name = CParser_GetCurrentToken( parser ).lexeme;
+
+	CParser_Consume( parser, TOKEN_IDENTIFIER );
 	CParser_Consume( parser, TOKEN_LEFT_BRACE );
 	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
 	{
-		CParser_Consume( parser ); // Inside of the struct
+		CParser_ParseField(parser, clon, arena);
 	}
 	CParser_Consume( parser, TOKEN_SEMICOLON );
 }
 
-void CParser_ParseDeclaration(CParser &parser, CData &cdata, Arena &arena)
+void CParser_ParseEnum(CParser &parser, Clon &clon, Arena &arena)
+{
+	ClonEnum *clonEnum = Clon_CreateEnum(clon, arena);
+	clonEnum->name = CParser_GetCurrentToken(parser).lexeme;
+
+	CParser_Consume( parser, TOKEN_IDENTIFIER );
+	CParser_Consume( parser, TOKEN_LEFT_BRACE );
+	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
+	{
+		CParser_Consume(parser);
+	}
+	CParser_Consume( parser, TOKEN_SEMICOLON );
+}
+
+void CParser_ParseDeclaration(CParser &parser, Clon &clon, Arena &arena)
 {
 	if ( CParser_TryConsume( parser, TOKEN_STRUCT ) )
 	{
-		CParser_ParseStruct( parser, cdata, arena );
+		CParser_ParseStruct( parser, clon, arena );
+	}
+	else if ( CParser_TryConsume( parser, TOKEN_ENUM ) )
+	{
+		CParser_ParseEnum( parser, clon, arena );
 	}
 	else
 	{
@@ -525,16 +628,16 @@ void CParser_ParseDeclaration(CParser &parser, CData &cdata, Arena &arena)
 	}
 }
 
-CData Parse(Arena &arena, const TokenList &tokenList)
+Clon Parse(Arena &arena, const TokenList &tokenList)
 {
-	CData cdata = {};
+	Clon clon = {};
 
 	CParser parser = {};
 	parser.tokenList = &tokenList;
 
 	while ( !CParser_HasFinished(parser) )
 	{
-		CParser_ParseDeclaration(parser, cdata, arena);
+		CParser_ParseDeclaration(parser, clon, arena);
 	}
 
 	if ( parser.hasErrors )
@@ -542,19 +645,12 @@ CData Parse(Arena &arena, const TokenList &tokenList)
 	else
 		printf("Parse finished successfully.\n");
 
-	return cdata;
+	return clon;
 }
 
-const char *GetTypeName(const CData &cdata, u32 typeIndex)
+Clon Clon_Read(Arena &arena, const char *text, u64 textSize)
 {
-	ASSERT(typeIndex < cdata.typeCount);
-	const CType &type = cdata.types[typeIndex];
-	return type.name;
-}
-
-void ParseFile(Arena arena, const char *text, u64 textSize)
-{
-	LOG(Info, "ParseFile()\n");
+	Clon clon = {};
 
 	TokenList tokenList = Scan(arena, text, textSize);
 
@@ -562,16 +658,49 @@ void ParseFile(Arena arena, const char *text, u64 textSize)
 	{
 		PrintTokenList(tokenList);
 
-		// TODO
-		CData cdata = Parse(arena, tokenList);
-
-		printf("Types:\n");
-		for (u32 typeIndex = 0; typeIndex < cdata.typeCount; ++typeIndex)
-		{
-			const char *typeName = GetTypeName(cdata, typeIndex);
-			printf("- %s\n", typeName);
-		}
+		clon = Parse(arena, tokenList);
 	}
+
+	return clon;
+}
+
+void Clon_Print(const Clon &clon)
+{
+	printf("Types:\n");
+	for (u32 index = 0; index < clon.typeCount; ++index)
+	{
+		String name = Clon_TypeName(clon, index);
+		char nameStr[128];
+		StrCopy(nameStr, name);
+		printf("- %s\n", nameStr);
+	}
+
+	printf("Structs:\n");
+	for (u32 index = 0; index < clon.structCount; ++index)
+	{
+		String name = Clon_StructName(clon, index);
+		char nameStr[128];
+		StrCopy(nameStr, name);
+		printf("- %s\n", nameStr);
+	}
+
+	printf("Enums:\n");
+	for (u32 index = 0; index < clon.enumCount; ++index)
+	{
+		String name = Clon_EnumName(clon, index);
+		char nameStr[128];
+		StrCopy(nameStr, name);
+		printf("- %s\n", nameStr);
+	}
+}
+
+void ParseFile(Arena arena, const char *text, u64 textSize)
+{
+	LOG(Info, "ParseFile()\n");
+
+	const Clon clon = Clon_Read(arena, text, textSize);
+
+	Clon_Print(clon);
 }
 
 int main(int argc, char **argv)
@@ -596,8 +725,6 @@ int main(int argc, char **argv)
 		{
 			bytes[fileSize] = 0;
 			ParseFile(globalArena, bytes, fileSize);
-			//Clon clon = Clon_Parse(globalArena, bytes, fileSize);
-			//Clon_Print(data);
 		}
 		else
 		{
