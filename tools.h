@@ -202,7 +202,7 @@ void StrCopy(char *dst, const String& src_string)
 	u32 size = src_string.size;
 	const char *src = src_string.str;
 	while (size-- > 0) *dst++ = *src++;
-	dst[src_string.size] = '\0';
+	*dst = '\0';
 }
 
 void StrCopy(char *dst, const char *src)
