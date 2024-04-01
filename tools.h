@@ -257,6 +257,16 @@ bool StrEq(const char *s1, const char *s2)
 	return *s1 == *s2;
 }
 
+// Searches str2 in str1 and returns a pointer to the last matching character '\0'.
+// If the beginning of str1 does not completely match str2, then NULL is returned.
+const char *StrConsume( const char *str1, const char *str2 )
+{
+	while ( *str2 && *str1++ == *str2++ );
+	// If str does not point to the last char, there's no match so NULL is returned.
+	// Otherwise the 'advanced' str1 pointer is returned.
+	return *str2 ? NULL: str1;
+}
+
 f32 StrToFloat(const char *str)
 {
 	i32 integer = 0;
