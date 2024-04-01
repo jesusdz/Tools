@@ -24,7 +24,15 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 ## tools_spirv.h
 
 In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lists of descriptor sets used by them.
-With thes SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code, thus avoiding unnecessary boilerplate code.
+With thes SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
+thus avoiding unnecessary boilerplate code.
+
+
+## tools_reflex.h
+
+Headers with types needed for C reflection. The idea of this in-progress utility is that we will have a reflection tool that will parse C headers with type definitions,
+and it will generate files with C code filling the Reflex containers available in `tools_reflex.h`. These generated files with information about your own C data structures,
+will in turn be possibly used in your code to automatize certain tasks such as serialization, UI generation, etc.
 
 
 ## Projects
