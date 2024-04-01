@@ -24,7 +24,7 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 ## tools_spirv.h
 
 In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lists of descriptor sets used by them.
-With thes SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
+With this SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
 thus avoiding unnecessary boilerplate code.
 
 
