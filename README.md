@@ -21,6 +21,12 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 * Input handling (mouse and keyboard)
 
 
+## tools_spirv.h
+
+In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lists of descriptor sets used by them.
+With thes SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code, thus avoiding unnecessary boilerplate code.
+
+
 ## Projects
 
 Currently, there are the following *in-progress* projects:
@@ -30,6 +36,8 @@ Currently, there are the following *in-progress* projects:
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
 * `main_atof`: Custom implementation of the atof (ASCII to float) function.
 * `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.
+* `main_cparser`: C parser to generate C reflection data.
+* `main_reflect_serialize`: JSON serializer using C reflection utils.
 
 
 ## Dependencies
