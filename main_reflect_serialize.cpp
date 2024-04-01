@@ -7,11 +7,18 @@
 ////////////////////////////////////////////////////////////////////////
 // Print utils
 
+#if USE_REFLECTION
+#define Printf( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
+#define PrintBeginScope( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IncreaseIndentation();
+#define PrintEndScope( format, ... ) DecreaseIndentation(); LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
+#define PrintNewLine() LOG(Info, "\n"); newLine = true;
+#else
 #define Printf( format, ... ) LOG(Info, "%s" format "\n", indent, ##__VA_ARGS__ );
-#define PrintfSameLine( format, ... ) LOG(Info, "%s" format, indent, ##__VA_ARGS__ );
 #define PrintBeginScope( format, ... ) LOG(Info, "%s" format "\n", indent, ##__VA_ARGS__ ); IncreaseIndentation();
 #define PrintEndScope( format, ... ) DecreaseIndentation(); LOG(Info, "%s" format "\n", indent, ##__VA_ARGS__ );
+#endif
 
+static bool newLine = false;
 static u32 indentPos = 0;
 static char indent[64] = {};
 
@@ -24,6 +31,13 @@ static void DecreaseIndentation()
 {
 	ASSERT(indentPos > 0);
 	indent[--indentPos] = '\0';
+}
+
+static const char *Indentation()
+{
+	const char *indentation = newLine ? indent : "";
+	newLine = false;
+	return indentation;
 }
 
 
@@ -56,14 +70,15 @@ struct ReflexMember
 	u8 isConst : 1;
 	u8 isPointer : 1;
 	u16 reflexId;
-	u32 offset;
+	u16 offset;
 };
 
 struct ReflexStruct
 {
 	const char *name;
 	const ReflexMember *members;
-	const u32 memberCount;
+	u16 memberCount;
+	u16 size;
 };
 
 struct Reflex
@@ -95,6 +110,40 @@ ReflexID GetReflexID(const PipelineDesc *) { return ReflexID_PipelineDesc; }
 ReflexID GetReflexID(const MaterialDesc *) { return ReflexID_MaterialDesc; }
 ReflexID GetReflexID(const EntityDesc *) { return ReflexID_EntityDesc; }
 ReflexID GetReflexID(const Assets *) { return ReflexID_Assets; }
+
+const Reflex* GetReflex(ReflexID id);
+
+u32 ReflexGetTypeSize(ReflexID id)
+{
+	const Reflex* reflex = GetReflex(id);
+	if ( reflex->type == ReflexType_Trivial )
+	{
+		const ReflexTrivial *trivial = reflex->trivial;
+		const u32 size = trivial->elemCount * trivial->byteCount;
+		return size;
+	}
+	else if ( reflex->type == ReflexType_Struct )
+	{
+		const ReflexStruct *rstruct = reflex->rstruct;
+		const u32 size = rstruct->size;
+		return size;
+	}
+	else
+	{
+		INVALID_CODE_PATH();
+	}
+	return 0;
+}
+
+u32 ReflexGetElemCount( const ReflexStruct *rstruct, const ReflexMember *member )
+{
+	// TODO: Avoid hardcoding this
+	if ( StrEq( member->name, "textures" ) ) return 3;
+	if ( StrEq( member->name, "pipelines" ) ) return 1;
+	if ( StrEq( member->name, "materials" ) ) return 3;
+	if ( StrEq( member->name, "entities" ) ) return 5;
+	return 0;
+}
 
 const Reflex* GetReflex(ReflexID id)
 {
@@ -134,26 +183,31 @@ const Reflex* GetReflex(ReflexID id)
 		.name = "TextureDesc",
 		.members = reflexTextureDescMembers,
 		.memberCount = ARRAY_COUNT(reflexTextureDescMembers),
+		.size = sizeof(TextureDesc),
 	};
 	static const ReflexStruct reflexPipelineDesc = {
 		.name = "PipelineDesc",
 		.members = reflexPipelineDescMembers,
 		.memberCount = ARRAY_COUNT(reflexPipelineDescMembers),
+		.size = sizeof(PipelineDesc),
 	};
 	static const ReflexStruct reflexMaterialDesc = {
 		.name = "MaterialDesc",
 		.members = reflexMaterialDescMembers,
 		.memberCount = ARRAY_COUNT(reflexMaterialDescMembers),
+		.size = sizeof(MaterialDesc),
 	};
 	static const ReflexStruct reflexEntityDesc = {
 		.name = "EntityDesc",
 		.members = reflexEntityDescMembers,
 		.memberCount = ARRAY_COUNT(reflexEntityDescMembers),
+		.size = sizeof(EntityDesc),
 	};
 	static const ReflexStruct reflexAssets = {
 		.name = "Assets",
 		.members = reflexAssetsMembers,
 		.memberCount = ARRAY_COUNT(reflexAssetsMembers),
+		.size = sizeof(Assets),
 	};
 	static const ReflexTrivial reflexInt =
 	{ .isBool = 0, .isFloat = 0, .isUnsigned = 0, .isString = 0, .byteCount = 4, .elemCount = 1 };
@@ -190,14 +244,47 @@ void Print(const void *data, const ReflexID id)
 
 	if ( reflex->type == ReflexType_Trivial )
 	{
-		Printf("");
 		const ReflexTrivial *trivial = reflex->trivial;
+
+		if (trivial->elemCount > 1) {
+			Printf("[");
+		}
+
+		for (uint i = 0; i < trivial->elemCount; ++i)
+		{
+			if (i > 0) {
+				Printf(", ");
+			}
+
+			const char *sVal = (const char *)data;
+			const bool bVal = *(bool*)data;
+			const i32 iVal = *(i32*)data;
+			const u32 uVal = *(u32*)data;
+			const float fVal = *(float*)data;
+
+			if ( trivial->isString  ) {
+				Printf("\"%s\"", sVal);
+			} else if ( trivial->isBool ) {
+				Printf("%d", bVal ? 1 : 0);
+			} else if ( trivial->isFloat ) {
+				Printf("%f", fVal);
+			} else if ( trivial->isUnsigned ) {
+				Printf("%u", uVal);
+			} else {
+				Printf("%d", iVal);
+			}
+		}
+
+		if (trivial->elemCount > 1) {
+			Printf("]");
+		}
 	}
 	else if ( reflex->type == ReflexType_Struct )
 	{
 		const ReflexStruct *rstruct = reflex->rstruct;
 
 		PrintBeginScope("{");
+		PrintNewLine();
 
 		for (uint i = 0; i < rstruct->memberCount; ++i)
 		{
@@ -205,12 +292,41 @@ void Print(const void *data, const ReflexID id)
 			const bool isConst = member->isConst;
 			const bool isPointer = member->isPointer;
 			const void *memberPtr = (u8*)data + member->offset;
-			const void *dataPtr = isPointer ? (void*)(*((u8**)memberPtr)) : memberPtr;
-			PrintfSameLine("\"%s\" : ", member->name);
-			Print(dataPtr, (ReflexID)member->reflexId);
+			const void *basePtr = isPointer ? (void*)(*((u8**)memberPtr)) : memberPtr;
+			const u32 elemSize = ReflexGetTypeSize((ReflexID)member->reflexId);
+
+			Printf("\"%s\" : ", member->name);
+
+			const u32 elemCount = ReflexGetElemCount(rstruct, member);
+			if ( elemCount > 0 ) {
+				PrintBeginScope("[");
+				PrintNewLine();
+			}
+
+			for (u32 elemIndex = 0; elemIndex == 0 || elemIndex < elemCount; ++elemIndex)
+			{
+				const void *elemPtr = (u8*)basePtr + elemIndex * elemSize;
+				Print(elemPtr, (ReflexID)member->reflexId);
+
+				if (elemCount > 0 && elemIndex + 1 < elemCount) {
+					Printf(",");
+					PrintNewLine();
+				}
+			}
+
+			if ( elemCount > 0 ) {
+				PrintNewLine();
+				PrintEndScope("]");
+			}
+
+			if ( i + 1 < rstruct->memberCount ) {
+				Printf(",");
+			}
+			PrintNewLine();
+
 		}
 
-		PrintEndScope("},");
+		PrintEndScope("}");
 	}
 }
 
