@@ -41,46 +41,17 @@ static const char *Indentation()
 
 enum
 {
-	ReflexID_TextureDesc,
+	ReflexID_TextureDesc = ReflexID_Struct,
 	ReflexID_PipelineDesc,
 	ReflexID_MaterialDesc,
 	ReflexID_EntityDesc,
 	ReflexID_Assets,
-	ReflexID_Int,
-	ReflexID_UInt,
-	ReflexID_Float,
-	ReflexID_Float3,
-	ReflexID_String,
 };
 
-u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const char *memberName )
+const ReflexStruct* ReflexGetStruct(ReflexID id)
 {
-	for (uint i = 0; i < rstruct->memberCount; ++i)
-	{
-		const ReflexMember *member = &rstruct->members[i];
-		const bool isPointer = member->isPointer;
-		const uint reflexId = member->reflexId;
+	ASSERT(ReflexIsStruct(id));
 
-		if ( !isPointer && reflexId == ReflexID_UInt )
-		{
-			const char *cursor = member->name; // current member name
-
-			// NOTE: This solution is quite ad-hoc. We are searching for a member that's
-			// called memberNameCount (e.g. for "textures" we look for "texturesCount").
-			if ( ( cursor = StrConsume( cursor, memberName ) ) &&
-					( cursor = StrConsume( cursor, "Count" ) ) && *cursor == 0 )
-			{
-				const void *memberPtr = (u8*)data + member->offset;
-				const u32 count = *(u32*)memberPtr;
-				return count;
-			}
-		}
-	}
-	return 0;
-}
-
-const Reflex* GetReflex(ReflexID id)
-{
 	static const ReflexMember reflexTextureDescMembers[] = {
 		{ .name = "name", true, true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, name) },
 		{ .name = "filename", true, true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, filename) },
@@ -143,78 +114,62 @@ const Reflex* GetReflex(ReflexID id)
 		.memberCount = ARRAY_COUNT(reflexAssetsMembers),
 		.size = sizeof(Assets),
 	};
-	static const ReflexTrivial reflexInt =
-	{ .isBool = 0, .isFloat = 0, .isUnsigned = 0, .isString = 0, .byteCount = 4, .elemCount = 1 };
-	static const ReflexTrivial reflexUInt =
-	{ .isBool = 0, .isFloat = 0, .isUnsigned = 1, .isString = 0, .byteCount = 4, .elemCount = 1 };
-	static const ReflexTrivial reflexFloat =
-	{ .isBool = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .byteCount = 4, .elemCount = 1 };
-	static const ReflexTrivial reflexFloat3 =
-	{ .isBool = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .byteCount = 4, .elemCount = 3 };
-	static const ReflexTrivial reflexString =
-	{ .isBool = 0, .isFloat = 0, .isUnsigned = 0, .isString = 1, .byteCount = 4, .elemCount = 1 };
 
-	static const Reflex reflections[] =
+	static const ReflexStruct *reflections[] =
 	{
-		{ .type = ReflexType_Struct, .rstruct = &reflexTextureDesc },
-		{ .type = ReflexType_Struct, .rstruct = &reflexPipelineDesc },
-		{ .type = ReflexType_Struct, .rstruct = &reflexMaterialDesc },
-		{ .type = ReflexType_Struct, .rstruct = &reflexEntityDesc },
-		{ .type = ReflexType_Struct, .rstruct = &reflexAssets },
-		{ .type = ReflexType_Trivial, .trivial = &reflexInt },
-		{ .type = ReflexType_Trivial, .trivial = &reflexUInt },
-		{ .type = ReflexType_Trivial, .trivial = &reflexFloat },
-		{ .type = ReflexType_Trivial, .trivial = &reflexFloat3 },
-		{ .type = ReflexType_Trivial, .trivial = &reflexString },
+		&reflexTextureDesc,
+		&reflexPipelineDesc,
+		&reflexMaterialDesc,
+		&reflexEntityDesc,
+		&reflexAssets,
 	};
 
-	return &reflections[id];
+	return reflections[id - ReflexID_Struct];
 }
 
 void Print(const void *data, const ReflexID id)
 {
-	const Reflex *reflex = GetReflex(id);
-
-	if ( reflex->type == ReflexType_Trivial )
+	if (ReflexIsTrivial(id))
 	{
-		const ReflexTrivial *trivial = reflex->trivial;
+		const ReflexTrivial *trivial = ReflexGetTrivial(id);
+		const uint elemCount = trivial->elemCount;
 
-		if (trivial->elemCount > 1) {
+		if (elemCount > 1) {
 			Printf("[");
 		}
 
-		for (uint i = 0; i < trivial->elemCount; ++i)
+		for (uint i = 0; i < elemCount; ++i)
 		{
 			if (i > 0) {
 				Printf(", ");
 			}
 
 			const char *sVal = (const char *)data;
-			const bool bVal = *(bool*)data;
-			const i32 iVal = *(i32*)data;
-			const u32 uVal = *(u32*)data;
-			const float fVal = *(float*)data;
+			const bool bVal = *((bool*)data + i);
+			const i32 iVal = *((i32*)data + i);
+			const u32 uVal = *((u32*)data + i);
+			const float fVal = *((float*)data + i);
 
-			if ( trivial->isString  ) {
+			if (trivial->isString) {
 				Printf("\"%s\"", sVal);
-			} else if ( trivial->isBool ) {
+			} else if (trivial->isBool) {
 				Printf("%d", bVal ? 1 : 0);
-			} else if ( trivial->isFloat ) {
+			} else if (trivial->isFloat) {
 				Printf("%f", fVal);
-			} else if ( trivial->isUnsigned ) {
+			} else if (trivial->isUnsigned) {
 				Printf("%u", uVal);
 			} else {
 				Printf("%d", iVal);
 			}
 		}
 
-		if (trivial->elemCount > 1) {
+		if (elemCount > 1) {
 			Printf("]");
 		}
 	}
-	else if ( reflex->type == ReflexType_Struct )
+	else if (ReflexIsStruct(id))
 	{
-		const ReflexStruct *rstruct = reflex->rstruct;
+		const ReflexStruct *rstruct = ReflexGetStruct(id);
 
 		PrintBeginScope("{");
 		PrintNewLine();
@@ -222,23 +177,21 @@ void Print(const void *data, const ReflexID id)
 		for (uint i = 0; i < rstruct->memberCount; ++i)
 		{
 			const ReflexMember *member = &rstruct->members[i];
-			const bool isConst = member->isConst;
-			const bool isPointer = member->isPointer;
-			const void *memberPtr = (u8*)data + member->offset;
-			const void *basePtr = isPointer ? (void*)(*((u8**)memberPtr)) : memberPtr;
-			const u32 elemSize = ReflexGetTypeSize(member->reflexId);
+			const void *structPtr = data;
+			const void *memberPtr = ReflexMemberPtr(structPtr, member);
 
 			Printf("\"%s\" : ", member->name);
 
-			const u32 elemCount = ReflexGetElemCount(data, rstruct, member->name);
+			const u32 elemCount = ReflexGetElemCount(structPtr, rstruct, member->name);
 			if ( elemCount > 0 ) {
 				PrintBeginScope("[");
 				PrintNewLine();
 			}
 
+			const u32 elemSize = ReflexGetTypeSize(member->reflexId);
 			for (u32 elemIndex = 0; elemIndex == 0 || elemIndex < elemCount; ++elemIndex)
 			{
-				const void *elemPtr = (u8*)basePtr + elemIndex * elemSize;
+				const void *elemPtr = (u8*)memberPtr + elemIndex * elemSize;
 				Print(elemPtr, member->reflexId);
 
 				if (elemCount > 0 && elemIndex + 1 < elemCount) {
