@@ -27,7 +27,7 @@ struct ReflexTrivial
 	u8 isFloat : 1;
 	u8 isUnsigned : 1; // !bool and !float
 	u8 isString : 1;
-    u8 size : 5;
+	u8 size : 5;
 	u8 elemCount;
 };
 
@@ -69,7 +69,7 @@ inline const void *ReflexMemberPtr(const void *structBase, const ReflexMember *m
 	const void *memberPtr = (u8*)structBase + member->offset;
 	if ( member->isPointer ) {
 		// Extra indirection to get the pointed data address
-		const void *pointedMemberPtr = (void*)(*((u8**)memberPtr));
+		const void *pointedMemberPtr = *((void**)memberPtr);
 		return pointedMemberPtr;
 	} else {
 		return memberPtr;
