@@ -42,16 +42,16 @@ struct EntityDesc
 struct Assets
 {
 	const TextureDesc *textures;
-	uint textureCount;
+	uint texturesCount;
 
 	const PipelineDesc *pipelines;
-	uint pipelineCount;
+	uint pipelinesCount;
 
 	const MaterialDesc *materials;
-	uint materialCount;
+	uint materialsCount;
 
 	const EntityDesc *entities;
-	uint entityCount;
+	uint entitiesCount;
 };
 
 
@@ -89,16 +89,16 @@ static const EntityDesc entities[] =
 static const Assets gAssets =
 {
 	.textures = textures,
-	.textureCount = ARRAY_COUNT(textures),
+	.texturesCount = ARRAY_COUNT(textures),
 
 	.pipelines = pipelines,
-	.pipelineCount = ARRAY_COUNT(pipelines),
+	.pipelinesCount = ARRAY_COUNT(pipelines),
 
 	.materials = materials,
-	.materialCount = ARRAY_COUNT(materials),
+	.materialsCount = ARRAY_COUNT(materials),
 
 	.entities = entities,
-	.entityCount = ARRAY_COUNT(entities),
+	.entitiesCount = ARRAY_COUNT(entities),
 };
 
 #endif // ASSETS_H

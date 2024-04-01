@@ -135,13 +135,29 @@ u32 ReflexGetTypeSize(ReflexID id)
 	return 0;
 }
 
-u32 ReflexGetElemCount( const ReflexStruct *rstruct, const ReflexMember *member )
+u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const ReflexMember *member )
 {
-	// TODO: Avoid hardcoding this
-	if ( StrEq( member->name, "textures" ) ) return 3;
-	if ( StrEq( member->name, "pipelines" ) ) return 1;
-	if ( StrEq( member->name, "materials" ) ) return 3;
-	if ( StrEq( member->name, "entities" ) ) return 5;
+	const char *memberName = member->name;
+
+	for (uint i = 0; i < rstruct->memberCount; ++i)
+	{
+		const ReflexMember *member = &rstruct->members[i];
+		const bool isPointer = member->isPointer;
+		const uint reflexId = member->reflexId;
+
+		if ( !isPointer && reflexId == ReflexID_UInt )
+		{
+			const char *cursor = member->name; // current member name
+
+			if ( ( cursor = StrConsume( cursor, memberName ) ) &&
+					( cursor = StrConsume( cursor, "Count" ) ) && *cursor == 0 )
+			{
+				const void *memberPtr = (u8*)data + member->offset;
+				const u32 count = *(u32*)memberPtr;
+				return count;
+			}
+		}
+	}
 	return 0;
 }
 
@@ -171,13 +187,13 @@ const Reflex* GetReflex(ReflexID id)
 	};
 	static const ReflexMember reflexAssetsMembers[] = {
 		{ .name = "textures", true, true, .reflexId = ReflexID_TextureDesc, .offset = offsetof(Assets, textures) },
-		{ .name = "textureCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, textureCount) },
+		{ .name = "texturesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, texturesCount) },
 		{ .name = "pipelines", true, true, .reflexId = ReflexID_PipelineDesc, .offset = offsetof(Assets, pipelines) },
-		{ .name = "pipelineCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, pipelineCount) },
+		{ .name = "pipelinesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, pipelinesCount) },
 		{ .name = "materials", true, true, .reflexId = ReflexID_MaterialDesc, .offset = offsetof(Assets, materials) },
-		{ .name = "materialCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, materialCount) },
+		{ .name = "materialsCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, materialsCount) },
 		{ .name = "entities", true, true, .reflexId = ReflexID_EntityDesc, .offset = offsetof(Assets, entities) },
-		{ .name = "entityCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, entityCount) },
+		{ .name = "entitiesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, entitiesCount) },
 	};
 	static const ReflexStruct reflexTextureDesc = {
 		.name = "TextureDesc",
@@ -237,7 +253,6 @@ const Reflex* GetReflex(ReflexID id)
 	return &reflections[id];
 }
 
-// TODO
 void Print(const void *data, const ReflexID id)
 {
 	const Reflex *reflex = GetReflex(id);
@@ -297,7 +312,7 @@ void Print(const void *data, const ReflexID id)
 
 			Printf("\"%s\" : ", member->name);
 
-			const u32 elemCount = ReflexGetElemCount(rstruct, member);
+			const u32 elemCount = ReflexGetElemCount(data, rstruct, member);
 			if ( elemCount > 0 ) {
 				PrintBeginScope("[");
 				PrintNewLine();
@@ -381,28 +396,28 @@ void Print(const Assets *assets)
 	PrintBeginScope("{");
 
 	PrintBeginScope("\"textures\" : [");
-	for (int i = 0; i < assets->textureCount; ++i)
+	for (int i = 0; i < assets->texturesCount; ++i)
 	{
 		Print(&assets->textures[i]);
 	}
 	PrintEndScope("],");
 
 	PrintBeginScope("\"pipelines\" : [");
-	for (int i = 0; i < assets->pipelineCount; ++i)
+	for (int i = 0; i < assets->pipelinesCount; ++i)
 	{
 		Print(&assets->pipelines[i]);
 	}
 	PrintEndScope("],");
 
 	PrintBeginScope("\"materials\" : [");
-	for (int i = 0; i < assets->materialCount; ++i)
+	for (int i = 0; i < assets->materialsCount; ++i)
 	{
 		Print(&assets->materials[i]);
 	}
 	PrintEndScope("],");
 
 	PrintBeginScope("\"entities\" : [");
-	for (int i = 0; i < assets->entityCount; ++i)
+	for (int i = 0; i < assets->entitiesCount; ++i)
 	{
 		Print(&assets->entities[i]);
 	}

@@ -2478,17 +2478,17 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	}
 #endif
 
-	for (uint i = 0; i < gAssets.pipelineCount; ++i)
+	for (uint i = 0; i < gAssets.pipelinesCount; ++i)
 	{
 		CreatePipeline(gfx, scratch, gAssets.pipelines[i]);
 	}
 
-	for (uint i = 0; i < gAssets.textureCount; ++i)
+	for (uint i = 0; i < gAssets.texturesCount; ++i)
 	{
 		CreateTexture(gfx, gAssets.textures[i]);
 	}
 
-	for (uint i = 0; i < gAssets.materialCount; ++i)
+	for (uint i = 0; i < gAssets.materialsCount; ++i)
 	{
 		CreateMaterial(gfx, gAssets.materials[i]);
 	}
@@ -2700,7 +2700,7 @@ void InitializeScene(Graphics &gfx)
 	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
 	// Entities
-	for (uint i = 0; i < gAssets.entityCount; ++i)
+	for (uint i = 0; i < gAssets.entitiesCount; ++i)
 	{
 		CreateEntity(gfx, gAssets.entities[i]);
 	}
