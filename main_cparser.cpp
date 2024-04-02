@@ -800,7 +800,9 @@ Clon Clon_Read(Arena &arena, const char *text, u64 textSize)
 
 	if ( tokenList.valid )
 	{
+#if 0
 		PrintTokenList(tokenList);
+#endif
 
 		clon = Parse(arena, tokenList);
 	}
@@ -815,6 +817,7 @@ void Clon_Print(const Clon &clon)
 		return;
 	}
 
+#if 0
 	printf("Trivial types:\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
@@ -824,26 +827,60 @@ void Clon_Print(const Clon &clon)
 			printf("- %s\n", "TODO");
 		}
 	}
+#endif
 
-	printf("Structs:\n");
+	// ReflexMember
+	printf("\n");
+	printf("// ReflexMembers\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
 		const ClonType *clonType = Clon_GetType(clon, index);
 		if ( clonType->type == ClonType_Struct )
 		{
 			ClonStruct *clonStruct = clonType->cStruct;
-			char nameStr[128];
-			StrCopy(nameStr, clonStruct->name);
-			printf("- %s:\n", nameStr);
+			char structName[128];
+			char memberName[128];
+			StrCopy(structName, clonStruct->name);
+			printf("static const ReflexMember reflex%sMembers[] = {\n", structName);
 			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
 			{
 				ClonMember *member = &clonStruct->members[fieldIndex];
-				StrCopy(nameStr, member->name);
-				printf("  - %s\n", nameStr);
+				StrCopy(memberName, member->name);
+				printf("  { ");
+				printf(".name = \"%s\", ", memberName);
+				printf("%s, %s, ", "true", "true"); // TODO: const?, pointer?
+				printf(".reflexId = %s, ", "ReflexID_XXX"); // TODO: type?
+				printf(".offset = offsetof(%s, %s) ", structName, memberName);
+				printf(" },\n");
 			}
+			printf("};\n");
 		}
 	}
 
+	// ReflexStruct
+	printf("\n");
+	printf("// ReflexStructs\n");
+	printf("static const ReflexStruct reflexStructs[] =\n");
+	printf("{\n");
+	for (u32 index = 0; index < clon.typeCount; ++index)
+	{
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Struct )
+		{
+			ClonStruct *clonStruct = clonType->cStruct;
+			char structName[128];
+			StrCopy(structName, clonStruct->name);
+			printf("  {\n");
+			printf("    .name = \"%s\"\n", structName);
+			printf("    .members = reflex%sMembers,\n", structName);
+			printf("    .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
+			printf("    .size = sizeof(%s),\n", structName);
+			printf("  },\n");
+		}
+	}
+	printf("};\n");
+
+#if 0
 	printf("Enums:\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
@@ -855,6 +892,10 @@ void Clon_Print(const Clon &clon)
 			printf("- %s\n", nameStr);
 		}
 	}
+#endif
+
+	printf("\n");
+	printf("return reflexStructs[id - ReflexID_Struct];\n");
 }
 
 int main(int argc, char **argv)
