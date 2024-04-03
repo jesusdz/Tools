@@ -1,9 +1,15 @@
 #include "tools.h"
+#include "tools_reflex.h"
 
 //#define MAX_LINE_SIZE KB(1)
 #define MAX_TOKEN_COUNT KB(10)
 #define MAX_TYPE_COUNT 16
 #define MAX_STRUCT_FIELD_COUNT 16
+
+const ReflexStruct* ReflexGetStruct(ReflexID id)
+{
+	return NULL;
+}
 
 enum TokenId
 {
@@ -45,6 +51,9 @@ enum TokenId
 	TOKEN_FALSE,
 	TOKEN_STATIC,
 	TOKEN_CONST,
+	TOKEN_UNSIGNED,
+	TOKEN_SHORT,
+	TOKEN_LONG,
 	TOKEN_BOOL,
 	TOKEN_CHAR,
 	TOKEN_INT,
@@ -97,6 +106,9 @@ const char *TokenIdNames[] =
 	"TOKEN_FALSE",
 	"TOKEN_STATIC",
 	"TOKEN_CONST",
+	"TOKEN_UNSIGNED",
+	"TOKEN_SHORT",
+	"TOKEN_LONG",
 	"TOKEN_BOOL",
 	"TOKEN_CHAR",
 	"TOKEN_INT",
@@ -184,8 +196,10 @@ struct ClonTrivial
 
 struct ClonMember
 {
-	// TODO: Add type info
 	String name;
+	u8 isConst : 1;
+	u8 isPointer : 1;
+	u16 reflexId;
 };
 
 struct ClonStruct
@@ -451,21 +465,24 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				String word = ScannedString(scanner);
 
 				// Keywords // TODO: This keyword search could be much more efficient
-				if      ( StrEq( word, "struct" ) ) AddToken(scanner, tokenList, TOKEN_STRUCT);
-				else if ( StrEq( word, "enum" ) )   AddToken(scanner, tokenList, TOKEN_ENUM);
-				else if ( StrEq( word, "true" ) )   AddToken(scanner, tokenList, TOKEN_TRUE);
-				else if ( StrEq( word, "false" ) )  AddToken(scanner, tokenList, TOKEN_FALSE);
-				else if ( StrEq( word, "static" ) ) AddToken(scanner, tokenList, TOKEN_STATIC);
-				else if ( StrEq( word, "const" ) )  AddToken(scanner, tokenList, TOKEN_CONST);
-				else if ( StrEq( word, "bool" ) )   AddToken(scanner, tokenList, TOKEN_BOOL);
-				else if ( StrEq( word, "char" ) )   AddToken(scanner, tokenList, TOKEN_CHAR);
-				else if ( StrEq( word, "int" ) )    AddToken(scanner, tokenList, TOKEN_INT);
-				else if ( StrEq( word, "float" ) )  AddToken(scanner, tokenList, TOKEN_FLOAT);
-				else if ( StrEq( word, "NULL" ) )   AddToken(scanner, tokenList, TOKEN_NULL);
-				else if ( StrEq( word, "uint" ) )   AddToken(scanner, tokenList, TOKEN_UINT);
-				else if ( StrEq( word, "float3" ) ) AddToken(scanner, tokenList, TOKEN_FLOAT3);
+				if      ( StrEq( word, "struct" ) )   AddToken(scanner, tokenList, TOKEN_STRUCT);
+				else if ( StrEq( word, "enum" ) )     AddToken(scanner, tokenList, TOKEN_ENUM);
+				else if ( StrEq( word, "true" ) )     AddToken(scanner, tokenList, TOKEN_TRUE);
+				else if ( StrEq( word, "false" ) )    AddToken(scanner, tokenList, TOKEN_FALSE);
+				else if ( StrEq( word, "static" ) )   AddToken(scanner, tokenList, TOKEN_STATIC);
+				else if ( StrEq( word, "const" ) )    AddToken(scanner, tokenList, TOKEN_CONST);
+				else if ( StrEq( word, "unsigned" ) ) AddToken(scanner, tokenList, TOKEN_UNSIGNED);
+				else if ( StrEq( word, "short" ) )    AddToken(scanner, tokenList, TOKEN_SHORT);
+				else if ( StrEq( word, "long" ) )     AddToken(scanner, tokenList, TOKEN_LONG);
+				else if ( StrEq( word, "bool" ) )     AddToken(scanner, tokenList, TOKEN_BOOL);
+				else if ( StrEq( word, "char" ) )     AddToken(scanner, tokenList, TOKEN_CHAR);
+				else if ( StrEq( word, "int" ) )      AddToken(scanner, tokenList, TOKEN_INT);
+				else if ( StrEq( word, "float" ) )    AddToken(scanner, tokenList, TOKEN_FLOAT);
+				else if ( StrEq( word, "NULL" ) )     AddToken(scanner, tokenList, TOKEN_NULL);
+				else if ( StrEq( word, "uint" ) )     AddToken(scanner, tokenList, TOKEN_UINT);
+				else if ( StrEq( word, "float3" ) )   AddToken(scanner, tokenList, TOKEN_FLOAT3);
 				else if ( StrEq( word, "ARRAY_COUNT" ) ) AddToken(scanner, tokenList, TOKEN_ARR_COUNT);
-				else                                AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
+				else                                  AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
 			{
@@ -700,29 +717,43 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 {
 	// Parse type
 	const bool isConst = CParser_TryConsume(parser, TOKEN_CONST);
+	const bool isUnsigned = CParser_TryConsume(parser, TOKEN_UNSIGNED);
+	const bool isShort = CParser_TryConsume(parser, TOKEN_SHORT);
+	const bool isLong = CParser_TryConsume(parser, TOKEN_LONG);
+	const bool isLongLong = CParser_TryConsume(parser, TOKEN_LONG);
 
-	if (CParser_TryConsume(parser, TOKEN_BOOL) ||
-		CParser_TryConsume(parser, TOKEN_CHAR) ||
-		CParser_TryConsume(parser, TOKEN_INT) ||
-		CParser_TryConsume(parser, TOKEN_UINT) ||
-		CParser_TryConsume(parser, TOKEN_FLOAT) ||
-		CParser_TryConsume(parser, TOKEN_FLOAT3) ||
-		CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
-	{
-		const bool isPtr = CParser_TryConsume(parser, TOKEN_STAR);
+	const Token &type = CParser_Consume(parser);
+	const bool isBool = type.id == TOKEN_BOOL;
+	const bool isChar = type.id == TOKEN_CHAR;
+	const bool isInt = type.id == TOKEN_INT;
+	ASSERT( isInt || !isUnsigned );
+	const bool isFloat = type.id == TOKEN_FLOAT;
+	const bool isFloat3 = type.id == TOKEN_FLOAT3;
 
-		const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
-		CParser_Consume(parser, TOKEN_SEMICOLON);
+	// TODO: Check it is trivial or identifier
+	ASSERT( type.id == TOKEN_IDENTIFIER || isBool || isChar || isInt || isFloat || isFloat3 );
 
-		ClonMember *member = Clon_AddMember(clonStruct);
-		member->name = identifier.lexeme;
-	}
+	const bool isPointer = CParser_TryConsume(parser, TOKEN_STAR);
+
+	const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
+	CParser_Consume(parser, TOKEN_SEMICOLON);
+
+	ClonMember *member = Clon_AddMember(clonStruct);
+	member->name = identifier.lexeme;
+	member->isConst = isConst;
+	member->isPointer = isPointer;
+
+	if ( isBool ) member->reflexId = ReflexID_Bool;
+	else if ( isChar ) member->reflexId = ReflexID_Char;
+	else if ( isInt && !isUnsigned ) member->reflexId = ReflexID_Int;
+	else if ( isInt && isUnsigned ) member->reflexId = ReflexID_UInt;
+	else if ( isFloat ) member->reflexId = ReflexID_Float;
+	else if ( isFloat3 ) member->reflexId = ReflexID_Float3;
 	else
 	{
-		// Invalid syntax
-		CParser_Consume(parser);
+		ASSERT( type.id == TOKEN_IDENTIFIER );
+		member->reflexId = ReflexID_Struct + 0; // TODO
 	}
-
 }
 
 void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
@@ -829,37 +860,10 @@ void Clon_Print(const Clon &clon)
 #endif
 
 	// ReflexMember
+	bool firstValueInEnum = true;
 	printf("\n");
-	printf("// ReflexMembers\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
-	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Struct )
-		{
-			ClonStruct *clonStruct = clonType->cStruct;
-			char structName[128];
-			char memberName[128];
-			StrCopy(structName, clonStruct->name);
-			printf("static const ReflexMember reflex%sMembers[] = {\n", structName);
-			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
-			{
-				ClonMember *member = &clonStruct->members[fieldIndex];
-				StrCopy(memberName, member->name);
-				printf("  { ");
-				printf(".name = \"%s\", ", memberName);
-				printf("%s, %s, ", "true", "true"); // TODO: const?, pointer?
-				printf(".reflexId = %s, ", "ReflexID_XXX"); // TODO: type?
-				printf(".offset = offsetof(%s, %s) ", structName, memberName);
-				printf(" },\n");
-			}
-			printf("};\n");
-		}
-	}
-
-	// ReflexStruct
-	printf("\n");
-	printf("// ReflexStructs\n");
-	printf("static const ReflexStruct reflexStructs[] =\n");
+	printf("// IDs\n");
+	printf("enum\n");
 	printf("{\n");
 	for (u32 index = 0; index < clon.typeCount; ++index)
 	{
@@ -869,15 +873,71 @@ void Clon_Print(const Clon &clon)
 			ClonStruct *clonStruct = clonType->cStruct;
 			char structName[128];
 			StrCopy(structName, clonStruct->name);
-			printf("  {\n");
-			printf("    .name = \"%s\"\n", structName);
-			printf("    .members = reflex%sMembers,\n", structName);
-			printf("    .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
-			printf("    .size = sizeof(%s),\n", structName);
-			printf("  },\n");
+			printf("  ReflexID_%s", structName);
+			printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
+			printf(",\n");
+			firstValueInEnum = false;
 		}
 	}
-	printf("};\n");
+	printf("}\n");
+
+	// ReflexGetStruct function
+	printf("\n");
+	printf("const ReflexStruct* ReflexGetStruct(ReflexID id)\n");
+	printf("{\n");
+	printf("  ASSERT(ReflexIsStruct(id);)\n");
+
+	// ReflexMember
+	printf("\n");
+	printf("  // ReflexMembers\n");
+	for (u32 index = 0; index < clon.typeCount; ++index)
+	{
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Struct )
+		{
+			ClonStruct *clonStruct = clonType->cStruct;
+			char structName[128];
+			char memberName[128];
+			StrCopy(structName, clonStruct->name);
+			printf("  static const ReflexMember reflex%sMembers[] = {\n", structName);
+			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
+			{
+				ClonMember *member = &clonStruct->members[fieldIndex];
+				StrCopy(memberName, member->name);
+				printf("    { ");
+				printf(".name = \"%s\", ", memberName);
+				printf(".isConst = %s, ", member->isConst ? "true" : "false");
+				printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
+				printf(".reflexId = %s, ", "ReflexID_XXX"); // TODO: type?
+				printf(".offset = offsetof(%s, %s) ", structName, memberName);
+				printf(" },\n");
+			}
+			printf("  };\n");
+		}
+	}
+
+	// ReflexStruct
+	printf("\n");
+	printf("  // ReflexStructs\n");
+	printf("  static const ReflexStruct reflexStructs[] =\n");
+	printf("  {\n");
+	for (u32 index = 0; index < clon.typeCount; ++index)
+	{
+		const ClonType *clonType = Clon_GetType(clon, index);
+		if ( clonType->type == ClonType_Struct )
+		{
+			ClonStruct *clonStruct = clonType->cStruct;
+			char structName[128];
+			StrCopy(structName, clonStruct->name);
+			printf("    {\n");
+			printf("      .name = \"%s\"\n", structName);
+			printf("      .members = reflex%sMembers,\n", structName);
+			printf("      .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
+			printf("      .size = sizeof(%s),\n", structName);
+			printf("    },\n");
+		}
+	}
+	printf("  };\n");
 
 #if 0
 	printf("Enums:\n");
@@ -893,8 +953,9 @@ void Clon_Print(const Clon &clon)
 	}
 #endif
 
-	printf("\n");
-	printf("return reflexStructs[id - ReflexID_Struct];\n");
+	printf("  \n");
+	printf("  return &reflexStructs[id - ReflexID_Struct];\n");
+	printf("}\n");
 }
 
 int main(int argc, char **argv)

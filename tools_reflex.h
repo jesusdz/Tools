@@ -10,6 +10,8 @@ typedef u16 ReflexID;
 
 enum // ReflexID
 {
+	ReflexID_Char,
+	ReflexID_Bool,
 	ReflexID_Int,
 	ReflexID_UInt,
 	ReflexID_Float,
@@ -17,18 +19,33 @@ enum // ReflexID
 	ReflexID_String,
 	ReflexID_Struct,
 	ReflexID_COUNT,
-	ReflexID_TrivialFirst = ReflexID_Int,
+	ReflexID_TrivialFirst = ReflexID_Char,
 	ReflexID_TrivialLast = ReflexID_String,
+	ReflexID_TrivialCount = ReflexID_TrivialLast - ReflexID_TrivialFirst + 1,
 };
 
 struct ReflexTrivial
 {
 	u8 isBool : 1;
+	u8 isChar : 1;
 	u8 isFloat : 1;
 	u8 isUnsigned : 1; // !bool and !float
 	u8 isString : 1;
 	u8 size : 5;
 	u8 elemCount;
+};
+
+struct ReflexEnumerator
+{
+	const char *name;
+	u16 value;
+};
+
+struct ReflexEnum
+{
+	const char *name;
+	const ReflexEnumerator *enumerators;
+	u16 enumeratorCount;
 };
 
 struct ReflexMember
@@ -80,12 +97,15 @@ const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 {
 	ASSERT(ReflexIsTrivial(id));
 	static const ReflexTrivial trivials[] = {
-		{ .isBool = 0, .isFloat = 0, .isUnsigned = 0, .isString = 0, .size = 4, .elemCount = 1 },
-		{ .isBool = 0, .isFloat = 0, .isUnsigned = 1, .isString = 0, .size = 4, .elemCount = 1 },
-		{ .isBool = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .size = 4, .elemCount = 1 },
-		{ .isBool = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .size = 4, .elemCount = 3 },
-		{ .isBool = 0, .isFloat = 0, .isUnsigned = 0, .isString = 1, .size = 4, .elemCount = 1 },
+		{ .isBool = 1, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .isString = 0, .size = sizeof(bool), .elemCount = 1 },
+		{ .isBool = 0, .isChar = 1, .isFloat = 0, .isUnsigned = 0, .isString = 0, .size = sizeof(char), .elemCount = 1 },
+		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .isString = 0, .size = sizeof(int), .elemCount = 1 },
+		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 1, .isString = 0, .size = sizeof(unsigned int), .elemCount = 1 },
+		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .size = sizeof(float), .elemCount = 1 },
+		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .isString = 0, .size = sizeof(float), .elemCount = 3 },
+		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .isString = 1, .size = 4, .elemCount = 1 },
 	};
+	CT_ASSERT(ARRAY_COUNT(trivials) == ReflexID_TrivialCount);
 	return &trivials[id];
 }
 

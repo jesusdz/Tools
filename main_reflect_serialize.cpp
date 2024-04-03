@@ -146,6 +146,7 @@ void Print(const void *data, const ReflexID id)
 
 			const char *sVal = (const char *)data;
 			const bool bVal = *((bool*)data + i);
+			const char cVal = *((char*)data + i);
 			const i32 iVal = *((i32*)data + i);
 			const u32 uVal = *((u32*)data + i);
 			const float fVal = *((float*)data + i);
@@ -154,6 +155,8 @@ void Print(const void *data, const ReflexID id)
 				Printf("\"%s\"", sVal);
 			} else if (trivial->isBool) {
 				Printf("%d", bVal ? 1 : 0);
+			} else if (trivial->isChar) {
+				Printf("%c", cVal);
 			} else if (trivial->isFloat) {
 				Printf("%f", fVal);
 			} else if (trivial->isUnsigned) {
