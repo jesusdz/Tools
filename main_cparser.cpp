@@ -59,7 +59,6 @@ enum TokenId
 	TOKEN_INT,
 	TOKEN_FLOAT,
 	TOKEN_NULL, // ad-hoc value
-	TOKEN_UINT, // ad-hoc type
 	TOKEN_FLOAT3, // ad-hoc type
 	TOKEN_ARR_COUNT, // ad-hoc macro
 	TOKEN_EOF,
@@ -114,7 +113,6 @@ const char *TokenIdNames[] =
 	"TOKEN_INT",
 	"TOKEN_FLOAT",
 	"TOKEN_NULL",
-	"TOKEN_UINT",
 	"TOKEN_FLOAT3",
 	"TOKEN_ARR_COUNT",
 	"TOKEN_EOF",
@@ -479,7 +477,6 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				else if ( StrEq( word, "int" ) )      AddToken(scanner, tokenList, TOKEN_INT);
 				else if ( StrEq( word, "float" ) )    AddToken(scanner, tokenList, TOKEN_FLOAT);
 				else if ( StrEq( word, "NULL" ) )     AddToken(scanner, tokenList, TOKEN_NULL);
-				else if ( StrEq( word, "uint" ) )     AddToken(scanner, tokenList, TOKEN_UINT);
 				else if ( StrEq( word, "float3" ) )   AddToken(scanner, tokenList, TOKEN_FLOAT3);
 				else if ( StrEq( word, "ARRAY_COUNT" ) ) AddToken(scanner, tokenList, TOKEN_ARR_COUNT);
 				else                                  AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
