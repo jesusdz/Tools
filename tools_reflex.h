@@ -112,11 +112,11 @@ u32 ReflexGetTypeSize(ReflexID id)
 
 u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const char *memberName )
 {
-	for (uint i = 0; i < rstruct->memberCount; ++i)
+	for (u32 i = 0; i < rstruct->memberCount; ++i)
 	{
 		const ReflexMember *member = &rstruct->members[i];
 		const bool isPointer = member->isPointer;
-		const uint reflexId = member->reflexId;
+		const u32 reflexId = member->reflexId;
 
 		if ( !isPointer && reflexId == ReflexID_UInt )
 		{

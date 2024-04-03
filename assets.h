@@ -42,16 +42,16 @@ struct EntityDesc
 struct Assets
 {
 	const TextureDesc *textures;
-	uint texturesCount;
+	u32 texturesCount;
 
 	const PipelineDesc *pipelines;
-	uint pipelinesCount;
+	u32 pipelinesCount;
 
 	const MaterialDesc *materials;
-	uint materialsCount;
+	u32 materialsCount;
 
 	const EntityDesc *entities;
-	uint entitiesCount;
+	u32 entitiesCount;
 };
 
 

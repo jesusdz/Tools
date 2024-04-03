@@ -53,36 +53,36 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 	ASSERT(ReflexIsStruct(id));
 
 	static const ReflexMember reflexTextureDescMembers[] = {
-		{ .name = "name", true, true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, name) },
-		{ .name = "filename", true, true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, filename) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, name) },
+		{ .name = "filename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, filename) },
 	};
 	static const ReflexMember reflexPipelineDescMembers[] = {
-		{ .name = "name", true, true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, name) },
-		{ .name = "vsFilename", true, true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, vsFilename) },
-		{ .name = "fsFilename", true, true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, fsFilename) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, name) },
+		{ .name = "vsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, vsFilename) },
+		{ .name = "fsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, fsFilename) },
 	};
 	static const ReflexMember reflexMaterialDescMembers[] = {
-		{ .name = "name", true, true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, name) },
-		{ .name = "textureName", true, true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, textureName) },
-		{ .name = "pipelineName", true, true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, pipelineName) },
-		{ .name = "uvScale", false, false, .reflexId = ReflexID_Float, .offset = offsetof(MaterialDesc, uvScale) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, name) },
+		{ .name = "textureName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, textureName) },
+		{ .name = "pipelineName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, pipelineName) },
+		{ .name = "uvScale", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(MaterialDesc, uvScale) },
 	};
 	static const ReflexMember reflexEntityDescMembers[] = {
-		{ .name = "name", true, true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, name) },
-		{ .name = "materialName", true, true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, materialName) },
-		{ .name = "pos", false, false, .reflexId = ReflexID_Float3, .offset = offsetof(EntityDesc, pos) },
-		{ .name = "scale", false, false, .reflexId = ReflexID_Float, .offset = offsetof(EntityDesc, scale) },
-		{ .name = "geometryType", false, false, .reflexId = ReflexID_Int, .offset = offsetof(EntityDesc, geometryType) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, name) },
+		{ .name = "materialName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, materialName) },
+		{ .name = "pos", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float3, .offset = offsetof(EntityDesc, pos) },
+		{ .name = "scale", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(EntityDesc, scale) },
+		{ .name = "geometryType", .isConst = false, .isPointer = false, .reflexId = ReflexID_Int, .offset = offsetof(EntityDesc, geometryType) },
 	};
 	static const ReflexMember reflexAssetsMembers[] = {
-		{ .name = "textures", true, true, .reflexId = ReflexID_TextureDesc, .offset = offsetof(Assets, textures) },
-		{ .name = "texturesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, texturesCount) },
-		{ .name = "pipelines", true, true, .reflexId = ReflexID_PipelineDesc, .offset = offsetof(Assets, pipelines) },
-		{ .name = "pipelinesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, pipelinesCount) },
-		{ .name = "materials", true, true, .reflexId = ReflexID_MaterialDesc, .offset = offsetof(Assets, materials) },
-		{ .name = "materialsCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, materialsCount) },
-		{ .name = "entities", true, true, .reflexId = ReflexID_EntityDesc, .offset = offsetof(Assets, entities) },
-		{ .name = "entitiesCount", false, false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, entitiesCount) },
+		{ .name = "textures", .isConst = true, .isPointer = true, .reflexId = ReflexID_TextureDesc, .offset = offsetof(Assets, textures) },
+		{ .name = "texturesCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, texturesCount) },
+		{ .name = "pipelines", .isConst = true, .isPointer = true, .reflexId = ReflexID_PipelineDesc, .offset = offsetof(Assets, pipelines) },
+		{ .name = "pipelinesCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, pipelinesCount) },
+		{ .name = "materials", .isConst = true, .isPointer = true, .reflexId = ReflexID_MaterialDesc, .offset = offsetof(Assets, materials) },
+		{ .name = "materialsCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, materialsCount) },
+		{ .name = "entities", .isConst = true, .isPointer = true, .reflexId = ReflexID_EntityDesc, .offset = offsetof(Assets, entities) },
+		{ .name = "entitiesCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, entitiesCount) },
 	};
 	static const ReflexStruct reflexTextureDesc = {
 		.name = "TextureDesc",
@@ -132,13 +132,13 @@ void Print(const void *data, const ReflexID id)
 	if (ReflexIsTrivial(id))
 	{
 		const ReflexTrivial *trivial = ReflexGetTrivial(id);
-		const uint elemCount = trivial->elemCount;
+		const u32 elemCount = trivial->elemCount;
 
 		if (elemCount > 1) {
 			Printf("[");
 		}
 
-		for (uint i = 0; i < elemCount; ++i)
+		for (u32 i = 0; i < elemCount; ++i)
 		{
 			if (i > 0) {
 				Printf(", ");
@@ -174,7 +174,7 @@ void Print(const void *data, const ReflexID id)
 		PrintBeginScope("{");
 		PrintNewLine();
 
-		for (uint i = 0; i < rstruct->memberCount; ++i)
+		for (u32 i = 0; i < rstruct->memberCount; ++i)
 		{
 			const ReflexMember *member = &rstruct->members[i];
 			const void *structPtr = data;

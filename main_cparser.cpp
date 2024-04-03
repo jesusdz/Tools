@@ -106,7 +106,6 @@ const char *TokenIdNames[] =
 	"TOKEN_FLOAT3",
 	"TOKEN_ARR_COUNT",
 	"TOKEN_EOF",
-	"TOKEN_COUNT",
 };
 
 CT_ASSERT(ARRAY_COUNT(TokenIdNames) == TOKEN_COUNT);
@@ -507,8 +506,8 @@ void PrintTokenList(const TokenList &tokenList)
 	for (u32 i = 0; i < tokenList.count; ++i)
 	{
 		const Token& token = tokenList.tokens[i];
-		const size_t tokenIdLen = strlen(TokenIdNames[token.id]);
-		const size_t paddingSize = 32 - tokenIdLen;
+		const int tokenIdLen = strlen(TokenIdNames[token.id]);
+		const int paddingSize = 32 - tokenIdLen;
 		printf("%s:%.*s%.*s\n", TokenIdNames[token.id], paddingSize, paddingStr, token.lexeme.size, token.lexeme.str);
 	}
 }
