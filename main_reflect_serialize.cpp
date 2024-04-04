@@ -41,7 +41,8 @@ static const char *Indentation()
 
 enum
 {
-	ReflexID_TextureDesc = ReflexID_Struct,
+	ReflexID_float3 = ReflexID_Struct,
+	ReflexID_TextureDesc,
 	ReflexID_PipelineDesc,
 	ReflexID_MaterialDesc,
 	ReflexID_EntityDesc,
@@ -52,6 +53,11 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 {
 	ASSERT(ReflexIsStruct(id));
 
+	static const ReflexMember reflexfloat3Members[] = {
+		{ .name = "x", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(float3, x) },
+		{ .name = "y", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(float3, y) },
+		{ .name = "z", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(float3, z) },
+	};
 	static const ReflexMember reflexTextureDescMembers[] = {
 		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(TextureDesc, name) },
 		{ .name = "filename", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(TextureDesc, filename) },
@@ -70,7 +76,7 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 	static const ReflexMember reflexEntityDescMembers[] = {
 		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(EntityDesc, name) },
 		{ .name = "materialName", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(EntityDesc, materialName) },
-		{ .name = "pos", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float3, .offset = offsetof(EntityDesc, pos) },
+		{ .name = "pos", .isConst = false, .isPointer = false, .reflexId = ReflexID_float3, .offset = offsetof(EntityDesc, pos) },
 		{ .name = "scale", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(EntityDesc, scale) },
 		{ .name = "geometryType", .isConst = false, .isPointer = false, .reflexId = ReflexID_Int, .offset = offsetof(EntityDesc, geometryType) },
 	};
@@ -83,6 +89,12 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 		{ .name = "materialsCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, materialsCount) },
 		{ .name = "entities", .isConst = true, .isPointer = true, .reflexId = ReflexID_EntityDesc, .offset = offsetof(Assets, entities) },
 		{ .name = "entitiesCount", .isConst = false, .isPointer = false, .reflexId = ReflexID_UInt, .offset = offsetof(Assets, entitiesCount) },
+	};
+	static const ReflexStruct reflexfloat3 = {
+		.name = "float3",
+		.members = reflexfloat3Members,
+		.memberCount = ARRAY_COUNT(reflexfloat3Members),
+		.size = sizeof(float3),
 	};
 	static const ReflexStruct reflexTextureDesc = {
 		.name = "TextureDesc",
@@ -117,6 +129,7 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 
 	static const ReflexStruct *reflections[] =
 	{
+		&reflexfloat3,
 		&reflexTextureDesc,
 		&reflexPipelineDesc,
 		&reflexMaterialDesc,
@@ -132,17 +145,18 @@ void Print(const void *data, const ReflexID id, bool isPointer)
 	if (ReflexIsTrivial(id))
 	{
 		const ReflexTrivial *trivial = ReflexGetTrivial(id);
-		const u32 elemCount = trivial->elemCount;
+		//const u32 elemCount = trivial->elemCount;
 
-		if (elemCount > 1) {
-			Printf("[");
-		}
+		//if (elemCount > 1) {
+		//	Printf("[");
+		//}
 
-		for (u32 i = 0; i < elemCount; ++i)
-		{
-			if (i > 0) {
-				Printf(", ");
-			}
+		//for (u32 i = 0; i < elemCount; ++i)
+		//{
+		//	if (i > 0) {
+		//		Printf(", ");
+		//	}
+			const u32 i = 0;
 
 			const char *sVal = (const char *)data;
 			const bool bVal = *((bool*)data + i);
@@ -156,7 +170,7 @@ void Print(const void *data, const ReflexID id, bool isPointer)
 			} else if (trivial->isChar) {
 				if ( isPointer )
 				{
-					Printf("\"caca%s\"", sVal);
+					Printf("\"%s\"", sVal);
 				}
 				else
 				{
@@ -169,11 +183,11 @@ void Print(const void *data, const ReflexID id, bool isPointer)
 			} else {
 				Printf("%d", iVal);
 			}
-		}
+		//}
 
-		if (elemCount > 1) {
-			Printf("]");
-		}
+		//if (elemCount > 1) {
+		//	Printf("]");
+		//}
 	}
 	else if (ReflexIsStruct(id))
 	{

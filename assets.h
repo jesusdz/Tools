@@ -3,6 +3,10 @@
 
 // Descriptor type definitions
 
+#if 0 // Types to be parsed for C reflection
+struct float3 { float x; float y; float z; };
+#endif
+
 struct TextureDesc
 {
 	const char *name;

@@ -59,7 +59,6 @@ enum TokenId
 	TOKEN_INT,
 	TOKEN_FLOAT,
 	TOKEN_NULL, // ad-hoc value
-	TOKEN_FLOAT3, // ad-hoc type
 	TOKEN_ARR_COUNT, // ad-hoc macro
 	TOKEN_EOF,
 	TOKEN_COUNT,
@@ -113,7 +112,6 @@ const char *TokenIdNames[] =
 	"TOKEN_INT",
 	"TOKEN_FLOAT",
 	"TOKEN_NULL",
-	"TOKEN_FLOAT3",
 	"TOKEN_ARR_COUNT",
 	"TOKEN_EOF",
 };
@@ -477,7 +475,6 @@ void ScanToken(CScanner &scanner, TokenList &tokenList)
 				else if ( StrEq( word, "int" ) )      AddToken(scanner, tokenList, TOKEN_INT);
 				else if ( StrEq( word, "float" ) )    AddToken(scanner, tokenList, TOKEN_FLOAT);
 				else if ( StrEq( word, "NULL" ) )     AddToken(scanner, tokenList, TOKEN_NULL);
-				else if ( StrEq( word, "float3" ) )   AddToken(scanner, tokenList, TOKEN_FLOAT3);
 				else if ( StrEq( word, "ARRAY_COUNT" ) ) AddToken(scanner, tokenList, TOKEN_ARR_COUNT);
 				else                                  AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
@@ -719,8 +716,6 @@ const char *CParser_GetTypeName(ReflexID id)
 		case ReflexID_Int: return "ReflexID_Int";
 		case ReflexID_UInt: return "ReflexID_UInt";
 		case ReflexID_Float: return "ReflexID_Float";
-		case ReflexID_Float3: return "ReflexID_Float3";
-		case ReflexID_String: return "ReflexID_String";
 		default:
 		{
 			return "ReflexID_Struct";
@@ -743,10 +738,9 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	const bool isInt = type.id == TOKEN_INT;
 	ASSERT( isInt || !isUnsigned );
 	const bool isFloat = type.id == TOKEN_FLOAT;
-	const bool isFloat3 = type.id == TOKEN_FLOAT3;
 
 	// TODO: Check it is trivial or identifier
-	ASSERT( type.id == TOKEN_IDENTIFIER || isBool || isChar || isInt || isFloat || isFloat3 );
+	ASSERT( type.id == TOKEN_IDENTIFIER || isBool || isChar || isInt || isFloat );
 
 	const bool isPointer = CParser_TryConsume(parser, TOKEN_STAR);
 
@@ -763,7 +757,6 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	else if ( isInt && !isUnsigned ) member->reflexId = ReflexID_Int;
 	else if ( isInt && isUnsigned ) member->reflexId = ReflexID_UInt;
 	else if ( isFloat ) member->reflexId = ReflexID_Float;
-	else if ( isFloat3 ) member->reflexId = ReflexID_Float3;
 	else
 	{
 		ASSERT( type.id == TOKEN_IDENTIFIER );

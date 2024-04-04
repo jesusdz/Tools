@@ -15,12 +15,10 @@ enum // ReflexID
 	ReflexID_Int,
 	ReflexID_UInt,
 	ReflexID_Float,
-	ReflexID_Float3,
-	ReflexID_String,
 	ReflexID_Struct,
 	ReflexID_COUNT,
 	ReflexID_TrivialFirst = ReflexID_Bool,
-	ReflexID_TrivialLast = ReflexID_String,
+	ReflexID_TrivialLast = ReflexID_Float,
 	ReflexID_TrivialCount = ReflexID_TrivialLast - ReflexID_TrivialFirst + 1,
 };
 
@@ -31,7 +29,6 @@ struct ReflexTrivial
 	u8 isFloat : 1;
 	u8 isUnsigned : 1; // !bool and !float
 	u8 size : 5;
-	u8 elemCount;
 };
 
 struct ReflexEnumerator
@@ -96,13 +93,11 @@ const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 {
 	ASSERT(ReflexIsTrivial(id));
 	static const ReflexTrivial trivials[] = {
-		{ .isBool = 1, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(bool), .elemCount = 1 },
-		{ .isBool = 0, .isChar = 1, .isFloat = 0, .isUnsigned = 0, .size = sizeof(char), .elemCount = 1 },
-		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(int), .elemCount = 1 },
-		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 1, .size = sizeof(unsigned int), .elemCount = 1 },
-		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .size = sizeof(float), .elemCount = 1 },
-		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .size = sizeof(float), .elemCount = 3 },
-		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = 4, .elemCount = 1 },
+		{ .isBool = 1, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(bool) },
+		{ .isBool = 0, .isChar = 1, .isFloat = 0, .isUnsigned = 0, .size = sizeof(char) },
+		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(int) },
+		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 1, .size = sizeof(unsigned int) },
+		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .size = sizeof(float) },
 	};
 	CT_ASSERT(ARRAY_COUNT(trivials) == ReflexID_TrivialCount);
 	return &trivials[id];
@@ -113,7 +108,7 @@ u32 ReflexGetTypeSize(ReflexID id)
 	if (ReflexIsTrivial(id))
 	{
 		const ReflexTrivial *trivial = ReflexGetTrivial(id);
-		const u32 size = trivial->size * trivial->elemCount;
+		const u32 size = trivial->size;
 		return size;
 	}
 	else if (ReflexIsStruct(id))
