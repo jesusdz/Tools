@@ -176,20 +176,6 @@ struct CParser
 	bool hasFinished;
 };
 
-enum ClonTrivialEnum
-{
-	ClonTrivial_Bool,
-	ClonTrivial_Int,
-	ClonTrivial_Uint,
-	ClonTrivial_Float,
-	ClonTrivial_COUNT,
-};
-
-struct ClonTrivial
-{
-	ClonTrivialEnum type;
-};
-
 struct ClonMember
 {
 	String name;
@@ -202,38 +188,25 @@ struct ClonStruct
 {
 	String name;
 	ClonMember members[MAX_STRUCT_FIELD_COUNT];
-	u32 memberCount;
+	u16 memberCount;
+	u16 index;
 };
 
 struct ClonEnum
 {
 	String name;
-};
-
-enum ClonTypeEnum
-{
-	ClonType_Trivial,
-	ClonType_Struct,
-	ClonType_Enum,
-	ClonType_COUNT,
-};
-
-struct ClonType
-{
-	ClonTypeEnum type;
-	union
-	{
-		ClonTrivial *cTrivial;
-		ClonStruct *cStruct;
-		ClonEnum *cEnum;
-	};
+	u16 index;
 };
 
 struct Clon
 {
-	ClonType types[MAX_TYPE_COUNT];
-	u32 typeCount;
 	bool valid;
+
+	ClonStruct structs[MAX_TYPE_COUNT];
+	u16 structCount;
+
+	ClonEnum enums[MAX_TYPE_COUNT];
+	u16 enumCount;
 };
 
 
@@ -526,69 +499,56 @@ void PrintTokenList(const TokenList &tokenList)
 ////////////////////////////////////////////////////////////////////////
 // Clon structure
 
-ClonType *Clon_CreateType(Clon &clon)
+ClonStruct *Clon_CreateStruct(Clon &clon)
 {
-	ASSERT(clon.typeCount < ARRAY_COUNT(clon.types));
-	ClonType *clonType = &clon.types[clon.typeCount++];
-	return clonType;
-}
-
-const ClonType *Clon_GetType(const Clon &clon, u32 index)
-{
-	ASSERT(index < clon.typeCount);
-	const ClonType *clonType = &clon.types[index];
-	return clonType;
-}
-
-ClonTrivial *Clon_CreateTrivial(Clon &clon, Arena &arena)
-{
-	ClonTrivial *clonSubtype = PushZeroStruct(arena, ClonTrivial);
-	ClonType *clonType = Clon_CreateType(clon);
-	clonType->type = ClonType_Trivial;
-	clonType->cTrivial = clonSubtype;
-	return clonSubtype;
-}
-
-const ClonTrivial *Clon_GetTrivial(const Clon &clon, u32 index)
-{
-	const ClonType *clonType = Clon_GetType(clon, index);
-	ASSERT(clonType->type == ClonType_Trivial);
-	const ClonTrivial *clonSubtype = clonType->cTrivial;
-	return clonSubtype;
-}
-
-ClonStruct *Clon_CreateStruct(Clon &clon, Arena &arena)
-{
-	ClonStruct *clonSubtype = PushZeroStruct(arena, ClonStruct);
-	ClonType *clonType = Clon_CreateType(clon);
-	clonType->type = ClonType_Struct;
-	clonType->cStruct = clonSubtype;
-	return clonSubtype;
+	ASSERT(clon.structCount < ARRAY_COUNT(clon.structs));
+	ClonStruct *clonStruct = &clon.structs[clon.structCount];
+	clonStruct->index = clon.structCount++;
+	return clonStruct;
 }
 
 const ClonStruct *Clon_GetStruct(const Clon &clon, u32 index)
 {
-	const ClonType *clonType = Clon_GetType(clon, index);
-	ASSERT(clonType->type == ClonType_Struct);
-	const ClonStruct *clonSubtype = clonType->cStruct;
-	return clonSubtype;
+	ASSERT(index < clon.structCount);
+	const ClonStruct *clonStruct = &clon.structs[index];
+	return clonStruct;
+}
+
+const ClonStruct *Clon_FindStructWithName(const Clon &clon, String name)
+{
+	for (u32 i = 0; i < clon.structCount; ++i) {
+		const ClonStruct *clonStruct = &clon.structs[i];
+		if ( StrEq(clonStruct->name, name) ) {
+			return clonStruct;
+		}
+	}
+	return 0;
 }
 
 ClonEnum *Clon_CreateEnum(Clon &clon, Arena &arena)
 {
-	ClonEnum *clonSubtype = PushZeroStruct(arena, ClonEnum);
-	ClonType *clonType = Clon_CreateType(clon);
-	clonType->type = ClonType_Enum;
-	clonType->cEnum = clonSubtype;
-	return clonSubtype;
+	ASSERT(clon.enumCount < ARRAY_COUNT(clon.enums));
+	ClonEnum *clonEnum = &clon.enums[clon.enumCount];
+	clonEnum->index = clon.enumCount++;
+	return clonEnum;
 }
 
 const ClonEnum *Clon_GetEnum(const Clon &clon, u32 index)
 {
-	const ClonType *clonType = Clon_GetType(clon, index);
-	ASSERT(clonType->type == ClonType_Enum);
-	const ClonEnum *clonSubtype = clonType->cEnum;
-	return clonSubtype;
+	ASSERT(index < clon.enumCount);
+	const ClonEnum *clonEnum = &clon.enums[index];
+	return clonEnum;
+}
+
+const ClonEnum *Clon_FindEnumWithName(const Clon &clon, String name)
+{
+	for (u32 i = 0; i < clon.enumCount; ++i) {
+		const ClonEnum *clonEnum = &clon.enums[i];
+		if ( StrEq(clonEnum->name, name) ) {
+			return clonEnum;
+		}
+	}
+	return 0;
 }
 
 ClonMember *Clon_AddMember(ClonStruct *clonStruct)
@@ -596,6 +556,27 @@ ClonMember *Clon_AddMember(ClonStruct *clonStruct)
 	ASSERT(clonStruct->memberCount < MAX_STRUCT_FIELD_COUNT);
 	ClonMember *member = &clonStruct->members[clonStruct->memberCount++];
 	return member;
+}
+
+const char *Clon_GetTypeName(const Clon &clon, ReflexID id)
+{
+	switch (id)
+	{
+		case ReflexID_Bool: return "ReflexID_Bool";
+		case ReflexID_Char: return "ReflexID_Char";
+		case ReflexID_Int: return "ReflexID_Int";
+		case ReflexID_UInt: return "ReflexID_UInt";
+		case ReflexID_Float: return "ReflexID_Float";
+		default:
+		{
+			static char typeName[128];
+			const u16 index = id - ReflexID_Struct;
+			const ClonStruct *clonStruct = Clon_GetStruct(clon, index);
+			StrCopy(typeName, "ReflexID_");
+			StrCat(typeName, clonStruct->name);
+			return typeName;
+		}
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -707,22 +688,6 @@ bool CParser_TryConsume( CParser &parser, TokenId tokenId0, TokenId tokenId1, To
 	return false;
 }
 
-const char *CParser_GetTypeName(ReflexID id)
-{
-	switch (id)
-	{
-		case ReflexID_Bool: return "ReflexID_Bool";
-		case ReflexID_Char: return "ReflexID_Char";
-		case ReflexID_Int: return "ReflexID_Int";
-		case ReflexID_UInt: return "ReflexID_UInt";
-		case ReflexID_Float: return "ReflexID_Float";
-		default:
-		{
-			return "ReflexID_Struct";
-		}
-	}
-}
-
 void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Arena &arena)
 {
 	// Parse type
@@ -736,11 +701,11 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	const bool isBool = type.id == TOKEN_BOOL;
 	const bool isChar = type.id == TOKEN_CHAR;
 	const bool isInt = type.id == TOKEN_INT;
-	ASSERT( isInt || !isUnsigned );
 	const bool isFloat = type.id == TOKEN_FLOAT;
+	const bool isIdent = type.id == TOKEN_IDENTIFIER;
+	ASSERT( !isUnsigned || isInt );
 
-	// TODO: Check it is trivial or identifier
-	ASSERT( type.id == TOKEN_IDENTIFIER || isBool || isChar || isInt || isFloat );
+	ASSERT( isIdent || isBool || isChar || isInt || isFloat );
 
 	const bool isPointer = CParser_TryConsume(parser, TOKEN_STAR);
 
@@ -757,16 +722,26 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	else if ( isInt && !isUnsigned ) member->reflexId = ReflexID_Int;
 	else if ( isInt && isUnsigned ) member->reflexId = ReflexID_UInt;
 	else if ( isFloat ) member->reflexId = ReflexID_Float;
-	else
+	else // isIdent
 	{
 		ASSERT( type.id == TOKEN_IDENTIFIER );
-		member->reflexId = ReflexID_Struct + 0; // TODO
+		const ClonStruct *clonStruct = Clon_FindStructWithName(clon, type.lexeme);
+		if (clonStruct) {
+			member->reflexId = ReflexID_Struct + clonStruct->index;
+		} else {
+			const ClonEnum *clonEnum = Clon_FindEnumWithName(clon, type.lexeme);
+			if (clonEnum) {
+				member->reflexId = ReflexID_Int; // TODO: Enums need to have more information than this
+			} else {
+				INVALID_CODE_PATH();
+			}
+		}
 	}
 }
 
 void CParser_ParseStruct(CParser &parser, Clon &clon, Arena &arena)
 {
-	ClonStruct *clonStruct = Clon_CreateStruct(clon, arena);
+	ClonStruct *clonStruct = Clon_CreateStruct(clon);
 	clonStruct->name = CParser_GetNextToken( parser ).lexeme;
 
 	CParser_Consume( parser, TOKEN_IDENTIFIER );
@@ -855,37 +830,21 @@ void Clon_Print(const Clon &clon)
 		return;
 	}
 
-#if 0
-	printf("Trivial types:\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
-	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Trivial )
-		{
-			printf("- %s\n", "TODO");
-		}
-	}
-#endif
-
 	// ReflexMember
 	bool firstValueInEnum = true;
 	printf("\n");
 	printf("// IDs\n");
 	printf("enum\n");
 	printf("{\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
+	for (u32 index = 0; index < clon.structCount; ++index)
 	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Struct )
-		{
-			ClonStruct *clonStruct = clonType->cStruct;
-			char structName[128];
-			StrCopy(structName, clonStruct->name);
-			printf("  ReflexID_%s", structName);
-			printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
-			printf(",\n");
-			firstValueInEnum = false;
-		}
+		const ClonStruct *clonStruct = Clon_GetStruct(clon, index);
+		char structName[128];
+		StrCopy(structName, clonStruct->name);
+		printf("  ReflexID_%s", structName);
+		printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
+		printf(",\n");
+		firstValueInEnum = false;
 	}
 	printf("}\n");
 
@@ -898,30 +857,26 @@ void Clon_Print(const Clon &clon)
 	// ReflexMember
 	printf("\n");
 	printf("  // ReflexMembers\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
+	for (u32 index = 0; index < clon.structCount; ++index)
 	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Struct )
+		const ClonStruct *clonStruct = Clon_GetStruct(clon, index);
+		char structName[128];
+		char memberName[128];
+		StrCopy(structName, clonStruct->name);
+		printf("  static const ReflexMember reflex%sMembers[] = {\n", structName);
+		for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
 		{
-			ClonStruct *clonStruct = clonType->cStruct;
-			char structName[128];
-			char memberName[128];
-			StrCopy(structName, clonStruct->name);
-			printf("  static const ReflexMember reflex%sMembers[] = {\n", structName);
-			for ( u32 fieldIndex = 0; fieldIndex < clonStruct->memberCount; ++fieldIndex)
-			{
-				ClonMember *member = &clonStruct->members[fieldIndex];
-				StrCopy(memberName, member->name);
-				printf("    { ");
-				printf(".name = \"%s\", ", memberName);
-				printf(".isConst = %s, ", member->isConst ? "true" : "false");
-				printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
-				printf(".reflexId = %s, ", CParser_GetTypeName(member->reflexId));
-				printf(".offset = offsetof(%s, %s) ", structName, memberName);
-				printf(" },\n");
-			}
-			printf("  };\n");
+			const ClonMember *member = &clonStruct->members[fieldIndex];
+			StrCopy(memberName, member->name);
+			printf("    { ");
+			printf(".name = \"%s\", ", memberName);
+			printf(".isConst = %s, ", member->isConst ? "true" : "false");
+			printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
+			printf(".reflexId = %s, ", Clon_GetTypeName(clon, member->reflexId));
+			printf(".offset = offsetof(%s, %s) ", structName, memberName);
+			printf(" },\n");
 		}
+		printf("  };\n");
 	}
 
 	// ReflexStruct
@@ -929,37 +884,19 @@ void Clon_Print(const Clon &clon)
 	printf("  // ReflexStructs\n");
 	printf("  static const ReflexStruct reflexStructs[] =\n");
 	printf("  {\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
+	for (u32 index = 0; index < clon.structCount; ++index)
 	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Struct )
-		{
-			ClonStruct *clonStruct = clonType->cStruct;
-			char structName[128];
-			StrCopy(structName, clonStruct->name);
-			printf("    {\n");
-			printf("      .name = \"%s\"\n", structName);
-			printf("      .members = reflex%sMembers,\n", structName);
-			printf("      .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
-			printf("      .size = sizeof(%s),\n", structName);
-			printf("    },\n");
-		}
+		const ClonStruct *clonStruct = Clon_GetStruct(clon, index);
+		char structName[128];
+		StrCopy(structName, clonStruct->name);
+		printf("    {\n");
+		printf("      .name = \"%s\"\n", structName);
+		printf("      .members = reflex%sMembers,\n", structName);
+		printf("      .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
+		printf("      .size = sizeof(%s),\n", structName);
+		printf("    },\n");
 	}
 	printf("  };\n");
-
-#if 0
-	printf("Enums:\n");
-	for (u32 index = 0; index < clon.typeCount; ++index)
-	{
-		const ClonType *clonType = Clon_GetType(clon, index);
-		if ( clonType->type == ClonType_Enum )
-		{
-			char nameStr[128];
-			StrCopy(nameStr, clonType->cEnum->name);
-			printf("- %s\n", nameStr);
-		}
-	}
-#endif
 
 	printf("  \n");
 	printf("  return &reflexStructs[id - ReflexID_Struct];\n");

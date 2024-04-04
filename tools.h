@@ -217,6 +217,12 @@ void StrCat(char *dst, const char *src)
 	StrCopy(dst, src);
 }
 
+void StrCat(char *dst, const String &src)
+{
+	while (*dst) ++dst;
+	StrCopy(dst, src);
+}
+
 bool StrEq(const String &s1, const String &s2)
 {
 	if ( s1.size != s2.size ) return false;
