@@ -710,6 +710,24 @@ bool CParser_TryConsume( CParser &parser, TokenId tokenId0, TokenId tokenId1, To
 	return false;
 }
 
+const char *CParser_GetTypeName(ReflexID id)
+{
+	switch (id)
+	{
+		case ReflexID_Bool: return "ReflexID_Bool";
+		case ReflexID_Char: return "ReflexID_Char";
+		case ReflexID_Int: return "ReflexID_Int";
+		case ReflexID_UInt: return "ReflexID_UInt";
+		case ReflexID_Float: return "ReflexID_Float";
+		case ReflexID_Float3: return "ReflexID_Float3";
+		case ReflexID_String: return "ReflexID_String";
+		default:
+		{
+			return "ReflexID_Struct";
+		}
+	}
+}
+
 void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Arena &arena)
 {
 	// Parse type
@@ -905,7 +923,7 @@ void Clon_Print(const Clon &clon)
 				printf(".name = \"%s\", ", memberName);
 				printf(".isConst = %s, ", member->isConst ? "true" : "false");
 				printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
-				printf(".reflexId = %s, ", "ReflexID_XXX"); // TODO: type?
+				printf(".reflexId = %s, ", CParser_GetTypeName(member->reflexId));
 				printf(".offset = offsetof(%s, %s) ", structName, memberName);
 				printf(" },\n");
 			}

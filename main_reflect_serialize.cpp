@@ -53,23 +53,23 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 	ASSERT(ReflexIsStruct(id));
 
 	static const ReflexMember reflexTextureDescMembers[] = {
-		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, name) },
-		{ .name = "filename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(TextureDesc, filename) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(TextureDesc, name) },
+		{ .name = "filename", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(TextureDesc, filename) },
 	};
 	static const ReflexMember reflexPipelineDescMembers[] = {
-		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, name) },
-		{ .name = "vsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, vsFilename) },
-		{ .name = "fsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(PipelineDesc, fsFilename) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(PipelineDesc, name) },
+		{ .name = "vsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(PipelineDesc, vsFilename) },
+		{ .name = "fsFilename", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(PipelineDesc, fsFilename) },
 	};
 	static const ReflexMember reflexMaterialDescMembers[] = {
-		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, name) },
-		{ .name = "textureName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, textureName) },
-		{ .name = "pipelineName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(MaterialDesc, pipelineName) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(MaterialDesc, name) },
+		{ .name = "textureName", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(MaterialDesc, textureName) },
+		{ .name = "pipelineName", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(MaterialDesc, pipelineName) },
 		{ .name = "uvScale", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(MaterialDesc, uvScale) },
 	};
 	static const ReflexMember reflexEntityDescMembers[] = {
-		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, name) },
-		{ .name = "materialName", .isConst = true, .isPointer = true, .reflexId = ReflexID_String, .offset = offsetof(EntityDesc, materialName) },
+		{ .name = "name", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(EntityDesc, name) },
+		{ .name = "materialName", .isConst = true, .isPointer = true, .reflexId = ReflexID_Char, .offset = offsetof(EntityDesc, materialName) },
 		{ .name = "pos", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float3, .offset = offsetof(EntityDesc, pos) },
 		{ .name = "scale", .isConst = false, .isPointer = false, .reflexId = ReflexID_Float, .offset = offsetof(EntityDesc, scale) },
 		{ .name = "geometryType", .isConst = false, .isPointer = false, .reflexId = ReflexID_Int, .offset = offsetof(EntityDesc, geometryType) },
@@ -127,7 +127,7 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 	return reflections[id - ReflexID_Struct];
 }
 
-void Print(const void *data, const ReflexID id)
+void Print(const void *data, const ReflexID id, bool isPointer)
 {
 	if (ReflexIsTrivial(id))
 	{
@@ -151,12 +151,17 @@ void Print(const void *data, const ReflexID id)
 			const u32 uVal = *((u32*)data + i);
 			const float fVal = *((float*)data + i);
 
-			if (trivial->isString) {
-				Printf("\"%s\"", sVal);
-			} else if (trivial->isBool) {
+			if (trivial->isBool) {
 				Printf("%d", bVal ? 1 : 0);
 			} else if (trivial->isChar) {
-				Printf("%c", cVal);
+				if ( isPointer )
+				{
+					Printf("\"caca%s\"", sVal);
+				}
+				else
+				{
+					Printf("%c", cVal);
+				}
 			} else if (trivial->isFloat) {
 				Printf("%f", fVal);
 			} else if (trivial->isUnsigned) {
@@ -195,7 +200,7 @@ void Print(const void *data, const ReflexID id)
 			for (u32 elemIndex = 0; elemIndex == 0 || elemIndex < elemCount; ++elemIndex)
 			{
 				const void *elemPtr = (u8*)memberPtr + elemIndex * elemSize;
-				Print(elemPtr, member->reflexId);
+				Print(elemPtr, member->reflexId, member->isPointer);
 
 				if (elemCount > 0 && elemIndex + 1 < elemCount) {
 					Printf(",");
@@ -225,7 +230,7 @@ void Print(const void *data, const ReflexID id)
 
 int main(int argc, char **argv)
 {
-	Print(&gAssets, REFLEX_ID(Assets));
+	Print(&gAssets, REFLEX_ID(Assets), false);
 
 	return 0;
 }

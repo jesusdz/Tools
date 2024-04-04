@@ -58,7 +58,7 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_cparser.cpp" (
 
-	set CommonCompilerFlags=%CommonCompilerFlags%
+	set CommonCompilerFlags=%CommonCompilerFlags% /std:c++20
 	set CommonLinkerFlags=%CommonLinkerFlags%
 
 ) else if "%target%" == "main_reflect_serialize.cpp" (
