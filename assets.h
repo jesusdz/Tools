@@ -56,6 +56,8 @@ struct Assets
 
 	const EntityDesc *entities;
 	unsigned int entitiesCount;
+
+	const int numbers[5];
 };
 
 
@@ -103,6 +105,8 @@ static const Assets gAssets =
 
 	.entities = entities,
 	.entitiesCount = ARRAY_COUNT(entities),
+
+	.numbers = { 1, 2, 3, 4, 5 },
 };
 
 #endif // ASSETS_H

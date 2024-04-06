@@ -273,6 +273,33 @@ const char *StrConsume( const char *str1, const char *str2 )
 	return *str2 ? NULL: str1;
 }
 
+
+i32 StrToInt(const char *str)
+{
+	i32 integer = 0;
+
+	// scan sign
+	const bool negative = (*str == '-');
+
+	// scan integer part
+	while (*str >= '0' && *str <= '9') {
+		integer = (integer << 3) + (integer << 1); // x10
+		integer += *str++ - '0';
+	}
+
+	const i32 result = negative ? -integer : integer;
+	return result;
+}
+
+i32 StrToInt(const String &s)
+{
+	char str[256] = {};
+	ASSERT(s.size < ARRAY_COUNT(str));
+	StrCopy(str, s);
+	const i32 number = StrToInt(str);
+	return number;
+}
+
 f32 StrToFloat(const char *str)
 {
 	i32 integer = 0;

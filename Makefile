@@ -16,7 +16,8 @@ main_spirv:
 main_cparser:
 	g++ -g -o main_cparser main_cparser.cpp
 
-main_reflect_serialize:
+main_reflect_serialize: main_cparser
+	./main_cparser assets.h > assets.reflex.h
 	g++ -g -o main_reflect_serialize main_reflect_serialize.cpp
 
 shaders:

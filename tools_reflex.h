@@ -47,8 +47,10 @@ struct ReflexEnum
 struct ReflexMember
 {
 	const char *name;
-	u8 isConst : 1;
-	u8 isPointer : 1;
+	u16 isConst : 1;
+	u16 isPointer : 1;
+	u16 isArray : 1;
+	u16 arrayDim : 13;
 	u16 reflexId;
 	u16 offset;
 };

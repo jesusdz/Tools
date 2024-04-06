@@ -179,8 +179,10 @@ struct CParser
 struct ClonMember
 {
 	String name;
-	u8 isConst : 1;
-	u8 isPointer : 1;
+	u16 isConst : 1;
+	u16 isPointer : 1;
+	u16 isArray: 1;
+	u16 arrayDim: 13;
 	u16 reflexId;
 };
 
@@ -322,10 +324,22 @@ void AddToken(const CScanner &scanner, TokenList &tokenList, TokenId tokenId)
 	AddToken(scanner, tokenList, tokenId, literal);
 }
 
+const Token &CParser_GetNextToken( const CParser &parser )
+{
+	return parser.tokenList->tokens[parser.nextToken];
+}
+
 void ReportError(CScanner &scanner, const char *message)
 {
 	printf("ERROR: %d:%d: %s\n", scanner.line, scanner.currentInLine, message);
 	scanner.hasErrors = true;
+}
+
+void CParser_SetError(CParser &parser, const char *message)
+{
+	Token token = CParser_GetNextToken(parser);
+	printf("ERROR: %d:%.*s %s\n", token.line, token.lexeme.size, token.lexeme.str, message);
+	parser.hasErrors = true;
 }
 
 void ScanToken(CScanner &scanner, TokenList &tokenList)
@@ -626,11 +640,6 @@ bool CParser_AreNextTokens( const CParser &parser, TokenId tokenId0, TokenId tok
 	}
 }
 
-const Token &CParser_GetNextToken( const CParser &parser )
-{
-	return parser.tokenList->tokens[parser.nextToken];
-}
-
 const Token &CParser_GetPreviousToken( const CParser &parser )
 {
 	ASSERT(parser.nextToken > 0);
@@ -642,7 +651,7 @@ const Token &CParser_Consume( CParser &parser )
 	if ( !CParser_HasFinished( parser ) ) {
 		parser.nextToken++;
 	} else {
-		parser.hasErrors = true;
+		CParser_SetError(parser, "Reached end of file");
 	}
 	return CParser_GetPreviousToken(parser);
 }
@@ -652,7 +661,10 @@ const Token &CParser_Consume( CParser &parser, TokenId tokenId )
 	if ( CParser_IsNextToken( parser, tokenId ) ) {
 		CParser_Consume( parser );
 	} else {
-		parser.hasErrors = true;
+		static char errorMessage[128];
+		StrCopy(errorMessage, "Could not consume token ");
+		StrCat(errorMessage, TokenIdNames[tokenId]);
+		CParser_SetError(parser, errorMessage);
 		parser.hasFinished = true;
 	}
 	return CParser_GetPreviousToken(parser);
@@ -710,12 +722,25 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	const bool isPointer = CParser_TryConsume(parser, TOKEN_STAR);
 
 	const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
+
+	i32 arrayDim = 0;
+	const bool isArray = CParser_TryConsume(parser, TOKEN_LEFT_BRACKET);
+	if (isArray){
+		const Token &arrayDimToken = CParser_Consume(parser, TOKEN_NUMBER);
+		arrayDim = StrToInt(arrayDimToken.lexeme);
+		CParser_Consume(parser, TOKEN_RIGHT_BRACKET);
+	}
+
 	CParser_Consume(parser, TOKEN_SEMICOLON);
 
 	ClonMember *member = Clon_AddMember(clonStruct);
 	member->name = identifier.lexeme;
 	member->isConst = isConst;
 	member->isPointer = isPointer;
+	member->isArray = isArray;
+	member->arrayDim = arrayDim;
+	member->isArray = isArray;
+	member->arrayDim = arrayDim;
 
 	if ( isBool ) member->reflexId = ReflexID_Bool;
 	else if ( isChar ) member->reflexId = ReflexID_Char;
@@ -846,13 +871,13 @@ void Clon_Print(const Clon &clon)
 		printf(",\n");
 		firstValueInEnum = false;
 	}
-	printf("}\n");
+	printf("};\n");
 
 	// ReflexGetStruct function
 	printf("\n");
 	printf("const ReflexStruct* ReflexGetStruct(ReflexID id)\n");
 	printf("{\n");
-	printf("  ASSERT(ReflexIsStruct(id);)\n");
+	printf("  ASSERT(ReflexIsStruct(id));\n");
 
 	// ReflexMember
 	printf("\n");
@@ -872,6 +897,8 @@ void Clon_Print(const Clon &clon)
 			printf(".name = \"%s\", ", memberName);
 			printf(".isConst = %s, ", member->isConst ? "true" : "false");
 			printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
+			printf(".isArray = %s, ", member->isArray ? "true" : "false");
+			printf(".arrayDim = %u, ", member->arrayDim);
 			printf(".reflexId = %s, ", Clon_GetTypeName(clon, member->reflexId));
 			printf(".offset = offsetof(%s, %s) ", structName, memberName);
 			printf(" },\n");
@@ -890,7 +917,7 @@ void Clon_Print(const Clon &clon)
 		char structName[128];
 		StrCopy(structName, clonStruct->name);
 		printf("    {\n");
-		printf("      .name = \"%s\"\n", structName);
+		printf("      .name = \"%s\",\n", structName);
 		printf("      .members = reflex%sMembers,\n", structName);
 		printf("      .memberCount = ARRAY_COUNT(reflex%sMembers),\n", structName);
 		printf("      .size = sizeof(%s),\n", structName);
