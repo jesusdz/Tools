@@ -50,104 +50,127 @@ static const char *Indentation()
 
 #include "assets.reflex.h"
 
-void Print(const void *data, const ReflexID id, bool isPointer, bool isDoublePointer, bool isArray, u16 arrayDim)
+void PrintTrivial(const void *data, const ReflexID id, bool isString)
 {
-	if ( ReflexIsTrivial(id) )
-	{
-		const ReflexTrivial *trivial = ReflexGetTrivial(id);
+	const ReflexTrivial *trivial = ReflexGetTrivial(id);
 
-		if (isArray) {
-			Printf("[");
-		}
+	ASSERT(!isString || trivial->isChar);
 
-		const u32 elemCount = isArray ? arrayDim : 1;
-
-		for (u32 i = 0; i < elemCount; ++i)
-		{
-			if (i > 0) {
-				Printf(", ");
-			}
-
-			if (trivial->isBool) {
-				const bool bVal = *((bool*)data + i);
-				Printf("%d", bVal ? 1 : 0);
-			} else if (trivial->isChar) {
-				if (isPointer) {
-					const char *sVal = (const char *)data;
-					Printf("\"%s\"", sVal);
-				} else {
-					const char cVal = *((char*)data + i);
-					Printf("%c", cVal);
-				}
-			} else if (trivial->isFloat) {
-				const float fVal = *((float*)data + i);
-				Printf("%f", fVal);
-			} else if (trivial->isUnsigned) {
-				const u32 uVal = *((u32*)data + i);
-				Printf("%u", uVal);
-			} else {
-				const i32 iVal = *((i32*)data + i);
-				Printf("%d", iVal);
-			}
-
-		}
-
-		if (isArray) {
-			Printf("]");
-		}
+	if (trivial->isBool) {
+		const bool bVal = *((bool*)data);
+		Printf("%d", bVal ? 1 : 0);
+	} else if (isString) {
+		const char *sVal = (const char *)data;
+		Printf("\"%s\"", sVal);
+	} else if (trivial->isChar) {
+		const char cVal = *((char*)data);
+		Printf("%c", cVal);
+	} else if (trivial->isFloat) {
+		const float fVal = *((float*)data);
+		Printf("%f", fVal);
+	} else if (trivial->isUnsigned) {
+		const u32 uVal = *((u32*)data);
+		Printf("%u", uVal);
+	} else {
+		const i32 iVal = *((i32*)data);
+		Printf("%d", iVal);
 	}
-	else
+}
+
+void Print(const void *data, const ReflexID id)
+{
+	const ReflexStruct *rstruct = ReflexGetStruct(id);
+	const void *structPtr = data;
+
+	PrintBeginScope("{");
+	PrintNewLine();
+
+	for (u32 i = 0; i < rstruct->memberCount; ++i)
 	{
-		const ReflexStruct *rstruct = ReflexGetStruct(id);
+		const ReflexMember *member = &rstruct->members[i];
+		const ReflexID reflexId = member->reflexId;
+		const bool isTrivial = ReflexIsTrivial(reflexId);
+		const bool isArray = member->isArray;
+		const bool isPointer = member->isPointer;
+		const bool isDoublePointer = member->isDoublePointer;
+		const u16 arrayDim = member->arrayDim;
 
-		PrintBeginScope("{");
-		PrintNewLine();
+		Printf("\"%s\" : ", member->name);
 
-		for (u32 i = 0; i < rstruct->memberCount; ++i)
-		{
-			const ReflexMember *member = &rstruct->members[i];
-			const void *structPtr = data;
-			const void *memberPtr = ReflexGetMemberPtr(structPtr, member);
+		const u32 typeSize = ReflexGetTypeSize(reflexId);
+		const u32 elemSize =
+			isArray && isPointer ? sizeof(void*) :
+			isDoublePointer ? sizeof(void*) :
+			typeSize;
 
-			Printf("\"%s\" : ", member->name);
+		const u32 elemCount =
+			isArray ? arrayDim :
+			isPointer ? ReflexGetElemCount(structPtr, rstruct, member->name) :
+			0;
 
-			const u32 elemCount = ReflexGetElemCount(structPtr, rstruct, member->name);
-			if ( elemCount > 0 ) {
-				PrintBeginScope("[");
+		if ( elemCount > 0 ) {
+			PrintBeginScope("[");
+			if (!isTrivial) {
 				PrintNewLine();
 			}
+		}
 
-			const u32 elemSize = ReflexGetTypeSize(member->reflexId);
-			for (u32 elemIndex = 0; elemIndex == 0 || elemIndex < elemCount; ++elemIndex)
-			{
-				const void *elemPtr = (u8*)memberPtr + elemIndex * elemSize;
+		const bool isString = isPointer && reflexId == ReflexID_Char;
+		const void *memberPtr = ReflexGetMemberPtr(structPtr, member);
 
-				if ( ReflexIsStruct(member->reflexId) ) {
-					Print(elemPtr, member->reflexId, false, false, false, 1);
+		u32 indirections =
+			isDoublePointer ? 2 :
+			isPointer ? 1 :
+			0;
+
+		// If the member is a pointed array (no fixed length), we dereference the pointer
+		// to get the base address of the pointed array. For fixed length arrays (isArray)
+		// there's no need for dereferencing, memberPtr already points to the base address.
+		if ( !isArray && isPointer ) {
+			memberPtr = *(void**)memberPtr;
+			indirections--;
+		}
+
+		for (u32 elemIndex = 0; elemIndex == 0 || elemIndex < elemCount; ++elemIndex)
+		{
+			const void *elemPtr = (u8*)memberPtr + elemIndex * elemSize;
+
+			// We apply the remaining indirections until getting the value address.
+			for (u32 i = 0; i < indirections; ++i) {
+				elemPtr = *(void**)elemPtr;
+			}
+
+			if (isTrivial) {
+				PrintTrivial(elemPtr, reflexId, isString);
+			} else {
+				Print(elemPtr, reflexId);
+			}
+
+			if (elemCount > 0 && elemIndex + 1 < elemCount) {
+				Printf(",");
+				if (isTrivial) {
+					Printf(" ");
 				} else {
-					Print(elemPtr, member->reflexId, member->isPointer, member->isDoublePointer,  member->isArray, member->arrayDim);
-				}
-
-				if (elemCount > 0 && elemIndex + 1 < elemCount) {
-					Printf(",");
 					PrintNewLine();
 				}
 			}
-
-			if ( elemCount > 0 ) {
-				PrintNewLine();
-				PrintEndScope("]");
-			}
-
-			if ( i + 1 < rstruct->memberCount ) {
-				Printf(",");
-			}
-			PrintNewLine();
-
 		}
 
-		PrintEndScope("}");
+		if ( elemCount > 0 ) {
+			if (!isTrivial) {
+				PrintNewLine();
+			}
+			PrintEndScope("]");
+		}
+
+		if ( i + 1 < rstruct->memberCount ) {
+			Printf(",");
+		}
+		PrintNewLine();
+
 	}
+
+	PrintEndScope("}");
 }
 
 
@@ -156,7 +179,7 @@ void Print(const void *data, const ReflexID id, bool isPointer, bool isDoublePoi
 
 int main(int argc, char **argv)
 {
-	Print(&gAssets, REFLEX_ID(Assets), false, false, false, 1);
+	Print(&gAssets, REFLEX_ID(Assets));
 
 	return 0;
 }

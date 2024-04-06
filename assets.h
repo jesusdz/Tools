@@ -97,7 +97,7 @@ static const EntityDesc entities[] =
 	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
 };
 
-const char *names2[] = { "Jesus", "Pedro", "Marcos" };
+const char *names2[] = { "Jesus", "Maria", "Jose" };
 
 static const Assets gAssets =
 {
@@ -115,7 +115,7 @@ static const Assets gAssets =
 
 	.numbers = { 1, 2, 3, 4, 5 },
 
-	.names = { "Jesus", "Pedro", "Marcos" },
+	.names = { "Alejandro", "Pedro", "Marcos" },
 
 	.names2 = names2,
 	.names2Count = ARRAY_COUNT(names2),

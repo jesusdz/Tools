@@ -83,6 +83,12 @@ inline bool ReflexIsStruct(ReflexID id)
 inline const void *ReflexGetMemberPtr(const void *structBase, const ReflexMember *member)
 {
 	const void *memberPtr = (u8*)structBase + member->offset;
+	return memberPtr;
+}
+
+inline const void *ReflexGetMemberValuePtr(const void *structBase, const ReflexMember *member)
+{
+	const void *memberPtr = ReflexGetMemberPtr(structBase, member);
 	if ( member->isPointer ) {
 		// Extra indirection to get the pointed data address
 		const void *pointedMemberPtr = *((void**)memberPtr);
