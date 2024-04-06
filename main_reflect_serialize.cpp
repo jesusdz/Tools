@@ -91,16 +91,17 @@ void Print(const void *data, const ReflexID id)
 		const ReflexID reflexId = member->reflexId;
 		const bool isTrivial = ReflexIsTrivial(reflexId);
 		const bool isArray = member->isArray;
-		const bool isPointer = member->isPointer;
-		const bool isDoublePointer = member->isDoublePointer;
+		const bool isPointer = member->pointerCount > 0;
+		const bool isDoublePointer = member->pointerCount > 1;
+		const u16 pointerCount = member->pointerCount;
 		const u16 arrayDim = member->arrayDim;
 
 		Printf("\"%s\" : ", member->name);
 
 		const u32 typeSize = ReflexGetTypeSize(reflexId);
 		const u32 elemSize =
-			isArray && isPointer ? sizeof(void*) :
-			isDoublePointer ? sizeof(void*) :
+			isArray ? (isPointer ? sizeof(void*) : typeSize):
+			isPointer? (isDoublePointer ? sizeof(void*) : typeSize):
 			typeSize;
 
 		const u32 elemCount =
@@ -118,10 +119,7 @@ void Print(const void *data, const ReflexID id)
 		const bool isString = isPointer && reflexId == ReflexID_Char;
 		const void *memberPtr = ReflexGetMemberPtr(structPtr, member);
 
-		u32 indirections =
-			isDoublePointer ? 2 :
-			isPointer ? 1 :
-			0;
+		u32 indirections = pointerCount;
 
 		// If the member is a pointed array (no fixed length), we dereference the pointer
 		// to get the base address of the pointed array. For fixed length arrays (isArray)

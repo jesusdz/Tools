@@ -48,8 +48,7 @@ struct ReflexMember
 {
 	const char *name;
 	u16 isConst : 1;
-	u16 isPointer : 1;
-	u16 isDoublePointer: 1;
+	u16 pointerCount : 2;
 	u16 isArray : 1;
 	u16 arrayDim : 12; // 4096 values
 	u16 reflexId;
@@ -86,18 +85,6 @@ inline const void *ReflexGetMemberPtr(const void *structBase, const ReflexMember
 	return memberPtr;
 }
 
-inline const void *ReflexGetMemberValuePtr(const void *structBase, const ReflexMember *member)
-{
-	const void *memberPtr = ReflexGetMemberPtr(structBase, member);
-	if ( member->isPointer ) {
-		// Extra indirection to get the pointed data address
-		const void *pointedMemberPtr = *((void**)memberPtr);
-		return pointedMemberPtr;
-	} else {
-		return memberPtr;
-	}
-}
-
 const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 {
 	ASSERT(ReflexIsTrivial(id));
@@ -129,8 +116,8 @@ u32 ReflexGetTypeSize(ReflexID id)
 	else
 	{
 		INVALID_CODE_PATH();
+		return 0;
 	}
-	return 0;
 }
 
 u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const char *memberName )
@@ -138,7 +125,7 @@ u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const cha
 	for (u32 i = 0; i < rstruct->memberCount; ++i)
 	{
 		const ReflexMember *member = &rstruct->members[i];
-		const bool isPointer = member->isPointer;
+		const bool isPointer = member->pointerCount > 0;
 		const u32 reflexId = member->reflexId;
 
 		if ( !isPointer && reflexId == ReflexID_UInt )

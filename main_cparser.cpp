@@ -180,8 +180,7 @@ struct ClonMember
 {
 	String name;
 	u16 isConst : 1;
-	u16 isPointer : 1;
-	u16 isDoublePointer : 1;
+	u16 pointerCount : 2;
 	u16 isArray: 1;
 	u16 arrayDim: 12; // 4096 values
 	u16 reflexId;
@@ -720,8 +719,12 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 
 	ASSERT( isIdent || isBool || isChar || isInt || isFloat );
 
-	const bool isPointer = CParser_TryConsume(parser, TOKEN_STAR);
-	const bool isDoublePointer = CParser_TryConsume(parser, TOKEN_STAR);
+	u32 pointerCount = 0;
+	for (u32 i = 0; i < 3; ++i) {
+		if (CParser_TryConsume(parser, TOKEN_STAR)) {
+			pointerCount++;
+		}
+	}
 
 	const Token &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
 
@@ -738,8 +741,7 @@ void CParser_ParseMember(CParser &parser, Clon &clon, ClonStruct *clonStruct, Ar
 	ClonMember *member = Clon_AddMember(clonStruct);
 	member->name = identifier.lexeme;
 	member->isConst = isConst;
-	member->isPointer = isPointer;
-	member->isDoublePointer = isDoublePointer;
+	member->pointerCount = pointerCount;
 	member->isArray = isArray;
 	member->arrayDim = arrayDim;
 	member->isArray = isArray;
@@ -899,8 +901,7 @@ void Clon_Print(const Clon &clon)
 			printf("    { ");
 			printf(".name = \"%s\", ", memberName);
 			printf(".isConst = %s, ", member->isConst ? "true" : "false");
-			printf(".isPointer = %s, ", member->isPointer ? "true" : "false");
-			printf(".isDoublePointer = %s, ", member->isDoublePointer ? "true" : "false");
+			printf(".pointerCount = %u, ", member->pointerCount);
 			printf(".isArray = %s, ", member->isArray ? "true" : "false");
 			printf(".arrayDim = %u, ", member->arrayDim);
 			printf(".reflexId = %s, ", Clon_GetTypeName(clon, member->reflexId));
