@@ -49,8 +49,9 @@ struct ReflexMember
 	const char *name;
 	u16 isConst : 1;
 	u16 isPointer : 1;
+	u16 isDoublePointer: 1;
 	u16 isArray : 1;
-	u16 arrayDim : 13;
+	u16 arrayDim : 12; // 4096 values
 	u16 reflexId;
 	u16 offset;
 };
@@ -79,7 +80,7 @@ inline bool ReflexIsStruct(ReflexID id)
 	return isStruct;
 }
 
-inline const void *ReflexMemberPtr(const void *structBase, const ReflexMember *member)
+inline const void *ReflexGetMemberPtr(const void *structBase, const ReflexMember *member)
 {
 	const void *memberPtr = (u8*)structBase + member->offset;
 	if ( member->isPointer ) {
