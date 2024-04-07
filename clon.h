@@ -8,6 +8,9 @@
 #ifndef CLON_H
 #define CLON_H
 
+////////////////////////////////////////////////////////////////////////
+// Clon types
+
 enum ClonType
 {
 	ClonType_Value,
@@ -49,14 +52,124 @@ struct ClonStruct
 	ClonMember *members;
 };
 
+typedef ClonMember ClonGlobal;
+
 struct Clon
 {
-	u32 structCount;
-	ClonStruct *structs;
-
-	u32 arrayCount;
-	ClonArray *arrays;
+	u32 globalCount;
+	ClonGlobal *globals;
 };
+
+
+////////////////////////////////////////////////////////////////////////
+// Tokens
+
+enum ClonTokenId
+{
+	// Single character tokens
+	CLON_LEFT_PAREN,
+	CLON_RIGHT_PAREN,
+	CLON_LEFT_BRACE,
+	CLON_RIGHT_BRACE,
+	CLON_LEFT_BRACKET,
+	CLON_RIGHT_BRACKET,
+	CLON_COMMA,
+	CLON_DOT,
+	CLON_MINUS,
+	CLON_PLUS,
+	CLON_SEMICOLON,
+	CLON_SLASH,
+	CLON_STAR,
+	// One or two-character tokens
+	CLON_NOT,
+	CLON_NOT_EQUAL,
+	CLON_EQUAL,
+	CLON_EQUAL_EQUAL,
+	CLON_GREATER,
+	CLON_GREATER_EQUAL,
+	CLON_LESS,
+	CLON_LESS_EQUAL,
+	CLON_AND,
+	CLON_ANDAND,
+	CLON_OR,
+	CLON_OROR,
+	// Literals
+	CLON_IDENTIFIER,
+	CLON_STRING,
+	CLON_NUMBER,
+	// Keywords
+	CLON_STRUCT,
+	CLON_ENUM,
+	CLON_TRUE,
+	CLON_FALSE,
+	CLON_STATIC,
+	CLON_CONST,
+	CLON_UNSIGNED,
+	CLON_SHORT,
+	CLON_LONG,
+	CLON_BOOL,
+	CLON_CHAR,
+	CLON_INT,
+	CLON_FLOAT,
+	CLON_NULL, // ad-hoc value
+	CLON_ARR_COUNT, // ad-hoc macro
+	CLON_EOF,
+	CLON_TOKEN_ID_COUNT,
+};
+
+static const char *CTokenIdNames[] =
+{
+	// Single character tokens
+	"CLON_LEFT_PAREN",
+	"CLON_RIGHT_PAREN",
+	"CLON_LEFT_BRACE",
+	"CLON_RIGHT_BRACE",
+	"CLON_LEFT_BRACKET",
+	"CLON_RIGHT_BRACKET",
+	"CLON_COMMA",
+	"CLON_DOT",
+	"CLON_MINUS",
+	"CLON_PLUS",
+	"CLON_SEMICOLON",
+	"CLON_SLASH",
+	"CLON_STAR",
+	// One or two-character tokens
+	"CLON_NOT",
+	"CLON_NOT_EQUAL",
+	"CLON_EQUAL",
+	"CLON_EQUAL_EQUAL",
+	"CLON_GREATER",
+	"CLON_GREATER_EQUAL",
+	"CLON_LESS",
+	"CLON_LESS_EQUAL",
+	"CLON_AND",
+	"CLON_ANDAND",
+	"CLON_OR",
+	"CLON_OROR",
+	// Literals
+	"CLON_IDENTIFIER",
+	"CLON_STRING",
+	"CLON_NUMBER",
+	// Keywords
+	"CLON_STRUCT",
+	"CLON_ENUM",
+	"CLON_TRUE",
+	"CLON_FALSE",
+	"CLON_STATIC",
+	"CLON_CONST",
+	"CLON_UNSIGNED",
+	"CLON_SHORT",
+	"CLON_LONG",
+	"CLON_BOOL",
+	"CLON_CHAR",
+	"CLON_INT",
+	"CLON_FLOAT",
+	"CLON_NULL",
+	"CLON_ARR_COUNT",
+	"CLON_EOF",
+};
+
+CT_ASSERT(ARRAY_COUNT(CTokenIdNames) == CLON_TOKEN_ID_COUNT);
 
 #endif // #ifndef CLON_H
 
