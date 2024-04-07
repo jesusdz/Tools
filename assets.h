@@ -56,13 +56,6 @@ struct Assets
 
 	const EntityDesc *entities;
 	unsigned int entitiesCount;
-
-	const int numbers[5];
-
-	const char *names[3];
-
-	const char **names2;
-	unsigned int names2Count;
 };
 
 
@@ -97,8 +90,6 @@ static const EntityDesc entities[] =
 	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
 };
 
-const char *names2[] = { "Jesus", "Maria", "Jose" };
-
 static const Assets gAssets =
 {
 	.textures = textures,
@@ -112,13 +103,6 @@ static const Assets gAssets =
 
 	.entities = entities,
 	.entitiesCount = ARRAY_COUNT(entities),
-
-	.numbers = { 1, 2, 3, 4, 5 },
-
-	.names = { "Alejandro", "Pedro", "Marcos" },
-
-	.names2 = names2,
-	.names2Count = ARRAY_COUNT(names2),
 };
 
 #endif // ASSETS_H
