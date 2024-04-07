@@ -21,18 +21,31 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 * Input handling (mouse and keyboard)
 
 
+## reflex.h
+
+Headers with container types needed for C reflection / RTTI (run time type information).
+An application that is able to get this information populated for its most relevant structures is able to perform certain tasks an a more automatic way.
+A couple of examples of tasks than can be automatized or improved by having a proper language reflection mechanism are data serialization or UI generation.
+
+
+## cparser.h
+
+Implementation of a basic C parser. For now it focuses on parsing type definitions. It's not complete at all but it allows populating a good amount of information about user
+type definitions (basic structs with trivial members, with nested structs inside, with fixed-length array members, pointer-type members, etc).
+It scans and parses a C text file and fills a C assembly object containing the parsed information.
+This information can then be inspected by client programs to discover type information about the code.
+
+
+## reflex.cpp
+
+Application that reads a C header file, parses it (using the previously mentioned C parser), and outputs the C code needed to populate the RTTI structs present in `reflex.h`.
+
+
 ## tools_spirv.h
 
 In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lists of descriptor sets used by them.
 With this SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
 thus avoiding unnecessary boilerplate code.
-
-
-## reflex.h
-
-Headers with types needed for C reflection. The idea of this in-progress utility is that we will have a reflection tool that will parse C headers with type definitions,
-and it will generate files with C code filling the Reflex containers available in `reflex.h`. These generated files with information about your own C data structures,
-will in turn be possibly used in your code to automatize certain tasks such as serialization, UI generation, etc.
 
 
 ## Projects
