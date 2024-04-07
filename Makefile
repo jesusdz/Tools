@@ -1,28 +1,30 @@
 .PHONY: default main_interpreter main_vulkan main_spirv reflex main_reflect_serialize shaders clean
 
-export PATH:=$(PATH):dxc/linux/bin
+CXX=g++
+CXXFLAGS= -g
+DXC=./dxc/linux/bin/dxc
 
 default: main_vulkan
 
 main_interpreter:
-	g++ -g -o main_interpreter main_interpreter.cpp
+	${CXX} ${CXXFLAGS} -o main_interpreter main_interpreter.cpp
 
 main_vulkan:
-	g++ -g -o main_vulkan  main_vulkan.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
+	${CXX} ${CXXFLAGS} -o main_vulkan  main_vulkan.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
 
 main_spirv:
-	g++ -g -o main_spirv main_spirv.cpp
+	${CXX} ${CXXFLAGS} -o main_spirv main_spirv.cpp
 
 reflex:
-	g++ -g -o reflex reflex.cpp
+	${CXX} ${CXXFLAGS} -o reflex reflex.cpp
 
 main_reflect_serialize: reflex
 	./reflex assets.h > assets.reflex.h
-	g++ -g -o main_reflect_serialize main_reflect_serialize.cpp
+	${CXX} ${CXXFLAGS} -o main_reflect_serialize main_reflect_serialize.cpp
 
 shaders:
-	dxc -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl
-	dxc -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
+	${DXC} -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl
+	${DXC} -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
 
 clean:
 	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize shaders/*.spv shaders/*.dis
