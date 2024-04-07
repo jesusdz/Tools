@@ -56,7 +56,7 @@ if "%target%" == "main_interpreter.cpp" (
 	set CommonCompilerFlags=%CommonCompilerFlags%
 	set CommonLinkerFlags=%CommonLinkerFlags%
 
-) else if "%target%" == "main_cparser.cpp" (
+) else if "%target%" == "reflex.cpp" (
 
 	set CommonCompilerFlags=%CommonCompilerFlags% /std:c++20
 	set CommonLinkerFlags=%CommonLinkerFlags%

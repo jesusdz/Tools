@@ -28,10 +28,10 @@ With this SPIRV reflection utility, client applications can automatize the creat
 thus avoiding unnecessary boilerplate code.
 
 
-## tools_reflex.h
+## reflex.h
 
 Headers with types needed for C reflection. The idea of this in-progress utility is that we will have a reflection tool that will parse C headers with type definitions,
-and it will generate files with C code filling the Reflex containers available in `tools_reflex.h`. These generated files with information about your own C data structures,
+and it will generate files with C code filling the Reflex containers available in `reflex.h`. These generated files with information about your own C data structures,
 will in turn be possibly used in your code to automatize certain tasks such as serialization, UI generation, etc.
 
 
@@ -44,7 +44,7 @@ Currently, there are the following *in-progress* projects:
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
 * `main_atof`: Custom implementation of the atof (ASCII to float) function.
 * `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.
-* `main_cparser`: C parser to generate C reflection data.
+* `reflex`: Generator of C reflection data.
 * `main_reflect_serialize`: JSON serializer using C reflection utils.
 
 

@@ -1,4 +1,4 @@
-.PHONY: default main_interpreter main_vulkan main_spirv main_cparser main_reflect_serialize shaders clean
+.PHONY: default main_interpreter main_vulkan main_spirv reflex main_reflect_serialize shaders clean
 
 export PATH:=$(PATH):dxc/linux/bin
 
@@ -13,11 +13,11 @@ main_vulkan:
 main_spirv:
 	g++ -g -o main_spirv main_spirv.cpp
 
-main_cparser:
-	g++ -g -o main_cparser main_cparser.cpp
+reflex:
+	g++ -g -o reflex reflex.cpp
 
-main_reflect_serialize: main_cparser
-	./main_cparser assets.h > assets.reflex.h
+main_reflect_serialize: reflex
+	./reflex assets.h > assets.reflex.h
 	g++ -g -o main_reflect_serialize main_reflect_serialize.cpp
 
 shaders:
@@ -25,5 +25,5 @@ shaders:
 	dxc -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
 
 clean:
-	rm -f main_interpreter main_vulkan main_atof main_spirv main_cparser main_reflect_serialize shaders/*.spv shaders/*.dis
+	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize shaders/*.spv shaders/*.dis
 
