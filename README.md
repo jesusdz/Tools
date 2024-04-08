@@ -97,6 +97,7 @@ Here are some interesting links that I have been looking while writing some code
 * [Handmade Math](https://github.com/HandmadeMath/HandmadeMath)
 * [Untangling Lifetimes: The Arena Allocator](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator)
 * [My personal gists](https://gist.github.com/jesusdz)
+* [ANSI C Yacc grammar](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
 
 
 ## License
