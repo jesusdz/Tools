@@ -594,6 +594,13 @@ const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id)
 ////////////////////////////////////////////////////////////////////////
 // CParser
 
+// When beginning a rule, we store the status of the parser
+#define RULE_BEGIN() bool ok = false; u32 nextTokenBackup = parser.nextToken
+// Try to apply a rule production if not yet
+#define RULE_PROD( production ) ok = ok || production
+// When ending a rule, if no productions were found we restore the parser state
+#define RULE_END() if ( !ok ) { parser.nextToken = nextTokenBackup; } return ok
+
 static u32 CParser_RemainingTokens(const CParser &parser)
 {
 	return parser.tokenList->count - parser.nextToken;
@@ -779,48 +786,64 @@ static void CParser_ParseMember(CParser &parser, CAssembly &cAsm, CStruct *cStru
 	}
 }
 
-static void CParser_ParseStruct(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	CStruct *cStruct = CAssembly_CreateStruct(cAsm);
-	cStruct->name = CParser_GetNextToken( parser ).lexeme;
-
-	CParser_Consume( parser, TOKEN_IDENTIFIER );
-	CParser_Consume( parser, TOKEN_LEFT_BRACE );
-	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
-	{
-		CParser_ParseMember(parser, cAsm, cStruct, arena);
-	}
-	CParser_Consume( parser, TOKEN_SEMICOLON );
-}
-
-static void CParser_ParseEnum(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	CEnum *cEnum = CAssembly_CreateEnum(cAsm, arena);
-	cEnum->name = CParser_GetNextToken(parser).lexeme;
-
-	CParser_Consume( parser, TOKEN_IDENTIFIER );
-	CParser_Consume( parser, TOKEN_LEFT_BRACE );
-	while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
-	{
-		CParser_Consume(parser);
-	}
-	CParser_Consume( parser, TOKEN_SEMICOLON );
-}
-
-static void CParser_ParseDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
+static bool CParser_ParseStruct(CParser &parser, CAssembly &cAsm, Arena &arena)
 {
 	if ( CParser_TryConsume( parser, TOKEN_STRUCT ) )
 	{
-		CParser_ParseStruct( parser, cAsm, arena );
+		CStruct *cStruct = CAssembly_CreateStruct(cAsm);
+		cStruct->name = CParser_GetNextToken( parser ).lexeme;
+
+		CParser_Consume( parser, TOKEN_IDENTIFIER );
+		CParser_Consume( parser, TOKEN_LEFT_BRACE );
+		while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
+		{
+			CParser_ParseMember(parser, cAsm, cStruct, arena);
+		}
+		CParser_Consume( parser, TOKEN_SEMICOLON );
+		return true;
 	}
-	else if ( CParser_TryConsume( parser, TOKEN_ENUM ) )
+	return false;
+}
+
+static bool CParser_ParseEnum(CParser &parser, CAssembly &cAsm, Arena &arena)
+{
+	if ( CParser_TryConsume( parser, TOKEN_ENUM ) )
 	{
-		CParser_ParseEnum( parser, cAsm, arena );
+		CEnum *cEnum = CAssembly_CreateEnum(cAsm, arena);
+		cEnum->name = CParser_GetNextToken(parser).lexeme;
+
+		CParser_Consume( parser, TOKEN_IDENTIFIER );
+		CParser_Consume( parser, TOKEN_LEFT_BRACE );
+		while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
+		{
+			CParser_Consume(parser);
+		}
+		CParser_Consume( parser, TOKEN_SEMICOLON );
+		return true;
 	}
-	else
-	{
-		CParser_Consume( parser );
-	}
+	return false;
+}
+
+static bool CParser_ParseDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
+{
+	RULE_BEGIN();
+	RULE_PROD( CParser_ParseStruct( parser, cAsm, arena ) );
+	RULE_PROD( CParser_ParseEnum( parser, cAsm, arena ) );
+	RULE_END();
+}
+
+static bool CParser_ParseFunctionDefinition(CParser &parser, CAssembly &cAsm, Arena &arena)
+{
+	CParser_Consume(parser);
+	return true;
+}
+
+static bool CParser_ParseExternalDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
+{
+	RULE_BEGIN();
+	RULE_PROD( CParser_ParseDeclaration( parser, cAsm, arena ) );
+	RULE_PROD( CParser_ParseFunctionDefinition( parser, cAsm, arena ) );
+	RULE_END();
 }
 
 static CAssembly CParse(Arena &arena, const CTokenList &tokenList)
@@ -832,7 +855,10 @@ static CAssembly CParse(Arena &arena, const CTokenList &tokenList)
 
 	while ( !CParser_HasFinished(parser) )
 	{
-		CParser_ParseDeclaration(parser, cAsm, arena);
+		if ( !CParser_ParseExternalDeclaration(parser, cAsm, arena) )
+		{
+			break;
+		}
 	}
 
 	cAsm.valid = !parser.hasErrors;
