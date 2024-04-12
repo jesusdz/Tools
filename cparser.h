@@ -594,13 +594,6 @@ const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id)
 ////////////////////////////////////////////////////////////////////////
 // CParser
 
-// When beginning a rule, we store the status of the parser
-#define RULE_BEGIN() bool ok = false; u32 nextTokenBackup = parser.nextToken
-// Try to apply a rule production if not yet
-#define RULE_PROD( production ) ok = ok || production
-// When ending a rule, if no productions were found we restore the parser state
-#define RULE_END() if ( !ok ) { parser.nextToken = nextTokenBackup; } return ok
-
 static u32 CParser_RemainingTokens(const CParser &parser)
 {
 	return parser.tokenList->count - parser.nextToken;
@@ -826,10 +819,11 @@ static bool CParser_ParseEnum(CParser &parser, CAssembly &cAsm, Arena &arena)
 
 static bool CParser_ParseDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
 {
-	RULE_BEGIN();
-	RULE_PROD( CParser_ParseStruct( parser, cAsm, arena ) );
-	RULE_PROD( CParser_ParseEnum( parser, cAsm, arena ) );
-	RULE_END();
+	u32 nextTokenBackup = parser.nextToken;
+	bool ok = CParser_ParseStruct( parser, cAsm, arena );
+	ok = ok || CParser_ParseEnum( parser, cAsm, arena );
+	if ( !ok ) { parser.nextToken = nextTokenBackup; }
+	return ok;
 }
 
 static bool CParser_ParseFunctionDefinition(CParser &parser, CAssembly &cAsm, Arena &arena)
@@ -840,10 +834,11 @@ static bool CParser_ParseFunctionDefinition(CParser &parser, CAssembly &cAsm, Ar
 
 static bool CParser_ParseExternalDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
 {
-	RULE_BEGIN();
-	RULE_PROD( CParser_ParseDeclaration( parser, cAsm, arena ) );
-	RULE_PROD( CParser_ParseFunctionDefinition( parser, cAsm, arena ) );
-	RULE_END();
+	u32 nextTokenBackup = parser.nextToken;
+	bool ok = CParser_ParseDeclaration( parser, cAsm, arena );
+	ok = ok || CParser_ParseFunctionDefinition( parser, cAsm, arena );
+	if ( !ok ) { parser.nextToken = nextTokenBackup; }
+	return ok;
 }
 
 static CAssembly CParse(Arena &arena, const CTokenList &tokenList)
