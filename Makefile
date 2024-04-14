@@ -1,4 +1,4 @@
-.PHONY: default main_interpreter main_vulkan main_spirv reflex main_reflect_serialize main_clon shaders clean
+.PHONY: default main_interpreter main_vulkan main_spirv reflex main_reflect_serialize main_clon cast shaders clean
 
 CXX=g++
 CXXFLAGS= -g
@@ -25,10 +25,13 @@ main_reflect_serialize: reflex
 main_clon:
 	${CXX} ${CXXFLAGS} -o main_clon main_clon.cpp
 
+cast:
+	${CXX} ${CXXFLAGS} -o cast cast.cpp
+
 shaders:
 	${DXC} -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl
 	${DXC} -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
 
 clean:
-	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize main_clon shaders/*.spv shaders/*.dis
+	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
 
