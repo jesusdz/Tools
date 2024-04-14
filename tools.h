@@ -101,9 +101,9 @@
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 
-#define CT_ASSERT3(expression, line) static int ct_assert_##line[(expression) ? 1 : 0]
-#define CT_ASSERT2(expression, line) CT_ASSERT3(expression, line)
-#define CT_ASSERT(expression) CT_ASSERT2(expression, __LINE__)
+#define CT_ASSERT3(expression, number) static int ct_assert_##number[(expression) ? 1 : 0]
+#define CT_ASSERT2(expression, number) CT_ASSERT3(expression, number)
+#define CT_ASSERT(expression) CT_ASSERT2(expression, __COUNTER__)
 
 
 
