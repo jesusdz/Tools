@@ -199,6 +199,7 @@ struct CParser
 	const CTokenList *tokenList;
 	Arena *arena;
 	u32 nextToken;
+	u32 lastToken;
 	bool hasErrors;
 	bool hasFinished;
 };
@@ -691,6 +692,11 @@ static const CToken &CParser_GetNextToken( const CParser &parser )
 	return parser.tokenList->tokens[parser.nextToken];
 }
 
+static const CToken &CParser_GetLastToken( const CParser &parser )
+{
+	return parser.tokenList->tokens[parser.lastToken];
+}
+
 static void CParser_SetError(CParser &parser, const char *message)
 {
 	CToken token = CParser_GetNextToken(parser);
@@ -702,6 +708,7 @@ static const CToken &CParser_Consume( CParser &parser )
 {
 	if ( !CParser_HasFinished( parser ) ) {
 		parser.nextToken++;
+		parser.lastToken = parser.nextToken > parser.lastToken ? parser.nextToken : parser.lastToken;
 		return CParser_GetPreviousToken(parser);
 	} else {
 		CParser_SetError(parser, "Reached end of file");
@@ -752,6 +759,14 @@ static bool CParser_TryConsume( CParser &parser, CTokenId tokenId0, CTokenId tok
 	}
 	return false;
 }
+
+//static bool CParser_ConsumeUntil( CParser &parser, CTokenId tokenId )
+//{
+//	while ( !CParser_HasFinished && !CParser_IsNextToken( parser, tokenId ) ) {
+//		CParser_Consume( parser );
+//	}
+//	return ( CParser_GetPreviousToken( parser ).id == tokenId );
+//}
 
 #if 0
 static void CParser_ParseMember(CParser &parser, CAssembly &cAsm, CStruct *cStruct, Arena &arena)
@@ -1030,9 +1045,22 @@ struct CastStructSpecifier
 	CastStructDeclarationList *structDeclarationList;
 };
 
+struct CastEnumerator
+{
+	String name;
+	// TODO: Could have a constant expression
+};
+
+struct CastEnumeratorList
+{
+	CastEnumerator *enumerator;
+	CastEnumeratorList *next;
+};
+
 struct CastEnumSpecifier
 {
 	String name;
+	CastEnumeratorList *enumeratorList;
 };
 
 struct CastTypeSpecifier
@@ -1139,10 +1167,6 @@ struct Cast
 	Arena backupArena = *parser.arena; \
 	u32 nextTokenBackup = parser.nextToken;
 
-#define CAST_BACKUP2() \
-	backupArena = *parser.arena; \
-	nextTokenBackup = parser.nextToken;
-
 #define CAST_RESTORE() \
 	*parser.arena = backupArena; \
 	parser.nextToken = nextTokenBackup;
@@ -1152,22 +1176,21 @@ struct Cast
 
 CastStorageClassSpecifier *Cast_ParseStorageClassSpecifier( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
+	bool match = true;
 	CastStorageClassSpecifierType type = CAST_TYPEDEF;
-	const CToken &token = CParser_Consume(parser);
-	if (token.id == TOKEN_TYPEDEF ) type = CAST_TYPEDEF;
-	else if (token.id == TOKEN_EXTERN ) type = CAST_EXTERN;
-	else if (token.id == TOKEN_STATIC ) type = CAST_STATIC;
-	else if (token.id == TOKEN_THREAD_LOCAL ) type = CAST_THREAD_LOCAL;
-	else if (token.id == TOKEN_AUTO ) type = CAST_AUTO;
-	else if (token.id == TOKEN_REGISTER ) type = CAST_REGISTER;
-	else {
-		//CParser_SetError(parser, "Invalid class storage specifier");
-		CAST_RESTORE();
-		return NULL;
+	if ( CParser_TryConsume( parser, TOKEN_TYPEDEF ) ) type = CAST_TYPEDEF;
+	else if ( CParser_TryConsume( parser, TOKEN_EXTERN ) ) type = CAST_EXTERN;
+	else if ( CParser_TryConsume( parser, TOKEN_STATIC ) ) type = CAST_STATIC;
+	else if ( CParser_TryConsume( parser, TOKEN_THREAD_LOCAL ) ) type = CAST_THREAD_LOCAL;
+	else if ( CParser_TryConsume( parser, TOKEN_AUTO ) ) type = CAST_AUTO;
+	else if ( CParser_TryConsume( parser, TOKEN_REGISTER ) ) type = CAST_REGISTER;
+	else { match = false; }
+
+	CastStorageClassSpecifier *castStorageSpecifier = NULL;
+	if (match) {
+		castStorageSpecifier = CAST_NODE( CastStorageClassSpecifier );
+		castStorageSpecifier->type = type;
 	}
-	CastStorageClassSpecifier *castStorageSpecifier = CAST_NODE( CastStorageClassSpecifier );
-	castStorageSpecifier->type = type;
 	return castStorageSpecifier;
 }
 
@@ -1176,25 +1199,15 @@ CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenLi
 
 CastSpecifierQualifierList *Cast_ParseSpecifierQualifierList( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastTypeSpecifier *typeSpecifier = NULL;
 	CastTypeQualifier *typeQualifier = NULL;
 	CastSpecifierQualifierList *firstSpecifierQualifierList = NULL;
 	CastSpecifierQualifierList *prevSpecifierQualifierList = NULL;
 	do
 	{
-		CAST_BACKUP2();
 		typeSpecifier = Cast_ParseTypeSpecifier(parser, tokenList);
-		if ( !typeSpecifier ) {
-			CAST_RESTORE();
-		}
 
-		CAST_BACKUP2();
 		typeQualifier = Cast_ParseTypeQualifier(parser, tokenList);
-		if (!typeQualifier)
-		{
-			CAST_RESTORE();
-		}
 
 		if ( typeSpecifier || typeQualifier )
 		{
@@ -1218,16 +1231,14 @@ CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList 
 
 CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 {
-	if (!CParser_TryConsume(parser, TOKEN_STAR)) {
-		return NULL;
+	CastPointer *pointer = NULL;
+	if (CParser_TryConsume(parser, TOKEN_STAR))
+	{
+		CastTypeQualifierList *typeQualifierList = Cast_ParseTypeQualifierList(parser, tokenList);
+
+		pointer = CAST_NODE( CastPointer );
+		pointer->typeQualifierList = typeQualifierList;
 	}
-	CAST_BACKUP();
-	CastTypeQualifierList *typeQualifierList = Cast_ParseTypeQualifierList(parser, tokenList);
-	if (!typeQualifierList) {
-		CAST_RESTORE();
-	}
-	CastPointer *pointer = CAST_NODE( CastPointer );
-	pointer->typeQualifierList = typeQualifierList;
 	return pointer;
 }
 
@@ -1245,31 +1256,25 @@ CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &t
 
 CastDeclarator *Cast_ParseDeclarator( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastPointer *pointer = Cast_ParsePointer(parser, tokenList);
-	if (!pointer) {
-		CAST_RESTORE();
-	}
 	CastDirectDeclarator *directDeclarator = Cast_ParseDirectDeclarator(parser, tokenList);
-	if (!directDeclarator) {
-		CAST_RESTORE();
-		return NULL;
+
+	CastDeclarator *declarator =  NULL;
+	if (directDeclarator) {
+		declarator = CAST_NODE( CastDeclarator );
+		declarator->pointer = pointer;
+		declarator->directDeclarator = directDeclarator;
 	}
-	CastDeclarator *declarator = CAST_NODE( CastDeclarator );
-	declarator->pointer = pointer;
-	declarator->directDeclarator = directDeclarator;
 	return declarator;
 }
 
 CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastDeclarator *declarator = NULL;
 	CastStructDeclaratorList *firstStructDeclaratorList = NULL;
 	CastStructDeclaratorList *prevStructDeclaratorList = NULL;
 	do
 	{
-		CAST_BACKUP2();
 		declarator = Cast_ParseDeclarator(parser, tokenList);
 		if (declarator)
 		{
@@ -1283,10 +1288,6 @@ CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CToke
 			}
 			prevStructDeclaratorList = structDeclaratorList;
 		}
-		else
-		{
-			CAST_RESTORE();
-		}
 	}
 	while (declarator);
 	
@@ -1296,23 +1297,19 @@ CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CToke
 CastStructDeclaration *Cast_ParseStructDeclaration( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
+	CastStructDeclaration *structDeclaration = NULL;
 	CastSpecifierQualifierList *specifierQualifierList = Cast_ParseSpecifierQualifierList(parser, tokenList);
-	if (!specifierQualifierList) {
-		CAST_RESTORE();
-		return NULL;
+	if ( specifierQualifierList )
+	{
+		CastStructDeclaratorList *structDeclaratorList = Cast_ParseStructDeclaratorList(parser, tokenList);
+		if (CParser_TryConsume(parser, TOKEN_SEMICOLON)) {
+			structDeclaration = CAST_NODE( CastStructDeclaration );
+			structDeclaration->specifierQualifierList = specifierQualifierList;
+			structDeclaration->structDeclaratorList = structDeclaratorList;
+		} else {
+			CAST_RESTORE();
+		}
 	}
-	CastStructDeclaratorList *structDeclaratorList = Cast_ParseStructDeclaratorList(parser, tokenList);
-	if (!structDeclaratorList) {
-		CAST_RESTORE();
-		return NULL;
-	}
-	if (!CParser_TryConsume(parser, TOKEN_SEMICOLON)) {
-		CAST_RESTORE();
-		return NULL;
-	}
-	CastStructDeclaration *structDeclaration = CAST_NODE( CastStructDeclaration );
-	structDeclaration->specifierQualifierList = specifierQualifierList;
-	structDeclaration->structDeclaratorList = structDeclaratorList;
 	return structDeclaration;
 }
 
@@ -1323,7 +1320,6 @@ CastStructDeclarationList *Cast_ParseStructDeclarationList( CParser &parser, CTo
 	CastStructDeclarationList *previousDeclarationList = NULL;
 	do
 	{
-		CAST_BACKUP();
 		structDeclaration = Cast_ParseStructDeclaration(parser, tokenList);
 		if ( structDeclaration )
 		{
@@ -1336,12 +1332,6 @@ CastStructDeclarationList *Cast_ParseStructDeclarationList( CParser &parser, CTo
 				previousDeclarationList->next = structDeclarationList;
 			}
 			previousDeclarationList = structDeclarationList;
-		}
-		else
-		{
-			CAST_RESTORE();
-			//firstDeclarationList = NULL; // TODO: Not sure about this
-			break;
 		}
 	}
 	while ( structDeclaration );
@@ -1363,13 +1353,10 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 	CastStructDeclarationList* structDeclarationList = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_LEFT_BRACE) )
 	{
-		structDeclarationList =  Cast_ParseStructDeclarationList(parser, tokenList);
-		if ( !structDeclarationList ) {
-			CAST_RESTORE();
-			return NULL;
-		}
+		structDeclarationList = Cast_ParseStructDeclarationList(parser, tokenList);
 
-		if ( !CParser_TryConsume(parser, TOKEN_RIGHT_BRACE) ) {
+		if ( !CParser_TryConsume(parser, TOKEN_RIGHT_BRACE) )
+		{
 			CAST_RESTORE();
 			return NULL;
 		}
@@ -1380,143 +1367,173 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 	return structSpecifier;
 }
 
+CastEnumerator *Cast_ParseEnumerator( CParser &parser, CTokenList &tokenList )
+{
+	CastEnumerator *enumerator = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
+		const CToken &identifier = CParser_GetPreviousToken(parser);
+		enumerator = CAST_NODE( CastEnumerator );
+		enumerator->name = identifier.lexeme;
+	}
+	return enumerator;
+}
+
+CastEnumeratorList *Cast_ParseEnumeratorList( CParser &parser, CTokenList &tokenList )
+{
+	CastEnumerator *enumerator = NULL;
+	CastEnumeratorList *firstEnumeratorList = NULL;
+	CastEnumeratorList *prevEnumeratorList = NULL;
+	do
+	{
+		enumerator = Cast_ParseEnumerator(parser, tokenList);
+		if (enumerator)
+		{
+			CParser_TryConsume(parser, TOKEN_COMMA);
+
+			CastEnumeratorList *enumeratorList = CAST_NODE( CastEnumeratorList );
+			enumeratorList->enumerator = enumerator;
+			if (!firstEnumeratorList) {
+				firstEnumeratorList = enumeratorList;
+			}
+			if (prevEnumeratorList) {
+				prevEnumeratorList->next = enumeratorList;
+			}
+			prevEnumeratorList = enumeratorList;
+		}
+	} while (enumerator);
+	return firstEnumeratorList;
+}
+
 CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
-	CAST_RESTORE();
-	return NULL;
+	if ( !CParser_TryConsume(parser, TOKEN_ENUM) ) {
+		return NULL;
+	}
+
+	String name = {};
+	if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
+		const CToken &identifier = CParser_GetPreviousToken(parser);
+		name = identifier.lexeme;
+	}
+
+	CastEnumeratorList *enumeratorList = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_LEFT_BRACE) )
+	{
+		Cast_ParseEnumeratorList(parser, tokenList);
+		CParser_TryConsume(parser, TOKEN_COMMA);
+		if (!CParser_TryConsume(parser, TOKEN_RIGHT_BRACE))
+		{
+			CAST_RESTORE();
+			return NULL;
+		}
+	}
+
+	CastEnumSpecifier *enumSpecifier = CAST_NODE( CastEnumSpecifier );
+	enumSpecifier->name = name;
+	enumSpecifier->enumeratorList = enumeratorList;
+	return enumSpecifier;
 }
 
 CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
+	bool match = true;
 	CastTypeSpecifierType type = CAST_VOID;
-	const CToken &token = CParser_Consume(parser);
-	if (token.id == TOKEN_VOID ) type = CAST_VOID;
-	else if (token.id == TOKEN_CHAR ) type = CAST_CHAR;
-	else if (token.id == TOKEN_SHORT ) type = CAST_SHORT;
-	else if (token.id == TOKEN_LONG ) type = CAST_LONG;
-	else if (token.id == TOKEN_FLOAT ) type = CAST_FLOAT;
-	else if (token.id == TOKEN_DOUBLE ) type = CAST_DOUBLE;
-	else if (token.id == TOKEN_SIGNED ) type = CAST_SIGNED;
-	else if (token.id == TOKEN_UNSIGNED ) type = CAST_UNSIGNED;
-	else if (token.id == TOKEN_BOOL ) type = CAST_BOOL;
-	else {
-		CAST_RESTORE();
-		CastStructSpecifier *structSpecifier = Cast_ParseStructSpecifier(parser, tokenList);
-		if ( structSpecifier )
+	CastStructSpecifier *structSpecifier = NULL;
+	CastEnumSpecifier *enumSpecifier = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_VOID) ) type = CAST_VOID;
+	else if ( CParser_TryConsume(parser, TOKEN_CHAR) ) type = CAST_CHAR;
+	else if ( CParser_TryConsume(parser, TOKEN_SHORT) ) type = CAST_SHORT;
+	else if ( CParser_TryConsume(parser, TOKEN_LONG) ) type = CAST_LONG;
+	else if ( CParser_TryConsume(parser, TOKEN_FLOAT) ) type = CAST_FLOAT;
+	else if ( CParser_TryConsume(parser, TOKEN_DOUBLE) ) type = CAST_DOUBLE;
+	else if ( CParser_TryConsume(parser, TOKEN_SIGNED) ) type = CAST_SIGNED;
+	else if ( CParser_TryConsume(parser, TOKEN_UNSIGNED) ) type = CAST_UNSIGNED;
+	else if ( CParser_TryConsume(parser, TOKEN_BOOL) ) type = CAST_BOOL;
+	else
+	{
+		structSpecifier = Cast_ParseStructSpecifier(parser, tokenList);
+		if ( !structSpecifier )
 		{
-			CastTypeSpecifier *typeSpecifier = CAST_NODE( CastTypeSpecifier );
-			typeSpecifier->type = CAST_STRUCT;
-			typeSpecifier->structSpecifier = structSpecifier;
-			return typeSpecifier;
+			enumSpecifier = Cast_ParseEnumSpecifier(parser, tokenList);
+			if ( !enumSpecifier )
+			{
+				match = false;
+			}
 		}
-		CastEnumSpecifier *enumSpecifier = Cast_ParseEnumSpecifier(parser, tokenList);
-		if (enumSpecifier)
-		{
-			CastTypeSpecifier *typeSpecifier = CAST_NODE( CastTypeSpecifier );
-			typeSpecifier->type = CAST_ENUM;
-			typeSpecifier->structSpecifier = structSpecifier;
-			return typeSpecifier;
-		}
-		return NULL;
 	}
-	CastTypeSpecifier *castTypeSpecifier = CAST_NODE( CastTypeSpecifier );
-	castTypeSpecifier->type = type;
+
+	CastTypeSpecifier *castTypeSpecifier = NULL;
+	if (match)
+	{
+		castTypeSpecifier = CAST_NODE( CastTypeSpecifier );
+		castTypeSpecifier->type = type;
+		castTypeSpecifier->structSpecifier = structSpecifier;
+		castTypeSpecifier->enumSpecifier = enumSpecifier;
+	}
 	return castTypeSpecifier;
 }
 
 CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
+	bool match = true;
 	CastTypeQualifierType type = CAST_CONST;
-	const CToken &token = CParser_Consume(parser);
-	if (token.id == TOKEN_CONST ) type = CAST_CONST;
-	else if (token.id == TOKEN_RESTRICT ) type = CAST_RESTRICT;
-	else if (token.id == TOKEN_VOLATILE ) type = CAST_VOLATILE;
-	else {
-		CAST_RESTORE();
-		return NULL;
+	if ( CParser_TryConsume( parser, TOKEN_CONST) ) type = CAST_CONST;
+	else if ( CParser_TryConsume( parser, TOKEN_RESTRICT) ) type = CAST_RESTRICT;
+	else if ( CParser_TryConsume( parser, TOKEN_VOLATILE) ) type = CAST_VOLATILE;
+	else { match = false; }
+
+	CastTypeQualifier *typeQualifier = NULL;
+	if (match) {
+		typeQualifier = CAST_NODE( CastTypeQualifier );
+		typeQualifier->type = type;
 	}
-	CastTypeQualifier *typeQualifier = CAST_NODE( CastTypeQualifier );
-	typeQualifier->type = type;
 	return typeQualifier;
 }
 
 CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList )
 {
-	// TODO
-	CAST_BACKUP();
-	CAST_RESTORE();
 	return NULL;
 }
 
 CastFunctionSpecifier *Cast_ParseFunctionSpecifier( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
-	CAST_RESTORE();
 	return NULL;
 }
 
 CastDeclarationSpecifiers *Cast_ParseDeclarationSpecifiers( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastStorageClassSpecifier *storageClassSpecifier = Cast_ParseStorageClassSpecifier(parser, tokenList);
-	if (!storageClassSpecifier) {
-		CAST_RESTORE();
-	}
-	CAST_BACKUP2();
 	CastTypeSpecifier *typeSpecifier = Cast_ParseTypeSpecifier(parser, tokenList);
-	if (!typeSpecifier) {
-		CAST_RESTORE();
-	}
-	CAST_BACKUP2();
 	CastTypeQualifier *typeQualifier = Cast_ParseTypeQualifier(parser, tokenList);
-	if (!typeQualifier) {
-		CAST_RESTORE();
-	}
-	CAST_BACKUP2();
 	CastFunctionSpecifier *functionSpecifier = Cast_ParseFunctionSpecifier(parser, tokenList);
-	if (!functionSpecifier) {
-		CAST_RESTORE();
-	}
+
+	CastDeclarationSpecifiers *declarationSpecifiers =  NULL;
 	if (storageClassSpecifier || typeSpecifier || typeQualifier || functionSpecifier) {
-		CastDeclarationSpecifiers *declarationSpecifiers = CAST_NODE( CastDeclarationSpecifiers );
+		declarationSpecifiers = CAST_NODE( CastDeclarationSpecifiers );
 		declarationSpecifiers->storageClassSpecifier = storageClassSpecifier;
 		declarationSpecifiers->typeSpecifier = typeSpecifier;
 		declarationSpecifiers->typeQualifier = typeQualifier;
 		declarationSpecifiers->functionSpecifier = functionSpecifier;
 		declarationSpecifiers->next = Cast_ParseDeclarationSpecifiers(parser, tokenList);
-		return declarationSpecifiers;
-	} else {
-		// TODO: Backup to beginning
 	}
-	return NULL;
+	return declarationSpecifiers;
 }
 
 CastInitDeclaratorList *Cast_ParseInitDeclaratorList( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
-	CAST_RESTORE();
 	return NULL;
 }
 
 CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastDeclarationSpecifiers *declarationSpecifiers = Cast_ParseDeclarationSpecifiers(parser, tokenList);
 	if (!declarationSpecifiers)
 	{
-		CAST_RESTORE();
 		return NULL;
 	}
 
-	CAST_BACKUP2();
 	CastInitDeclaratorList *initDeclaratorList = Cast_ParseInitDeclaratorList(parser, tokenList);
-	if (!initDeclaratorList)
-	{
-		CAST_RESTORE();
-	}
 
 	CastDeclaration *declaration = CAST_NODE( CastDeclaration );
 	declaration->declarationSpecifiers = declarationSpecifiers;
@@ -1528,39 +1545,23 @@ CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 
 CastFunctionDefinition *Cast_ParseFunctionDefinition( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
-	CAST_RESTORE();
 	return NULL;
 }
 
 CastExternalDeclaration *Cast_ParseExternalDeclaration( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
+	CastExternalDeclaration *externalDeclaration = NULL;
 	CastDeclaration *declaration = Cast_ParseDeclaration(parser, tokenList);
 	if (declaration)
 	{
-		CastExternalDeclaration *externalDeclaration = CAST_NODE( CastExternalDeclaration );
+		externalDeclaration = CAST_NODE( CastExternalDeclaration );
 		externalDeclaration->declaration = declaration;
-		return externalDeclaration;
 	}
-	else
-	{
-		CAST_RESTORE();
-		CastFunctionDefinition *functionDefinition = Cast_ParseFunctionDefinition(parser, tokenList);
-		if (functionDefinition)
-		{
-			CastExternalDeclaration *externalDeclaration = CAST_NODE( CastExternalDeclaration );
-			externalDeclaration->functionDefinition = functionDefinition;
-			return externalDeclaration;
-		}
-	}
-	CAST_RESTORE();
-	return NULL;
+	return externalDeclaration;
 }
 
 CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tokenList )
 {
-	CAST_BACKUP();
 	CastTranslationUnit *firstTranslationUnit = NULL;
 	CastTranslationUnit *previousTranslationUnit = NULL;
 	while ( !CParser_HasFinished(parser) )
@@ -1581,8 +1582,8 @@ CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tok
 		else
 		{
 			CToken token = CParser_GetNextToken(parser);
-			Cast_SetError("Invalid gramar at line: %d\n", token.line);
-			CAST_RESTORE();
+			CToken lastToken = CParser_GetLastToken(parser);
+			Cast_SetError("Invalid grammar between lines: %u-%u\n", token.line, lastToken.line);
 			firstTranslationUnit = NULL;
 			break;
 		}
