@@ -194,6 +194,12 @@ struct CScanner
 	u32 textSize;
 };
 
+struct CIdentifierList
+{
+	String identifier;
+	CIdentifierList *next;
+};
+
 struct CParser
 {
 	const CTokenList *tokenList;
@@ -202,6 +208,8 @@ struct CParser
 	u32 lastToken;
 	bool hasErrors;
 	bool hasFinished;
+
+	CIdentifierList *identifiers;
 };
 
 #if 0
@@ -760,6 +768,28 @@ static bool CParser_TryConsume( CParser &parser, CTokenId tokenId0, CTokenId tok
 	return false;
 }
 
+static void CParser_AddIdentifier( CParser &parser, String identifier )
+{
+	CIdentifierList *previousFirst = parser.identifiers;
+	parser.identifiers = PushZeroStruct( *parser.arena, CIdentifierList );
+	parser.identifiers->identifier = identifier;
+	parser.identifiers->next = previousFirst;
+}
+
+static bool CParser_FindIdentifier( const CParser &parser, String identifier)
+{
+	CIdentifierList *node = parser.identifiers;
+	while (node)
+	{
+		if (StrEq(node->identifier, identifier))
+		{
+			return true;
+		}
+		node = node->next;
+	}
+	return false;
+}
+
 //static bool CParser_ConsumeUntil( CParser &parser, CTokenId tokenId )
 //{
 //	while ( !CParser_HasFinished && !CParser_IsNextToken( parser, tokenId ) ) {
@@ -998,6 +1028,7 @@ enum CastTypeSpecifierType
 	CAST_SIGNED,
 	CAST_UNSIGNED,
 	CAST_BOOL,
+	CAST_IDENTIFIER,
 	CAST_STRUCT,
 	CAST_ENUM,
 };
@@ -1068,6 +1099,7 @@ struct CastTypeSpecifier
 	CastTypeSpecifierType type;
 	union
 	{
+		String identifier;
 		CastStructSpecifier *structSpecifier;
 		CastEnumSpecifier *enumSpecifier;
 	};
@@ -1256,14 +1288,17 @@ CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &t
 
 CastDeclarator *Cast_ParseDeclarator( CParser &parser, CTokenList &tokenList )
 {
+	CAST_BACKUP();
+	CastDeclarator *declarator =  NULL;
 	CastPointer *pointer = Cast_ParsePointer(parser, tokenList);
 	CastDirectDeclarator *directDeclarator = Cast_ParseDirectDeclarator(parser, tokenList);
-
-	CastDeclarator *declarator =  NULL;
 	if (directDeclarator) {
 		declarator = CAST_NODE( CastDeclarator );
 		declarator->pointer = pointer;
 		declarator->directDeclarator = directDeclarator;
+	}
+	if (!declarator) {
+		CAST_RESTORE();
 	}
 	return declarator;
 }
@@ -1302,13 +1337,16 @@ CastStructDeclaration *Cast_ParseStructDeclaration( CParser &parser, CTokenList 
 	if ( specifierQualifierList )
 	{
 		CastStructDeclaratorList *structDeclaratorList = Cast_ParseStructDeclaratorList(parser, tokenList);
-		if (CParser_TryConsume(parser, TOKEN_SEMICOLON)) {
-			structDeclaration = CAST_NODE( CastStructDeclaration );
-			structDeclaration->specifierQualifierList = specifierQualifierList;
-			structDeclaration->structDeclaratorList = structDeclaratorList;
-		} else {
-			CAST_RESTORE();
+		if ( structDeclaratorList ) {
+			if (CParser_TryConsume(parser, TOKEN_SEMICOLON)) {
+				structDeclaration = CAST_NODE( CastStructDeclaration );
+				structDeclaration->specifierQualifierList = specifierQualifierList;
+				structDeclaration->structDeclaratorList = structDeclaratorList;
+			}
 		}
+	}
+	if ( !structDeclaration ) {
+		CAST_RESTORE();
 	}
 	return structDeclaration;
 }
@@ -1349,7 +1387,10 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 		CAST_RESTORE();
 		return NULL;
 	}
-	const CToken &identToken = CParser_GetPreviousToken(parser);
+	const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
+	String identifier = tokenIdentifier.lexeme;
+	CParser_AddIdentifier(parser, identifier);
+
 	CastStructDeclarationList* structDeclarationList = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_LEFT_BRACE) )
 	{
@@ -1362,7 +1403,7 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 		}
 	}
 	CastStructSpecifier *structSpecifier = CAST_NODE( CastStructSpecifier );
-	structSpecifier->name = identToken.lexeme;
+	structSpecifier->name = identifier;
 	structSpecifier->structDeclarationList = structDeclarationList;
 	return structSpecifier;
 }
@@ -1413,8 +1454,10 @@ CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenLi
 
 	String name = {};
 	if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
-		const CToken &identifier = CParser_GetPreviousToken(parser);
-		name = identifier.lexeme;
+		const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
+		String identifier = tokenIdentifier.lexeme;
+		CParser_AddIdentifier(parser, identifier);
+		name = identifier;
 	}
 
 	CastEnumeratorList *enumeratorList = NULL;
@@ -1437,8 +1480,11 @@ CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenLi
 
 CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList )
 {
+	CAST_BACKUP();
+
 	bool match = true;
 	CastTypeSpecifierType type = CAST_VOID;
+	String identifier = {};
 	CastStructSpecifier *structSpecifier = NULL;
 	CastEnumSpecifier *enumSpecifier = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_VOID) ) type = CAST_VOID;
@@ -1450,11 +1496,24 @@ CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenLi
 	else if ( CParser_TryConsume(parser, TOKEN_SIGNED) ) type = CAST_SIGNED;
 	else if ( CParser_TryConsume(parser, TOKEN_UNSIGNED) ) type = CAST_UNSIGNED;
 	else if ( CParser_TryConsume(parser, TOKEN_BOOL) ) type = CAST_BOOL;
+	else if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+	{
+		const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
+		identifier = tokenIdentifier.lexeme;
+		if ( CParser_FindIdentifier(parser, identifier) ) {
+			type = CAST_IDENTIFIER;
+		} else {
+			CAST_RESTORE();
+			match = false;
+		}
+	}
 	else
 	{
+		type = CAST_STRUCT;
 		structSpecifier = Cast_ParseStructSpecifier(parser, tokenList);
 		if ( !structSpecifier )
 		{
+			type = CAST_ENUM;
 			enumSpecifier = Cast_ParseEnumSpecifier(parser, tokenList);
 			if ( !enumSpecifier )
 			{
@@ -1468,8 +1527,12 @@ CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenLi
 	{
 		castTypeSpecifier = CAST_NODE( CastTypeSpecifier );
 		castTypeSpecifier->type = type;
-		castTypeSpecifier->structSpecifier = structSpecifier;
-		castTypeSpecifier->enumSpecifier = enumSpecifier;
+		switch (type) {
+			case CAST_IDENTIFIER: castTypeSpecifier->identifier = identifier; break;
+			case CAST_STRUCT: castTypeSpecifier->structSpecifier = structSpecifier; break;
+			case CAST_ENUM: castTypeSpecifier->enumSpecifier = enumSpecifier; break;
+			default:;
+		};
 	}
 	return castTypeSpecifier;
 }
