@@ -1020,14 +1020,15 @@ struct CastStorageClassSpecifier
 enum CastTypeSpecifierType
 {
 	CAST_VOID,
+	CAST_BOOL,
 	CAST_CHAR,
-	CAST_SHORT,
-	CAST_LONG,
+	CAST_INT,
 	CAST_FLOAT,
 	CAST_DOUBLE,
+	CAST_SHORT,
+	CAST_LONG,
 	CAST_SIGNED,
 	CAST_UNSIGNED,
-	CAST_BOOL,
 	CAST_IDENTIFIER,
 	CAST_STRUCT,
 	CAST_ENUM,
@@ -1488,14 +1489,15 @@ CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenLi
 	CastStructSpecifier *structSpecifier = NULL;
 	CastEnumSpecifier *enumSpecifier = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_VOID) ) type = CAST_VOID;
+	else if ( CParser_TryConsume(parser, TOKEN_BOOL) ) type = CAST_BOOL;
 	else if ( CParser_TryConsume(parser, TOKEN_CHAR) ) type = CAST_CHAR;
-	else if ( CParser_TryConsume(parser, TOKEN_SHORT) ) type = CAST_SHORT;
-	else if ( CParser_TryConsume(parser, TOKEN_LONG) ) type = CAST_LONG;
+	else if ( CParser_TryConsume(parser, TOKEN_INT) ) type = CAST_INT;
 	else if ( CParser_TryConsume(parser, TOKEN_FLOAT) ) type = CAST_FLOAT;
 	else if ( CParser_TryConsume(parser, TOKEN_DOUBLE) ) type = CAST_DOUBLE;
+	else if ( CParser_TryConsume(parser, TOKEN_SHORT) ) type = CAST_SHORT;
+	else if ( CParser_TryConsume(parser, TOKEN_LONG) ) type = CAST_LONG;
 	else if ( CParser_TryConsume(parser, TOKEN_SIGNED) ) type = CAST_SIGNED;
 	else if ( CParser_TryConsume(parser, TOKEN_UNSIGNED) ) type = CAST_UNSIGNED;
-	else if ( CParser_TryConsume(parser, TOKEN_BOOL) ) type = CAST_BOOL;
 	else if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
 	{
 		const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
