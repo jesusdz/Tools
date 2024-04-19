@@ -1716,9 +1716,11 @@ CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
 		CastInitializerList *initializerList = Cast_ParseInitializerList(parser, tokenList);
 		if (initializerList)
 		{
-			castInitializer = CAST_NODE( CastInitializer );
-			castInitializer->initializerList = initializerList;
-			CParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+			if ( CParser_TryConsume(parser, TOKEN_RIGHT_BRACE) )
+			{
+				castInitializer = CAST_NODE( CastInitializer );
+				castInitializer->initializerList = initializerList;
+			}
 		}
 	}
 	else
