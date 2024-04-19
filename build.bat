@@ -61,6 +61,11 @@ if "%target%" == "main_interpreter.cpp" (
 	set CommonCompilerFlags=%CommonCompilerFlags% /std:c++20
 	set CommonLinkerFlags=%CommonLinkerFlags%
 
+) else if "%target%" == "cast.cpp" (
+
+	set CommonCompilerFlags=%CommonCompilerFlags% -std:c++20
+	set CommonLinkerFlags=%CommonLinkerFlags%
+
 ) else if "%target%" == "main_reflect_serialize.cpp" (
 
 	set CommonCompilerFlags=%CommonCompilerFlags% /std:c++20
