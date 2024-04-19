@@ -1133,10 +1133,17 @@ struct CastDeclarationSpecifiers
 	CastDeclarationSpecifiers *next;
 };
 
+struct CastExpression
+{
+	String constant; // TODO: Expressions can be much more complex
+};
+
 struct CastDirectDeclarator
 {
 	String name;
-	// TODO could be an array with fixed or variable length
+	CastExpression *expression;
+	bool isArray : 1;
+	// TODO could be a function as well
 };
 
 struct CastPointer
@@ -1303,15 +1310,39 @@ CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 	return pointer;
 }
 
+CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
+{
+	// TODO: make checks
+	const CToken &token = CParser_Consume(parser);
+	CastExpression *expression = CAST_NODE( CastExpression );
+	expression->constant = token.lexeme;
+	return expression;
+}
+
 CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &tokenList )
 {
-	// TODO: Here we are only accepting identifiers, but direct declarators can be much more complex (e.g. arrays)
+	CAST_BACKUP();
 	if (!CParser_TryConsume(parser, TOKEN_IDENTIFIER)) {
 		return NULL;
 	}
 	const CToken &token = CParser_GetPreviousToken(parser);
+
+	bool isArray = false;
+	CastExpression *expression = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_LEFT_BRACKET) )
+	{
+		isArray = true;
+		expression = Cast_ParseExpression(parser, tokenList);
+		if (!CParser_TryConsume(parser, TOKEN_RIGHT_BRACKET)) {
+			CAST_RESTORE();
+			return NULL;
+		}
+	}
+
 	CastDirectDeclarator *directDeclarator = CAST_NODE( CastDirectDeclarator );
 	directDeclarator->name = token.lexeme;
+	directDeclarator->expression = expression;
+	directDeclarator->isArray = isArray;
 	return directDeclarator;
 }
 
