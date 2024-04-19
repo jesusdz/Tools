@@ -1136,6 +1136,7 @@ struct CastDeclarationSpecifiers
 struct CastDirectDeclarator
 {
 	String name;
+	// TODO could be an array with fixed or variable length
 };
 
 struct CastPointer
@@ -1150,15 +1151,42 @@ struct CastDeclarator
 	CastDirectDeclarator *directDeclarator;
 };
 
+struct CastDesignator
+{
+	String identifier;
+	// TODO: Add missing array element designator: [ constant-expression ]
+};
+
+struct CastDesignatorList
+{
+	CastDesignator *designator;
+	CastDesignatorList *next;
+};
+
+struct CastDesignation
+{
+	CastDesignatorList *designatorList;
+};
+
+struct CastInitializerList;
+
 struct CastInitializer
 {
-	// TODO
+	String value; // TODO: This should reference an assignment-expression
+	CastInitializerList *initializerList;
+};
+
+struct CastInitializerList
+{
+	CastDesignation *designation; // optional
+	CastInitializer *initializer;
+	CastInitializerList *next;
 };
 
 struct CastInitDeclarator
 {
 	CastDeclarator *declarator;
-	CastInitializer *intializer;
+	CastInitializer *initializer;
 };
 
 struct CastInitDeclaratorList
@@ -1277,7 +1305,7 @@ CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 
 CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &tokenList )
 {
-	// NOTE: Here we are only accepting identifiers, but direct declarators can be much more complex
+	// TODO: Here we are only accepting identifiers, but direct declarators can be much more complex (e.g. arrays)
 	if (!CParser_TryConsume(parser, TOKEN_IDENTIFIER)) {
 		return NULL;
 	}
@@ -1585,13 +1613,187 @@ CastDeclarationSpecifiers *Cast_ParseDeclarationSpecifiers( CParser &parser, CTo
 	return declarationSpecifiers;
 }
 
+CastDesignator *Cast_ParseDesignator( CParser &parser, CTokenList &tokenList )
+{
+	CAST_BACKUP();
+	CastDesignator *designator = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_DOT) ) {
+		if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
+			const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
+			designator = CAST_NODE( CastDesignator );
+			designator->identifier = tokenIdentifier.lexeme;
+		}
+	}
+	// TODO: Parse array element designator: [ constant-expression ]
+	if (!designator) {
+		CAST_RESTORE();
+	}
+	return NULL;
+}
+
+CastDesignatorList *Cast_ParseDesignatorList( CParser &parser, CTokenList &tokenList )
+{
+	CastDesignatorList *firstDesignatorList = NULL;
+	CastDesignatorList *prevDesignatorList = NULL;
+	CastDesignator *designator = NULL;
+	do
+	{
+		designator = Cast_ParseDesignator(parser, tokenList);
+		if (designator)
+		{
+			CastDesignatorList *designatorList = CAST_NODE( CastDesignatorList );
+			designatorList->designator = designator;
+			if (!firstDesignatorList) {
+				firstDesignatorList = designatorList;
+			}
+			if (prevDesignatorList) {
+				prevDesignatorList->next = designatorList;
+			}
+			prevDesignatorList = designatorList;
+		}
+	} while (designator);
+	return firstDesignatorList;
+}
+
+CastDesignation *Cast_ParseDesignation( CParser &parser, CTokenList &tokenList )
+{
+	CAST_BACKUP();
+	CastDesignation *designation = NULL;
+	CastDesignatorList *designatorList = Cast_ParseDesignatorList(parser, tokenList);
+	if ( designatorList && CParser_TryConsume(parser, TOKEN_EQUAL) )
+	{
+		designation = CAST_NODE( CastDesignation );
+		designation->designatorList = designatorList;
+	}
+	if (!designation) {
+		CAST_RESTORE();
+	}
+	return designation;
+}
+
+CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList );
+
+CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
+{
+	CAST_BACKUP();
+	CastInitializer *castInitializer = NULL;
+	if (CParser_TryConsume(parser, TOKEN_LEFT_BRACE))
+	{
+		CastInitializerList *initializerList = Cast_ParseInitializerList(parser, tokenList);
+		if (initializerList)
+		{
+			castInitializer = CAST_NODE( CastInitializer );
+			castInitializer->initializerList = initializerList;
+			CParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+		}
+	}
+	else
+	{
+		// TODO: Parse this better. It could be any kind of expression
+		const CToken &tokenExpression = CParser_Consume(parser);
+		castInitializer = CAST_NODE( CastInitializer );
+		castInitializer->value = tokenExpression.lexeme;
+	}
+	if (!castInitializer) {
+		CAST_RESTORE();
+	}
+	return castInitializer;
+}
+
+CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList )
+{
+	CAST_BACKUP();
+	bool comma = false;
+	CastInitializer *initializer = NULL;
+	CastInitializerList *firstInitalizerList = NULL;
+	CastInitializerList *prevInitalizerList = NULL;
+	do
+	{
+		CastDesignation *designation = Cast_ParseDesignation(parser, tokenList);
+		initializer = Cast_ParseInitializer(parser, tokenList);
+		if (initializer)
+		{
+			CastInitializerList *initializerList = CAST_NODE( CastInitializerList );
+			initializerList->designation = designation;
+			initializerList->initializer = initializer;
+			if ( !firstInitalizerList ) {
+				firstInitalizerList = initializerList;
+			}
+			if ( prevInitalizerList ) {
+				prevInitalizerList->next = initializerList;
+			}
+			prevInitalizerList = initializerList;
+			comma = CParser_TryConsume(parser, TOKEN_COMMA);
+		}
+		else if ( designation || comma )
+		{
+			CAST_RESTORE();
+			firstInitalizerList = NULL;
+		}
+	} while (initializer && comma);
+	return firstInitalizerList;
+}
+
+CastInitDeclarator *Cast_ParseInitDeclarator( CParser &parser, CTokenList &tokenList )
+{
+	CAST_BACKUP();
+	CastInitDeclarator *initDeclarator = NULL;
+	CastInitializer *initializer = NULL;
+	CastDeclarator *declarator = Cast_ParseDeclarator(parser, tokenList);
+	if ( declarator )
+	{
+		if ( CParser_TryConsume(parser, TOKEN_EQUAL) )
+		{
+			initializer = Cast_ParseInitializer(parser, tokenList);
+			if (!initializer) {
+				CAST_RESTORE();
+				return NULL;
+			}
+		}
+
+		initDeclarator = CAST_NODE( CastInitDeclarator );
+		initDeclarator->declarator = declarator;
+		initDeclarator->initializer = initializer;
+	}
+	return initDeclarator;
+}
+
 CastInitDeclaratorList *Cast_ParseInitDeclaratorList( CParser &parser, CTokenList &tokenList )
 {
-	return NULL;
+	CAST_BACKUP();
+	bool comma = false;
+	CastInitDeclarator *initDeclarator = NULL;
+	CastInitDeclaratorList *firstInitDeclaratorList = NULL;
+	CastInitDeclaratorList *prevInitDeclaratorList = NULL;
+	do
+	{
+		initDeclarator = Cast_ParseInitDeclarator(parser, tokenList);
+		if (initDeclarator)
+		{
+			CastInitDeclaratorList *initDeclaratorList = CAST_NODE( CastInitDeclaratorList );
+			initDeclaratorList->initDeclarator = initDeclarator;
+			if ( !firstInitDeclaratorList ) {
+				firstInitDeclaratorList = initDeclaratorList;
+			}
+			if ( prevInitDeclaratorList ) {
+				prevInitDeclaratorList->next = initDeclaratorList;
+			}
+			prevInitDeclaratorList = initDeclaratorList;
+			comma = CParser_TryConsume(parser, TOKEN_COMMA);
+		}
+		else if ( comma )
+		{
+			CAST_RESTORE();
+			firstInitDeclaratorList = NULL;
+		}
+	} while ( initDeclarator );
+	return firstInitDeclaratorList;
 }
 
 CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 {
+	CAST_BACKUP();
+
 	CastDeclarationSpecifiers *declarationSpecifiers = Cast_ParseDeclarationSpecifiers(parser, tokenList);
 	if (!declarationSpecifiers)
 	{
@@ -1601,10 +1803,15 @@ CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 	CastInitDeclaratorList *initDeclaratorList = Cast_ParseInitDeclaratorList(parser, tokenList);
 
 	CastDeclaration *declaration = CAST_NODE( CastDeclaration );
-	declaration->declarationSpecifiers = declarationSpecifiers;
-	declaration->initDeclaratorList = initDeclaratorList;
+	if ( CParser_TryConsume(parser, TOKEN_SEMICOLON) )
+	{
+		declaration->declarationSpecifiers = declarationSpecifiers;
+		declaration->initDeclaratorList = initDeclaratorList;
+	}
 
-	while ( CParser_TryConsume(parser, TOKEN_SEMICOLON) );
+	if (!declaration) {
+		CAST_RESTORE();
+	}
 	return declaration;
 }
 
