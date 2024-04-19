@@ -1312,10 +1312,13 @@ CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 
 CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 {
-	// TODO: make checks
-	const CToken &token = CParser_Consume(parser);
-	CastExpression *expression = CAST_NODE( CastExpression );
-	expression->constant = token.lexeme;
+	// TODO: Expressions can be much more complex than simple constants
+	CastExpression *expression = NULL;
+	if ( CParser_TryConsume(parser, TOKEN_NUMBER) ) {
+		const CToken &token = CParser_GetPreviousToken(parser);
+		expression = CAST_NODE( CastExpression );
+		expression->constant = token.lexeme;
+	}
 	return expression;
 }
 
