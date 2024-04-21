@@ -1179,7 +1179,7 @@ struct CastInitializerList;
 
 struct CastInitializer
 {
-	String value; // TODO: This should reference an assignment-expression
+	CastExpression *expression;
 	CastInitializerList *initializerList;
 };
 
@@ -1314,7 +1314,11 @@ CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 {
 	// TODO: Expressions can be much more complex than simple constants
 	CastExpression *expression = NULL;
-	if ( CParser_TryConsume(parser, TOKEN_NUMBER) ) {
+	CParser_TryConsume(parser, TOKEN_MINUS);
+	if ( CParser_TryConsume(parser, TOKEN_NUMBER)
+		|| CParser_TryConsume(parser, TOKEN_STRING)
+		|| CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
 		expression->constant = token.lexeme;
@@ -1662,7 +1666,7 @@ CastDesignator *Cast_ParseDesignator( CParser &parser, CTokenList &tokenList )
 	if (!designator) {
 		CAST_RESTORE();
 	}
-	return NULL;
+	return designator;
 }
 
 CastDesignatorList *Cast_ParseDesignatorList( CParser &parser, CTokenList &tokenList )
@@ -1725,10 +1729,12 @@ CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
 	}
 	else
 	{
-		// TODO: Parse this better. It could be any kind of expression
-		const CToken &tokenExpression = CParser_Consume(parser);
-		castInitializer = CAST_NODE( CastInitializer );
-		castInitializer->value = tokenExpression.lexeme;
+		CastExpression *expression = Cast_ParseExpression(parser, tokenList);
+		if (expression)
+		{
+			castInitializer = CAST_NODE( CastInitializer );
+			castInitializer->expression = expression;
+		}
 	}
 	if (!castInitializer) {
 		CAST_RESTORE();
@@ -1761,7 +1767,7 @@ CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &to
 			prevInitalizerList = initializerList;
 			comma = CParser_TryConsume(parser, TOKEN_COMMA);
 		}
-		else if ( designation || comma )
+		else if ( designation )
 		{
 			CAST_RESTORE();
 			firstInitalizerList = NULL;
