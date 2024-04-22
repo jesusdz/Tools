@@ -650,10 +650,22 @@ static u32 CParser_RemainingTokens(const CParser &parser)
 	return parser.tokenList->count - parser.nextToken;
 }
 
+static const CToken &CParser_GetPreviousToken( const CParser &parser )
+{
+	ASSERT(parser.nextToken > 0);
+	return parser.tokenList->tokens[parser.nextToken-1];
+}
+
+static const CToken &CParser_GetNextToken( const CParser &parser )
+{
+	ASSERT(parser.nextToken < parser.tokenList->count);
+	return parser.tokenList->tokens[parser.nextToken];
+}
+
 static bool CParser_HasFinished(const CParser &parser)
 {
 	const bool hasErrors = parser.hasErrors;
-	const bool hasFinished = parser.nextToken >= parser.tokenList->count;
+	const bool hasFinished = CParser_GetNextToken(parser).id == TOKEN_EOF;
 	return hasErrors || hasFinished;
 }
 
@@ -687,17 +699,6 @@ static bool CParser_AreNextTokens( const CParser &parser, CTokenId tokenId0, CTo
 			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id &&
 			tokenId2 == parser.tokenList->tokens[parser.nextToken+2].id;
 	}
-}
-
-static const CToken &CParser_GetPreviousToken( const CParser &parser )
-{
-	ASSERT(parser.nextToken > 0);
-	return parser.tokenList->tokens[parser.nextToken-1];
-}
-
-static const CToken &CParser_GetNextToken( const CParser &parser )
-{
-	return parser.tokenList->tokens[parser.nextToken];
 }
 
 static const CToken &CParser_GetLastToken( const CParser &parser )
@@ -1237,8 +1238,9 @@ bool Cast_IsTypedef( const CastExternalDeclaration *externalDeclaration, String 
 	if ( declaration ) {
 		bool isTypedef = false;
 		const CastDeclarationSpecifiers *specifiers = declaration->declarationSpecifiers;
-		while (specifiers && !isTypedef) {
-			CastStorageClassSpecifier *storageClass = specifiers->storageClassSpecifier;
+		while (specifiers && !isTypedef)
+		{
+			const CastStorageClassSpecifier *storageClass = specifiers->storageClassSpecifier;
 			isTypedef = storageClass && storageClass->type == CAST_TYPEDEF;
 			specifiers = specifiers->next;
 		}
@@ -1348,16 +1350,43 @@ CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 
 CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 {
+	CAST_BACKUP();
 	// TODO: Expressions can be much more complex than simple constants
 	CastExpression *expression = NULL;
 	CParser_TryConsume(parser, TOKEN_MINUS);
-	if ( CParser_TryConsume(parser, TOKEN_NUMBER)
-		|| CParser_TryConsume(parser, TOKEN_STRING)
-		|| CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+	if ( CParser_TryConsume(parser, TOKEN_NUMBER) )
 	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
 		expression->constant = token.lexeme;
+	}
+	else if ( CParser_TryConsume(parser, TOKEN_STRING ) )
+	{
+		const CToken &token = CParser_GetPreviousToken(parser);
+		expression = CAST_NODE( CastExpression );
+		expression->constant = token.lexeme;
+	}
+	else if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+	{
+		const CToken &token = CParser_GetPreviousToken(parser);
+		expression = CAST_NODE( CastExpression );
+		expression->constant = token.lexeme;
+	}
+	else if ( CParser_TryConsume(parser, TOKEN_ARR_COUNT) )
+	{
+		const CToken &token = CParser_GetPreviousToken(parser);
+		if ( CParser_TryConsume(parser, TOKEN_LEFT_PAREN) )
+		{
+			const CToken &tokenArgument = CParser_Consume(parser);
+			if ( CParser_TryConsume(parser, TOKEN_RIGHT_PAREN) )
+			{
+				expression = CAST_NODE( CastExpression );
+				expression->constant = token.lexeme;
+			}
+		}
+	}
+	if (!expression) {
+		CAST_RESTORE();
 	}
 	return expression;
 }
@@ -1879,6 +1908,7 @@ CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 	}
 
 	CastInitDeclaratorList *initDeclaratorList = Cast_ParseInitDeclaratorList(parser, tokenList);
+	// initDeclaratorList may be null (e.g. typedef statements only need declarationSpecifiers).
 
 	CastDeclaration *declaration = CAST_NODE( CastDeclaration );
 	if ( CParser_TryConsume(parser, TOKEN_SEMICOLON) )
