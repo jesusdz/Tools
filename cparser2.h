@@ -1231,6 +1231,42 @@ struct Cast
 	CastTranslationUnit *translationUnit;
 };
 
+bool Cast_IsTypedef( const CastExternalDeclaration *externalDeclaration, String &symbol )
+{
+	const CastDeclaration *declaration = externalDeclaration->declaration;
+	if ( declaration ) {
+		bool isTypedef = false;
+		const CastDeclarationSpecifiers *specifiers = declaration->declarationSpecifiers;
+		while (specifiers && !isTypedef) {
+			CastStorageClassSpecifier *storageClass = specifiers->storageClassSpecifier;
+			isTypedef = storageClass && storageClass->type == CAST_TYPEDEF;
+			specifiers = specifiers->next;
+		}
+		if ( isTypedef )
+		{
+			const CastInitDeclaratorList *initDeclaratorList = declaration->initDeclaratorList;
+			if (initDeclaratorList)
+			{
+				const CastInitDeclarator *initDeclarator = initDeclaratorList->initDeclarator;
+				if (initDeclarator)
+				{
+					const CastDeclarator *declarator = initDeclarator->declarator;
+					if (declarator)
+					{
+						const CastDirectDeclarator *directDeclarator = declarator->directDeclarator;
+						if (directDeclarator)
+						{
+							symbol = directDeclarator->name;
+							return true;
+						}
+					}
+				}
+			}
+		}
+	}
+	return false;
+}
+
 #define CAST_BACKUP() \
 	Arena backupArena = *parser.arena; \
 	u32 nextTokenBackup = parser.nextToken;
@@ -1892,6 +1928,12 @@ CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tok
 				previousTranslationUnit->next = translationUnit;
 			}
 			previousTranslationUnit = translationUnit;
+
+			String symbol;
+			if ( Cast_IsTypedef( externalDeclaration, symbol ) ) {
+				//printf("%.*s\n", symbol.size, symbol.str);
+				CParser_AddIdentifier(parser, symbol);
+			}
 		}
 		else
 		{
