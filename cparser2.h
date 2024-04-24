@@ -1114,7 +1114,7 @@ struct CastTypeQualifier
 
 struct CastTypeQualifierList
 {
-	CastTypeQualifier *typeQualifierList;
+	CastTypeQualifier *typeQualifier;
 	CastTypeQualifierList *next;
 };
 
@@ -1689,11 +1689,33 @@ CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenLi
 
 CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList )
 {
-	return NULL;
+	CastTypeQualifier *typeQualifier = NULL;
+	CastTypeQualifierList *firstTypeQualifierList = NULL;
+	CastTypeQualifierList *prevTypeQualifierList = NULL;
+	do
+	{
+		typeQualifier = Cast_ParseTypeQualifier(parser, tokenList);
+
+		if ( typeQualifier )
+		{
+			CastTypeQualifierList *typeQualifierList = CAST_NODE( CastTypeQualifierList );
+			typeQualifierList->typeQualifier = typeQualifier;
+			if (!firstTypeQualifierList) {
+				firstTypeQualifierList = typeQualifierList;
+			}
+			if (prevTypeQualifierList) {
+				prevTypeQualifierList->next = typeQualifierList;
+			}
+			prevTypeQualifierList = typeQualifierList;
+		}
+	}
+	while ( typeQualifier );
+	return firstTypeQualifierList;
 }
 
 CastFunctionSpecifier *Cast_ParseFunctionSpecifier( CParser &parser, CTokenList &tokenList )
 {
+	// TODO
 	return NULL;
 }
 
@@ -2005,8 +2027,298 @@ Cast *Cast_Create( Arena &arena, const char *text, u64 textSize)
 	return NULL;
 }
 
-void Cast_Print( Cast *cast )
+
+////////////////////////////////////////////////////////////////////////
+// Print utils
+
+#define Printf( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
+#define PrintfN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); PrintNewLine();
+#define PrintBeginScope( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease();
+#define PrintBeginScopeN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease(); PrintNewLine();
+#define PrintEndScope( format, ... ) IndentationDecrease(); LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
+#define EndScope( format, ... ) IndentationDecrease();
+#define PrintNewLine() LOG(Info, "\n"); indent.apply = true;
+
+struct IndentationState
 {
+	bool apply;
+	u32 pos;
+	char padding[64];
+};
+
+static IndentationState indent = {
+	.apply = true,
+	.pos = 0,
+	.padding = "",
+};
+
+static void IndentationIncrease()
+{
+	indent.padding[indent.pos++] = ' ';
+}
+
+static void IndentationDecrease()
+{
+	ASSERT(indent.pos > 0);
+	indent.padding[--indent.pos] = '\0';
+}
+
+static const char *Indentation()
+{
+	const char *padding = indent.apply ? indent.padding : "";
+	indent.apply = false;
+	return padding;
+}
+
+
+////////////////////////////////////////////////////////////////////////
+// Print functions
+
+void Cast_Print( const CastInitializer *ast );
+
+void Cast_Print( const CastExpression *ast )
+{
+	PrintBeginScopeN("Expression");
+	// TODO
+	EndScope("");
+}
+
+void Cast_Print( const CastDesignator *ast )
+{
+	PrintBeginScopeN("Designator");
+	PrintfN("%.*s", ast->identifier.size, ast->identifier.str);
+	EndScope("");
+}
+
+void Cast_Print( const CastDesignatorList *ast )
+{
+	PrintBeginScopeN("DesignatorList");
+	while (ast)
+	{
+		if (ast->designator) {
+			Cast_Print(ast->designator);
+		}
+		ast = ast->next;
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastDesignation *ast )
+{
+	PrintBeginScopeN("Designation");
+	if (ast->designatorList) {
+		Cast_Print(ast->designatorList);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastInitializerList *ast )
+{
+	PrintBeginScopeN("InitializerList");
+	while (ast)
+	{
+		if (ast->designation) {
+			Cast_Print(ast->designation);
+		}
+		if (ast->initializer) {
+			Cast_Print(ast->initializer);
+		}
+		ast = ast->next;
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastStorageClassSpecifier *ast )
+{
+	PrintBeginScopeN("StorageClassSpecifier");
+	const char *storageClassSpecifierTypeNames[] =
+	{ "typedef", "extern", "static", "thread_local", "auto", "register" };
+	ASSERT(ast->type < ARRAY_COUNT(storageClassSpecifierTypeNames));
+	PrintfN("%s", storageClassSpecifierTypeNames[ast->type]);
+	EndScope("");
+}
+
+void Cast_Print( const CastStructSpecifier *ast )
+{
+	PrintBeginScopeN("StructSpecifier");
+	PrintfN("name: %.*s", ast->name.size, ast->name.str);
+	// TODO: struct declaration list
+	EndScope("");
+}
+
+void Cast_Print( const CastEnumSpecifier *ast )
+{
+	PrintBeginScopeN("EnumSpecifier");
+	PrintfN("name: %.*s", ast->name.size, ast->name.str);
+	// TODO: enumerator list
+	EndScope("");
+}
+
+void Cast_Print( const CastTypeSpecifier *ast )
+{
+	PrintBeginScopeN("TypeSpecifier");
+	switch (ast->type)
+	{
+		case CAST_IDENTIFIER: PrintfN("%.*s", ast->identifier.size, ast->identifier.str); break;
+		case CAST_STRUCT: Cast_Print(ast->structSpecifier); break;
+		case CAST_ENUM: Cast_Print(ast->enumSpecifier); break;
+	}
+	// TODO
+	EndScope("");
+}
+
+void Cast_Print( const CastTypeQualifier *ast )
+{
+	PrintBeginScopeN("TypeQualifier");
+	const char *typeQualifierNames[] =
+	{ "const", "restrict", "volatile" };
+	ASSERT(ast->type < ARRAY_COUNT(typeQualifierNames));
+	PrintfN("%s", typeQualifierNames[ast->type]);
+	EndScope("");
+}
+
+void Cast_Print( const CastFunctionSpecifier *ast )
+{
+	PrintBeginScopeN("FunctionSpecifier");
+	// TODO
+	EndScope("");
+}
+
+void Cast_Print( const CastFunctionDefinition *ast )
+{
+	PrintBeginScopeN("FunctionDefinition");
+	// TODO
+	EndScope("");
+}
+
+void Cast_Print( const CastDeclarationSpecifiers *ast )
+{
+	PrintBeginScopeN("DeclarationSpecifiers");
+	while (ast)
+	{
+		if (ast->storageClassSpecifier) {
+			Cast_Print(ast->storageClassSpecifier);
+		}
+		if (ast->typeSpecifier) {
+			Cast_Print(ast->typeSpecifier);
+		}
+		if (ast->typeQualifier) {
+			Cast_Print(ast->typeQualifier);
+		}
+		if (ast->functionSpecifier) {
+			Cast_Print(ast->functionSpecifier);
+		}
+		ast = ast->next;
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastTypeQualifierList *ast )
+{
+	PrintBeginScopeN("TypeQualifierList");
+	while (ast)
+	{
+		if (ast->typeQualifier) {
+			Cast_Print(ast->typeQualifier);
+		}
+		ast = ast->next;
+	}
+	EndScope();
+}
+
+void Cast_Print( const CastPointer *ast )
+{
+	PrintBeginScopeN("Pointer");
+	if (ast->typeQualifierList) {
+		Cast_Print(ast->typeQualifierList);
+	}
+	if (ast->next) {
+		Cast_Print(ast->next);
+	}
+	EndScope();
+}
+
+void Cast_Print( const CastDeclarator *ast )
+{
+	PrintBeginScopeN("Declarator");
+	if (ast->pointer) {
+		Cast_Print(ast->pointer);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastInitializer *ast )
+{
+	PrintBeginScopeN("Initializer");
+	if (ast->expression) {
+		Cast_Print(ast->expression);
+	}
+	if (ast->initializerList) {
+		Cast_Print(ast->initializerList);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastInitDeclarator *ast )
+{
+	PrintBeginScopeN("InitDeclarator");
+	if (ast->declarator) {
+		Cast_Print(ast->declarator);
+	}
+	if (ast->initializer) {
+		Cast_Print(ast->initializer);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastInitDeclaratorList *ast )
+{
+	PrintBeginScopeN("InitDeclaratorList");
+	while (ast) {
+		Cast_Print(ast->initDeclarator);
+		ast = ast->next;
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastDeclaration *ast )
+{
+	PrintBeginScopeN("Declaration");
+	if (ast->declarationSpecifiers) {
+		Cast_Print(ast->declarationSpecifiers);
+	}
+	if (ast->initDeclaratorList) {
+		Cast_Print(ast->initDeclaratorList);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastExternalDeclaration *ast )
+{
+	PrintBeginScopeN("ExternalDeclaration");
+	if (ast->declaration) {
+		Cast_Print(ast->declaration);
+	} else if (ast->functionDefinition) {
+		Cast_Print(ast->functionDefinition);
+	}
+	EndScope("");
+}
+
+void Cast_Print( const CastTranslationUnit *ast )
+{
+	PrintBeginScopeN("TranslationUnit");
+	while (ast) {
+		Cast_Print(ast->externalDeclaration);
+		ast = ast->next;
+	}
+	EndScope("");
+}
+
+void Cast_Print( const Cast *cast )
+{
+	PrintBeginScopeN("Cast");
+	Cast_Print(cast->translationUnit);
+	EndScope("");
 }
 
 
