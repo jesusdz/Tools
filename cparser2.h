@@ -257,8 +257,6 @@ const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id);
 #endif
 
 
-#ifdef CPARSER_IMPLEMENTATION
-
 ////////////////////////////////////////////////////////////////////////
 // CScanner
 
@@ -1013,6 +1011,10 @@ enum CastStorageClassSpecifierType
 	CAST_REGISTER,
 };
 
+static const char *CastStorageClassSpecifierTypeNames[] =
+{ "typedef", "extern", "static", "thread_local", "auto", "register" };
+CT_ASSERT(ARRAY_COUNT(CastStorageClassSpecifierTypeNames) == CAST_REGISTER + 1);
+
 struct CastStorageClassSpecifier
 {
 	CastStorageClassSpecifierType type;
@@ -1034,6 +1036,25 @@ enum CastTypeSpecifierType
 	CAST_STRUCT,
 	CAST_ENUM,
 };
+
+static const char *CastTypeSpecifierTypeNames[]
+{
+	"void",
+	"bool",
+	"char",
+	"int",
+	"float",
+	"double",
+	"short",
+	"long",
+	"signed",
+	"unsigned",
+	"identifier",
+	"struct",
+	"enum",
+};
+
+CT_ASSERT(ARRAY_COUNT(CastTypeSpecifierTypeNames) == CAST_ENUM + 1);
 
 enum CastTypeQualifierType
 {
@@ -1595,7 +1616,7 @@ CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenLi
 	CastEnumeratorList *enumeratorList = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_LEFT_BRACE) )
 	{
-		Cast_ParseEnumeratorList(parser, tokenList);
+		enumeratorList = Cast_ParseEnumeratorList(parser, tokenList);
 		CParser_TryConsume(parser, TOKEN_COMMA);
 		if (!CParser_TryConsume(parser, TOKEN_RIGHT_BRACE))
 		{
@@ -2078,16 +2099,13 @@ void Cast_Print( const CastInitializer *ast );
 
 void Cast_Print( const CastExpression *ast )
 {
-	PrintBeginScopeN("Expression");
-	// TODO
-	EndScope("");
+	PrintfN("Expression -> %.*s", ast->constant.size, ast->constant.str);
+	// TODO: Expressions can be much more complex
 }
 
 void Cast_Print( const CastDesignator *ast )
 {
-	PrintBeginScopeN("Designator");
-	PrintfN("%.*s", ast->identifier.size, ast->identifier.str);
-	EndScope("");
+	PrintfN("Designator -> .%.*s", ast->identifier.size, ast->identifier.str);
 }
 
 void Cast_Print( const CastDesignatorList *ast )
@@ -2100,7 +2118,7 @@ void Cast_Print( const CastDesignatorList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastDesignation *ast )
@@ -2109,7 +2127,7 @@ void Cast_Print( const CastDesignation *ast )
 	if (ast->designatorList) {
 		Cast_Print(ast->designatorList);
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastInitializerList *ast )
@@ -2125,70 +2143,156 @@ void Cast_Print( const CastInitializerList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastStorageClassSpecifier *ast )
 {
-	PrintBeginScopeN("StorageClassSpecifier");
-	const char *storageClassSpecifierTypeNames[] =
-	{ "typedef", "extern", "static", "thread_local", "auto", "register" };
-	ASSERT(ast->type < ARRAY_COUNT(storageClassSpecifierTypeNames));
-	PrintfN("%s", storageClassSpecifierTypeNames[ast->type]);
-	EndScope("");
+	ASSERT(ast->type < ARRAY_COUNT(CastStorageClassSpecifierTypeNames));
+	PrintBeginScopeN("StorageClassSpecifier -> %s", CastStorageClassSpecifierTypeNames[ast->type]);
+	EndScope();
+}
+
+void Cast_Print( const CastTypeSpecifier *ast );
+void Cast_Print( const CastTypeQualifier *ast );
+
+void Cast_Print( const CastSpecifierQualifierList *ast )
+{
+	PrintBeginScopeN("SpecifierQualifierList");
+	while (ast)
+	{
+		if (ast->typeSpecifier) {
+			Cast_Print(ast->typeSpecifier);
+		}
+		if (ast->typeQualifier) {
+			Cast_Print(ast->typeQualifier);
+		}
+		ast = ast->next;
+	}
+	EndScope();
+}
+
+void Cast_Print( const CastDeclarator *ast );
+
+void Cast_Print( const CastStructDeclaratorList *ast )
+{
+	PrintBeginScopeN("StructDeclaratorList");
+	while (ast)
+	{
+		if (ast->structDeclarator) {
+			Cast_Print(ast->structDeclarator);
+		}
+		ast = ast->next;
+	}
+	EndScope();
+}
+
+void Cast_Print( const CastStructDeclaration *ast )
+{
+	PrintBeginScopeN("StructDeclaration");
+	if (ast->specifierQualifierList) {
+		Cast_Print(ast->specifierQualifierList);
+	}
+	if (ast->structDeclaratorList) {
+		Cast_Print(ast->structDeclaratorList);
+	}
+	EndScope();
+}
+
+void Cast_Print( const CastStructDeclarationList *ast )
+{
+	PrintBeginScopeN("StructDeclarationList");
+	while (ast)
+	{
+		if (ast->structDeclaration) {
+			Cast_Print(ast->structDeclaration);
+		}
+		ast = ast->next;
+	}
+	EndScope();
 }
 
 void Cast_Print( const CastStructSpecifier *ast )
 {
-	PrintBeginScopeN("StructSpecifier");
-	PrintfN("name: %.*s", ast->name.size, ast->name.str);
-	// TODO: struct declaration list
-	EndScope("");
+	PrintBeginScopeN("StructSpecifier -> %.*s", ast->name.size, ast->name.str);
+	Cast_Print(ast->structDeclarationList);
+	EndScope();
+}
+
+void Cast_Print( const CastEnumerator *ast )
+{
+	PrintBeginScopeN("Enumerator -> %.*s", ast->name.size, ast->name.str);
+	// TODO: Could have a constant expression
+	EndScope();
+}
+
+void Cast_Print( const CastEnumeratorList *ast )
+{
+	PrintBeginScopeN("EnumeratorList");
+	while (ast)
+	{
+		if (ast->enumerator) {
+			Cast_Print(ast->enumerator);
+		}
+		ast = ast->next;
+	}
+	EndScope();
 }
 
 void Cast_Print( const CastEnumSpecifier *ast )
 {
-	PrintBeginScopeN("EnumSpecifier");
-	PrintfN("name: %.*s", ast->name.size, ast->name.str);
-	// TODO: enumerator list
-	EndScope("");
+	PrintBeginScopeN("EnumSpecifier -> %.*s", ast->name.size, ast->name.str);
+	if (ast->enumeratorList)
+	{
+		Cast_Print(ast->enumeratorList);
+	}
+	EndScope();
 }
 
 void Cast_Print( const CastTypeSpecifier *ast )
 {
-	PrintBeginScopeN("TypeSpecifier");
-	switch (ast->type)
+	if (ast->type < CAST_IDENTIFIER)
 	{
-		case CAST_IDENTIFIER: PrintfN("%.*s", ast->identifier.size, ast->identifier.str); break;
-		case CAST_STRUCT: Cast_Print(ast->structSpecifier); break;
-		case CAST_ENUM: Cast_Print(ast->enumSpecifier); break;
+		PrintfN("TypeSpecifier -> %s", CastTypeSpecifierTypeNames[ast->type]);
 	}
-	// TODO
-	EndScope("");
+	else if (ast->type == CAST_IDENTIFIER)
+	{
+		PrintfN("TypeSpecifier -> %.*s", ast->identifier.size, ast->identifier.str);
+	}
+	else
+	{
+		PrintBeginScopeN("TypeSpecifier");
+		ASSERT(ast->type <= CAST_ENUM);
+		switch (ast->type)
+		{
+			case CAST_STRUCT: Cast_Print(ast->structSpecifier); break;
+			case CAST_ENUM: Cast_Print(ast->enumSpecifier); break;
+		}
+		EndScope();
+	}
 }
 
 void Cast_Print( const CastTypeQualifier *ast )
 {
-	PrintBeginScopeN("TypeQualifier");
 	const char *typeQualifierNames[] =
 	{ "const", "restrict", "volatile" };
 	ASSERT(ast->type < ARRAY_COUNT(typeQualifierNames));
-	PrintfN("%s", typeQualifierNames[ast->type]);
-	EndScope("");
+	PrintBeginScopeN("TypeQualifier -> %s", typeQualifierNames[ast->type]);
+	EndScope();
 }
 
 void Cast_Print( const CastFunctionSpecifier *ast )
 {
 	PrintBeginScopeN("FunctionSpecifier");
 	// TODO
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastFunctionDefinition *ast )
 {
 	PrintBeginScopeN("FunctionDefinition");
 	// TODO
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastDeclarationSpecifiers *ast )
@@ -2210,7 +2314,7 @@ void Cast_Print( const CastDeclarationSpecifiers *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastTypeQualifierList *ast )
@@ -2238,13 +2342,25 @@ void Cast_Print( const CastPointer *ast )
 	EndScope();
 }
 
+void Cast_Print( const CastDirectDeclarator *ast )
+{
+	PrintBeginScopeN("DirectDeclarator -> %.*s%s",ast->name.size, ast->name.str,ast->isArray?"[]":"");
+	if (ast->expression) {
+		Cast_Print(ast->expression);
+	}
+	EndScope();
+}
+
 void Cast_Print( const CastDeclarator *ast )
 {
 	PrintBeginScopeN("Declarator");
 	if (ast->pointer) {
 		Cast_Print(ast->pointer);
 	}
-	EndScope("");
+	if (ast->directDeclarator) {
+		Cast_Print(ast->directDeclarator);
+	}
+	EndScope();
 }
 
 void Cast_Print( const CastInitializer *ast )
@@ -2256,7 +2372,7 @@ void Cast_Print( const CastInitializer *ast )
 	if (ast->initializerList) {
 		Cast_Print(ast->initializerList);
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastInitDeclarator *ast )
@@ -2268,7 +2384,7 @@ void Cast_Print( const CastInitDeclarator *ast )
 	if (ast->initializer) {
 		Cast_Print(ast->initializer);
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastInitDeclaratorList *ast )
@@ -2278,7 +2394,7 @@ void Cast_Print( const CastInitDeclaratorList *ast )
 		Cast_Print(ast->initDeclarator);
 		ast = ast->next;
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastDeclaration *ast )
@@ -2290,7 +2406,7 @@ void Cast_Print( const CastDeclaration *ast )
 	if (ast->initDeclaratorList) {
 		Cast_Print(ast->initDeclaratorList);
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastExternalDeclaration *ast )
@@ -2301,7 +2417,7 @@ void Cast_Print( const CastExternalDeclaration *ast )
 	} else if (ast->functionDefinition) {
 		Cast_Print(ast->functionDefinition);
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const CastTranslationUnit *ast )
@@ -2311,18 +2427,16 @@ void Cast_Print( const CastTranslationUnit *ast )
 		Cast_Print(ast->externalDeclaration);
 		ast = ast->next;
 	}
-	EndScope("");
+	EndScope();
 }
 
 void Cast_Print( const Cast *cast )
 {
 	PrintBeginScopeN("Cast");
 	Cast_Print(cast->translationUnit);
-	EndScope("");
+	EndScope();
 }
 
-
-#endif // #ifdef CPARSER_IMPLEMENTATION
 
 #endif // #ifndef CPARSER_H
 
