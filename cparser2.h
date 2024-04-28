@@ -6,7 +6,6 @@
 #ifndef CPARSER_H
 #define CPARSER_H
 
-#define MAX_TOKEN_COUNT KB(10)
 #define MAX_TYPE_COUNT 16
 #define MAX_STRUCT_FIELD_COUNT 16
 
@@ -163,20 +162,21 @@ typedef CValue CLiteral;
 struct CToken
 {
 	CTokenId id;
+	u32 line;
 	String lexeme;
 	CLiteral literal;
-	i32 line;
 };
 
 static CToken gNullToken = {
 	.id = TOKEN_COUNT,
+	.line = 0,
 	.lexeme = { "", 0 },
 	.literal = { .type = VALUE_TYPE_NULL, .i = 0 },
-	.line = 0,
 };
 
 struct CTokenList
 {
+	Arena *arena;
 	CToken *tokens;
 	i32 count;
 	bool valid;
@@ -187,7 +187,7 @@ struct CScanner
 	i32 start;
 	i32 current;
 	i32 currentInLine;
-	i32 line;
+	u32 line;
 	bool hasErrors;
 
 	const char *text;
@@ -333,7 +333,7 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 	newToken.literal = literal;
 	newToken.line = scanner.line;
 
-	ASSERT( tokenList.count < MAX_TOKEN_COUNT );
+	PushStruct(*tokenList.arena, CToken);
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
@@ -516,7 +516,8 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 static CTokenList CScan(Arena &arena, const char *text, u32 textSize)
 {
 	CTokenList tokenList = {};
-	tokenList.tokens = PushArray(arena, CToken, MAX_TOKEN_COUNT);
+	tokenList.arena = &arena;
+	tokenList.tokens = (CToken*)(arena.base + arena.used);
 
 	CScanner scanner = {};
 	scanner.line = 1;
@@ -672,6 +673,7 @@ static bool CParser_IsNextToken( const CParser &parser, CTokenId tokenId )
 	if ( CParser_HasFinished( parser ) ) {
 		return tokenId == TOKEN_EOF;
 	} else {
+		ASSERT(parser.nextToken < parser.tokenList->count);
 		return tokenId == parser.tokenList->tokens[parser.nextToken].id;
 	}
 }
@@ -681,6 +683,7 @@ static bool CParser_AreNextTokens( const CParser &parser, CTokenId tokenId0, CTo
 	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 2 ) {
 		return false;
 	} else {
+		ASSERT(parser.nextToken+1 < parser.tokenList->count);
 		return
 			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
 			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id;
@@ -692,6 +695,7 @@ static bool CParser_AreNextTokens( const CParser &parser, CTokenId tokenId0, CTo
 	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 3 ) {
 		return false;
 	} else {
+		ASSERT(parser.nextToken+2 < parser.tokenList->count);
 		return
 			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
 			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id &&
