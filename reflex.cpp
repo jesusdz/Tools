@@ -1,8 +1,13 @@
 #include "tools.h"
 #include "reflex.h"
 
+#define USE_CPARSER2 0
+#if USE_CPARSER2
+#include "cparser2.h"
+#else
 #define CPARSER_IMPLEMENTATION
 #include "cparser.h"
+#endif
 
 const ReflexStruct* ReflexGetStruct(ReflexID id)
 {
@@ -11,6 +16,12 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 
 #define StringPrintfArgs(string) string.size, string.str
 
+#if USE_CPARSER2
+void GenerateReflex(const Cast *cast)
+{
+	// TODO
+}
+#else
 void CAssembly_GenerateReflex(const CAssembly &cAsm)
 {
 	if ( !cAsm.valid )
@@ -84,6 +95,7 @@ void CAssembly_GenerateReflex(const CAssembly &cAsm)
 	printf("  return &reflexStructs[id - ReflexID_Struct];\n");
 	printf("}\n");
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -107,6 +119,20 @@ int main(int argc, char **argv)
 		{
 			bytes[fileSize] = 0;
 
+#if USE_CPARSER2
+			Cast *cast = Cast_Create(globalArena, bytes, fileSize);
+			if (cast)
+			{
+				GenerateReflex(cast);
+			}
+			else
+			{
+				LOG(Error, "Cast_Create() failed:\n");
+				LOG(Error, "- file: %s\n", filename);
+				LOG(Error, "- message: %s\n", Cast_GetError());
+				return -1;
+			}
+#else
 			CAssembly cAsm;
 			if ( CAssembly_Create(cAsm, globalArena, bytes, fileSize) )
 			{
@@ -117,6 +143,7 @@ int main(int argc, char **argv)
 				LOG(Error, "CAssembly_Read() for file %s\n", filename);
 				return -1;
 			}
+#endif
 		}
 		else
 		{
