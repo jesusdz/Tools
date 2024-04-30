@@ -184,17 +184,24 @@ struct String
 	u32 size;
 };
 
+u32 StrLen(const char *str)
+{
+	u32 len = 0;
+	while (*str++) ++len;
+	return len;
+}
+
 String MakeString(const char *str, u32 size)
 {
 	String string = { str, size };
 	return string;
 }
 
-u32 StrLen(const char *str)
+String MakeString(const char *str)
 {
-	u32 len = 0;
-	while (*str++) ++len;
-	return len;
+	u32 size = StrLen(str);
+	String string = { str, size };
+	return string;
 }
 
 void StrCopy(char *dst, const String& src_string)
