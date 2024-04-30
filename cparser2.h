@@ -2054,6 +2054,16 @@ Cast *Cast_Create( Arena &arena, const char *text, u64 textSize)
 
 
 ////////////////////////////////////////////////////////////////////////
+// Evaluate utils
+
+int Cast_EvaluateInt( CastExpression *ast )
+{
+	ASSERT( ast );
+	int res = StrToInt(ast->constant);
+	return res;
+}
+
+////////////////////////////////////////////////////////////////////////
 // Print utils
 
 #define Printf( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );

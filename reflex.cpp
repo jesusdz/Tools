@@ -126,7 +126,8 @@ void GenerateReflex(const Cast *cast)
 			u32 arrayDim = 0;
 			if (declarator && declarator->directDeclarator) {
 				isArray = declarator->directDeclarator->isArray;
-				//arrayDim = declarator->directDeclarator->arrayDim; // TODO
+				CastExpression *expression = declarator->directDeclarator->expression;
+				arrayDim = expression ? Cast_EvaluateInt(expression) : 0;
 			}
 
 			printf("    { ");
@@ -135,7 +136,7 @@ void GenerateReflex(const Cast *cast)
 			printf(".pointerCount = %u, ", pointerCount);
 			printf(".isArray = %s, ", isArray ? "true" : "false");
 			printf(".arrayDim = %u, ", arrayDim);
-			//printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
+			printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
 			printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cstruct->name), StringPrintfArgs(memberName));
 			printf("},\n");
 		}
