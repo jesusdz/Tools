@@ -21,6 +21,8 @@ void GenerateReflex(const Cast *cast)
 {
 	const CastStructSpecifier *structSpecifiers[128];
 	u32 structSpecifierCount = 0;
+	const CastStructDeclaration *structDeclarations[128]; // members
+	u32 structDeclarationCount = 0;
 
 	// Get all the global struct specifiers from the AST
 	const CastTranslationUnit *translationUnit = cast->translationUnit;
@@ -53,6 +55,47 @@ void GenerateReflex(const Cast *cast)
 		firstValueInEnum = false;
 	}
 	printf("};\n");
+
+	// ReflexGetStruct function
+	printf("\n");
+	printf("const ReflexStruct* ReflexGetStruct(ReflexID id)\n");
+	printf("{\n");
+	printf("  ASSERT(ReflexIsStruct(id));\n");
+
+	// ReflexMember
+	printf("\n");
+	printf("  // ReflexMembers\n");
+	for (u32 index = 0; index < structSpecifierCount; ++index)
+	{
+		const CastStructSpecifier *structSpecifier = structSpecifiers[index];
+		printf("  static const ReflexMember reflex%.*sMembers[] = {\n", StringPrintfArgs(structSpecifier->name));
+
+		structDeclarationCount = 0;
+		const CastStructDeclarationList *structDeclarationList = structSpecifier->structDeclarationList;
+		while (structDeclarationList) {
+			if (structDeclarationList->structDeclaration) {
+				structDeclarations[structDeclarationCount++] = structDeclarationList->structDeclaration;
+			}
+			structDeclarationList = structDeclarationList->next;
+		}
+
+		for ( u32 memberIndex = 0; memberIndex < structDeclarationCount; ++memberIndex)
+		{
+			const CastStructDeclaration *structDeclaration = structDeclarations[memberIndex];
+
+			printf("    { ");
+			//printf(".name = \"%.*s\", ", StringPrintfArgs(member->name));
+			//printf(".isConst = %s, ", member->isConst ? "true" : "false");
+			//printf(".pointerCount = %u, ", member->pointerCount);
+			//printf(".isArray = %s, ", member->isArray ? "true" : "false");
+			//printf(".arrayDim = %u, ", member->arrayDim);
+			//printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
+			//printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cStruct->name), StringPrintfArgs(member->name));
+			printf(" },\n");
+		}
+		printf("  };\n");
+	}
+
 }
 #else
 void CAssembly_GenerateReflex(const CAssembly &cAsm)
@@ -91,9 +134,9 @@ void CAssembly_GenerateReflex(const CAssembly &cAsm)
 	{
 		const CStruct *cStruct = CAssembly_GetStruct(cAsm, index);
 		printf("  static const ReflexMember reflex%.*sMembers[] = {\n", StringPrintfArgs(cStruct->name));
-		for ( u32 fieldIndex = 0; fieldIndex < cStruct->memberCount; ++fieldIndex)
+		for ( u32 memberIndex = 0; memberIndex < cStruct->memberCount; ++memberIndex)
 		{
-			const CMember *member = &cStruct->members[fieldIndex];
+			const CMember *member = &cStruct->members[memberIndex];
 			printf("    { ");
 			printf(".name = \"%.*s\", ", StringPrintfArgs(member->name));
 			printf(".isConst = %s, ", member->isConst ? "true" : "false");

@@ -2060,8 +2060,7 @@ Cast *Cast_Create( Arena &arena, const char *text, u64 textSize)
 #define PrintfN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); PrintNewLine();
 #define PrintBeginScope( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease();
 #define PrintBeginScopeN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease(); PrintNewLine();
-#define PrintEndScope( format, ... ) IndentationDecrease(); LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
-#define EndScope( format, ... ) IndentationDecrease();
+#define EndScope() IndentationDecrease();
 #define PrintNewLine() LOG(Info, "\n"); indent.apply = true;
 
 struct IndentationState
