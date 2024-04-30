@@ -19,8 +19,8 @@ const ReflexStruct* ReflexGetStruct(ReflexID id)
 #if USE_CPARSER2
 void GenerateReflex(const Cast *cast)
 {
-	const CastStructSpecifier *structSpecifiers[128];
-	u32 structSpecifierCount = 0;
+	const CastStructSpecifier *structs[128];
+	u32 structCount = 0;
 	const CastStructDeclaration *structDeclarations[128]; // members
 	u32 structDeclarationCount = 0;
 
@@ -32,9 +32,10 @@ void GenerateReflex(const Cast *cast)
 			translationUnit->externalDeclaration->declaration &&
 			translationUnit->externalDeclaration->declaration->declarationSpecifiers &&
 			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier &&
+			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->type == CAST_STRUCT &&
 			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->structSpecifier )
 		{
-			structSpecifiers[structSpecifierCount++] = 
+			structs[structCount++] =
 				translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->structSpecifier;
 		}
 		translationUnit = translationUnit->next;
@@ -46,10 +47,10 @@ void GenerateReflex(const Cast *cast)
 	printf("// IDs\n");
 	printf("enum\n");
 	printf("{\n");
-	for (u32 index = 0; index < structSpecifierCount; ++index)
+	for (u32 index = 0; index < structCount; ++index)
 	{
-		const CastStructSpecifier *structSpecifier = structSpecifiers[index];
-		printf("  ReflexID_%.*s", StringPrintfArgs(structSpecifier->name));
+		const CastStructSpecifier *cstruct = structs[index];
+		printf("  ReflexID_%.*s", StringPrintfArgs(cstruct->name));
 		printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
 		printf(",\n");
 		firstValueInEnum = false;
@@ -65,13 +66,13 @@ void GenerateReflex(const Cast *cast)
 	// ReflexMember
 	printf("\n");
 	printf("  // ReflexMembers\n");
-	for (u32 index = 0; index < structSpecifierCount; ++index)
+	for (u32 index = 0; index < structCount; ++index)
 	{
-		const CastStructSpecifier *structSpecifier = structSpecifiers[index];
-		printf("  static const ReflexMember reflex%.*sMembers[] = {\n", StringPrintfArgs(structSpecifier->name));
+		const CastStructSpecifier *cstruct = structs[index];
+		printf("  static const ReflexMember reflex%.*sMembers[] = {\n", StringPrintfArgs(cstruct->name));
 
 		structDeclarationCount = 0;
-		const CastStructDeclarationList *structDeclarationList = structSpecifier->structDeclarationList;
+		const CastStructDeclarationList *structDeclarationList = cstruct->structDeclarationList;
 		while (structDeclarationList) {
 			if (structDeclarationList->structDeclaration) {
 				structDeclarations[structDeclarationCount++] = structDeclarationList->structDeclaration;
@@ -83,19 +84,84 @@ void GenerateReflex(const Cast *cast)
 		{
 			const CastStructDeclaration *structDeclaration = structDeclarations[memberIndex];
 
+			const CastDeclarator *declarator = NULL;
+			if (structDeclaration->structDeclaratorList &&
+				structDeclaration->structDeclaratorList->structDeclarator) {
+				declarator = structDeclaration->structDeclaratorList->structDeclarator;
+			}
+
+			const CastTypeQualifier *typeQualifier = NULL;
+			if (structDeclaration &&
+				structDeclaration->specifierQualifierList &&
+				structDeclaration->specifierQualifierList->typeQualifier) {
+				typeQualifier = structDeclaration->specifierQualifierList->typeQualifier;
+			}
+
+			const CastTypeSpecifier *typeSpecifier = NULL;
+			if (structDeclaration &&
+				structDeclaration->specifierQualifierList &&
+				structDeclaration->specifierQualifierList->typeQualifier) {
+				typeSpecifier = structDeclaration->specifierQualifierList->typeSpecifier;
+			}
+
+			String memberName = MakeString("<none>");
+			if (declarator &&
+				declarator->directDeclarator) {
+				memberName = declarator->directDeclarator->name;
+			}
+
+			uint pointerCount = 0;
+			CastPointer *pointer = declarator->pointer;
+			while (pointer) {
+				pointerCount++;
+				pointer = pointer->next;
+			}
+
+			bool isConst = false;
+			if (typeQualifier) {
+				isConst = typeQualifier->type == CAST_CONST;
+			}
+
+			bool isArray = false;
+			u32 arrayDim = 0;
+			if (declarator && declarator->directDeclarator) {
+				isArray = declarator->directDeclarator->isArray;
+				//arrayDim = declarator->directDeclarator->arrayDim; // TODO
+			}
+
 			printf("    { ");
-			//printf(".name = \"%.*s\", ", StringPrintfArgs(member->name));
-			//printf(".isConst = %s, ", member->isConst ? "true" : "false");
-			//printf(".pointerCount = %u, ", member->pointerCount);
-			//printf(".isArray = %s, ", member->isArray ? "true" : "false");
-			//printf(".arrayDim = %u, ", member->arrayDim);
+			printf(".name = \"%.*s\", ", StringPrintfArgs(memberName));
+			printf(".isConst = %s, ", isConst ? "true" : "false");
+			printf(".pointerCount = %u, ", pointerCount);
+			printf(".isArray = %s, ", isArray ? "true" : "false");
+			printf(".arrayDim = %u, ", arrayDim);
 			//printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
-			//printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cStruct->name), StringPrintfArgs(member->name));
-			printf(" },\n");
+			printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cstruct->name), StringPrintfArgs(memberName));
+			printf("},\n");
 		}
 		printf("  };\n");
 	}
 
+	// ReflexStruct
+	printf("\n");
+	printf("  // ReflexStructs\n");
+	printf("  static const ReflexStruct reflexStructs[] =\n");
+	printf("  {\n");
+	for (u32 index = 0; index < structCount; ++index)
+	{
+		const CastStructSpecifier *cstruct = structs[index];
+		printf("    {\n");
+		printf("      .name = \"%.*s\",\n", StringPrintfArgs(cstruct->name));
+		printf("      .members = reflex%.*sMembers,\n", StringPrintfArgs(cstruct->name));
+		printf("      .memberCount = ARRAY_COUNT(reflex%.*sMembers),\n", StringPrintfArgs(cstruct->name));
+		printf("      .size = sizeof(%.*s),\n", StringPrintfArgs(cstruct->name));
+		printf("    },\n");
+	}
+	printf("  };\n");
+
+	printf("  \n");
+	printf("  return &reflexStructs[id - ReflexID_Struct];\n");
+	printf("}\n");
 }
 #else
 void CAssembly_GenerateReflex(const CAssembly &cAsm)
