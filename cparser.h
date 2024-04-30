@@ -575,9 +575,17 @@ const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id)
 	{
 		case ReflexID_Bool: return "ReflexID_Bool";
 		case ReflexID_Char: return "ReflexID_Char";
+		case ReflexID_UnsignedChar: return "ReflexID_UnsignedChar";
 		case ReflexID_Int: return "ReflexID_Int";
-		case ReflexID_UInt: return "ReflexID_UInt";
+		case ReflexID_ShortInt: return "ReflexID_ShortInt";
+		case ReflexID_LongInt: return "ReflexID_LongInt";
+		case ReflexID_LongLongInt: return "ReflexID_LongLongInt";
+		case ReflexID_UnsignedInt: return "ReflexID_UnsignedInt";
+		case ReflexID_UnsignedShortInt: return "ReflexID_UnsignedShortInt";
+		case ReflexID_UnsignedLongInt: return "ReflexID_UnsignedLongInt";
+		case ReflexID_UnsignedLongLongInt: return "ReflexID_UnsignedLongLongInt";
 		case ReflexID_Float: return "ReflexID_Float";
+		case ReflexID_Double: return "ReflexID_Double";
 		default:
 		{
 			static char typeName[128];
@@ -758,9 +766,8 @@ static void CParser_ParseMember(CParser &parser, CAssembly &cAsm, CStruct *cStru
 	member->arrayDim = arrayDim;
 
 	if ( isBool ) member->reflexId = ReflexID_Bool;
-	else if ( isChar ) member->reflexId = ReflexID_Char;
-	else if ( isInt && !isUnsigned ) member->reflexId = ReflexID_Int;
-	else if ( isInt && isUnsigned ) member->reflexId = ReflexID_UInt;
+	else if ( isChar ) member->reflexId = isUnsigned ? ReflexID_UnsignedChar : ReflexID_Char;
+	else if ( isInt ) member->reflexId = isUnsigned ? ReflexID_UnsignedInt : ReflexID_Int;
 	else if ( isFloat ) member->reflexId = ReflexID_Float;
 	else // isIdent
 	{

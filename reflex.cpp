@@ -212,7 +212,7 @@ void CAssembly_GenerateReflex(const CAssembly &cAsm)
 			printf(".arrayDim = %u, ", member->arrayDim);
 			printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
 			printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cStruct->name), StringPrintfArgs(member->name));
-			printf(" },\n");
+			printf("},\n");
 		}
 		printf("  };\n");
 	}

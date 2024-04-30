@@ -12,23 +12,28 @@ enum // ReflexID
 {
 	ReflexID_Bool,
 	ReflexID_Char,
+	ReflexID_UnsignedChar,
 	ReflexID_Int,
-	ReflexID_UInt,
+	ReflexID_ShortInt,
+	ReflexID_LongInt,
+	ReflexID_LongLongInt,
+	ReflexID_UnsignedInt,
+	ReflexID_UnsignedShortInt,
+	ReflexID_UnsignedLongInt,
+	ReflexID_UnsignedLongLongInt,
 	ReflexID_Float,
+	ReflexID_Double,
 	ReflexID_Struct,
 	ReflexID_COUNT,
 	ReflexID_TrivialFirst = ReflexID_Bool,
-	ReflexID_TrivialLast = ReflexID_Float,
+	ReflexID_TrivialLast = ReflexID_Double,
 	ReflexID_TrivialCount = ReflexID_TrivialLast - ReflexID_TrivialFirst + 1,
 };
 
 struct ReflexTrivial
 {
-	u8 isBool : 1;
-	u8 isChar : 1;
-	u8 isFloat : 1;
-	u8 isUnsigned : 1; // !bool and !float
-	u8 size : 5;
+	u8 reflexId : 4;
+	u8 size : 4;
 };
 
 struct ReflexEnumerator
@@ -89,11 +94,19 @@ const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 {
 	ASSERT(ReflexIsTrivial(id));
 	static const ReflexTrivial trivials[] = {
-		{ .isBool = 1, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(bool) },
-		{ .isBool = 0, .isChar = 1, .isFloat = 0, .isUnsigned = 0, .size = sizeof(char) },
-		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 0, .size = sizeof(int) },
-		{ .isBool = 0, .isChar = 0, .isFloat = 0, .isUnsigned = 1, .size = sizeof(unsigned int) },
-		{ .isBool = 0, .isChar = 0, .isFloat = 1, .isUnsigned = 0, .size = sizeof(float) },
+		{ .reflexId = ReflexID_Bool, .size = sizeof(bool) },
+		{ .reflexId = ReflexID_Char, .size = sizeof(char) },
+		{ .reflexId = ReflexID_UnsignedChar, .size = sizeof(unsigned char) },
+		{ .reflexId = ReflexID_Int, .size = sizeof(int) },
+		{ .reflexId = ReflexID_ShortInt, .size = sizeof(short int) },
+		{ .reflexId = ReflexID_LongInt, .size = sizeof(long int) },
+		{ .reflexId = ReflexID_LongLongInt, .size = sizeof(long long int) },
+		{ .reflexId = ReflexID_UnsignedInt, .size = sizeof(unsigned int) },
+		{ .reflexId = ReflexID_UnsignedShortInt, .size = sizeof(unsigned short int) },
+		{ .reflexId = ReflexID_UnsignedLongInt, .size = sizeof(unsigned long int) },
+		{ .reflexId = ReflexID_UnsignedLongLongInt, .size = sizeof(unsigned long long int) },
+		{ .reflexId = ReflexID_Float, .size = sizeof(float) },
+		{ .reflexId = ReflexID_Double, .size = sizeof(double) },
 	};
 	CT_ASSERT(ARRAY_COUNT(trivials) == ReflexID_TrivialCount);
 	return &trivials[id];
@@ -128,7 +141,7 @@ u32 ReflexGetElemCount( const void *data, const ReflexStruct *rstruct, const cha
 		const bool isPointer = member->pointerCount > 0;
 		const u32 reflexId = member->reflexId;
 
-		if ( !isPointer && reflexId == ReflexID_UInt )
+		if ( !isPointer && reflexId == ReflexID_UnsignedInt )
 		{
 			const char *cursor = member->name; // current member name
 
