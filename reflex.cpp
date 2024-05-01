@@ -238,7 +238,7 @@ void GenerateReflex(const Cast *cast)
 	printf("  };\n");
 
 	printf("  \n");
-	printf("  return &reflexStructs[id - ReflexID_StructFirst];\n");
+	printf("  return &reflexStructs[id - ReflexID_StructBegin];\n");
 	printf("}\n");
 }
 

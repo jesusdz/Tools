@@ -6,10 +6,14 @@
 #ifndef TOOLS_REFLEX_H
 #define TOOLS_REFLEX_H
 
+#define REFLEX_MAX_STRUCTS 64
+#define REFLEX_MAX_ENUMS 32
+
 typedef u16 ReflexID;
 
 enum // ReflexID
 {
+	// Trivial type IDs
 	ReflexID_Void,
 	ReflexID_Bool,
 	ReflexID_Char,
@@ -24,13 +28,18 @@ enum // ReflexID
 	ReflexID_UnsignedLongLongInt,
 	ReflexID_Float,
 	ReflexID_Double,
-	ReflexID_TrivialFirst = ReflexID_Void,
-	ReflexID_TrivialLast = ReflexID_Double,
-	ReflexID_TrivialCount = ReflexID_TrivialLast - ReflexID_TrivialFirst + 1,
-	ReflexID_StructFirst = 100,
-	ReflexID_StructLast = 199,
-	ReflexID_EnumFirst = 200,
-	ReflexID_EnumLast = 299,
+	// Trivial type IDs range
+	ReflexID_TrivialCount,
+	ReflexID_TrivialBegin = ReflexID_Void,
+	ReflexID_TrivialEnd = ReflexID_TrivialBegin + ReflexID_TrivialCount,
+	// Struct type IDs range
+	ReflexID_StructCount = REFLEX_MAX_STRUCTS,
+	ReflexID_StructBegin = ReflexId_TrivialEnd,
+	ReflexID_StructEnd = ReflexID_StructBegin + ReflexID_StructCount,
+	// Enum type IDs range
+	ReflexID_EnumCount = REFLEX_MAX_ENUMS,
+	ReflexID_EnumBegin = ReflexID_StructEnd,
+	ReflexID_EnumEnd = ReflexID_EnumBegin + ReflexID_EnumCount,
 };
 
 struct ReflexTrivial
@@ -78,35 +87,35 @@ const ReflexStruct* ReflexGetStruct(ReflexID id);
 
 inline ReflexID ReflexRegisterStruct()
 {
-	static ReflexID sReflexIdCounter = ReflexID_StructFirst;
-	ASSERT(sReflexIdCounter <= ReflexID_StructLast);
+	static ReflexID sReflexIdCounter = ReflexID_StructBegin;
+	ASSERT(sReflexIdCounter < ReflexID_StructEnd);
 	ReflexID reflexId = sReflexIdCounter++;
 	return reflexId;
 }
 
 inline ReflexID ReflexRegisterEnum()
 {
-	static ReflexID sReflexIdCounter = ReflexID_EnumFirst;
-	ASSERT(sReflexIdCounter <= ReflexID_EnumLast);
+	static ReflexID sReflexIdCounter = ReflexID_EnumBegin;
+	ASSERT(sReflexIdCounter < ReflexID_EnumEnd);
 	ReflexID reflexId = sReflexIdCounter++;
 	return reflexId;
 }
 
 inline bool ReflexIsTrivial(ReflexID id)
 {
-	const bool isTrivial = id >= ReflexID_TrivialFirst && id <= ReflexID_TrivialLast;
+	const bool isTrivial = id >= ReflexID_TrivialBegin && id < ReflexID_TrivialEnd;
 	return isTrivial;
 }
 
 inline bool ReflexIsStruct(ReflexID id)
 {
-	const bool isStruct = id >= ReflexID_StructFirst && id <= ReflexID_StructLast;
+	const bool isStruct = id >= ReflexID_StructBegin && id < ReflexID_StructEnd;
 	return isStruct;
 }
 
 inline bool ReflexIsEnum(ReflexID id)
 {
-	const bool isEnum = id >= ReflexID_EnumFirst && id <= ReflexID_EnumLast;
+	const bool isEnum = id >= ReflexID_EnumBegin && id < ReflexID_EnumEnd;
 	return isEnum;
 }
 
