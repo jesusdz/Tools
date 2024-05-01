@@ -28,8 +28,10 @@ void GenerateReflex(const Cast *cast)
 				translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier;
 
 			if (typeSpecifier->type == CAST_STRUCT && typeSpecifier->structSpecifier) {
+				ASSERT(structCount < ARRAY_COUNT(structs));
 				structs[structCount++] = typeSpecifier->structSpecifier;
 			} else if (typeSpecifier->type == CAST_ENUM && typeSpecifier->enumSpecifier) {
+				ASSERT(enumCount < ARRAY_COUNT(enums));
 				enums[enumCount++] = typeSpecifier->enumSpecifier;
 			}
 		}
@@ -38,36 +40,37 @@ void GenerateReflex(const Cast *cast)
 
 	// ReflexID enum
 	printf("\n");
-	printf("// IDs\n");
-	for (u32 index = 0; index < structCount; ++index)
-	{
-		const CastStructSpecifier *cstruct = structs[index];
-		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterStruct();\n", StringPrintfArgs(cstruct->name));
-	}
 	for (u32 index = 0; index < enumCount; ++index)
 	{
 		const CastEnumSpecifier *cenum = enums[index];
-		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterEnum();\n", StringPrintfArgs(cenum->name));
+
+		printf("\n");
+		printf("////////////////////////////////////////////////////////////////////////\n");
+		printf("// enum %.*s\n", StringPrintfArgs(cenum->name));
+
+		printf("\n");
+		printf("// ReflexEnum registration\n");
+		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterEnum(0);\n", StringPrintfArgs(cenum->name));
+		printf("\n");
 	}
 
-	// ReflexGetStruct function
-	printf("\n");
-	printf("const ReflexStruct* ReflexGetStruct(ReflexID id)\n");
-	printf("{\n");
-	printf("  ASSERT(ReflexIsStruct(id));\n");
-
-	// ReflexMember
-	printf("\n");
-	printf("  // ReflexMembers\n");
 	for (u32 index = 0; index < structCount; ++index)
 	{
 		const CastStructSpecifier *cstruct = structs[index];
-		printf("  static const ReflexMember reflex%.*sMembers[] = {\n", StringPrintfArgs(cstruct->name));
+
+		printf("\n");
+		printf("////////////////////////////////////////////////////////////////////////\n");
+		printf("// struct %.*s\n", StringPrintfArgs(cstruct->name));
+
+		printf("\n");
+		printf("// ReflexMember info\n");
+		printf("static const ReflexMember reflexMembers_%.*s[] = {\n", StringPrintfArgs(cstruct->name));
 
 		structDeclarationCount = 0;
 		const CastStructDeclarationList *structDeclarationList = cstruct->structDeclarationList;
 		while (structDeclarationList) {
 			if (structDeclarationList->structDeclaration) {
+				ASSERT(structDeclarationCount < ARRAY_COUNT(structDeclarations));
 				structDeclarations[structDeclarationCount++] = structDeclarationList->structDeclaration;
 			}
 			structDeclarationList = structDeclarationList->next;
@@ -207,7 +210,7 @@ void GenerateReflex(const Cast *cast)
 				arrayDim = expression ? Cast_EvaluateInt(expression) : 0;
 			}
 
-			printf("    { ");
+			printf("  { ");
 			printf(".name = \"%.*s\", ", StringPrintfArgs(memberName));
 			printf(".isConst = %s, ", isConst ? "true" : "false");
 			printf(".pointerCount = %u, ", pointerCount);
@@ -217,29 +220,23 @@ void GenerateReflex(const Cast *cast)
 			printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cstruct->name), StringPrintfArgs(memberName));
 			printf("},\n");
 		}
-		printf("  };\n");
-	}
+		printf("};\n");
 
-	// ReflexStruct
-	printf("\n");
-	printf("  // ReflexStructs\n");
-	printf("  static const ReflexStruct reflexStructs[] =\n");
-	printf("  {\n");
-	for (u32 index = 0; index < structCount; ++index)
-	{
-		const CastStructSpecifier *cstruct = structs[index];
-		printf("    {\n");
-		printf("      .name = \"%.*s\",\n", StringPrintfArgs(cstruct->name));
-		printf("      .members = reflex%.*sMembers,\n", StringPrintfArgs(cstruct->name));
-		printf("      .memberCount = ARRAY_COUNT(reflex%.*sMembers),\n", StringPrintfArgs(cstruct->name));
-		printf("      .size = sizeof(%.*s),\n", StringPrintfArgs(cstruct->name));
-		printf("    },\n");
-	}
-	printf("  };\n");
+		printf("\n");
+		printf("// ReflexStruct info\n");
+		printf("static const ReflexStruct reflexStruct_%.*s =\n", StringPrintfArgs(cstruct->name));
+		printf("{\n");
+		printf("  .name = \"%.*s\",\n", StringPrintfArgs(cstruct->name));
+		printf("  .members = reflexMembers_%.*s,\n", StringPrintfArgs(cstruct->name));
+		printf("  .memberCount = ARRAY_COUNT(reflexMembers_%.*s),\n", StringPrintfArgs(cstruct->name));
+		printf("  .size = sizeof(%.*s),\n", StringPrintfArgs(cstruct->name));
+		printf("};\n");
 
-	printf("  \n");
-	printf("  return &reflexStructs[id - ReflexID_StructBegin];\n");
-	printf("}\n");
+		printf("\n");
+		printf("// ReflexStruct registration\n");
+		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterStruct(&reflexStruct_%.*s);\n", StringPrintfArgs(cstruct->name), StringPrintfArgs(cstruct->name));
+		printf("\n");
+	}
 }
 
 int main(int argc, char **argv)
