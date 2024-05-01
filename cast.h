@@ -6,9 +6,6 @@
 #ifndef CAST_H
 #define CAST_H
 
-#define MAX_TYPE_COUNT 16
-#define MAX_STRUCT_FIELD_COUNT 16
-
 enum CTokenId
 {
 	// Single character tokens
@@ -67,7 +64,6 @@ enum CTokenId
 	TOKEN_FLOAT,
 	TOKEN_DOUBLE,
 	TOKEN_NULL, // ad-hoc value
-	TOKEN_ARR_COUNT, // ad-hoc macro
 	TOKEN_EOF,
 	TOKEN_COUNT,
 };
@@ -130,7 +126,6 @@ static const char *CTokenIdNames[] =
 	"TOKEN_FLOAT",
 	"TOKEN_DOUBLE",
 	"TOKEN_NULL",
-	"TOKEN_ARR_COUNT",
 	"TOKEN_EOF",
 };
 
@@ -211,50 +206,6 @@ struct CParser
 
 	CIdentifierList *identifiers;
 };
-
-#if 0
-struct CMember
-{
-	String name;
-	u16 isConst : 1;
-	u16 pointerCount : 2;
-	u16 isArray: 1;
-	u16 arrayDim: 12; // 4096 values
-	u16 reflexId;
-};
-
-struct CStruct
-{
-	String name;
-	CMember members[MAX_STRUCT_FIELD_COUNT];
-	u16 memberCount;
-	u16 index;
-};
-
-struct CEnum
-{
-	String name;
-	u16 index;
-};
-
-struct CAssembly
-{
-	bool valid;
-
-	CStruct structs[MAX_TYPE_COUNT];
-	u16 structCount;
-
-	CEnum enums[MAX_TYPE_COUNT];
-	u16 enumCount;
-};
-
-
-// Public functions
-bool CAssembly_Create(CAssembly &cAsm, Arena &arena, const char *text, u64 textSize);
-const CStruct *CAssembly_GetStruct(const CAssembly &cAsm, u32 index);
-const CEnum *CAssembly_GetEnum(const CAssembly &cAsm, u32 index);
-const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id);
-#endif
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -503,7 +454,6 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 				else if ( StrEq( word, "float" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FLOAT);
 				else if ( StrEq( word, "double" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_DOUBLE);
 				else if ( StrEq( word, "NULL" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_NULL);
-				else if ( StrEq( word, "ARRAY_COUNT" ) )  CScanner_AddToken(scanner, tokenList, TOKEN_ARR_COUNT);
 				else                                      CScanner_AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
@@ -550,92 +500,6 @@ static void PrintTokenList(const CTokenList &tokenList)
 		const int tokenIdLen = strlen(CTokenIdNames[token.id]);
 		const int paddingSize = 32 - tokenIdLen;
 		printf("%s:%.*s%.*s\n", CTokenIdNames[token.id], paddingSize, paddingStr, token.lexeme.size, token.lexeme.str);
-	}
-}
-#endif
-
-
-////////////////////////////////////////////////////////////////////////
-// CAssembly
-
-#if 0
-static CStruct *CAssembly_CreateStruct(CAssembly &cAsm)
-{
-	ASSERT(cAsm.structCount < ARRAY_COUNT(cAsm.structs));
-	CStruct *cStruct = &cAsm.structs[cAsm.structCount];
-	cStruct->index = cAsm.structCount++;
-	return cStruct;
-}
-
-const CStruct *CAssembly_GetStruct(const CAssembly &cAsm, u32 index)
-{
-	ASSERT(index < cAsm.structCount);
-	const CStruct *cStruct = &cAsm.structs[index];
-	return cStruct;
-}
-
-static const CStruct *CAssembly_FindStructWithName(const CAssembly &cAsm, String name)
-{
-	for (u32 i = 0; i < cAsm.structCount; ++i) {
-		const CStruct *cStruct = &cAsm.structs[i];
-		if ( StrEq(cStruct->name, name) ) {
-			return cStruct;
-		}
-	}
-	return 0;
-}
-
-static CEnum *CAssembly_CreateEnum(CAssembly &cAsm, Arena &arena)
-{
-	ASSERT(cAsm.enumCount < ARRAY_COUNT(cAsm.enums));
-	CEnum *cEnum = &cAsm.enums[cAsm.enumCount];
-	cEnum->index = cAsm.enumCount++;
-	return cEnum;
-}
-
-const CEnum *CAssembly_GetEnum(const CAssembly &cAsm, u32 index)
-{
-	ASSERT(index < cAsm.enumCount);
-	const CEnum *cEnum = &cAsm.enums[index];
-	return cEnum;
-}
-
-static const CEnum *CAssembly_FindEnumWithName(const CAssembly &cAsm, String name)
-{
-	for (u32 i = 0; i < cAsm.enumCount; ++i) {
-		const CEnum *cEnum = &cAsm.enums[i];
-		if ( StrEq(cEnum->name, name) ) {
-			return cEnum;
-		}
-	}
-	return 0;
-}
-
-static CMember *CAssembly_AddMember(CStruct *cStruct)
-{
-	ASSERT(cStruct->memberCount < MAX_STRUCT_FIELD_COUNT);
-	CMember *member = &cStruct->members[cStruct->memberCount++];
-	return member;
-}
-
-const char *CAssembly_GetTypeName(const CAssembly &cAsm, ReflexID id)
-{
-	switch (id)
-	{
-		case ReflexID_Bool: return "ReflexID_Bool";
-		case ReflexID_Char: return "ReflexID_Char";
-		case ReflexID_Int: return "ReflexID_Int";
-		case ReflexID_UInt: return "ReflexID_UInt";
-		case ReflexID_Float: return "ReflexID_Float";
-		default:
-		{
-			static char typeName[128];
-			const u16 index = id - ReflexID_Struct;
-			const CStruct *cStruct = CAssembly_GetStruct(cAsm, index);
-			StrCopy(typeName, "ReflexID_");
-			StrCat(typeName, cStruct->name);
-			return typeName;
-		}
 	}
 }
 #endif
@@ -1396,17 +1260,14 @@ CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
 		expression->constant = token.lexeme;
-	}
-	else if ( CParser_TryConsume(parser, TOKEN_ARR_COUNT) )
-	{
-		const CToken &token = CParser_GetPreviousToken(parser);
 		if ( CParser_TryConsume(parser, TOKEN_LEFT_PAREN) )
 		{
 			const CToken &tokenArgument = CParser_Consume(parser);
 			if ( CParser_TryConsume(parser, TOKEN_RIGHT_PAREN) )
 			{
-				expression = CAST_NODE( CastExpression );
-				expression->constant = token.lexeme;
+				// TODO: Function expressions
+				//expression = CAST_NODE( CastExpression );
+				//expression->constant = token.lexeme;
 			}
 		}
 	}
