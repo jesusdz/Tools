@@ -54,26 +54,49 @@ void PrintTrivial(const void *data, const ReflexID id, bool isString)
 {
 	const ReflexTrivial *trivial = ReflexGetTrivial(id);
 
-	ASSERT(!isString || trivial->isChar);
+	ASSERT(!isString || id == ReflexID_Char)
 
-	if (trivial->isBool) {
-		const bool bVal = *((bool*)data);
-		Printf("%d", bVal ? 1 : 0);
+	if (id == ReflexID_Bool) {
+		const bool val = *((bool*)data);
+		Printf("%d", val ? 1 : 0);
 	} else if (isString) {
-		const char *sVal = (const char *)data;
-		Printf("\"%s\"", sVal);
-	} else if (trivial->isChar) {
-		const char cVal = *((char*)data);
-		Printf("%c", cVal);
-	} else if (trivial->isFloat) {
-		const float fVal = *((float*)data);
-		Printf("%f", fVal);
-	} else if (trivial->isUnsigned) {
-		const u32 uVal = *((u32*)data);
-		Printf("%u", uVal);
+		const char *val = (const char *)data;
+		Printf("\"%s\"", val);
+	} else if (id == ReflexID_Char) {
+		const char val = *((char*)data);
+		Printf("%c", val);
+	} else if (id == ReflexID_Float) {
+		const float val = *((float*)data);
+		Printf("%f", val);
+	} else if (id == ReflexID_Double) {
+		const double val = *((double*)data);
+		Printf("%lf", val);
+	} else if (id == ReflexID_Int) {
+		const int val = *((int*)data);
+		Printf("%d", val);
+	} else if (id == ReflexID_ShortInt) {
+		const int val = *((int*)data);
+		Printf("%hd", val);
+	} else if (id == ReflexID_LongInt) {
+		const int val = *((int*)data);
+		Printf("%ld", val);
+	} else if (id == ReflexID_LongLongInt) {
+		const int val = *((int*)data);
+		Printf("%lld", val);
+	} else if (id == ReflexID_UnsignedInt) {
+		const unsigned int val = *((unsigned int*)data);
+		Printf("%u", val);
+	} else if (id == ReflexID_UnsignedShortInt) {
+		const unsigned int val = *((unsigned int*)data);
+		Printf("%hu", val);
+	} else if (id == ReflexID_UnsignedLongInt) {
+		const unsigned int val = *((unsigned int*)data);
+		Printf("%lu", val);
+	} else if (id == ReflexID_UnsignedLongLongInt) {
+		const unsigned int val = *((unsigned int*)data);
+		Printf("%llu", val);
 	} else {
-		const i32 iVal = *((i32*)data);
-		Printf("%d", iVal);
+		INVALID_CODE_PATH();
 	}
 }
 

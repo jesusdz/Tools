@@ -10,6 +10,7 @@ typedef u16 ReflexID;
 
 enum // ReflexID
 {
+	ReflexID_Void,
 	ReflexID_Bool,
 	ReflexID_Char,
 	ReflexID_UnsignedChar,
@@ -25,7 +26,7 @@ enum // ReflexID
 	ReflexID_Double,
 	ReflexID_Struct,
 	ReflexID_COUNT,
-	ReflexID_TrivialFirst = ReflexID_Bool,
+	ReflexID_TrivialFirst = ReflexID_Void,
 	ReflexID_TrivialLast = ReflexID_Double,
 	ReflexID_TrivialCount = ReflexID_TrivialLast - ReflexID_TrivialFirst + 1,
 };
@@ -90,10 +91,11 @@ inline const void *ReflexGetMemberPtr(const void *structBase, const ReflexMember
 	return memberPtr;
 }
 
-const ReflexTrivial* ReflexGetTrivial(ReflexID id)
+inline const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 {
 	ASSERT(ReflexIsTrivial(id));
 	static const ReflexTrivial trivials[] = {
+		{ .reflexId = ReflexID_Void, .size = 0 },
 		{ .reflexId = ReflexID_Bool, .size = sizeof(bool) },
 		{ .reflexId = ReflexID_Char, .size = sizeof(char) },
 		{ .reflexId = ReflexID_UnsignedChar, .size = sizeof(unsigned char) },
@@ -112,7 +114,7 @@ const ReflexTrivial* ReflexGetTrivial(ReflexID id)
 	return &trivials[id];
 }
 
-u32 ReflexGetTypeSize(ReflexID id)
+inline u32 ReflexGetTypeSize(ReflexID id)
 {
 	if (ReflexIsTrivial(id))
 	{

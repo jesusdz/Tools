@@ -21,6 +21,7 @@ void GenerateReflex(const Cast *cast)
 {
 	const CastStructSpecifier *structs[128];
 	u32 structCount = 0;
+
 	const CastStructDeclaration *structDeclarations[128]; // members
 	u32 structDeclarationCount = 0;
 
@@ -84,24 +85,113 @@ void GenerateReflex(const Cast *cast)
 		{
 			const CastStructDeclaration *structDeclaration = structDeclarations[memberIndex];
 
+			// Type qualifiers
+
+			const CastSpecifierQualifierList *specifierQualifierList = NULL;
+			if (structDeclaration && structDeclaration->specifierQualifierList) {
+				specifierQualifierList = structDeclaration->specifierQualifierList;
+			}
+
+			const CastTypeQualifier *typeQualifier = NULL;
+			if (specifierQualifierList && specifierQualifierList->typeQualifier) {
+				typeQualifier = specifierQualifierList->typeQualifier;
+			}
+
+			bool isConst = false;
+			if (typeQualifier) {
+				isConst = typeQualifier->type == CAST_CONST;
+			}
+
+			// Type specifiers
+
+			bool isVoid = false;
+			bool isBool = false;
+			bool isChar = false;
+			bool isInt = false;
+			bool isFloat = false;
+			bool isDouble = false;
+			bool isShort = false;
+			bool isLong = false;
+			bool isLongLong = false;
+			bool isUnsigned = false;
+			bool isIdentifier = false;
+			String identifier = MakeString("");
+			char typeNameBuffer[MAX_PATH_LENGTH];
+			String typeName = MakeString("<none>");
+			//bool isStruct = false;
+			//bool isEnum = false;
+
+			const CastTypeSpecifier *typeSpecifier = NULL;
+			if (specifierQualifierList)
+			{
+				const CastSpecifierQualifierList *specifierList = specifierQualifierList;
+				while (specifierList)
+				{
+					typeSpecifier = specifierList->typeSpecifier;
+					if (typeSpecifier) {
+						if (typeSpecifier->type == CAST_VOID) {
+							isVoid = true; break;
+						} else if (typeSpecifier->type == CAST_BOOL) {
+							isBool = true; break;
+						} else if (typeSpecifier->type == CAST_CHAR) {
+							isChar = true; break;
+						} else if (typeSpecifier->type == CAST_FLOAT) {
+							isFloat = true; break;
+						} else if (typeSpecifier->type == CAST_DOUBLE) {
+							isDouble = true; break;
+						} else if (typeSpecifier->type == CAST_IDENTIFIER) {
+							isIdentifier = true; identifier = typeSpecifier->identifier; break;
+						} else if (typeSpecifier->type == CAST_INT) {
+							isInt = true;
+						} else if (typeSpecifier->type == CAST_UNSIGNED) {
+							isUnsigned = true;
+						} else if (typeSpecifier->type == CAST_SHORT) {
+							isShort = true;
+						} else if (typeSpecifier->type == CAST_LONG) {
+							isLongLong = isLong; isLong = true;
+						} else {
+							typeName = MakeString("<error>"); break;
+						}
+					}
+					specifierList = specifierList->next;
+				}
+			}
+
+			if (isVoid) {
+				typeName = MakeString("ReflexID_Void");
+			} else if (isBool) {
+				typeName = MakeString("ReflexID_Bool");
+			} else if (isChar) {
+				if (isUnsigned) typeName = MakeString("ReflexID_UnsignedChar");
+				else typeName = MakeString("ReflexID_Char");
+			} else if (isInt) {
+				if (isUnsigned) {
+					if (isLongLong) typeName = MakeString("ReflexID_UnsignedLongLongInt");
+					else if (isLong) typeName = MakeString("ReflexID_UnsignedLongInt");
+					else if (isShort) typeName = MakeString("ReflexID_UnsignedShortInt");
+					else typeName = MakeString("ReflexID_UnsignedInt");
+				} else {
+					if (isLongLong) typeName = MakeString("ReflexID_LongLongInt");
+					else if (isLong) typeName = MakeString("ReflexID_LongInt");
+					else if (isShort) typeName = MakeString("ReflexID_ShortInt");
+					else typeName = MakeString("ReflexID_Int");
+				}
+			} else if (isFloat) {
+				typeName = MakeString("ReflexID_Float");
+			} else if (isDouble) {
+				typeName = MakeString("ReflexID_Double");
+			} else if (isIdentifier) {
+				StrCopy(typeNameBuffer, "ReflexID_");
+				StrCat(typeNameBuffer, identifier);
+				typeName = MakeString(typeNameBuffer);
+			}
+
+			// Declarator
+
 			const CastDeclarator *declarator = NULL;
 			if (structDeclaration->structDeclaratorList &&
 				structDeclaration->structDeclaratorList->structDeclarator) {
 				declarator = structDeclaration->structDeclaratorList->structDeclarator;
-			}
-
-			const CastTypeQualifier *typeQualifier = NULL;
-			if (structDeclaration &&
-				structDeclaration->specifierQualifierList &&
-				structDeclaration->specifierQualifierList->typeQualifier) {
-				typeQualifier = structDeclaration->specifierQualifierList->typeQualifier;
-			}
-
-			const CastTypeSpecifier *typeSpecifier = NULL;
-			if (structDeclaration &&
-				structDeclaration->specifierQualifierList &&
-				structDeclaration->specifierQualifierList->typeQualifier) {
-				typeSpecifier = structDeclaration->specifierQualifierList->typeSpecifier;
 			}
 
 			String memberName = MakeString("<none>");
@@ -115,11 +205,6 @@ void GenerateReflex(const Cast *cast)
 			while (pointer) {
 				pointerCount++;
 				pointer = pointer->next;
-			}
-
-			bool isConst = false;
-			if (typeQualifier) {
-				isConst = typeQualifier->type == CAST_CONST;
 			}
 
 			bool isArray = false;
@@ -136,7 +221,7 @@ void GenerateReflex(const Cast *cast)
 			printf(".pointerCount = %u, ", pointerCount);
 			printf(".isArray = %s, ", isArray ? "true" : "false");
 			printf(".arrayDim = %u, ", arrayDim);
-			printf(".reflexId = %s, ", CAssembly_GetTypeName(cAsm, member->reflexId));
+			printf(".reflexId = %.*s, ", StringPrintfArgs(typeName));
 			printf(".offset = offsetof(%.*s, %.*s) ", StringPrintfArgs(cstruct->name), StringPrintfArgs(memberName));
 			printf("},\n");
 		}
