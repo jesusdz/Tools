@@ -1,12 +1,6 @@
-#include "tools.h"
-#include "reflex.h"
-
+#define CAST_IMPLEMENTATION
 #include "cast.h"
-
-const ReflexStruct* ReflexGetStruct(ReflexID id)
-{
-	return NULL;
-}
+#include "tools.h"
 
 #define StringPrintfArgs(string) string.size, string.str
 
@@ -281,7 +275,7 @@ int main(int argc, char **argv)
 		{
 			bytes[fileSize] = 0;
 
-			Cast *cast = Cast_Create(globalArena, bytes, fileSize);
+			const Cast *cast = Cast_Create(globalArena, bytes, fileSize);
 			if (cast)
 			{
 				GenerateReflex(cast);

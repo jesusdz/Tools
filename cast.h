@@ -1,10 +1,346 @@
 /*
  * cast.h
  * Author: Jesus Diaz Garcia
+ *
+ * Single file utility to parse C files and generate their AST structure.
+ * It should serve to parse most type and data definitions, yet it is not complete.
+ * The AST structure has been created with the rules available in th following
+ * ANSI C Yacc grammar that is based on the 2011 ISO C standerd:
+ *
+ * https://www.quut.com/c/ANSI-C-grammar-y.html
+ *
+ * The file can be included in your project multiple times. Once and only once,
+ * however, it needs to be told to embed its implementation like this:
+ *
+ * #define CAST_IMPLEMENTATION
+ * #define CAST_PRINT // Can be omitted in case we don't need to print the AST
+ * #include "cast.h"
+ *
+ * These are the main API functions used to create the C AST and start inspecting it:
+ *
+ * const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize);
+ * const char *Cast_GetError();
+ * int Cast_EvaluateInt( const CastExpression *ast );
+ * void Cast_Print( const Cast *cast );
  */
 
 #ifndef CAST_H
 #define CAST_H
+
+////////////////////////////////////////////////////////////////////////
+// Helper macros and types
+
+// NOTE: We can get rid of the dependency on "tools.h" by providing an
+// implementation for the following macros to support:
+// - Logging
+// - Compile-time and run-time assertions
+// - Sized types
+// - Strings
+// - Memory
+// - Linear arena allocators
+
+#ifndef CAST_USE_TOOLS
+#define CAST_USE_TOOLS 1
+#endif // #ifndef CAST_USE_TOOLS
+
+#if CAST_USE_TOOLS
+#include "tools.h"
+#define CAST_LOG LOG
+#define CAST_ASSERT ASSERT
+#define CAST_ARRAY_COUNT ARRAY_COUNT
+#define CAST_CT_ASSERT CT_ASSERT
+#define cast_byte byte
+#define cast_i32 i32
+#define cast_u32 u32
+#define cast_u64 u64
+#define cast_f32 f32
+#define CastString String
+#define CastArena Arena
+#define CastMemSet MemSet
+#define CastPushStruct PushStruct
+#define CastPushZeroStruct PushZeroStruct
+#define CastStrToInt StrToInt
+#define CastStrToFloat StrToFloat
+#define CastStrEq StrEq
+#endif // #if CAST_USE_TOOLS
+
+
+////////////////////////////////////////////////////////////////////////
+// Cast API
+
+// Cast Enums
+
+enum CastStorageClassSpecifierType
+{
+	CAST_TYPEDEF,
+	CAST_EXTERN,
+	CAST_STATIC,
+	CAST_THREAD_LOCAL,
+	CAST_AUTO,
+	CAST_REGISTER,
+};
+
+enum CastTypeSpecifierType
+{
+	CAST_VOID,
+	CAST_BOOL,
+	CAST_CHAR,
+	CAST_INT,
+	CAST_FLOAT,
+	CAST_DOUBLE,
+	CAST_SHORT,
+	CAST_LONG,
+	CAST_SIGNED,
+	CAST_UNSIGNED,
+	CAST_IDENTIFIER,
+	CAST_STRUCT,
+	CAST_ENUM,
+};
+
+enum CastTypeQualifierType
+{
+	CAST_CONST,
+	CAST_RESTRICT,
+	CAST_VOLATILE,
+};
+
+// Cast struct forward declarations
+
+struct CastStorageClassSpecifier;
+struct CastSpecifierQualifierList;
+struct CastStructDeclaratorList;
+struct CastStructDeclaration;
+struct CastStructDeclarationList;
+struct CastStructSpecifier;
+struct CastEnumerator;
+struct CastEnumeratorList;
+struct CastEnumSpecifier;
+struct CastTypeSpecifier;
+struct CastTypeQualifier;
+struct CastTypeQualifierList;
+struct CastFunctionSpecifier;
+struct CastDeclarationSpecifiers;
+struct CastExpression;
+struct CastDirectDeclarator;
+struct CastPointer;
+struct CastDeclarator;
+struct CastDesignator;
+struct CastDesignatorList;
+struct CastDesignation;
+struct CastInitializer;
+struct CastInitializerList;
+struct CastInitDeclarator;
+struct CastInitDeclaratorList;
+struct CastDeclaration;
+struct CastFunctionDefinition;
+struct CastExternalDeclaration;
+struct CastTranslationUnit;
+struct Cast;
+
+// Cast functions
+
+const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize);
+const char *Cast_GetError();
+int Cast_EvaluateInt( const CastExpression *ast );
+#ifdef CAST_PRINT
+void Cast_Print( const Cast *cast );
+#endif
+
+// Cast structs
+
+struct CastStorageClassSpecifier
+{
+	CastStorageClassSpecifierType type;
+};
+
+struct CastSpecifierQualifierList
+{
+	CastTypeSpecifier *typeSpecifier;
+	CastTypeQualifier *typeQualifier;
+	CastSpecifierQualifierList *next;
+};
+
+struct CastStructDeclaratorList
+{
+	CastDeclarator *structDeclarator; // pass through struct-declarator in the grammar
+	CastStructDeclaratorList *next;
+};
+
+struct CastStructDeclaration
+{
+	CastSpecifierQualifierList *specifierQualifierList;
+	CastStructDeclaratorList *structDeclaratorList;
+};
+
+struct CastStructDeclarationList
+{
+	CastStructDeclaration *structDeclaration;
+	CastStructDeclarationList *next;
+};
+
+struct CastStructSpecifier
+{
+	CastString name;
+	CastStructDeclarationList *structDeclarationList;
+};
+
+struct CastEnumerator
+{
+	CastString name;
+	// TODO: Could have a constant expression
+};
+
+struct CastEnumeratorList
+{
+	CastEnumerator *enumerator;
+	CastEnumeratorList *next;
+};
+
+struct CastEnumSpecifier
+{
+	CastString name;
+	CastEnumeratorList *enumeratorList;
+};
+
+struct CastTypeSpecifier
+{
+	CastTypeSpecifierType type;
+	union
+	{
+		CastString identifier;
+		CastStructSpecifier *structSpecifier;
+		CastEnumSpecifier *enumSpecifier;
+	};
+};
+
+struct CastTypeQualifier
+{
+	CastTypeQualifierType type;
+};
+
+struct CastTypeQualifierList
+{
+	CastTypeQualifier *typeQualifier;
+	CastTypeQualifierList *next;
+};
+
+struct CastFunctionSpecifier
+{
+// : INLINE
+// | NORETURN
+};
+
+struct CastDeclarationSpecifiers
+{
+	CastStorageClassSpecifier *storageClassSpecifier;
+	CastTypeSpecifier *typeSpecifier;
+	CastTypeQualifier *typeQualifier;
+	CastFunctionSpecifier *functionSpecifier;
+	//CastAlignmentSpecifier *alignmentSpecifier;
+	CastDeclarationSpecifiers *next;
+};
+
+struct CastExpression
+{
+	CastString constant; // TODO: Expressions can be much more complex
+};
+
+struct CastDirectDeclarator
+{
+	CastString name;
+	CastExpression *expression;
+	bool isArray : 1;
+	// TODO could be a function as well
+};
+
+struct CastPointer
+{
+	CastTypeQualifierList *typeQualifierList;
+	CastPointer *next;
+};
+
+struct CastDeclarator
+{
+	CastPointer *pointer;
+	CastDirectDeclarator *directDeclarator;
+};
+
+struct CastDesignator
+{
+	CastString identifier;
+	// TODO: Add missing array element designator: [ constant-expression ]
+};
+
+struct CastDesignatorList
+{
+	CastDesignator *designator;
+	CastDesignatorList *next;
+};
+
+struct CastDesignation
+{
+	CastDesignatorList *designatorList;
+};
+
+struct CastInitializer
+{
+	CastExpression *expression;
+	CastInitializerList *initializerList;
+};
+
+struct CastInitializerList
+{
+	CastDesignation *designation; // optional
+	CastInitializer *initializer;
+	CastInitializerList *next;
+};
+
+struct CastInitDeclarator
+{
+	CastDeclarator *declarator;
+	CastInitializer *initializer;
+};
+
+struct CastInitDeclaratorList
+{
+	CastInitDeclarator *initDeclarator;
+	CastInitDeclaratorList *next;
+};
+
+struct CastDeclaration
+{
+	CastDeclarationSpecifiers *declarationSpecifiers;
+	CastInitDeclaratorList *initDeclaratorList;
+	//CastStaticAssertDeclaration *staticAssertDeclaration;
+};
+
+struct CastFunctionDefinition
+{
+	// TODO
+};
+
+struct CastExternalDeclaration
+{
+	CastDeclaration *declaration;
+	CastFunctionDefinition *functionDefinition;
+};
+
+struct CastTranslationUnit
+{
+	CastExternalDeclaration *externalDeclaration;
+	CastTranslationUnit *next;
+};
+
+struct Cast
+{
+	CastTranslationUnit *translationUnit;
+};
+
+
+#ifdef CAST_IMPLEMENTATION
+
+////////////////////////////////////////////////////////////////////////
+// CScanner and CParser types
 
 enum CTokenId
 {
@@ -129,7 +465,7 @@ static const char *CTokenIdNames[] =
 	"TOKEN_EOF",
 };
 
-CT_ASSERT(ARRAY_COUNT(CTokenIdNames) == TOKEN_COUNT);
+CAST_CT_ASSERT(CAST_ARRAY_COUNT(CTokenIdNames) == TOKEN_COUNT);
 
 enum ValueType
 {
@@ -146,9 +482,9 @@ struct CValue
 	union
 	{
 		bool b;
-		i32 i;
-		f32 f;
-		String s;
+		cast_i32 i;
+		cast_f32 f;
+		CastString s;
 	};
 };
 
@@ -157,8 +493,8 @@ typedef CValue CLiteral;
 struct CToken
 {
 	CTokenId id;
-	u32 line;
-	String lexeme;
+	cast_u32 line;
+	CastString lexeme;
 	CLiteral literal;
 };
 
@@ -171,36 +507,36 @@ static CToken gNullToken = {
 
 struct CTokenList
 {
-	Arena *arena;
+	CastArena *arena;
 	CToken *tokens;
-	i32 count;
+	cast_i32 count;
 	bool valid;
 };
 
 struct CScanner
 {
-	i32 start;
-	i32 current;
-	i32 currentInLine;
-	u32 line;
+	cast_i32 start;
+	cast_i32 current;
+	cast_i32 currentInLine;
+	cast_u32 line;
 	bool hasErrors;
 
 	const char *text;
-	u32 textSize;
+	cast_u32 textSize;
 };
 
 struct CIdentifierList
 {
-	String identifier;
+	CastString identifier;
 	CIdentifierList *next;
 };
 
 struct CParser
 {
 	const CTokenList *tokenList;
-	Arena *arena;
-	u32 nextToken;
-	u32 lastToken;
+	CastArena *arena;
+	cast_u32 nextToken;
+	cast_u32 lastToken;
 	bool hasErrors;
 	bool hasFinished;
 
@@ -241,7 +577,7 @@ static bool CScanner_IsAtEnd(const CScanner &scanner)
 
 static char CScanner_Advance(CScanner &scanner)
 {
-	ASSERT(scanner.current < scanner.textSize);
+	CAST_ASSERT(scanner.current < scanner.textSize);
 	char currentChar = scanner.text[scanner.current];
 	scanner.current++;
 	scanner.currentInLine++;
@@ -268,11 +604,11 @@ static char CScanner_PeekNext(const CScanner &scanner)
 	return scanner.text[ scanner.current + 1 ];
 }
 
-static String CScanner_ScannedString(const CScanner &scanner)
+static CastString CScanner_ScannedString(const CScanner &scanner)
 {
 	const char *lexemeStart = scanner.text + scanner.start;
-	u32 lexemeSize = scanner.current - scanner.start;
-	String scannedString = { lexemeStart, lexemeSize };
+	cast_u32 lexemeSize = scanner.current - scanner.start;
+	CastString scannedString = { lexemeStart, lexemeSize };
 	return scannedString;
 }
 
@@ -284,7 +620,7 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 	newToken.literal = literal;
 	newToken.line = scanner.line;
 
-	PushStruct(*tokenList.arena, CToken);
+	CastPushStruct(*tokenList.arena, CToken);
 	tokenList.tokens[tokenList.count++] = newToken;
 }
 
@@ -300,7 +636,7 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 	else if ( tokenId == TOKEN_NUMBER )
 	{
 		literal.type = VALUE_TYPE_FLOAT;
-		literal.f = StrToFloat( CScanner_ScannedString(scanner) );
+		literal.f = CastStrToFloat( CScanner_ScannedString(scanner) );
 	}
 	else if ( tokenId == TOKEN_TRUE || tokenId == TOKEN_FALSE )
 	{
@@ -427,33 +763,33 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 			{
 				while ( Char_IsAlphaNumeric( CScanner_Peek(scanner) ) ) CScanner_Advance(scanner);
 
-				String word = CScanner_ScannedString(scanner);
+				CastString word = CScanner_ScannedString(scanner);
 
 				// Keywords // TODO: This keyword search could be much more efficient
-				if      ( StrEq( word, "struct" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_STRUCT);
-				else if ( StrEq( word, "enum" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_ENUM);
-				else if ( StrEq( word, "true" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_TRUE);
-				else if ( StrEq( word, "false" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FALSE);
-				else if ( StrEq( word, "typedef" ) )      CScanner_AddToken(scanner, tokenList, TOKEN_TYPEDEF);
-				else if ( StrEq( word, "extern" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_EXTERN);
-				else if ( StrEq( word, "static" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_STATIC);
-				else if ( StrEq( word, "register" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_REGISTER);
-				else if ( StrEq( word, "auto" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_AUTO);
-				else if ( StrEq( word, "thread_local" ) ) CScanner_AddToken(scanner, tokenList, TOKEN_THREAD_LOCAL);
-				else if ( StrEq( word, "const" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_CONST);
-				else if ( StrEq( word, "restrict" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_RESTRICT);
-				else if ( StrEq( word, "volatile" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_VOLATILE);
-				else if ( StrEq( word, "signed" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_SIGNED);
-				else if ( StrEq( word, "unsigned" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_UNSIGNED);
-				else if ( StrEq( word, "short" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_SHORT);
-				else if ( StrEq( word, "long" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_LONG);
-				else if ( StrEq( word, "void" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_VOID);
-				else if ( StrEq( word, "bool" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_BOOL);
-				else if ( StrEq( word, "char" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_CHAR);
-				else if ( StrEq( word, "int" ) )          CScanner_AddToken(scanner, tokenList, TOKEN_INT);
-				else if ( StrEq( word, "float" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FLOAT);
-				else if ( StrEq( word, "double" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_DOUBLE);
-				else if ( StrEq( word, "NULL" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_NULL);
+				if      ( CastStrEq( word, "struct" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_STRUCT);
+				else if ( CastStrEq( word, "enum" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_ENUM);
+				else if ( CastStrEq( word, "true" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_TRUE);
+				else if ( CastStrEq( word, "false" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FALSE);
+				else if ( CastStrEq( word, "typedef" ) )      CScanner_AddToken(scanner, tokenList, TOKEN_TYPEDEF);
+				else if ( CastStrEq( word, "extern" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_EXTERN);
+				else if ( CastStrEq( word, "static" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_STATIC);
+				else if ( CastStrEq( word, "register" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_REGISTER);
+				else if ( CastStrEq( word, "auto" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_AUTO);
+				else if ( CastStrEq( word, "thread_local" ) ) CScanner_AddToken(scanner, tokenList, TOKEN_THREAD_LOCAL);
+				else if ( CastStrEq( word, "const" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_CONST);
+				else if ( CastStrEq( word, "restrict" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_RESTRICT);
+				else if ( CastStrEq( word, "volatile" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_VOLATILE);
+				else if ( CastStrEq( word, "signed" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_SIGNED);
+				else if ( CastStrEq( word, "unsigned" ) )     CScanner_AddToken(scanner, tokenList, TOKEN_UNSIGNED);
+				else if ( CastStrEq( word, "short" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_SHORT);
+				else if ( CastStrEq( word, "long" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_LONG);
+				else if ( CastStrEq( word, "void" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_VOID);
+				else if ( CastStrEq( word, "bool" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_BOOL);
+				else if ( CastStrEq( word, "char" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_CHAR);
+				else if ( CastStrEq( word, "int" ) )          CScanner_AddToken(scanner, tokenList, TOKEN_INT);
+				else if ( CastStrEq( word, "float" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FLOAT);
+				else if ( CastStrEq( word, "double" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_DOUBLE);
+				else if ( CastStrEq( word, "NULL" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_NULL);
 				else                                      CScanner_AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
@@ -463,7 +799,7 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 	}
 }
 
-static CTokenList CScan(Arena &arena, const char *text, u32 textSize)
+static CTokenList CScan(CastArena &arena, const char *text, cast_u32 textSize)
 {
 	CTokenList tokenList = {};
 	tokenList.arena = &arena;
@@ -494,7 +830,7 @@ static void PrintTokenList(const CTokenList &tokenList)
 		"                                                  "
 		"                                                  ";
 	printf("List of tokens:\n");
-	for (u32 i = 0; i < tokenList.count; ++i)
+	for (cast_u32 i = 0; i < tokenList.count; ++i)
 	{
 		const CToken& token = tokenList.tokens[i];
 		const int tokenIdLen = strlen(CTokenIdNames[token.id]);
@@ -508,20 +844,20 @@ static void PrintTokenList(const CTokenList &tokenList)
 ////////////////////////////////////////////////////////////////////////
 // CParser
 
-static u32 CParser_RemainingTokens(const CParser &parser)
+static cast_u32 CParser_RemainingTokens(const CParser &parser)
 {
 	return parser.tokenList->count - parser.nextToken;
 }
 
 static const CToken &CParser_GetPreviousToken( const CParser &parser )
 {
-	ASSERT(parser.nextToken > 0);
+	CAST_ASSERT(parser.nextToken > 0);
 	return parser.tokenList->tokens[parser.nextToken-1];
 }
 
 static const CToken &CParser_GetNextToken( const CParser &parser )
 {
-	ASSERT(parser.nextToken < parser.tokenList->count);
+	CAST_ASSERT(parser.nextToken < parser.tokenList->count);
 	return parser.tokenList->tokens[parser.nextToken];
 }
 
@@ -537,7 +873,7 @@ static bool CParser_IsNextToken( const CParser &parser, CTokenId tokenId )
 	if ( CParser_HasFinished( parser ) ) {
 		return tokenId == TOKEN_EOF;
 	} else {
-		ASSERT(parser.nextToken < parser.tokenList->count);
+		CAST_ASSERT(parser.nextToken < parser.tokenList->count);
 		return tokenId == parser.tokenList->tokens[parser.nextToken].id;
 	}
 }
@@ -547,7 +883,7 @@ static bool CParser_AreNextTokens( const CParser &parser, CTokenId tokenId0, CTo
 	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 2 ) {
 		return false;
 	} else {
-		ASSERT(parser.nextToken+1 < parser.tokenList->count);
+		CAST_ASSERT(parser.nextToken+1 < parser.tokenList->count);
 		return
 			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
 			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id;
@@ -559,7 +895,7 @@ static bool CParser_AreNextTokens( const CParser &parser, CTokenId tokenId0, CTo
 	if ( CParser_HasFinished( parser ) || CParser_RemainingTokens(parser) < 3 ) {
 		return false;
 	} else {
-		ASSERT(parser.nextToken+2 < parser.tokenList->count);
+		CAST_ASSERT(parser.nextToken+2 < parser.tokenList->count);
 		return
 			tokenId0 == parser.tokenList->tokens[parser.nextToken].id &&
 			tokenId1 == parser.tokenList->tokens[parser.nextToken+1].id &&
@@ -591,20 +927,6 @@ static const CToken &CParser_Consume( CParser &parser )
 	}
 }
 
-//static const CToken &CParser_Consume( CParser &parser, CTokenId tokenId )
-//{
-//	if ( CParser_IsNextToken( parser, tokenId ) ) {
-//		CParser_Consume( parser );
-//	} else {
-//		static char errorMessage[128];
-//		StrCopy(errorMessage, "Could not consume token ");
-//		StrCat(errorMessage, CTokenIdNames[tokenId]);
-//		CParser_SetError(parser, errorMessage);
-//		parser.hasFinished = true;
-//	}
-//	return CParser_GetPreviousToken(parser);
-//}
-
 static bool CParser_TryConsume( CParser &parser, CTokenId tokenId )
 {
 	if ( CParser_IsNextToken( parser, tokenId ) ) {
@@ -635,20 +957,20 @@ static bool CParser_TryConsume( CParser &parser, CTokenId tokenId0, CTokenId tok
 	return false;
 }
 
-static void CParser_AddIdentifier( CParser &parser, String identifier )
+static void CParser_AddIdentifier( CParser &parser, CastString identifier )
 {
 	CIdentifierList *previousFirst = parser.identifiers;
-	parser.identifiers = PushZeroStruct( *parser.arena, CIdentifierList );
+	parser.identifiers = CastPushZeroStruct( *parser.arena, CIdentifierList );
 	parser.identifiers->identifier = identifier;
 	parser.identifiers->next = previousFirst;
 }
 
-static bool CParser_FindIdentifier( const CParser &parser, String identifier)
+static bool CParser_FindIdentifier( const CParser &parser, CastString identifier)
 {
 	CIdentifierList *node = parser.identifiers;
 	while (node)
 	{
-		if (StrEq(node->identifier, identifier))
+		if (CastStrEq(node->identifier, identifier))
 		{
 			return true;
 		}
@@ -657,196 +979,9 @@ static bool CParser_FindIdentifier( const CParser &parser, String identifier)
 	return false;
 }
 
-//static bool CParser_ConsumeUntil( CParser &parser, CTokenId tokenId )
-//{
-//	while ( !CParser_HasFinished && !CParser_IsNextToken( parser, tokenId ) ) {
-//		CParser_Consume( parser );
-//	}
-//	return ( CParser_GetPreviousToken( parser ).id == tokenId );
-//}
-
-#if 0
-static void CParser_ParseMember(CParser &parser, CAssembly &cAsm, CStruct *cStruct, Arena &arena)
-{
-	// Parse type
-	const bool isConst = CParser_TryConsume(parser, TOKEN_CONST);
-	const bool isUnsigned = CParser_TryConsume(parser, TOKEN_UNSIGNED);
-	const bool isShort = CParser_TryConsume(parser, TOKEN_SHORT);
-	const bool isLong = CParser_TryConsume(parser, TOKEN_LONG);
-	const bool isLongLong = CParser_TryConsume(parser, TOKEN_LONG);
-
-	const CToken &type = CParser_Consume(parser);
-	const bool isBool = type.id == TOKEN_BOOL;
-	const bool isChar = type.id == TOKEN_CHAR;
-	const bool isInt = type.id == TOKEN_INT;
-	const bool isFloat = type.id == TOKEN_FLOAT;
-	const bool isIdent = type.id == TOKEN_IDENTIFIER;
-	ASSERT( !isUnsigned || isInt );
-
-	ASSERT( isIdent || isBool || isChar || isInt || isFloat );
-
-	u32 pointerCount = 0;
-	for (u32 i = 0; i < 3; ++i) {
-		if (CParser_TryConsume(parser, TOKEN_STAR)) {
-			pointerCount++;
-		}
-	}
-
-	const CToken &identifier = CParser_Consume(parser, TOKEN_IDENTIFIER);
-
-	i32 arrayDim = 0;
-	const bool isArray = CParser_TryConsume(parser, TOKEN_LEFT_BRACKET);
-	if (isArray){
-		const CToken &arrayDimToken = CParser_Consume(parser, TOKEN_NUMBER);
-		arrayDim = StrToInt(arrayDimToken.lexeme);
-		CParser_Consume(parser, TOKEN_RIGHT_BRACKET);
-	}
-
-	CParser_Consume(parser, TOKEN_SEMICOLON);
-
-	CMember *member = CAssembly_AddMember(cStruct);
-	member->name = identifier.lexeme;
-	member->isConst = isConst;
-	member->pointerCount = pointerCount;
-	member->isArray = isArray;
-	member->arrayDim = arrayDim;
-	member->isArray = isArray;
-	member->arrayDim = arrayDim;
-
-	if ( isBool ) member->reflexId = ReflexID_Bool;
-	else if ( isChar ) member->reflexId = ReflexID_Char;
-	else if ( isInt && !isUnsigned ) member->reflexId = ReflexID_Int;
-	else if ( isInt && isUnsigned ) member->reflexId = ReflexID_UInt;
-	else if ( isFloat ) member->reflexId = ReflexID_Float;
-	else // isIdent
-	{
-		ASSERT( type.id == TOKEN_IDENTIFIER );
-		const CStruct *cStruct = CAssembly_FindStructWithName(cAsm, type.lexeme);
-		if (cStruct) {
-			member->reflexId = ReflexID_Struct + cStruct->index;
-		} else {
-			const CEnum *cEnum = CAssembly_FindEnumWithName(cAsm, type.lexeme);
-			if (cEnum) {
-				member->reflexId = ReflexID_Int; // TODO: Enums need to have more information than this
-			} else {
-				INVALID_CODE_PATH();
-			}
-		}
-	}
-}
-
-static bool CParser_ParseStruct(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	if ( CParser_TryConsume( parser, TOKEN_STRUCT ) )
-	{
-		CStruct *cStruct = CAssembly_CreateStruct(cAsm);
-		cStruct->name = CParser_GetNextToken( parser ).lexeme;
-
-		CParser_Consume( parser, TOKEN_IDENTIFIER );
-		CParser_Consume( parser, TOKEN_LEFT_BRACE );
-		while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
-		{
-			CParser_ParseMember(parser, cAsm, cStruct, arena);
-		}
-		CParser_Consume( parser, TOKEN_SEMICOLON );
-		return true;
-	}
-	return false;
-}
-
-static bool CParser_ParseEnum(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	if ( CParser_TryConsume( parser, TOKEN_ENUM ) )
-	{
-		CEnum *cEnum = CAssembly_CreateEnum(cAsm, arena);
-		cEnum->name = CParser_GetNextToken(parser).lexeme;
-
-		CParser_Consume( parser, TOKEN_IDENTIFIER );
-		CParser_Consume( parser, TOKEN_LEFT_BRACE );
-		while ( !CParser_TryConsume( parser, TOKEN_RIGHT_BRACE ) && !CParser_HasFinished( parser ) )
-		{
-			CParser_Consume(parser);
-		}
-		CParser_Consume( parser, TOKEN_SEMICOLON );
-		return true;
-	}
-	return false;
-}
-
-static bool CParser_ParseDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	u32 nextTokenBackup = parser.nextToken;
-	bool ok = CParser_ParseStruct( parser, cAsm, arena );
-	ok = ok || CParser_ParseEnum( parser, cAsm, arena );
-	if ( !ok ) { parser.nextToken = nextTokenBackup; }
-	return ok;
-}
-
-static bool CParser_ParseFunctionDefinition(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	CParser_Consume(parser);
-	return true;
-}
-
-static bool CParser_ParseExternalDeclaration(CParser &parser, CAssembly &cAsm, Arena &arena)
-{
-	u32 nextTokenBackup = parser.nextToken;
-	bool ok = CParser_ParseDeclaration( parser, cAsm, arena );
-	ok = ok || CParser_ParseFunctionDefinition( parser, cAsm, arena );
-	if ( !ok ) { parser.nextToken = nextTokenBackup; }
-	return ok;
-}
-
-static CAssembly CParse(Arena &arena, const CTokenList &tokenList)
-{
-	CAssembly cAsm = {};
-
-	CParser parser = {};
-	parser.tokenList = &tokenList;
-
-	while ( !CParser_HasFinished(parser) )
-	{
-		if ( !CParser_ParseExternalDeclaration(parser, cAsm, arena) )
-		{
-			break;
-		}
-	}
-
-	cAsm.valid = !parser.hasErrors;
-
-	if ( parser.hasErrors )
-	{
-		printf("Parse finished with errors.\n");
-	}
-
-	return cAsm;
-}
-
 
 ////////////////////////////////////////////////////////////////////////
-// CAssembly creation function
-
-bool CAssembly_Create(CAssembly &cAsm, Arena &arena, const char *text, u64 textSize)
-{
-	CTokenList tokenList = CScan(arena, text, textSize);
-
-	if ( tokenList.valid )
-	{
-#if 0
-		PrintTokenList(tokenList);
-#endif
-		cAsm = CParse(arena, tokenList);
-
-		return cAsm.valid;
-	}
-
-	return false;
-}
-#endif // #if 0
-
-
-////////////////////////////////////////////////////////////////////////
-// C AST helpers
+// Cast helpers
 
 #include <stdarg.h>
 
@@ -857,53 +992,29 @@ const char *Cast_GetError()
 	return gCastError;
 }
 
-const void Cast_SetError(const char *format, ...)
+static const void Cast_SetError(const char *format, ...)
 {
 	va_list vaList;
 	va_start(vaList, format);
-	vsnprintf(gCastError, ARRAY_COUNT(gCastError), format, vaList);
+	vsnprintf(gCastError, CAST_ARRAY_COUNT(gCastError), format, vaList);
 	va_end(vaList);
 }
 
 
 ////////////////////////////////////////////////////////////////////////
-// C AST structs
-
-enum CastStorageClassSpecifierType
-{
-	CAST_TYPEDEF,
-	CAST_EXTERN,
-	CAST_STATIC,
-	CAST_THREAD_LOCAL,
-	CAST_AUTO,
-	CAST_REGISTER,
-};
+// Cast enum names
 
 static const char *CastStorageClassSpecifierTypeNames[] =
-{ "typedef", "extern", "static", "thread_local", "auto", "register" };
-CT_ASSERT(ARRAY_COUNT(CastStorageClassSpecifierTypeNames) == CAST_REGISTER + 1);
-
-struct CastStorageClassSpecifier
 {
-	CastStorageClassSpecifierType type;
+	"typedef",
+	"extern",
+	"static",
+	"thread_local",
+	"auto",
+	"register"
 };
 
-enum CastTypeSpecifierType
-{
-	CAST_VOID,
-	CAST_BOOL,
-	CAST_CHAR,
-	CAST_INT,
-	CAST_FLOAT,
-	CAST_DOUBLE,
-	CAST_SHORT,
-	CAST_LONG,
-	CAST_SIGNED,
-	CAST_UNSIGNED,
-	CAST_IDENTIFIER,
-	CAST_STRUCT,
-	CAST_ENUM,
-};
+CAST_CT_ASSERT(CAST_ARRAY_COUNT(CastStorageClassSpecifierTypeNames) == CAST_REGISTER + 1);
 
 static const char *CastTypeSpecifierTypeNames[]
 {
@@ -922,206 +1033,13 @@ static const char *CastTypeSpecifierTypeNames[]
 	"enum",
 };
 
-CT_ASSERT(ARRAY_COUNT(CastTypeSpecifierTypeNames) == CAST_ENUM + 1);
+CAST_CT_ASSERT(CAST_ARRAY_COUNT(CastTypeSpecifierTypeNames) == CAST_ENUM + 1);
 
-enum CastTypeQualifierType
-{
-	CAST_CONST,
-	CAST_RESTRICT,
-	CAST_VOLATILE,
-};
 
-struct CastTypeSpecifier;
-struct CastTypeQualifier;
+////////////////////////////////////////////////////////////////////////
+// Cast Function definitions
 
-struct CastSpecifierQualifierList
-{
-	CastTypeSpecifier *typeSpecifier;
-	CastTypeQualifier *typeQualifier;
-	CastSpecifierQualifierList *next;
-};
-
-struct CastDeclarator;
-
-struct CastStructDeclaratorList
-{
-	CastDeclarator *structDeclarator; // pass through struct-declarator in the grammar
-	CastStructDeclaratorList *next;
-};
-
-struct CastStructDeclaration
-{
-	CastSpecifierQualifierList *specifierQualifierList;
-	CastStructDeclaratorList *structDeclaratorList;
-};
-
-struct CastStructDeclarationList
-{
-	CastStructDeclaration *structDeclaration;
-	CastStructDeclarationList *next;
-};
-
-struct CastStructSpecifier
-{
-	String name;
-	CastStructDeclarationList *structDeclarationList;
-};
-
-struct CastEnumerator
-{
-	String name;
-	// TODO: Could have a constant expression
-};
-
-struct CastEnumeratorList
-{
-	CastEnumerator *enumerator;
-	CastEnumeratorList *next;
-};
-
-struct CastEnumSpecifier
-{
-	String name;
-	CastEnumeratorList *enumeratorList;
-};
-
-struct CastTypeSpecifier
-{
-	CastTypeSpecifierType type;
-	union
-	{
-		String identifier;
-		CastStructSpecifier *structSpecifier;
-		CastEnumSpecifier *enumSpecifier;
-	};
-};
-
-struct CastTypeQualifier
-{
-	CastTypeQualifierType type;
-};
-
-struct CastTypeQualifierList
-{
-	CastTypeQualifier *typeQualifier;
-	CastTypeQualifierList *next;
-};
-
-struct CastFunctionSpecifier
-{
-// : INLINE
-// | NORETURN
-};
-
-struct CastDeclarationSpecifiers
-{
-	CastStorageClassSpecifier *storageClassSpecifier;
-	CastTypeSpecifier *typeSpecifier;
-	CastTypeQualifier *typeQualifier;
-	CastFunctionSpecifier *functionSpecifier;
-	//CastAlignmentSpecifier *alignmentSpecifier;
-	CastDeclarationSpecifiers *next;
-};
-
-struct CastExpression
-{
-	String constant; // TODO: Expressions can be much more complex
-};
-
-struct CastDirectDeclarator
-{
-	String name;
-	CastExpression *expression;
-	bool isArray : 1;
-	// TODO could be a function as well
-};
-
-struct CastPointer
-{
-	CastTypeQualifierList *typeQualifierList;
-	CastPointer *next;
-};
-
-struct CastDeclarator
-{
-	CastPointer *pointer;
-	CastDirectDeclarator *directDeclarator;
-};
-
-struct CastDesignator
-{
-	String identifier;
-	// TODO: Add missing array element designator: [ constant-expression ]
-};
-
-struct CastDesignatorList
-{
-	CastDesignator *designator;
-	CastDesignatorList *next;
-};
-
-struct CastDesignation
-{
-	CastDesignatorList *designatorList;
-};
-
-struct CastInitializerList;
-
-struct CastInitializer
-{
-	CastExpression *expression;
-	CastInitializerList *initializerList;
-};
-
-struct CastInitializerList
-{
-	CastDesignation *designation; // optional
-	CastInitializer *initializer;
-	CastInitializerList *next;
-};
-
-struct CastInitDeclarator
-{
-	CastDeclarator *declarator;
-	CastInitializer *initializer;
-};
-
-struct CastInitDeclaratorList
-{
-	CastInitDeclarator *initDeclarator;
-	CastInitDeclaratorList *next;
-};
-
-struct CastDeclaration
-{
-	CastDeclarationSpecifiers *declarationSpecifiers;
-	CastInitDeclaratorList *initDeclaratorList;
-	//CastStaticAssertDeclaration *staticAssertDeclaration;
-};
-
-struct CastFunctionDefinition
-{
-	// TODO
-};
-
-union CastExternalDeclaration
-{
-	CastDeclaration *declaration;
-	CastFunctionDefinition *functionDefinition;
-};
-
-struct CastTranslationUnit
-{
-	CastExternalDeclaration *externalDeclaration;
-	CastTranslationUnit *next;
-};
-
-struct Cast
-{
-	CastTranslationUnit *translationUnit;
-};
-
-bool Cast_IsTypedef( const CastExternalDeclaration *externalDeclaration, String &symbol )
+static bool Cast_IsTypedef( const CastExternalDeclaration *externalDeclaration, CastString &symbol )
 {
 	const CastDeclaration *declaration = externalDeclaration->declaration;
 	if ( declaration ) {
@@ -1159,17 +1077,17 @@ bool Cast_IsTypedef( const CastExternalDeclaration *externalDeclaration, String 
 }
 
 #define CAST_BACKUP() \
-	Arena backupArena = *parser.arena; \
-	u32 nextTokenBackup = parser.nextToken;
+	CastArena backupArena = *parser.arena; \
+	cast_u32 nextTokenBackup = parser.nextToken;
 
 #define CAST_RESTORE() \
 	*parser.arena = backupArena; \
 	parser.nextToken = nextTokenBackup;
 
 #define CAST_NODE( TypeName ) \
-	PushZeroStruct( *parser.arena, TypeName )
+	CastPushZeroStruct( *parser.arena, TypeName )
 
-CastStorageClassSpecifier *Cast_ParseStorageClassSpecifier( CParser &parser, CTokenList &tokenList )
+static CastStorageClassSpecifier *Cast_ParseStorageClassSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	bool match = true;
 	CastStorageClassSpecifierType type = CAST_TYPEDEF;
@@ -1189,10 +1107,10 @@ CastStorageClassSpecifier *Cast_ParseStorageClassSpecifier( CParser &parser, CTo
 	return castStorageSpecifier;
 }
 
-CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList );
-CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenList );
+static CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList );
+static CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenList );
 
-CastSpecifierQualifierList *Cast_ParseSpecifierQualifierList( CParser &parser, CTokenList &tokenList )
+static CastSpecifierQualifierList *Cast_ParseSpecifierQualifierList( CParser &parser, CTokenList &tokenList )
 {
 	CastTypeSpecifier *typeSpecifier = NULL;
 	CastTypeQualifier *typeQualifier = NULL;
@@ -1222,9 +1140,9 @@ CastSpecifierQualifierList *Cast_ParseSpecifierQualifierList( CParser &parser, C
 	return firstSpecifierQualifierList;
 }
 
-CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList );
+static CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList );
 
-CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
+static CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 {
 	CastPointer *pointer = NULL;
 	if (CParser_TryConsume(parser, TOKEN_STAR))
@@ -1237,7 +1155,7 @@ CastPointer *Cast_ParsePointer( CParser &parser, CTokenList &tokenList )
 	return pointer;
 }
 
-CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
+static CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	// TODO: Expressions can be much more complex than simple constants
@@ -1277,7 +1195,7 @@ CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenList )
 	return expression;
 }
 
-CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &tokenList )
+static CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	if (!CParser_TryConsume(parser, TOKEN_IDENTIFIER)) {
@@ -1304,7 +1222,7 @@ CastDirectDeclarator *Cast_ParseDirectDeclarator( CParser &parser, CTokenList &t
 	return directDeclarator;
 }
 
-CastDeclarator *Cast_ParseDeclarator( CParser &parser, CTokenList &tokenList )
+static CastDeclarator *Cast_ParseDeclarator( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastDeclarator *declarator =  NULL;
@@ -1321,7 +1239,7 @@ CastDeclarator *Cast_ParseDeclarator( CParser &parser, CTokenList &tokenList )
 	return declarator;
 }
 
-CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CTokenList &tokenList )
+static CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CTokenList &tokenList )
 {
 	CastDeclarator *declarator = NULL;
 	CastStructDeclaratorList *firstStructDeclaratorList = NULL;
@@ -1347,7 +1265,7 @@ CastStructDeclaratorList *Cast_ParseStructDeclaratorList( CParser &parser, CToke
 	return firstStructDeclaratorList;
 }
 
-CastStructDeclaration *Cast_ParseStructDeclaration( CParser &parser, CTokenList &tokenList )
+static CastStructDeclaration *Cast_ParseStructDeclaration( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastStructDeclaration *structDeclaration = NULL;
@@ -1369,7 +1287,7 @@ CastStructDeclaration *Cast_ParseStructDeclaration( CParser &parser, CTokenList 
 	return structDeclaration;
 }
 
-CastStructDeclarationList *Cast_ParseStructDeclarationList( CParser &parser, CTokenList &tokenList )
+static CastStructDeclarationList *Cast_ParseStructDeclarationList( CParser &parser, CTokenList &tokenList )
 {
 	CastStructDeclaration *structDeclaration = NULL;
 	CastStructDeclarationList *firstDeclarationList = NULL;
@@ -1394,7 +1312,7 @@ CastStructDeclarationList *Cast_ParseStructDeclarationList( CParser &parser, CTo
 	return firstDeclarationList;
 }
 
-CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tokenList )
+static CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	if ( !CParser_TryConsume(parser, TOKEN_STRUCT) ) {
@@ -1406,7 +1324,7 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 		return NULL;
 	}
 	const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
-	String identifier = tokenIdentifier.lexeme;
+	CastString identifier = tokenIdentifier.lexeme;
 	CParser_AddIdentifier(parser, identifier);
 
 	CastStructDeclarationList* structDeclarationList = NULL;
@@ -1426,7 +1344,7 @@ CastStructSpecifier *Cast_ParseStructSpecifier( CParser &parser, CTokenList &tok
 	return structSpecifier;
 }
 
-CastEnumerator *Cast_ParseEnumerator( CParser &parser, CTokenList &tokenList )
+static CastEnumerator *Cast_ParseEnumerator( CParser &parser, CTokenList &tokenList )
 {
 	CastEnumerator *enumerator = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
@@ -1437,7 +1355,7 @@ CastEnumerator *Cast_ParseEnumerator( CParser &parser, CTokenList &tokenList )
 	return enumerator;
 }
 
-CastEnumeratorList *Cast_ParseEnumeratorList( CParser &parser, CTokenList &tokenList )
+static CastEnumeratorList *Cast_ParseEnumeratorList( CParser &parser, CTokenList &tokenList )
 {
 	CastEnumerator *enumerator = NULL;
 	CastEnumeratorList *firstEnumeratorList = NULL;
@@ -1463,17 +1381,17 @@ CastEnumeratorList *Cast_ParseEnumeratorList( CParser &parser, CTokenList &token
 	return firstEnumeratorList;
 }
 
-CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenList )
+static CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	if ( !CParser_TryConsume(parser, TOKEN_ENUM) ) {
 		return NULL;
 	}
 
-	String name = {};
+	CastString name = {};
 	if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) ) {
 		const CToken &tokenIdentifier = CParser_GetPreviousToken(parser);
-		String identifier = tokenIdentifier.lexeme;
+		CastString identifier = tokenIdentifier.lexeme;
 		CParser_AddIdentifier(parser, identifier);
 		name = identifier;
 	}
@@ -1496,13 +1414,13 @@ CastEnumSpecifier *Cast_ParseEnumSpecifier( CParser &parser, CTokenList &tokenLi
 	return enumSpecifier;
 }
 
-CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList )
+static CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 
 	bool match = true;
 	CastTypeSpecifierType type = CAST_VOID;
-	String identifier = {};
+	CastString identifier = {};
 	CastStructSpecifier *structSpecifier = NULL;
 	CastEnumSpecifier *enumSpecifier = NULL;
 	if ( CParser_TryConsume(parser, TOKEN_VOID) ) type = CAST_VOID;
@@ -1556,7 +1474,7 @@ CastTypeSpecifier *Cast_ParseTypeSpecifier( CParser &parser, CTokenList &tokenLi
 	return castTypeSpecifier;
 }
 
-CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenList )
+static CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenList )
 {
 	bool match = true;
 	CastTypeQualifierType type = CAST_CONST;
@@ -1573,7 +1491,7 @@ CastTypeQualifier *Cast_ParseTypeQualifier( CParser &parser, CTokenList &tokenLi
 	return typeQualifier;
 }
 
-CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList )
+static CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList &tokenList )
 {
 	CastTypeQualifier *typeQualifier = NULL;
 	CastTypeQualifierList *firstTypeQualifierList = NULL;
@@ -1599,13 +1517,13 @@ CastTypeQualifierList *Cast_ParseTypeQualifierList( CParser &parser, CTokenList 
 	return firstTypeQualifierList;
 }
 
-CastFunctionSpecifier *Cast_ParseFunctionSpecifier( CParser &parser, CTokenList &tokenList )
+static CastFunctionSpecifier *Cast_ParseFunctionSpecifier( CParser &parser, CTokenList &tokenList )
 {
 	// TODO
 	return NULL;
 }
 
-CastDeclarationSpecifiers *Cast_ParseDeclarationSpecifiers( CParser &parser, CTokenList &tokenList )
+static CastDeclarationSpecifiers *Cast_ParseDeclarationSpecifiers( CParser &parser, CTokenList &tokenList )
 {
 	CastStorageClassSpecifier *storageClassSpecifier = Cast_ParseStorageClassSpecifier(parser, tokenList);
 	CastTypeSpecifier *typeSpecifier = Cast_ParseTypeSpecifier(parser, tokenList);
@@ -1624,7 +1542,7 @@ CastDeclarationSpecifiers *Cast_ParseDeclarationSpecifiers( CParser &parser, CTo
 	return declarationSpecifiers;
 }
 
-CastDesignator *Cast_ParseDesignator( CParser &parser, CTokenList &tokenList )
+static CastDesignator *Cast_ParseDesignator( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastDesignator *designator = NULL;
@@ -1642,7 +1560,7 @@ CastDesignator *Cast_ParseDesignator( CParser &parser, CTokenList &tokenList )
 	return designator;
 }
 
-CastDesignatorList *Cast_ParseDesignatorList( CParser &parser, CTokenList &tokenList )
+static CastDesignatorList *Cast_ParseDesignatorList( CParser &parser, CTokenList &tokenList )
 {
 	CastDesignatorList *firstDesignatorList = NULL;
 	CastDesignatorList *prevDesignatorList = NULL;
@@ -1666,7 +1584,7 @@ CastDesignatorList *Cast_ParseDesignatorList( CParser &parser, CTokenList &token
 	return firstDesignatorList;
 }
 
-CastDesignation *Cast_ParseDesignation( CParser &parser, CTokenList &tokenList )
+static CastDesignation *Cast_ParseDesignation( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastDesignation *designation = NULL;
@@ -1682,9 +1600,9 @@ CastDesignation *Cast_ParseDesignation( CParser &parser, CTokenList &tokenList )
 	return designation;
 }
 
-CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList );
+static CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList );
 
-CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
+static CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastInitializer *castInitializer = NULL;
@@ -1715,7 +1633,7 @@ CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &tokenList )
 	return castInitializer;
 }
 
-CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList )
+static CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	bool comma = false;
@@ -1749,7 +1667,7 @@ CastInitializerList *Cast_ParseInitializerList ( CParser &parser, CTokenList &to
 	return firstInitalizerList;
 }
 
-CastInitDeclarator *Cast_ParseInitDeclarator( CParser &parser, CTokenList &tokenList )
+static CastInitDeclarator *Cast_ParseInitDeclarator( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	CastInitDeclarator *initDeclarator = NULL;
@@ -1773,7 +1691,7 @@ CastInitDeclarator *Cast_ParseInitDeclarator( CParser &parser, CTokenList &token
 	return initDeclarator;
 }
 
-CastInitDeclaratorList *Cast_ParseInitDeclaratorList( CParser &parser, CTokenList &tokenList )
+static CastInitDeclaratorList *Cast_ParseInitDeclaratorList( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 	bool comma = false;
@@ -1805,7 +1723,7 @@ CastInitDeclaratorList *Cast_ParseInitDeclaratorList( CParser &parser, CTokenLis
 	return firstInitDeclaratorList;
 }
 
-CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
+static CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 {
 	CAST_BACKUP();
 
@@ -1831,12 +1749,12 @@ CastDeclaration *Cast_ParseDeclaration( CParser &parser, CTokenList &tokenList )
 	return declaration;
 }
 
-CastFunctionDefinition *Cast_ParseFunctionDefinition( CParser &parser, CTokenList &tokenList )
+static CastFunctionDefinition *Cast_ParseFunctionDefinition( CParser &parser, CTokenList &tokenList )
 {
 	return NULL;
 }
 
-CastExternalDeclaration *Cast_ParseExternalDeclaration( CParser &parser, CTokenList &tokenList )
+static CastExternalDeclaration *Cast_ParseExternalDeclaration( CParser &parser, CTokenList &tokenList )
 {
 	CastExternalDeclaration *externalDeclaration = NULL;
 	CastDeclaration *declaration = Cast_ParseDeclaration(parser, tokenList);
@@ -1848,7 +1766,7 @@ CastExternalDeclaration *Cast_ParseExternalDeclaration( CParser &parser, CTokenL
 	return externalDeclaration;
 }
 
-CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tokenList )
+static CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tokenList )
 {
 	CastTranslationUnit *firstTranslationUnit = NULL;
 	CastTranslationUnit *previousTranslationUnit = NULL;
@@ -1867,7 +1785,7 @@ CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tok
 			}
 			previousTranslationUnit = translationUnit;
 
-			String symbol;
+			CastString symbol;
 			if ( Cast_IsTypedef( externalDeclaration, symbol ) ) {
 				//printf("%.*s\n", symbol.size, symbol.str);
 				CParser_AddIdentifier(parser, symbol);
@@ -1886,7 +1804,7 @@ CastTranslationUnit *Cast_ParseTranslationUnit( CParser &parser, CTokenList &tok
 }
 
 
-Cast *Cast_Create( CParser &parser, CTokenList &tokenList )
+static Cast *Cast_Create( CParser &parser, CTokenList &tokenList )
 {
 	Cast *cast = NULL;
 	CastTranslationUnit *translationUnit = Cast_ParseTranslationUnit(parser, tokenList);
@@ -1897,7 +1815,7 @@ Cast *Cast_Create( CParser &parser, CTokenList &tokenList )
 	return cast;
 }
 
-Cast *Cast_Create( Arena &arena, const char *text, u64 textSize)
+const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 {
 	CTokenList tokenList = CScan(arena, text, textSize);
 
@@ -1917,27 +1835,25 @@ Cast *Cast_Create( Arena &arena, const char *text, u64 textSize)
 ////////////////////////////////////////////////////////////////////////
 // Evaluate utils
 
-int Cast_EvaluateInt( CastExpression *ast )
+int Cast_EvaluateInt( const CastExpression *ast )
 {
-	ASSERT( ast );
-	int res = StrToInt(ast->constant);
+	CAST_ASSERT( ast );
+	int res = CastStrToInt(ast->constant);
 	return res;
 }
 
 ////////////////////////////////////////////////////////////////////////
 // Print utils
 
-#define Printf( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ );
-#define PrintfN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); PrintNewLine();
-#define PrintBeginScope( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease();
-#define PrintBeginScopeN( format, ... ) LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease(); PrintNewLine();
-#define EndScope() IndentationDecrease();
-#define PrintNewLine() LOG(Info, "\n"); indent.apply = true;
+#define CastPrintfN( format, ... ) CAST_LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); CastPrintNewLine();
+#define CastPrintBeginScope( format, ... ) CAST_LOG(Info, "%s" format, Indentation(), ##__VA_ARGS__ ); IndentationIncrease(); CastPrintNewLine();
+#define CastPrintEndScope() IndentationDecrease();
+#define CastPrintNewLine() CAST_LOG(Info, "\n"); indent.apply = true;
 
 struct IndentationState
 {
 	bool apply;
-	u32 pos;
+	cast_u32 pos;
 	char padding[64];
 };
 
@@ -1954,7 +1870,7 @@ static void IndentationIncrease()
 
 static void IndentationDecrease()
 {
-	ASSERT(indent.pos > 0);
+	CAST_ASSERT(indent.pos > 0);
 	indent.padding[--indent.pos] = '\0';
 }
 
@@ -1966,25 +1882,25 @@ static const char *Indentation()
 }
 
 
+#ifdef CAST_PRINT
+
 ////////////////////////////////////////////////////////////////////////
 // Print functions
 
-void Cast_Print( const CastInitializer *ast );
-
-void Cast_Print( const CastExpression *ast )
+static void Cast_Print( const CastExpression *ast )
 {
-	PrintfN("Expression -> %.*s", ast->constant.size, ast->constant.str);
+	CastPrintfN("Expression -> %.*s", ast->constant.size, ast->constant.str);
 	// TODO: Expressions can be much more complex
 }
 
-void Cast_Print( const CastDesignator *ast )
+static void Cast_Print( const CastDesignator *ast )
 {
-	PrintfN("Designator -> .%.*s", ast->identifier.size, ast->identifier.str);
+	CastPrintfN("Designator -> .%.*s", ast->identifier.size, ast->identifier.str);
 }
 
-void Cast_Print( const CastDesignatorList *ast )
+static void Cast_Print( const CastDesignatorList *ast )
 {
-	PrintBeginScopeN("DesignatorList");
+	CastPrintBeginScope("DesignatorList");
 	while (ast)
 	{
 		if (ast->designator) {
@@ -1992,21 +1908,23 @@ void Cast_Print( const CastDesignatorList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDesignation *ast )
+static void Cast_Print( const CastDesignation *ast )
 {
-	PrintBeginScopeN("Designation");
+	CastPrintBeginScope("Designation");
 	if (ast->designatorList) {
 		Cast_Print(ast->designatorList);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastInitializerList *ast )
+static void Cast_Print( const CastInitializer *ast );
+
+static void Cast_Print( const CastInitializerList *ast )
 {
-	PrintBeginScopeN("InitializerList");
+	CastPrintBeginScope("InitializerList");
 	while (ast)
 	{
 		if (ast->designation) {
@@ -2017,22 +1935,22 @@ void Cast_Print( const CastInitializerList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastStorageClassSpecifier *ast )
+static void Cast_Print( const CastStorageClassSpecifier *ast )
 {
-	ASSERT(ast->type < ARRAY_COUNT(CastStorageClassSpecifierTypeNames));
-	PrintBeginScopeN("StorageClassSpecifier -> %s", CastStorageClassSpecifierTypeNames[ast->type]);
-	EndScope();
+	CAST_ASSERT(ast->type < CAST_ARRAY_COUNT(CastStorageClassSpecifierTypeNames));
+	CastPrintBeginScope("StorageClassSpecifier -> %s", CastStorageClassSpecifierTypeNames[ast->type]);
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastTypeSpecifier *ast );
-void Cast_Print( const CastTypeQualifier *ast );
+static void Cast_Print( const CastTypeSpecifier *ast );
+static void Cast_Print( const CastTypeQualifier *ast );
 
-void Cast_Print( const CastSpecifierQualifierList *ast )
+static void Cast_Print( const CastSpecifierQualifierList *ast )
 {
-	PrintBeginScopeN("SpecifierQualifierList");
+	CastPrintBeginScope("SpecifierQualifierList");
 	while (ast)
 	{
 		if (ast->typeSpecifier) {
@@ -2043,14 +1961,14 @@ void Cast_Print( const CastSpecifierQualifierList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDeclarator *ast );
+static void Cast_Print( const CastDeclarator *ast );
 
-void Cast_Print( const CastStructDeclaratorList *ast )
+static void Cast_Print( const CastStructDeclaratorList *ast )
 {
-	PrintBeginScopeN("StructDeclaratorList");
+	CastPrintBeginScope("StructDeclaratorList");
 	while (ast)
 	{
 		if (ast->structDeclarator) {
@@ -2058,24 +1976,24 @@ void Cast_Print( const CastStructDeclaratorList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastStructDeclaration *ast )
+static void Cast_Print( const CastStructDeclaration *ast )
 {
-	PrintBeginScopeN("StructDeclaration");
+	CastPrintBeginScope("StructDeclaration");
 	if (ast->specifierQualifierList) {
 		Cast_Print(ast->specifierQualifierList);
 	}
 	if (ast->structDeclaratorList) {
 		Cast_Print(ast->structDeclaratorList);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastStructDeclarationList *ast )
+static void Cast_Print( const CastStructDeclarationList *ast )
 {
-	PrintBeginScopeN("StructDeclarationList");
+	CastPrintBeginScope("StructDeclarationList");
 	while (ast)
 	{
 		if (ast->structDeclaration) {
@@ -2083,26 +2001,26 @@ void Cast_Print( const CastStructDeclarationList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastStructSpecifier *ast )
+static void Cast_Print( const CastStructSpecifier *ast )
 {
-	PrintBeginScopeN("StructSpecifier -> %.*s", ast->name.size, ast->name.str);
+	CastPrintBeginScope("StructSpecifier -> %.*s", ast->name.size, ast->name.str);
 	Cast_Print(ast->structDeclarationList);
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastEnumerator *ast )
+static void Cast_Print( const CastEnumerator *ast )
 {
-	PrintBeginScopeN("Enumerator -> %.*s", ast->name.size, ast->name.str);
+	CastPrintBeginScope("Enumerator -> %.*s", ast->name.size, ast->name.str);
 	// TODO: Could have a constant expression
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastEnumeratorList *ast )
+static void Cast_Print( const CastEnumeratorList *ast )
 {
-	PrintBeginScopeN("EnumeratorList");
+	CastPrintBeginScope("EnumeratorList");
 	while (ast)
 	{
 		if (ast->enumerator) {
@@ -2110,68 +2028,68 @@ void Cast_Print( const CastEnumeratorList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastEnumSpecifier *ast )
+static void Cast_Print( const CastEnumSpecifier *ast )
 {
-	PrintBeginScopeN("EnumSpecifier -> %.*s", ast->name.size, ast->name.str);
+	CastPrintBeginScope("EnumSpecifier -> %.*s", ast->name.size, ast->name.str);
 	if (ast->enumeratorList)
 	{
 		Cast_Print(ast->enumeratorList);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastTypeSpecifier *ast )
+static void Cast_Print( const CastTypeSpecifier *ast )
 {
 	if (ast->type < CAST_IDENTIFIER)
 	{
-		PrintfN("TypeSpecifier -> %s", CastTypeSpecifierTypeNames[ast->type]);
+		CastPrintfN("TypeSpecifier -> %s", CastTypeSpecifierTypeNames[ast->type]);
 	}
 	else if (ast->type == CAST_IDENTIFIER)
 	{
-		PrintfN("TypeSpecifier -> %.*s", ast->identifier.size, ast->identifier.str);
+		CastPrintfN("TypeSpecifier -> %.*s", ast->identifier.size, ast->identifier.str);
 	}
 	else
 	{
-		PrintBeginScopeN("TypeSpecifier");
-		ASSERT(ast->type <= CAST_ENUM);
+		CastPrintBeginScope("TypeSpecifier");
+		CAST_ASSERT(ast->type <= CAST_ENUM);
 		switch (ast->type)
 		{
 			case CAST_STRUCT: Cast_Print(ast->structSpecifier); break;
 			case CAST_ENUM: Cast_Print(ast->enumSpecifier); break;
 		}
-		EndScope();
+		CastPrintEndScope();
 	}
 }
 
-void Cast_Print( const CastTypeQualifier *ast )
+static void Cast_Print( const CastTypeQualifier *ast )
 {
 	const char *typeQualifierNames[] =
 	{ "const", "restrict", "volatile" };
-	ASSERT(ast->type < ARRAY_COUNT(typeQualifierNames));
-	PrintBeginScopeN("TypeQualifier -> %s", typeQualifierNames[ast->type]);
-	EndScope();
+	CAST_ASSERT(ast->type < CAST_ARRAY_COUNT(typeQualifierNames));
+	CastPrintBeginScope("TypeQualifier -> %s", typeQualifierNames[ast->type]);
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastFunctionSpecifier *ast )
+static void Cast_Print( const CastFunctionSpecifier *ast )
 {
-	PrintBeginScopeN("FunctionSpecifier");
+	CastPrintBeginScope("FunctionSpecifier");
 	// TODO
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastFunctionDefinition *ast )
+static void Cast_Print( const CastFunctionDefinition *ast )
 {
-	PrintBeginScopeN("FunctionDefinition");
+	CastPrintBeginScope("FunctionDefinition");
 	// TODO
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDeclarationSpecifiers *ast )
+static void Cast_Print( const CastDeclarationSpecifiers *ast )
 {
-	PrintBeginScopeN("DeclarationSpecifiers");
+	CastPrintBeginScope("DeclarationSpecifiers");
 	while (ast)
 	{
 		if (ast->storageClassSpecifier) {
@@ -2188,12 +2106,12 @@ void Cast_Print( const CastDeclarationSpecifiers *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastTypeQualifierList *ast )
+static void Cast_Print( const CastTypeQualifierList *ast )
 {
-	PrintBeginScopeN("TypeQualifierList");
+	CastPrintBeginScope("TypeQualifierList");
 	while (ast)
 	{
 		if (ast->typeQualifier) {
@@ -2201,116 +2119,119 @@ void Cast_Print( const CastTypeQualifierList *ast )
 		}
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastPointer *ast )
+static void Cast_Print( const CastPointer *ast )
 {
-	PrintBeginScopeN("Pointer");
+	CastPrintBeginScope("Pointer");
 	if (ast->typeQualifierList) {
 		Cast_Print(ast->typeQualifierList);
 	}
 	if (ast->next) {
 		Cast_Print(ast->next);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDirectDeclarator *ast )
+static void Cast_Print( const CastDirectDeclarator *ast )
 {
-	PrintBeginScopeN("DirectDeclarator -> %.*s%s",ast->name.size, ast->name.str,ast->isArray?"[]":"");
+	CastPrintBeginScope("DirectDeclarator -> %.*s%s",ast->name.size, ast->name.str,ast->isArray?"[]":"");
 	if (ast->expression) {
 		Cast_Print(ast->expression);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDeclarator *ast )
+static void Cast_Print( const CastDeclarator *ast )
 {
-	PrintBeginScopeN("Declarator");
+	CastPrintBeginScope("Declarator");
 	if (ast->pointer) {
 		Cast_Print(ast->pointer);
 	}
 	if (ast->directDeclarator) {
 		Cast_Print(ast->directDeclarator);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastInitializer *ast )
+static void Cast_Print( const CastInitializer *ast )
 {
-	PrintBeginScopeN("Initializer");
+	CastPrintBeginScope("Initializer");
 	if (ast->expression) {
 		Cast_Print(ast->expression);
 	}
 	if (ast->initializerList) {
 		Cast_Print(ast->initializerList);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastInitDeclarator *ast )
+static void Cast_Print( const CastInitDeclarator *ast )
 {
-	PrintBeginScopeN("InitDeclarator");
+	CastPrintBeginScope("InitDeclarator");
 	if (ast->declarator) {
 		Cast_Print(ast->declarator);
 	}
 	if (ast->initializer) {
 		Cast_Print(ast->initializer);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastInitDeclaratorList *ast )
+static void Cast_Print( const CastInitDeclaratorList *ast )
 {
-	PrintBeginScopeN("InitDeclaratorList");
+	CastPrintBeginScope("InitDeclaratorList");
 	while (ast) {
 		Cast_Print(ast->initDeclarator);
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastDeclaration *ast )
+static void Cast_Print( const CastDeclaration *ast )
 {
-	PrintBeginScopeN("Declaration");
+	CastPrintBeginScope("Declaration");
 	if (ast->declarationSpecifiers) {
 		Cast_Print(ast->declarationSpecifiers);
 	}
 	if (ast->initDeclaratorList) {
 		Cast_Print(ast->initDeclaratorList);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastExternalDeclaration *ast )
+static void Cast_Print( const CastExternalDeclaration *ast )
 {
-	PrintBeginScopeN("ExternalDeclaration");
+	CastPrintBeginScope("ExternalDeclaration");
 	if (ast->declaration) {
 		Cast_Print(ast->declaration);
 	} else if (ast->functionDefinition) {
 		Cast_Print(ast->functionDefinition);
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
-void Cast_Print( const CastTranslationUnit *ast )
+static void Cast_Print( const CastTranslationUnit *ast )
 {
-	PrintBeginScopeN("TranslationUnit");
+	CastPrintBeginScope("TranslationUnit");
 	while (ast) {
 		Cast_Print(ast->externalDeclaration);
 		ast = ast->next;
 	}
-	EndScope();
+	CastPrintEndScope();
 }
 
 void Cast_Print( const Cast *cast )
 {
-	PrintBeginScopeN("Cast");
+	CastPrintBeginScope("Cast");
 	Cast_Print(cast->translationUnit);
-	EndScope();
+	CastPrintEndScope();
 }
 
+#endif // #ifdef CAST_PRINT
+
+#endif // #ifdef CAST_IMPLEMENTATION
 
 #endif // #ifndef CAST_H
 
