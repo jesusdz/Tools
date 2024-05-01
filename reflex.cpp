@@ -1,7 +1,7 @@
 #include "tools.h"
 #include "reflex.h"
 
-#define USE_CPARSER2 0
+#define USE_CPARSER2 1
 #if USE_CPARSER2
 #include "cparser2.h"
 #else
@@ -25,19 +25,26 @@ void GenerateReflex(const Cast *cast)
 	const CastStructDeclaration *structDeclarations[128]; // members
 	u32 structDeclarationCount = 0;
 
-	// Get all the global struct specifiers from the AST
+	const CastEnumSpecifier *enums[128];
+	u32 enumCount = 0;
+
+	// Get all the global struct and enum specifiers from the AST
 	const CastTranslationUnit *translationUnit = cast->translationUnit;
 	while (translationUnit)
 	{
 		if (translationUnit->externalDeclaration &&
 			translationUnit->externalDeclaration->declaration &&
 			translationUnit->externalDeclaration->declaration->declarationSpecifiers &&
-			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier &&
-			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->type == CAST_STRUCT &&
-			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->structSpecifier )
+			translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier)
 		{
-			structs[structCount++] =
-				translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier->structSpecifier;
+			const CastTypeSpecifier *typeSpecifier =
+				translationUnit->externalDeclaration->declaration->declarationSpecifiers->typeSpecifier;
+
+			if (typeSpecifier->type == CAST_STRUCT && typeSpecifier->structSpecifier) {
+				structs[structCount++] = typeSpecifier->structSpecifier;
+			} else if (typeSpecifier->type == CAST_ENUM && typeSpecifier->enumSpecifier) {
+				enums[enumCount++] = typeSpecifier->enumSpecifier;
+			}
 		}
 		translationUnit = translationUnit->next;
 	}
@@ -52,7 +59,16 @@ void GenerateReflex(const Cast *cast)
 	{
 		const CastStructSpecifier *cstruct = structs[index];
 		printf("  ReflexID_%.*s", StringPrintfArgs(cstruct->name));
-		printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
+		printf("%s", firstValueInEnum ? " = ReflexID_StructFirst" : "");
+		printf(",\n");
+		firstValueInEnum = false;
+	}
+	firstValueInEnum = true;
+	for (u32 index = 0; index < enumCount; ++index)
+	{
+		const CastEnumSpecifier *cenum = enums[index];
+		printf("  ReflexID_%.*s", StringPrintfArgs(cenum->name));
+		printf("%s", firstValueInEnum ? " = ReflexID_EnumFirst" : "");
 		printf(",\n");
 		firstValueInEnum = false;
 	}
@@ -246,7 +262,7 @@ void GenerateReflex(const Cast *cast)
 	printf("  };\n");
 
 	printf("  \n");
-	printf("  return &reflexStructs[id - ReflexID_Struct];\n");
+	printf("  return &reflexStructs[id - ReflexID_StructFirst];\n");
 	printf("}\n");
 }
 #else
@@ -267,7 +283,7 @@ void CAssembly_GenerateReflex(const CAssembly &cAsm)
 	{
 		const CStruct *cStruct = CAssembly_GetStruct(cAsm, index);
 		printf("  ReflexID_%.*s", StringPrintfArgs(cStruct->name));
-		printf("%s", firstValueInEnum ? " = ReflexID_Struct" : "");
+		printf("%s", firstValueInEnum ? " = ReflexID_StructFirst" : "");
 		printf(",\n");
 		firstValueInEnum = false;
 	}

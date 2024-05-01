@@ -75,32 +75,40 @@ void PrintTrivial(const void *data, const ReflexID id, bool isString)
 		const int val = *((int*)data);
 		Printf("%d", val);
 	} else if (id == ReflexID_ShortInt) {
-		const int val = *((int*)data);
+		const short int val = *((int*)data);
 		Printf("%hd", val);
 	} else if (id == ReflexID_LongInt) {
-		const int val = *((int*)data);
+		const long int val = *((int*)data);
 		Printf("%ld", val);
 	} else if (id == ReflexID_LongLongInt) {
-		const int val = *((int*)data);
+		const long long int val = *((int*)data);
 		Printf("%lld", val);
 	} else if (id == ReflexID_UnsignedInt) {
 		const unsigned int val = *((unsigned int*)data);
 		Printf("%u", val);
 	} else if (id == ReflexID_UnsignedShortInt) {
-		const unsigned int val = *((unsigned int*)data);
+		const unsigned short int val = *((unsigned int*)data);
 		Printf("%hu", val);
 	} else if (id == ReflexID_UnsignedLongInt) {
-		const unsigned int val = *((unsigned int*)data);
+		const unsigned long int val = *((unsigned int*)data);
 		Printf("%lu", val);
 	} else if (id == ReflexID_UnsignedLongLongInt) {
-		const unsigned int val = *((unsigned int*)data);
+		const unsigned long long int val = *((unsigned int*)data);
 		Printf("%llu", val);
 	} else {
 		INVALID_CODE_PATH();
 	}
 }
 
-void Print(const void *data, const ReflexID id)
+void PrintEnum(const void *data, const ReflexID id)
+{
+	//const ReflexEnum *renum = ReflexGetEnum(id);
+	const void *enumPtr = data;
+	const int val = *((int*)data);
+	Printf("%d", val);
+}
+
+void PrintStruct(const void *data, const ReflexID id)
 {
 	const ReflexStruct *rstruct = ReflexGetStruct(id);
 	const void *structPtr = data;
@@ -113,6 +121,8 @@ void Print(const void *data, const ReflexID id)
 		const ReflexMember *member = &rstruct->members[i];
 		const ReflexID reflexId = member->reflexId;
 		const bool isTrivial = ReflexIsTrivial(reflexId);
+		const bool isStruct = ReflexIsStruct(reflexId);
+		const bool isEnum = ReflexIsEnum(reflexId);
 		const bool isArray = member->isArray;
 		const bool isPointer = member->pointerCount > 0;
 		const bool isDoublePointer = member->pointerCount > 1;
@@ -163,8 +173,12 @@ void Print(const void *data, const ReflexID id)
 
 			if (isTrivial) {
 				PrintTrivial(elemPtr, reflexId, isString);
+			} else if (isEnum) {
+				PrintEnum(elemPtr, reflexId);
+			} else if (isStruct) {
+				PrintStruct(elemPtr, reflexId);
 			} else {
-				Print(elemPtr, reflexId);
+				Printf("<?>");
 			}
 
 			if (elemCount > 0 && elemIndex + 1 < elemCount) {
@@ -200,7 +214,7 @@ void Print(const void *data, const ReflexID id)
 
 int main(int argc, char **argv)
 {
-	Print(&gAssets, REFLEX_ID(Assets));
+	PrintStruct(&gAssets, REFLEX_ID(Assets));
 
 	return 0;
 }
