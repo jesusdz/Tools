@@ -5,7 +5,7 @@ This repository contains a couple of projects in a very early stage and a set of
 
 ## tools.h
 
-In `tools.h` one can find macros, types, and functions for the following stuff:
+In `tools.h` one can find utility macros, types, and functions to help with the following stuff:
 
 * Platform identification
 * Assertions, debugging, errors, logging
@@ -24,7 +24,7 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 ## cast.h
 
 Implementation of a basic C AST (abstract syntax tree) generator. For now it focuses on parsing type and data definitions.
-t's not complete at all but it allows populating a good amount of information about user type and data definitions
+It's not complete at all but it allows populating a good amount of information about user type and data definitions
 (basic structs with trivial members, with nested structs inside, with fixed-length array members, pointer-type members, etc).
 It scans and parses a C text file and fills a `Cast` object containing the parsed information in the form of an AST.
 This structure can be then inspected by client programs to obtain information about the types and data declared in the code.
@@ -55,7 +55,7 @@ With this SPIRV reflection utility, client applications can automatize the creat
 thus avoiding unnecessary boilerplate code.
 
 
-## Projects
+## Other projects
 
 Currently, there are the following *in-progress* projects:
 
@@ -64,7 +64,6 @@ Currently, there are the following *in-progress* projects:
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
 * `main_atof`: Custom implementation of the atof (ASCII to float) function.
 * `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.
-* `reflex`: Generator of C reflection data.
 * `main_reflect_serialize`: JSON serializer using C reflection utils.
 
 
