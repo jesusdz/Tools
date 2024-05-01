@@ -76,6 +76,22 @@ struct ReflexStruct
 const ReflexStruct* ReflexGetStruct(ReflexID id);
 //const ReflexEnum* ReflexGetEnum(ReflexID id);
 
+inline ReflexID ReflexRegisterStruct()
+{
+	static ReflexID sReflexIdCounter = ReflexID_StructFirst;
+	ASSERT(sReflexIdCounter <= ReflexID_StructLast);
+	ReflexID reflexId = sReflexIdCounter++;
+	return reflexId;
+}
+
+inline ReflexID ReflexRegisterEnum()
+{
+	static ReflexID sReflexIdCounter = ReflexID_EnumFirst;
+	ASSERT(sReflexIdCounter <= ReflexID_EnumLast);
+	ReflexID reflexId = sReflexIdCounter++;
+	return reflexId;
+}
+
 inline bool ReflexIsTrivial(ReflexID id)
 {
 	const bool isTrivial = id >= ReflexID_TrivialFirst && id <= ReflexID_TrivialLast;

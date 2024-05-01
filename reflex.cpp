@@ -37,29 +37,18 @@ void GenerateReflex(const Cast *cast)
 	}
 
 	// ReflexID enum
-	bool firstValueInEnum = true;
 	printf("\n");
 	printf("// IDs\n");
-	printf("enum\n");
-	printf("{\n");
 	for (u32 index = 0; index < structCount; ++index)
 	{
 		const CastStructSpecifier *cstruct = structs[index];
-		printf("  ReflexID_%.*s", StringPrintfArgs(cstruct->name));
-		printf("%s", firstValueInEnum ? " = ReflexID_StructFirst" : "");
-		printf(",\n");
-		firstValueInEnum = false;
+		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterStruct();\n", StringPrintfArgs(cstruct->name));
 	}
-	firstValueInEnum = true;
 	for (u32 index = 0; index < enumCount; ++index)
 	{
 		const CastEnumSpecifier *cenum = enums[index];
-		printf("  ReflexID_%.*s", StringPrintfArgs(cenum->name));
-		printf("%s", firstValueInEnum ? " = ReflexID_EnumFirst" : "");
-		printf(",\n");
-		firstValueInEnum = false;
+		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterEnum();\n", StringPrintfArgs(cenum->name));
 	}
-	printf("};\n");
 
 	// ReflexGetStruct function
 	printf("\n");
