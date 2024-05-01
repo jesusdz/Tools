@@ -21,6 +21,20 @@ In `tools.h` one can find macros, types, and functions for the following stuff:
 * Input handling (mouse and keyboard)
 
 
+## cast.h
+
+Implementation of a basic C AST (abstract syntax tree) generator. For now it focuses on parsing type and data definitions.
+t's not complete at all but it allows populating a good amount of information about user type and data definitions
+(basic structs with trivial members, with nested structs inside, with fixed-length array members, pointer-type members, etc).
+It scans and parses a C text file and fills a `Cast` object containing the parsed information in the form of an AST.
+This structure can be then inspected by client programs to obtain information about the types and data declared in the code.
+
+
+## cast.cpp
+
+Sample application using `cast.h` that simply generates the AST of a C file and prints the whole structure to screen.
+
+
 ## reflex.h
 
 Headers with container types needed for C reflection / RTTI (run time type information).
@@ -28,17 +42,10 @@ An application that is able to get this information populated for its most relev
 A couple of examples of tasks than can be automatized or improved by having a proper language reflection mechanism are data serialization or UI generation.
 
 
-## cparser.h
-
-Implementation of a basic C parser. For now it focuses on parsing type definitions. It's not complete at all but it allows populating a good amount of information about user
-type definitions (basic structs with trivial members, with nested structs inside, with fixed-length array members, pointer-type members, etc).
-It scans and parses a C text file and fills a C assembly object containing the parsed information.
-This information can then be inspected by client programs to discover type information about the code.
-
-
 ## reflex.cpp
 
-Application that reads a C header file, parses it (using the previously mentioned C parser), and outputs the C code needed to populate the RTTI structs present in `reflex.h`.
+C reflection data generator. It uses `cast.h` to parse a C file and generate its AST, and then it outputs the C code needed to populate the RTTI structs present in `reflex.h`.
+The generated code can be then included by applications using the parsed C file types so they can benefit from the reflected information.
 
 
 ## tools_spirv.h

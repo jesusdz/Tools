@@ -1,7 +1,6 @@
 #include "tools.h"
 
-#define CPARSER_IMPLEMENTATION
-#include "cparser2.h"
+#include "cast.h"
 
 #define StringPrintfArgs(string) string.size, string.str
 

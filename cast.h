@@ -1,10 +1,10 @@
 /*
- * cparser.h
+ * cast.h
  * Author: Jesus Diaz Garcia
  */
 
-#ifndef CPARSER_H
-#define CPARSER_H
+#ifndef CAST_H
+#define CAST_H
 
 #define MAX_TYPE_COUNT 16
 #define MAX_STRUCT_FIELD_COUNT 16
@@ -2451,5 +2451,5 @@ void Cast_Print( const Cast *cast )
 }
 
 
-#endif // #ifndef CPARSER_H
+#endif // #ifndef CAST_H
 
