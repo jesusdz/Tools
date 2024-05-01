@@ -4,8 +4,8 @@
  *
  * Single file utility to parse C files and generate their AST structure.
  * It should serve to parse most type and data definitions, yet it is not complete.
- * The AST structure has been created with the rules available in th following
- * ANSI C Yacc grammar that is based on the 2011 ISO C standerd:
+ * The AST structure has been created with the rules available in the following
+ * ANSI C Yacc grammar that is based on the 2011 ISO C standard:
  *
  * https://www.quut.com/c/ANSI-C-grammar-y.html
  *
@@ -13,15 +13,17 @@
  * however, it needs to be told to embed its implementation like this:
  *
  * #define CAST_IMPLEMENTATION
- * #define CAST_PRINT // Can be omitted in case we don't need to print the AST
  * #include "cast.h"
+ *
+ * Additionally `#define CAST_PRINT` may be added before including `cast.h` in
+ * case we want to have functionallity to print the AST.
  *
  * These are the main API functions used to create the C AST and start inspecting it:
  *
  * const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize);
  * const char *Cast_GetError();
  * int Cast_EvaluateInt( const CastExpression *ast );
- * void Cast_Print( const Cast *cast );
+ * void Cast_Print( const Cast *cast ); // Only if CAST_PRINT was defined
  */
 
 #ifndef CAST_H
