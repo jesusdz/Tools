@@ -16,7 +16,7 @@
  * #include "cast.h"
  *
  * Additionally `#define CAST_PRINT` may be added before including `cast.h` in
- * case we want to have functionallity to print the AST.
+ * case we want to have functionality to print the AST.
  *
  * These are the main API functions used to create the C AST and start inspecting it:
  *
