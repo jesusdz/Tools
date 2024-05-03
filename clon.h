@@ -8,6 +8,60 @@
 #ifndef CLON_H
 #define CLON_H
 
+#include "tools.h"
+#include "cast.h"
+
+#define CLON_GLOBALS_LIST_SIZE 64
+
+struct ClonGlobal
+{
+	const char *typeName;
+	const char *name;
+	void *data;
+};
+
+struct ClonGlobalsList
+{
+	ClonGlobal globals[CLON_GLOBALS_LIST_SIZE];
+	u32 globalsCount;
+	ClonGlobalsList *next;
+};
+
+struct Clon
+{
+	ClonGlobalsList *globalsList;
+};
+
+bool ClonParse(Arena *arena, byte *data, u32 dataSize, Clon *clon)
+{
+	return false;
+}
+
+const void *ClonGetGlobal(const Clon *clon, const char *type_name, const char *global_name)
+{
+	const ClonGlobalsList *list = clon->globalsList;
+
+	while (list)
+	{
+		for (u32 i = 0; i < list->globalsCount; ++i)
+		{
+			const ClonGlobal *global = &list->globals[i];
+
+			if (StrEq(global->typeName, type_name) && StrEq(global->name, global_name) )
+			{
+				const void* globalData = global->data;
+				return globalData;
+			}
+		}
+
+		list = list->next;
+	}
+
+	return NULL;
+}
+
+
+#if 0
 ////////////////////////////////////////////////////////////////////////
 // Clon types
 
@@ -170,6 +224,7 @@ static const char *CTokenIdNames[] =
 };
 
 CT_ASSERT(ARRAY_COUNT(CTokenIdNames) == CLON_TOKEN_ID_COUNT);
+#endif
 
 #endif // #ifndef CLON_H
 
