@@ -536,7 +536,10 @@ void PrintArenaUsage(Arena &arena)
 
 struct DataChunk
 {
-	byte *data;
+	union {
+		byte *bytes;
+		const char *chars;
+	};
 	u64 size;
 };
 
@@ -631,7 +634,7 @@ DataChunk *PushFile( Arena& arena, const char *filename )
 		{
 			fileData[fileSize] = 0; // final zero
 			file = PushStruct( arena, DataChunk );
-			file->data = fileData;
+			file->bytes = fileData;
 			file->size = fileSize;
 		}
 		else

@@ -873,7 +873,7 @@ ShaderSource GetShaderSource(Arena &arena, const char *filename)
 		LOG( Error, "Could not open shader file %s.\n", shaderPath.str );
 		QUIT_ABNORMALLY();
 	}
-	ShaderSource shaderSource = { chunk->data, chunk->size };
+	ShaderSource shaderSource = { chunk->bytes, chunk->size };
 	return shaderSource;
 }
 

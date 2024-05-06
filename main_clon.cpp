@@ -1,6 +1,7 @@
 #include "tools.h"
-#include "assets.h"
 #include "clon.h"
+
+#include "assets.h"
 
 int main(int argc, char **argv)
 {
@@ -24,7 +25,7 @@ int main(int argc, char **argv)
 
 	// Parse file
 	Clon clon;
-	if (ClonParse(&arena, chunk->data, chunk->size, &clon))
+	if (ClonParse(&arena, chunk->chars, chunk->size, &clon))
 	{
 		const char *type_name = "Assets";
 		const char *global_name = "gAssets";
