@@ -111,6 +111,19 @@ static const ReflexStruct* ReflexGetStruct(ReflexID id)
 	return reflexStruct;
 }
 
+static const ReflexStruct* ReflexGetStructFromName(const char *name)
+{
+	const ReflexStruct **rstruct = gReflexStructs;
+	const ReflexStruct **end = gReflexStructs + ReflexID_StructCount;
+	while (rstruct != end && (*rstruct)->name) {
+		if (StrEq((*rstruct)->name, name) ) {
+			return *rstruct;
+		}
+		++rstruct;
+	}
+	return 0;
+}
+
 static const ReflexEnum* ReflexGetEnum(ReflexID id)
 {
 	ASSERT(ReflexIsEnum(id));
