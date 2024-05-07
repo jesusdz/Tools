@@ -22,6 +22,10 @@ struct ClonGlobal
 	const char *typeName;
 	const char *name;
 	void *data;
+
+	// TODO: remove
+	u32 count;
+	u32 size;
 };
 
 struct ClonGlobalsList
@@ -36,6 +40,36 @@ struct Clon
 	ClonGlobalsList *globalsList;
 };
 
+void ClonAddGlobal(Arena *arena, Clon *clon, const char *typeName, const char *name, void *data, u32 size, u32 count)
+{
+	ClonGlobalsList *globalsList = clon->globalsList;
+	if (!globalsList || globalsList->globalsCount == CLON_GLOBALS_LIST_SIZE)
+	{
+		ClonGlobalsList *prevGlobalsList = globalsList;
+		globalsList = PushZeroStruct(*arena, ClonGlobalsList);
+		globalsList->next = prevGlobalsList;
+		clon->globalsList = globalsList;
+	}
+
+	ClonGlobal *global = &globalsList->globals[globalsList->globalsCount++];
+	global->typeName = typeName;
+	global->name = name;
+	global->data = data;
+
+	// TODO: Remove
+	global->size = size;
+	global->count = count;
+
+// TODO: Remove
+//	const char *globalName = global->name;
+//	const char *globalTypeName = global->typeName;
+//	const u32 typeSize = global->size;
+//	const u32 elemCount = global->count;
+//	printf("Global %s of type %s\n", globalName, globalTypeName);
+//	printf(" - typeSize: %u\n", typeSize);
+//	printf(" - elemCount: %u\n", elemCount);
+}
+
 bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 {
 	const Cast *cast = Cast_Create(*arena, data, dataSize);
@@ -46,10 +80,12 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 		while (translationUnit)
 		{
 			const CastDeclaration *declaration = CAST_CHILD(translationUnit, externalDeclaration, declaration);
-			const CastDeclarator *declarator = CAST_CHILD(declaration, initDeclaratorList, initDeclarator, declarator);
+			const CastInitDeclarator *initDeclarator = CAST_CHILD(declaration, initDeclaratorList, initDeclarator);
+			const CastDeclarator *declarator = CAST_CHILD(initDeclarator, declarator);
 			const CastDirectDeclarator *directDeclarator = CAST_CHILD(declarator, directDeclarator);
+			const CastInitializer *initializer = CAST_CHILD(initDeclarator, initializer);
 
-			if (directDeclarator)
+			if (directDeclarator && initializer)
 			{
 				const CastDeclarationSpecifiers *specifiers = CAST_CHILD(declaration, declarationSpecifiers);
 				CastTypeSpecifier *typeSpecifier = 0;
@@ -61,25 +97,29 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 
 				if (typeSpecifier && typeSpecifier->type == CAST_IDENTIFIER)
 				{
-					char typeName[MAX_PATH_LENGTH] = {};
-					StrCopy(typeName, typeSpecifier->identifier);
+					char *globalTypeName = PushArray(*arena, char, typeSpecifier->identifier.size+1);
+					StrCopy(globalTypeName, typeSpecifier->identifier);
 
-					CastString globalName = directDeclarator->name;
-
-					const ReflexStruct *rstruct = ReflexGetStructFromName(typeName);
+					const ReflexStruct *rstruct = ReflexGetStructFromName(globalTypeName);
 
 					if (rstruct)
 					{
 						const u32 typeSize = rstruct->size;
-						const u32 elemCountFromInitializerList = 1; // TODO get this from initializer list
 						const u32 elemCount = !directDeclarator->isArray ? 1 :
 							directDeclarator->expression ? Cast_EvaluateInt(directDeclarator->expression):
-							elemCountFromInitializerList;
+							initializer->initializerCount;
 						const u32 globalSize = typeSize * elemCount;
-						printf("Global %.*s of type %s\n", globalName.size, globalName.str, typeName);
-						printf(" - typeSize: %u\n", typeSize);
-						printf(" - elemCount: %u\n", elemCount);
-						//printf("Global %.*s\n", globalsName.size, globalsName.str);
+
+						char *globalName = PushArray(*arena, char, directDeclarator->name.size+1);
+						StrCopy(globalName, directDeclarator->name);
+
+						// TODO: Remove
+						//printf("Global %s of type %s\n", globalName, globalTypeName);
+						//printf(" - typeSize: %u\n", typeSize);
+						//printf(" - elemCount: %u\n", elemCount);
+
+						void *globalData = PushSize(*arena, globalSize);
+						ClonAddGlobal(arena, clon, globalTypeName, globalName, globalData, typeSize, elemCount);
 					}
 				}
 			}
@@ -87,6 +127,26 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 			translationUnit = translationUnit->next;
 		}
 	}
+
+// TODO: Remove
+//	const ClonGlobalsList *list = clon->globalsList;
+//	while (list)
+//	{
+//		for (u32 i = 0; i < list->globalsCount; ++i)
+//		{
+//			const ClonGlobal *global = &list->globals[i];
+//			const char *globalName = global->name;
+//			const char *globalTypeName = global->typeName;
+//			const u32 typeSize = global->size;
+//			const u32 elemCount = global->count;
+//			printf("Global %s of type %s\n", globalName, globalTypeName);
+//			printf(" - typeSize: %u\n", typeSize);
+//			printf(" - elemCount: %u\n", elemCount);
+//		}
+//
+//		list = list->next;
+//	}
+
 	return cast != NULL;
 }
 
