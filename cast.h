@@ -106,6 +106,13 @@ enum CastTypeQualifierType
 	CAST_VOLATILE,
 };
 
+enum CastExpressionType
+{
+	CAST_EXPR_NUMBER,
+	CAST_EXPR_STRING,
+	CAST_EXPR_IDENTIFIER,
+};
+
 // Cast struct forward declarations
 
 struct CastStorageClassSpecifier;
@@ -244,6 +251,7 @@ struct CastDeclarationSpecifiers
 
 struct CastExpression
 {
+	CastExpressionType type;
 	CastString constant; // TODO: Expressions can be much more complex
 };
 
@@ -1176,18 +1184,21 @@ static CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenL
 	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
+		expression->type = CAST_EXPR_NUMBER;
 		expression->constant = token.lexeme;
 	}
 	else if ( CParser_TryConsume(parser, TOKEN_STRING ) )
 	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
+		expression->type = CAST_EXPR_STRING;
 		expression->constant = token.lexeme;
 	}
 	else if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
 	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
+		expression->type = CAST_EXPR_IDENTIFIER;
 		expression->constant = token.lexeme;
 		if ( CParser_TryConsume(parser, TOKEN_LEFT_PAREN) )
 		{
@@ -1849,6 +1860,7 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 int Cast_EvaluateInt( const CastExpression *ast )
 {
 	CAST_ASSERT( ast );
+	CAST_ASSERT( ast->type == CAST_EXPR_NUMBER );
 	int res = CastStrToInt(ast->constant);
 	return res;
 }

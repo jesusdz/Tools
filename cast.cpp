@@ -1,8 +1,8 @@
 #include "tools.h"
 
+#define CAST_IMPLEMENTATION
+#define CAST_PRINT
 #include "cast.h"
-
-#define StringPrintfArgs(string) string.size, string.str
 
 int main(int argc, char **argv)
 {
@@ -26,7 +26,7 @@ int main(int argc, char **argv)
 		{
 			bytes[fileSize] = 0;
 
-			Cast *cast = Cast_Create(globalArena, bytes, fileSize);
+			const Cast *cast = Cast_Create(globalArena, bytes, fileSize);
 			if (cast)
 			{
 				Cast_Print(cast);
