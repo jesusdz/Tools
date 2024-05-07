@@ -296,6 +296,7 @@ struct CastInitializer
 {
 	CastExpression *expression;
 	CastInitializerList *initializerList;
+	cast_u32 initializerCount;
 };
 
 struct CastInitializerList
@@ -1637,6 +1638,14 @@ static CastInitializer *Cast_ParseInitializer( CParser &parser, CTokenList &toke
 			{
 				castInitializer = CAST_NODE( CastInitializer );
 				castInitializer->initializerList = initializerList;
+
+				// Count number of initializers in the list
+				castInitializer->initializerCount = 0;
+				CastInitializerList *listIterator = initializerList;
+				while (listIterator) {
+					castInitializer->initializerCount++;
+					listIterator = listIterator->next;
+				}
 			}
 		}
 	}
