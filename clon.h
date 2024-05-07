@@ -9,7 +9,11 @@
 #define CLON_H
 
 #include "tools.h"
+
+#define CAST_IMPLEMENTATION
 #include "cast.h"
+
+#include "reflex.h"
 
 #define CLON_GLOBALS_LIST_SIZE 64
 
@@ -32,9 +36,58 @@ struct Clon
 	ClonGlobalsList *globalsList;
 };
 
-bool ClonParse(Arena *arena, byte *data, u32 dataSize, Clon *clon)
+bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 {
-	return false;
+	const Cast *cast = Cast_Create(*arena, data, dataSize);
+	if (cast)
+	{
+		const CastTranslationUnit *translationUnit = CAST_CHILD(cast, translationUnit);
+
+		while (translationUnit)
+		{
+			const CastDeclaration *declaration = CAST_CHILD(translationUnit, externalDeclaration, declaration);
+			const CastDeclarator *declarator = CAST_CHILD(declaration, initDeclaratorList, initDeclarator, declarator);
+			const CastDirectDeclarator *directDeclarator = CAST_CHILD(declarator, directDeclarator);
+
+			if (directDeclarator)
+			{
+				const CastDeclarationSpecifiers *specifiers = CAST_CHILD(declaration, declarationSpecifiers);
+				CastTypeSpecifier *typeSpecifier = 0;
+				while (specifiers && !typeSpecifier)
+				{
+					typeSpecifier = specifiers->typeSpecifier;
+					specifiers = specifiers->next;
+				}
+
+				if (typeSpecifier && typeSpecifier->type == CAST_IDENTIFIER)
+				{
+					char typeName[MAX_PATH_LENGTH] = {};
+					StrCopy(typeName, typeSpecifier->identifier);
+
+					CastString globalName = directDeclarator->name;
+
+					const ReflexStruct *rstruct = ReflexGetStructFromName(typeName);
+
+					if (rstruct)
+					{
+						const u32 typeSize = rstruct->size;
+						const u32 elemCountFromInitializerList = 1; // TODO get this from initializer list
+						const u32 elemCount = !directDeclarator->isArray ? 1 :
+							directDeclarator->expression ? Cast_EvaluateInt(directDeclarator->expression):
+							elemCountFromInitializerList;
+						const u32 globalSize = typeSize * elemCount;
+						printf("Global %.*s of type %s\n", globalName.size, globalName.str, typeName);
+						printf(" - typeSize: %u\n", typeSize);
+						printf(" - elemCount: %u\n", elemCount);
+						//printf("Global %.*s\n", globalsName.size, globalsName.str);
+					}
+				}
+			}
+
+			translationUnit = translationUnit->next;
+		}
+	}
+	return cast != NULL;
 }
 
 const void *ClonGetGlobal(const Clon *clon, const char *type_name, const char *global_name)

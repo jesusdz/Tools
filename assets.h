@@ -105,4 +105,6 @@ static const Assets gAssets =
 	.entitiesCount = ARRAY_COUNT(entities),
 };
 
+#include "assets.reflex.h"
+
 #endif // ASSETS_H
