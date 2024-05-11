@@ -111,6 +111,7 @@ enum CastExpressionType
 	CAST_EXPR_NUMBER,
 	CAST_EXPR_STRING,
 	CAST_EXPR_IDENTIFIER,
+	CAST_EXPR_ARRAY_COUNT,
 };
 
 // Cast struct forward declarations
@@ -411,6 +412,7 @@ enum CTokenId
 	TOKEN_FLOAT,
 	TOKEN_DOUBLE,
 	TOKEN_NULL, // ad-hoc value
+	TOKEN_ARRAY_COUNT,
 	TOKEN_EOF,
 	TOKEN_COUNT,
 };
@@ -473,6 +475,7 @@ static const char *CTokenIdNames[] =
 	"TOKEN_FLOAT",
 	"TOKEN_DOUBLE",
 	"TOKEN_NULL",
+	"TOKEN_ARRAY_COUNT",
 	"TOKEN_EOF",
 };
 
@@ -652,6 +655,8 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 	{
 		literal.type = VALUE_TYPE_STRING;
 		literal.s = CScanner_ScannedString(scanner);
+		literal.s.str += 1; // start after the first " char
+		literal.s.size -= 2; // remove both " characters
 	}
 	else if ( tokenId == TOKEN_NUMBER )
 	{
@@ -810,7 +815,8 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 				else if ( CastStrEq( word, "float" ) )        CScanner_AddToken(scanner, tokenList, TOKEN_FLOAT);
 				else if ( CastStrEq( word, "double" ) )       CScanner_AddToken(scanner, tokenList, TOKEN_DOUBLE);
 				else if ( CastStrEq( word, "NULL" ) )         CScanner_AddToken(scanner, tokenList, TOKEN_NULL);
-				else                                      CScanner_AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
+				else if ( CastStrEq( word, "ARRAY_COUNT" ) )  CScanner_AddToken(scanner, tokenList, TOKEN_ARRAY_COUNT);
+				else                                          CScanner_AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
 			}
 			else
 			{
@@ -1193,7 +1199,7 @@ static CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenL
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
 		expression->type = CAST_EXPR_STRING;
-		expression->constant = token.lexeme;
+		expression->constant = token.literal.s;
 	}
 	else if ( CParser_TryConsume(parser, TOKEN_IDENTIFIER) )
 	{
@@ -1201,14 +1207,17 @@ static CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenL
 		expression = CAST_NODE( CastExpression );
 		expression->type = CAST_EXPR_IDENTIFIER;
 		expression->constant = token.lexeme;
+	}
+	else if ( CParser_TryConsume(parser, TOKEN_ARRAY_COUNT) )
+	{
 		if ( CParser_TryConsume(parser, TOKEN_LEFT_PAREN) )
 		{
 			const CToken &tokenArgument = CParser_Consume(parser);
 			if ( CParser_TryConsume(parser, TOKEN_RIGHT_PAREN) )
 			{
-				// TODO: Function expressions
-				//expression = CAST_NODE( CastExpression );
-				//expression->constant = token.lexeme;
+				expression = CAST_NODE( CastExpression );
+				expression->type = CAST_EXPR_ARRAY_COUNT;
+				expression->constant = tokenArgument.lexeme;
 			}
 		}
 	}
@@ -1869,10 +1878,13 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 int Cast_EvaluateInt( const CastExpression *ast )
 {
 	CAST_ASSERT( ast );
-	CAST_ASSERT( ast->type == CAST_EXPR_NUMBER );
-	int res = CastStrToInt(ast->constant);
+	int res = 0;
+	if ( ast->type == CAST_EXPR_NUMBER ) {
+		res = CastStrToInt(ast->constant);
+	}
 	return res;
 }
+
 
 ////////////////////////////////////////////////////////////////////////
 // Print utils
@@ -1921,8 +1933,12 @@ static const char *Indentation()
 
 static void Cast_Print( const CastExpression *ast )
 {
-	CastPrintfN("Expression -> %.*s", ast->constant.size, ast->constant.str);
 	// TODO: Expressions can be much more complex
+	if (ast->type == CAST_EXPR_ARRAY_COUNT) {
+		CastPrintfN("Expression -> ARRAY_COUNT(%.*s)", ast->constant.size, ast->constant.str);
+	} else {
+		CastPrintfN("Expression -> %.*s", ast->constant.size, ast->constant.str);
+	}
 }
 
 static void Cast_Print( const CastDesignator *ast )
