@@ -21,7 +21,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	Assets *assets = NULL;
+	const Assets *assets = NULL;
 
 	// Parse file
 	Clon clon = {};
@@ -29,7 +29,8 @@ int main(int argc, char **argv)
 	{
 		const char *type_name = "Assets";
 		const char *global_name = "gAssets";
-		assets = (Assets*)ClonGetGlobal(&clon, type_name, global_name);
+		const ClonGlobal *global = ClonGetGlobal(&clon, type_name, global_name);
+		assets = (const Assets*)global->data;
 		if (!assets)
 		{
 			LOG(Error, "Could not find object %s of type %s in %s\n", global_name, type_name, filename);
@@ -47,6 +48,23 @@ int main(int argc, char **argv)
 	LOG(Info, "- pipelinesCount: %u\n", assets->pipelinesCount);
 	LOG(Info, "- materialsCount: %u\n", assets->materialsCount);
 	LOG(Info, "- entitiesCount: %u\n", assets->entitiesCount);
+
+	const TextureDesc *textures = assets->textures;
+	for (u32 i = 0; i < assets->texturesCount; ++i)
+	{
+		LOG(Info, "texture[%u]\n", i);
+		LOG(Info, "- name: %s\n", textures[i].name);
+		LOG(Info, "- filename: %s\n", textures[i].filename);
+	}
+
+	const EntityDesc *entities = assets->entities;
+	for (u32 i = 0; i < assets->entitiesCount; ++i)
+	{
+		LOG(Info, "entity[%u]\n", i);
+		LOG(Info, "- name: %s\n", entities[i].name);
+		LOG(Info, "- materialName: %s\n", entities[i].materialName);
+		LOG(Info, "- scale: %f\n", entities[i].scale);
+	}
 
 	return 0;
 }
