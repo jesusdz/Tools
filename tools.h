@@ -7,6 +7,7 @@
  * - Assertions, debugging, errors, logging
  * - Aliases for sized types
  * - Strings
+ * - Hashing
  * - Memory allocators
  * - File reading
  * - Mathematics
@@ -218,6 +219,12 @@ void StrCopy(char *dst, const char *src)
 	*dst = 0;
 }
 
+void StrCopyN(char *dst, const char *src, u32 size)
+{
+	while (*src && size-- > 0) *dst++ = *src++;
+	*dst = 0;
+}
+
 void StrCat(char *dst, const char *src)
 {
 	while (*dst) ++dst;
@@ -268,6 +275,17 @@ bool StrEq(const char *s1, const char *s2)
 		s2++;
 	}
 	return *s1 == *s2;
+}
+
+bool StrEqN(const char *s1, const char *s2, u32 n)
+{
+	while ( *s1 == *s2 && *s1 && n > 0 )
+	{
+		s1++;
+		s2++;
+		n--;
+	}
+	return n == 0 || *s1 == *s2;
 }
 
 // Searches str2 in str1 and returns a pointer to the last matching character '\0'.
@@ -356,6 +374,33 @@ f32 StrToFloat(const String &s)
 	StrCopy(str, s);
 	f32 number = StrToFloat(str);
 	return number;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Hashing
+
+#define TOOLS_HASH_FNV_SEED 16777619
+
+u32 HashFNV(const void *data, u32 size, u32 prime = TOOLS_HASH_FNV_SEED)
+{
+	u32 hash = 0;
+	const unsigned char *str = (const unsigned char *)data;
+	for (u32 i = 0; i < size; ++i) {
+		hash = (hash * prime) ^ str[i];
+	}
+	return hash;
+}
+
+u32 HashStringFNV(const char *data, u32 prime = TOOLS_HASH_FNV_SEED)
+{
+	u32 hash = 0;
+	const unsigned char *str = (const unsigned char *)data;
+	while (*str) {
+		hash = (hash * prime) ^ *str++;
+	}
+	return hash;
 }
 
 
