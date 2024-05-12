@@ -87,6 +87,12 @@ int main(int argc, char **argv)
 		LOG(Info, "- geometryType: %f\n", entities[i].geometryType);
 	}
 
+	LOG(Info, "arrayTest\n");
+	for (u32 i = 0; i < ARRAY_COUNT(assets->arrayTest); ++i)
+	{
+		LOG(Info, "- arrayTest[%u]: %d\n", i, assets->arrayTest[i]);
+	}
+
 	return 0;
 }
 

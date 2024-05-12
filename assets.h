@@ -56,6 +56,8 @@ struct Assets
 
 	const EntityDesc *entities;
 	unsigned int entitiesCount;
+
+	int arrayTest[2];
 };
 
 
@@ -103,6 +105,8 @@ static const Assets gAssets =
 
 	.entities = entities,
 	.entitiesCount = ARRAY_COUNT(entities),
+
+	.arrayTest = {4, 5},
 };
 
 #include "assets.reflex.h"

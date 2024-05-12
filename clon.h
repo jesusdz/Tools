@@ -118,9 +118,18 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 			const CastInitializer *memberInitializer = CAST_CHILD(membersInitializerList, initializer);
 			const CastInitializer *elementInitializer = memberInitializer;
 
+			// NOTE: Used for arrayed elements
+			const CastInitializerList *elementInitializerList = CAST_CHILD(elementInitializer, initializerList);
+
 			for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
 			{
-				const CastExpression *expression = CAST_CHILD(elementInitializer, expression);
+				const CastExpression *expression = 0;
+				if (member->isArray) {
+					expression = CAST_CHILD(elementInitializerList, initializer, expression);
+					elementInitializerList = elementInitializerList->next;
+				} else {
+					expression = CAST_CHILD(elementInitializer, expression);
+				}
 
 				if (expression) // TODO: expression cannot be here to initialize members that are arrays
 				{
@@ -193,8 +202,8 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 					}
 					else if (ReflexIsStruct(member->reflexId))
 					{
-						if (expression->type == CAST_EXPR_IDENTIFIER)
-						{
+						//if (expression->type == CAST_EXPR_IDENTIFIER)
+						//{
 							const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
 
 							if (member->pointerCount == 0)
@@ -205,21 +214,28 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 							}
 							else if (member->pointerCount == 1)
 							{
-								// TODO: Avoid this allocation
-								char *globalName = new char[expression->constant.size+1];
-								StrCopyN(globalName, expression->constant.str, expression->constant.size);
-								const ClonGlobal *clonGlobal = ClonGetGlobal(clon, rstruct2->name, globalName);
-								*(void**)elemPtr = clonGlobal->data;
+								if (expression->type == CAST_EXPR_IDENTIFIER)
+								{
+									// TODO: Avoid this allocation
+									char *globalName = new char[expression->constant.size+1];
+									StrCopyN(globalName, expression->constant.str, expression->constant.size);
+									const ClonGlobal *clonGlobal = ClonGetGlobal(clon, rstruct2->name, globalName);
+									*(void**)elemPtr = clonGlobal->data;
+								}
+								else
+								{
+									LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct2->name);
+								}
 							}
 							else
 							{
 								LOG(Error, "Unsupported more than one level of pointer indirections.\n");
 							}
-						}
-						else
-						{
-							LOG(Error, "Invalid code path: Unhandled expression type for member %s.\n", member->name);
-						}
+						//}
+						//else
+						//{
+						//	LOG(Error, "Invalid code path: Unhandled expression type for member %s.\n", member->name);
+						//}
 					}
 					else
 					{
