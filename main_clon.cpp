@@ -84,7 +84,7 @@ int main(int argc, char **argv)
 		LOG(Info, "- materialName: %s\n", entities[i].materialName);
 		LOG(Info, "- pos: {%f, %f, %f}\n", entities[i].pos.x, entities[i].pos.y, entities[i].pos.z);
 		LOG(Info, "- scale: %f\n", entities[i].scale);
-		LOG(Info, "- geometryType: %f\n", entities[i].geometryType);
+		LOG(Info, "- geometryType: %d\n", entities[i].geometryType);
 	}
 
 	LOG(Info, "arrayTest\n");

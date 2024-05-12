@@ -55,8 +55,34 @@ void GenerateReflex(const Cast *cast)
 		printf("// enum %.*s\n", StringPrintfArgs(cenum->name));
 
 		printf("\n");
+		printf("// ReflexEnumerator info\n");
+		printf("static const ReflexEnumerator reflexEnumerators_%.*s[] = {\n", StringPrintfArgs(cenum->name));
+		i32 enumeratorValue = 0;
+		const CastEnumeratorList *enumeratorList = CAST_CHILD(cenum, enumeratorList);
+		while (enumeratorList) {
+			const CastEnumerator *enumerator = CAST_CHILD(enumeratorList, enumerator);
+			if (enumerator) {
+				printf("  { ");
+				printf(".name = \"%.*s\", ", StringPrintfArgs(enumerator->name));
+				printf(".value = %d, ", enumeratorValue++);
+				printf("},\n");
+			}
+			enumeratorList = enumeratorList->next;
+		}
+		printf("};\n");
+
+		printf("\n");
+		printf("// ReflexEnum info\n");
+		printf("static const ReflexEnum reflexEnum_%.*s =\n", StringPrintfArgs(cenum->name));
+		printf("{\n");
+		printf("  .name = \"%.*s\",\n", StringPrintfArgs(cenum->name));
+		printf("  .enumerators = reflexEnumerators_%.*s,\n", StringPrintfArgs(cenum->name));
+		printf("  .enumeratorCount = ARRAY_COUNT(reflexEnumerators_%.*s),\n", StringPrintfArgs(cenum->name));
+		printf("};\n");
+
+		printf("\n");
 		printf("// ReflexEnum registration\n");
-		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterEnum(0);\n", StringPrintfArgs(cenum->name));
+		printf("static const ReflexID ReflexID_%.*s = ReflexRegisterEnum(&reflexEnum_%.*s);\n", StringPrintfArgs(cenum->name), StringPrintfArgs(cenum->name));
 		printf("\n");
 	}
 

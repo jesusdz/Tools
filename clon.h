@@ -169,7 +169,30 @@ void ClonFillTrivial(void *dataPtr, ReflexID reflexId, const CastInitializer *in
 	}
 	else
 	{
-		LOG(Error, "Invalid code path: No expression provided... better handle this error in the calling code.\n");
+		LOG(Error, "Invalid code path: No expression provided for trivial type... better handle this error in the calling code.\n");
+	}
+}
+
+void ClonFillEnum(void *enumData, const ReflexEnum *reflexEnum, const CastInitializer *initializer, const Clon *clon)
+{
+	const CastExpression *expression = CAST_CHILD(initializer, expression);
+	if (expression)
+	{
+		if (expression->type == CAST_EXPR_IDENTIFIER)
+		{
+			char enumeratorName[128];
+			StrCopyN(enumeratorName, expression->constant.str, expression->constant.size);
+			const i32 enumeratorValue = ReflexGetEnumValue(reflexEnum, enumeratorName);
+			*(i32*)enumData = enumeratorValue;
+		}
+		else
+		{
+			LOG(Error, "Invalid expression type (%u) to initialize struct type.\n", expression->type);
+		}
+	}
+	else
+	{
+		LOG(Error, "Invalid code path: No expression provided for enum type... better handle this error in the calling code.\n");
 	}
 }
 
@@ -207,41 +230,47 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 
 				byte *elemPtr = memberPtr + elemIndex * elemSize;
 
-				if (ReflexIsTrivial(member->reflexId))
-				{
-					ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
-				}
-				else if (ReflexIsStruct(member->reflexId))
-				{
-					const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
+				const bool isString = member->pointerCount == 1 && member->reflexId == ReflexID_Char;
 
-					if (member->pointerCount == 0)
+				if (member->pointerCount == 0 || isString)
+				{
+					if (ReflexIsTrivial(member->reflexId))
 					{
+						ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
+					}
+					else if (ReflexIsStruct(member->reflexId))
+					{
+						const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
 						ClonFillStruct(elemPtr, rstruct2, elementInitializer, clon);
 					}
-					else if (member->pointerCount == 1)
+					else if (ReflexIsEnum(member->reflexId))
 					{
-						if (expression->type == CAST_EXPR_IDENTIFIER)
-						{
-							// TODO: Avoid this allocation
-							char *globalName = new char[expression->constant.size+1];
-							StrCopyN(globalName, expression->constant.str, expression->constant.size);
-							const ClonGlobal *clonGlobal = ClonGetGlobal(clon, rstruct2->name, globalName);
-							*(void**)elemPtr = clonGlobal->data;
-						}
-						else
-						{
-							LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct2->name);
-						}
+						const ReflexEnum *renum = ReflexGetEnum(member->reflexId);
+						ClonFillEnum(elemPtr, renum, elementInitializer, clon);
 					}
 					else
 					{
-						LOG(Error, "Unsupported more than one level of pointer indirections.\n");
+						LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
+					}
+				}
+				else if (member->pointerCount == 1)
+				{
+					if (expression->type == CAST_EXPR_IDENTIFIER)
+					{
+						// TODO: Avoid this allocation
+						char *globalName = new char[expression->constant.size+1];
+						StrCopyN(globalName, expression->constant.str, expression->constant.size);
+						const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
+						*(void**)elemPtr = clonGlobal->data;
+					}
+					else
+					{
+						LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct->name);
 					}
 				}
 				else
 				{
-					LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
+					LOG(Error, "Unsupported more than one level of pointer indirections.\n");
 				}
 			}
 
@@ -249,7 +278,8 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 		}
 		else
 		{
-			LOG(Errpr, "Invalid code path: No-designated initializers are not supported.\n");
+			String design = designator->identifier;
+			LOG(Errpr, "Invalid code path: Designator .%.*s not matching declaration order in struct %s.\n", design.size, design.str, rstruct->name);
 		}
 	}
 }

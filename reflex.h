@@ -51,7 +51,7 @@ struct ReflexTrivial
 struct ReflexEnumerator
 {
 	const char *name;
-	u16 value;
+	i32 value;
 };
 
 struct ReflexEnum
@@ -148,6 +148,17 @@ static ReflexID ReflexRegisterEnum(const ReflexEnum *reflexEnum)
 	gReflexEnums[sReflexIdCounter] = reflexEnum;
 	ReflexID reflexId = ReflexID_EnumBegin + sReflexIdCounter++;
 	return reflexId;
+}
+
+static i32 ReflexGetEnumValue(const ReflexEnum *reflexEnum, const char *enumeratorName)
+{
+	for (u32 i = 0; i < reflexEnum->enumeratorCount; ++i) {
+		const ReflexEnumerator *enumerator = reflexEnum->enumerators + i;
+		if (StrEq(enumerator->name, enumeratorName)) {
+			return enumerator->value;
+		}
+	}
+	return 0;
 }
 
 static const void *ReflexGetMemberPtr(const void *structBase, const ReflexMember *member)
