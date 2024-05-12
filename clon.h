@@ -102,28 +102,27 @@ const ClonGlobal *ClonGetGlobal(const Clon *clon, const char *global_name)
 void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastInitializer *initializer, const Clon *clon)
 {
 	const CastInitializerList *membersInitializerList = CAST_CHILD(initializer, initializerList);
-	//printf("%s\n", rstruct->name);
 
 	for (u32 i = 0; i < rstruct->memberCount && membersInitializerList; ++i)
 	{
 		const ReflexMember *member = rstruct->members + i;
-		//printf("- %s\n", member->name);
 
 		const CastDesignator *designator = CAST_CHILD(membersInitializerList, designation, designatorList, designator);
 		if (designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size))
 		{
-			//LOG(Info, "  - OK\n");
+			byte *memberPtr = (byte*)ReflexGetMemberPtr(globalData, member);
+			const u32 elemSize = member->pointerCount > 0 ? sizeof(void*) : ReflexGetTypeSize(member->reflexId);
+			const u32 numElems = member->isArray ? member->arrayDim : 1;
+			ASSERT(member->pointerCount < 2);
+
 			const CastInitializer *memberInitializer = CAST_CHILD(membersInitializerList, initializer);
-			const CastExpression *expression = CAST_CHILD(memberInitializer, expression);
+			const CastInitializer *elementInitializer = memberInitializer;
 
-			if (expression) // TODO: expression cannot be here to initialize members that are arrays
+			for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
 			{
-				byte *memberPtr = (byte*)ReflexGetMemberPtr(globalData, member);
-				const u32 elemSize = member->pointerCount > 0 ? sizeof(void*) : ReflexGetTypeSize(member->reflexId);
-				const u32 numElems = member->isArray ? member->arrayDim : 1;
-				ASSERT(member->pointerCount < 2);
+				const CastExpression *expression = CAST_CHILD(elementInitializer, expression);
 
-				for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
+				if (expression) // TODO: expression cannot be here to initialize members that are arrays
 				{
 					byte *elemPtr = memberPtr + elemIndex * elemSize;
 
@@ -227,10 +226,10 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 						LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
 					}
 				}
-			}
-			else
-			{
-				LOG(Error, "Invalid code path: No expression for designator .%s.\n", member->name );
+				else
+				{
+					LOG(Error, "Invalid code path: No expression for designator .%s.\n", member->name );
+				}
 			}
 
 			membersInitializerList = membersInitializerList->next;
@@ -328,172 +327,6 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 
 	return cast != NULL;
 }
-
-
-#if 0
-////////////////////////////////////////////////////////////////////////
-// Clon types
-
-enum ClonType
-{
-	ClonType_Value,
-	ClonType_Array,
-	ClonType_Struct,
-	ClonType_COUNT,
-};
-
-struct ClonArray;
-struct ClonStruct;
-
-struct ClonArray
-{
-	u32 elemCount;
-	ClonType elemType;
-	union
-	{
-		void *values;
-		ClonArray *arrays;
-		ClonStruct *structs;
-	};
-};
-
-struct ClonMember
-{
-	String name;
-	ClonType type;
-	union
-	{
-		void *valuePtr;
-		ClonArray *arrayPtr;
-		ClonStruct *structPtr;
-	};
-};
-
-struct ClonStruct
-{
-	u32 memberCount;
-	ClonMember *members;
-};
-
-typedef ClonMember ClonGlobal;
-
-struct Clon
-{
-	u32 globalCount;
-	ClonGlobal *globals;
-};
-
-
-////////////////////////////////////////////////////////////////////////
-// Tokens
-
-enum ClonTokenId
-{
-	// Single character tokens
-	CLON_LEFT_PAREN,
-	CLON_RIGHT_PAREN,
-	CLON_LEFT_BRACE,
-	CLON_RIGHT_BRACE,
-	CLON_LEFT_BRACKET,
-	CLON_RIGHT_BRACKET,
-	CLON_COMMA,
-	CLON_DOT,
-	CLON_MINUS,
-	CLON_PLUS,
-	CLON_SEMICOLON,
-	CLON_SLASH,
-	CLON_STAR,
-	// One or two-character tokens
-	CLON_NOT,
-	CLON_NOT_EQUAL,
-	CLON_EQUAL,
-	CLON_EQUAL_EQUAL,
-	CLON_GREATER,
-	CLON_GREATER_EQUAL,
-	CLON_LESS,
-	CLON_LESS_EQUAL,
-	CLON_AND,
-	CLON_ANDAND,
-	CLON_OR,
-	CLON_OROR,
-	// Literals
-	CLON_IDENTIFIER,
-	CLON_STRING,
-	CLON_NUMBER,
-	// Keywords
-	CLON_STRUCT,
-	CLON_ENUM,
-	CLON_TRUE,
-	CLON_FALSE,
-	CLON_STATIC,
-	CLON_CONST,
-	CLON_UNSIGNED,
-	CLON_SHORT,
-	CLON_LONG,
-	CLON_BOOL,
-	CLON_CHAR,
-	CLON_INT,
-	CLON_FLOAT,
-	CLON_NULL, // ad-hoc value
-	CLON_ARR_COUNT, // ad-hoc macro
-	CLON_EOF,
-	CLON_TOKEN_ID_COUNT,
-};
-
-static const char *CTokenIdNames[] =
-{
-	// Single character tokens
-	"CLON_LEFT_PAREN",
-	"CLON_RIGHT_PAREN",
-	"CLON_LEFT_BRACE",
-	"CLON_RIGHT_BRACE",
-	"CLON_LEFT_BRACKET",
-	"CLON_RIGHT_BRACKET",
-	"CLON_COMMA",
-	"CLON_DOT",
-	"CLON_MINUS",
-	"CLON_PLUS",
-	"CLON_SEMICOLON",
-	"CLON_SLASH",
-	"CLON_STAR",
-	// One or two-character tokens
-	"CLON_NOT",
-	"CLON_NOT_EQUAL",
-	"CLON_EQUAL",
-	"CLON_EQUAL_EQUAL",
-	"CLON_GREATER",
-	"CLON_GREATER_EQUAL",
-	"CLON_LESS",
-	"CLON_LESS_EQUAL",
-	"CLON_AND",
-	"CLON_ANDAND",
-	"CLON_OR",
-	"CLON_OROR",
-	// Literals
-	"CLON_IDENTIFIER",
-	"CLON_STRING",
-	"CLON_NUMBER",
-	// Keywords
-	"CLON_STRUCT",
-	"CLON_ENUM",
-	"CLON_TRUE",
-	"CLON_FALSE",
-	"CLON_STATIC",
-	"CLON_CONST",
-	"CLON_UNSIGNED",
-	"CLON_SHORT",
-	"CLON_LONG",
-	"CLON_BOOL",
-	"CLON_CHAR",
-	"CLON_INT",
-	"CLON_FLOAT",
-	"CLON_NULL",
-	"CLON_ARR_COUNT",
-	"CLON_EOF",
-};
-
-CT_ASSERT(ARRAY_COUNT(CTokenIdNames) == CLON_TOKEN_ID_COUNT);
-#endif
 
 #endif // #ifndef CLON_H
 
