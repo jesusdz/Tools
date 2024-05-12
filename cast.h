@@ -161,22 +161,26 @@ struct Cast;
 
 const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize );
 const char *Cast_GetError();
-bool Cast_EvaluateBool( const CastExpression *ast );
-char Cast_EvaluateChar( const CastExpression *ast );
-unsigned char Cast_EvaluateUnsignedChar( const CastExpression *ast );
-int Cast_EvaluateInt( const CastExpression *ast );
-short int Cast_EvaluateShortInt( const CastExpression *ast );
-long int Cast_EvaluateLongInt( const CastExpression *ast );
-long long int Cast_EvaluateLongLongInt( const CastExpression *ast );
-unsigned int Cast_EvaluateUnsignedInt( const CastExpression *ast );
-unsigned short int Cast_EvaluateUnsignedShortInt( const CastExpression *ast );
-unsigned long int Cast_EvaluateUnsignedLongInt( const CastExpression *ast );
-unsigned long long int Cast_EvaluateUnsignedLongLongInt( const CastExpression *ast );
-float Cast_EvaluateFloat( const CastExpression *ast );
-double Cast_EvaluateDouble( const CastExpression *ast );
 #ifdef CAST_PRINT
 void Cast_Print( const Cast *cast );
 #endif
+
+#define CAST_DECLARE_EVALUATE_FUNCTION(Type, Name) \
+	Type Cast_Evaluate##Name( const CastExpression *ast );
+
+CAST_DECLARE_EVALUATE_FUNCTION(bool, Bool);
+CAST_DECLARE_EVALUATE_FUNCTION(char, Char);
+CAST_DECLARE_EVALUATE_FUNCTION(unsigned char, UnsignedChar);
+CAST_DECLARE_EVALUATE_FUNCTION(int, Int);
+CAST_DECLARE_EVALUATE_FUNCTION(short int, ShortInt);
+CAST_DECLARE_EVALUATE_FUNCTION(long int, LongInt);
+CAST_DECLARE_EVALUATE_FUNCTION(long long int, LongLongInt);
+CAST_DECLARE_EVALUATE_FUNCTION(unsigned int, UnsignedInt);
+CAST_DECLARE_EVALUATE_FUNCTION(short unsigned int, UnsignedShortInt);
+CAST_DECLARE_EVALUATE_FUNCTION(long unsigned int, UnsignedLongInt);
+CAST_DECLARE_EVALUATE_FUNCTION(long long unsigned int, UnsignedLongLongInt);
+CAST_DECLARE_EVALUATE_FUNCTION(float, Float);
+CAST_DECLARE_EVALUATE_FUNCTION(double, Double);
 
 // Cast structs
 
@@ -1901,7 +1905,7 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 	Type Cast_Evaluate##Name( const CastExpression *ast ) \
 	{ \
 		CAST_ASSERT( ast ); \
-		Type res = 0; \
+		Type res = (Type)0; \
 		if ( ast->type == CAST_EXPR_NUMBER ) { \
 			res = StrToType(ast->constant); \
 		} \
