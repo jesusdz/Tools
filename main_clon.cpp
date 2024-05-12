@@ -57,6 +57,15 @@ int main(int argc, char **argv)
 		LOG(Info, "- filename: %s\n", textures[i].filename);
 	}
 
+	const PipelineDesc *pipelines = assets->pipelines;
+	for (u32 i = 0; i < assets->pipelinesCount; ++i)
+	{
+		LOG(Info, "pipeline[%u]\n", i);
+		LOG(Info, "- name: %s\n", pipelines[i].name);
+		LOG(Info, "- vsFilename: %s\n", pipelines[i].vsFilename);
+		LOG(Info, "- fsFilename: %s\n", pipelines[i].fsFilename);
+	}
+
 	const MaterialDesc *materials = assets->materials;
 	for (u32 i = 0; i < assets->materialsCount; ++i)
 	{
@@ -73,7 +82,9 @@ int main(int argc, char **argv)
 		LOG(Info, "entity[%u]\n", i);
 		LOG(Info, "- name: %s\n", entities[i].name);
 		LOG(Info, "- materialName: %s\n", entities[i].materialName);
+		LOG(Info, "- pos: {%f, %f, %f}\n", entities[i].pos.x, entities[i].pos.y, entities[i].pos.z);
 		LOG(Info, "- scale: %f\n", entities[i].scale);
+		LOG(Info, "- geometryType: %f\n", entities[i].geometryType);
 	}
 
 	return 0;
