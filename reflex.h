@@ -115,7 +115,7 @@ static const ReflexStruct* ReflexGetStructFromName(const char *name)
 {
 	const ReflexStruct **rstruct = gReflexStructs;
 	const ReflexStruct **end = gReflexStructs + ReflexID_StructCount;
-	while (rstruct != end && (*rstruct)->name) {
+	while (*rstruct && rstruct != end && (*rstruct)->name) {
 		if (StrEq((*rstruct)->name, name) ) {
 			return *rstruct;
 		}
