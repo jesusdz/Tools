@@ -135,6 +135,10 @@ CT_ASSERT(sizeof(f32) == 4);
 CT_ASSERT(sizeof(f64) == 8);
 CT_ASSERT(sizeof(byte) == 1);
 
+#define U8_MAX 255
+#define U16_MAX 65535
+#define U32_MAX 4294967295
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -299,17 +303,46 @@ const char *StrConsume( const char *str1, const char *str2 )
 }
 
 
-i32 StrToInt(const char *str)
+bool StrToBool(const char *str, u32 len = U32_MAX)
+{
+	const bool value = *str == '1' || StrEqN(str, "true", len);
+	return value;
+}
+
+bool StrToBool(const String &s)
+{
+	const bool value = StrToBool(s.str, s.size);
+	return value;
+}
+
+bool StrToChar(const char *str, u32 len = U32_MAX)
+{
+	return len > 0 ? *str : '?';
+}
+
+bool StrToChar(const String &s)
+{
+	const char value = StrToChar(s.str, s.size);
+	return value;
+}
+
+i32 StrToInt(const char *str, u32 len = U32_MAX)
 {
 	i32 integer = 0;
 
 	// scan sign
-	const bool negative = (*str == '-');
+	bool negative = false;
+	if (*str == '-') {
+		negative = true;
+		str++;
+		len--;
+	}
 
 	// scan integer part
-	while (*str >= '0' && *str <= '9') {
+	while (*str >= '0' && *str <= '9' && len > 0) {
 		integer = (integer << 3) + (integer << 1); // x10
 		integer += *str++ - '0';
+		len--;
 	}
 
 	const i32 result = negative ? -integer : integer;
@@ -318,14 +351,31 @@ i32 StrToInt(const char *str)
 
 i32 StrToInt(const String &s)
 {
-	char str[256] = {};
-	ASSERT(s.size < ARRAY_COUNT(str));
-	StrCopy(str, s);
-	const i32 number = StrToInt(str);
+	const i32 number = StrToInt(s.str, s.size);
 	return number;
 }
 
-f32 StrToFloat(const char *str)
+u32 StrToUnsignedInt(const char *str, u32 len = U32_MAX)
+{
+	u32 integer = 0;
+
+	// scan integer part
+	while (*str >= '0' && *str <= '9' && len > 0) {
+		integer = (integer << 3) + (integer << 1); // x10
+		integer += *str++ - '0';
+		len--;
+	}
+
+	return integer;
+}
+
+u32 StrToUnsignedInt(const String &s)
+{
+	const u32 number = StrToUnsignedInt(s.str, s.size);
+	return number;
+}
+
+f32 StrToFloat(const char *str, u32 len = U32_MAX)
 {
 	i32 integer = 0;
 
@@ -334,45 +384,38 @@ f32 StrToFloat(const char *str)
 	if (*str == '-') {
 		sign = -1.0f;
 		str++;
+		len--;
 	}
 
 	// scan integer part
-	while (*str >= '0' && *str <= '9') {
+	while (*str >= '0' && *str <= '9' && len > 0) {
 		integer = (integer << 3) + (integer << 1); // x10
 		integer += *str++ - '0';
+		len--;
 	}
 
 	switch (*str++) {
 		case '.': break;
-		case ' ':
-		case '\n':
-		case '\0': return integer;
-		default: return 0.0f;
+		default: return integer;
 	}
+	len--;
 
 	// scan decimal part
 	u32 tenPower = 1;
-	while (*str >= '0' && *str <= '9') {
+	while (*str >= '0' && *str <= '9' && len > 0) {
 		tenPower = (tenPower << 3) + (tenPower << 1);
 		integer = (integer << 3) + (integer << 1); // x10
 		integer += *str++ - '0';
+		len--;
 	}
 
-	switch (*str++) {
-		case ' ':
-		case 'f':
-		case '\n':
-		case '\0': return sign * integer / (f32)tenPower;
-		default: return 0.0f;
-	}
+	const float value = sign * integer / (f32)tenPower;
+	return value;
 }
 
 f32 StrToFloat(const String &s)
 {
-	char str[256] = {};
-	ASSERT(s.size < ARRAY_COUNT(str));
-	StrCopy(str, s);
-	f32 number = StrToFloat(str);
+	const f32 number = StrToFloat(s.str, s.size);
 	return number;
 }
 
