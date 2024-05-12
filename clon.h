@@ -131,8 +131,35 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 					{
 						if (expression->type == CAST_EXPR_NUMBER)
 						{
-							const unsigned int val = Cast_EvaluateInt(expression);
-							*(unsigned int*)elemPtr = val;
+							if (member->reflexId == ReflexID_Bool) {
+								*(bool*)elemPtr = Cast_EvaluateBool(expression);
+							} else if (member->reflexId == ReflexID_Char) {
+								*(char*)elemPtr = Cast_EvaluateChar(expression);
+							} else if (member->reflexId == ReflexID_UnsignedChar) {
+								*(unsigned char*)elemPtr = Cast_EvaluateUnsignedChar(expression);
+							} else if (member->reflexId == ReflexID_Int) {
+								*(int*)elemPtr = Cast_EvaluateInt(expression);
+							} else if (member->reflexId == ReflexID_ShortInt) {
+								*(short int*)elemPtr = Cast_EvaluateShortInt(expression);
+							} else if (member->reflexId == ReflexID_LongInt) {
+								*(long int*)elemPtr = Cast_EvaluateLongInt(expression);
+							} else if (member->reflexId == ReflexID_LongLongInt) {
+								*(long long int*)elemPtr = Cast_EvaluateLongLongInt(expression);
+							} else if (member->reflexId == ReflexID_UnsignedInt) {
+								*(unsigned int*)elemPtr = Cast_EvaluateUnsignedInt(expression);
+							} else if (member->reflexId == ReflexID_UnsignedShortInt) {
+								*(unsigned short int*)elemPtr = Cast_EvaluateUnsignedShortInt(expression);
+							} else if (member->reflexId == ReflexID_UnsignedLongInt) {
+								*(unsigned long int*)elemPtr = Cast_EvaluateUnsignedLongInt(expression);
+							} else if (member->reflexId == ReflexID_UnsignedLongLongInt) {
+								*(unsigned long long int*)elemPtr = Cast_EvaluateUnsignedLongLongInt(expression);
+							} else if (member->reflexId == ReflexID_Float) {
+								*(float*)elemPtr = Cast_EvaluateFloat(expression);
+							} else if (member->reflexId == ReflexID_Double) {
+								*(double*)elemPtr = Cast_EvaluateDouble(expression);
+							} else {
+								LOG(Error, "Void member does not expect any number.\n");
+							}
 						}
 						else if (expression->type == CAST_EXPR_STRING)
 						{

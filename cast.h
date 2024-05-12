@@ -22,7 +22,7 @@
  *
  * const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize);
  * const char *Cast_GetError();
- * int Cast_EvaluateInt( const CastExpression *ast );
+ * int Cast_EvaluateInt( const CastExpression *ast ); // And for all trivial types
  * void Cast_Print( const Cast *cast ); // Only if CAST_PRINT was defined
  */
 
@@ -61,8 +61,18 @@
 #define CastMemSet MemSet
 #define CastPushStruct PushStruct
 #define CastPushZeroStruct PushZeroStruct
+#define CastStrToBool StrToBool
+#define CastStrToChar StrToChar
 #define CastStrToInt StrToInt
+//#define CastStrToShortInt StrToShortInt
+//#define CastStrToLongInt StrToLongInt
+//#define CastStrToLongLongInt StrToLongLongInt
+#define CastStrToUnsignedInt StrToUnsignedInt
+//#define CastStrToUnsignedShortInt StrToUnsignedShortInt
+//#define CastStrToUnsignedLongInt StrToUnsignedLongInt
+//#define CastStrToUnsignedLongLongInt StrToUnsignedLongLongInt
 #define CastStrToFloat StrToFloat
+//#define CastStrToDouble StrToFloat
 #define CastStrEq StrEq
 #endif // #if CAST_USE_TOOLS
 
@@ -149,9 +159,21 @@ struct Cast;
 
 // Cast functions
 
-const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize);
+const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize );
 const char *Cast_GetError();
+bool Cast_EvaluateBool( const CastExpression *ast );
+char Cast_EvaluateChar( const CastExpression *ast );
+unsigned char Cast_EvaluateUnsignedChar( const CastExpression *ast );
 int Cast_EvaluateInt( const CastExpression *ast );
+short int Cast_EvaluateShortInt( const CastExpression *ast );
+long int Cast_EvaluateLongInt( const CastExpression *ast );
+long long int Cast_EvaluateLongLongInt( const CastExpression *ast );
+unsigned int Cast_EvaluateUnsignedInt( const CastExpression *ast );
+unsigned short int Cast_EvaluateUnsignedShortInt( const CastExpression *ast );
+unsigned long int Cast_EvaluateUnsignedLongInt( const CastExpression *ast );
+unsigned long long int Cast_EvaluateUnsignedLongLongInt( const CastExpression *ast );
+float Cast_EvaluateFloat( const CastExpression *ast );
+double Cast_EvaluateDouble( const CastExpression *ast );
 #ifdef CAST_PRINT
 void Cast_Print( const Cast *cast );
 #endif
@@ -1875,15 +1897,30 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 ////////////////////////////////////////////////////////////////////////
 // Evaluate utils
 
-int Cast_EvaluateInt( const CastExpression *ast )
-{
-	CAST_ASSERT( ast );
-	int res = 0;
-	if ( ast->type == CAST_EXPR_NUMBER ) {
-		res = CastStrToInt(ast->constant);
+#define CAST_DEFINE_EVALUATE_FUNCTION(Type, Name, StrToType) \
+	Type Cast_Evaluate##Name( const CastExpression *ast ) \
+	{ \
+		CAST_ASSERT( ast ); \
+		Type res = 0; \
+		if ( ast->type == CAST_EXPR_NUMBER ) { \
+			res = StrToType(ast->constant); \
+		} \
+		return res; \
 	}
-	return res;
-}
+
+CAST_DEFINE_EVALUATE_FUNCTION(bool, Bool, CastStrToBool);
+CAST_DEFINE_EVALUATE_FUNCTION(char, Char, CastStrToChar);
+CAST_DEFINE_EVALUATE_FUNCTION(unsigned char, UnsignedChar, CastStrToUnsignedInt);
+CAST_DEFINE_EVALUATE_FUNCTION(int, Int, CastStrToInt);
+CAST_DEFINE_EVALUATE_FUNCTION(short int, ShortInt, CastStrToInt); // TODO
+CAST_DEFINE_EVALUATE_FUNCTION(long int, LongInt, CastStrToInt);
+CAST_DEFINE_EVALUATE_FUNCTION(long long int, LongLongInt, CastStrToInt);
+CAST_DEFINE_EVALUATE_FUNCTION(unsigned int, UnsignedInt,CastStrToUnsignedInt );
+CAST_DEFINE_EVALUATE_FUNCTION(short unsigned int, UnsignedShortInt, CastStrToUnsignedInt);
+CAST_DEFINE_EVALUATE_FUNCTION(long unsigned int, UnsignedLongInt, CastStrToUnsignedInt);
+CAST_DEFINE_EVALUATE_FUNCTION(long long unsigned int, UnsignedLongLongInt, CastStrToUnsignedInt);
+CAST_DEFINE_EVALUATE_FUNCTION(float, Float, CastStrToFloat);
+CAST_DEFINE_EVALUATE_FUNCTION(double, Double, CastStrToFloat);
 
 
 ////////////////////////////////////////////////////////////////////////

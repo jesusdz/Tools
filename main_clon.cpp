@@ -57,6 +57,16 @@ int main(int argc, char **argv)
 		LOG(Info, "- filename: %s\n", textures[i].filename);
 	}
 
+	const MaterialDesc *materials = assets->materials;
+	for (u32 i = 0; i < assets->materialsCount; ++i)
+	{
+		LOG(Info, "material[%u]\n", i);
+		LOG(Info, "- name: %s\n", materials[i].name);
+		LOG(Info, "- textureName: %s\n", materials[i].textureName);
+		LOG(Info, "- pipelineName: %s\n", materials[i].pipelineName);
+		LOG(Info, "- uvScale: %f\n", materials[i].uvScale);
+	}
+
 	const EntityDesc *entities = assets->entities;
 	for (u32 i = 0; i < assets->entitiesCount; ++i)
 	{
