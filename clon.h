@@ -99,7 +99,81 @@ const ClonGlobal *ClonGetGlobal(const Clon *clon, const char *global_name)
 	return NULL;
 }
 
-void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastInitializer *initializer, const Clon *clon)
+void ClonFillTrivial(void *dataPtr, ReflexID reflexId, const CastInitializer *initializer, const Clon *clon)
+{
+	const CastExpression *expression = CAST_CHILD(initializer, expression);
+	if (expression)
+	{
+		if (expression->type == CAST_EXPR_NUMBER)
+		{
+			if (reflexId == ReflexID_Bool) {
+				*(bool*)dataPtr = Cast_EvaluateBool(expression);
+			} else if (reflexId == ReflexID_Char) {
+				*(char*)dataPtr = Cast_EvaluateChar(expression);
+			} else if (reflexId == ReflexID_UnsignedChar) {
+				*(unsigned char*)dataPtr = Cast_EvaluateUnsignedChar(expression);
+			} else if (reflexId == ReflexID_Int) {
+				*(int*)dataPtr = Cast_EvaluateInt(expression);
+			} else if (reflexId == ReflexID_ShortInt) {
+				*(short int*)dataPtr = Cast_EvaluateShortInt(expression);
+			} else if (reflexId == ReflexID_LongInt) {
+				*(long int*)dataPtr = Cast_EvaluateLongInt(expression);
+			} else if (reflexId == ReflexID_LongLongInt) {
+				*(long long int*)dataPtr = Cast_EvaluateLongLongInt(expression);
+			} else if (reflexId == ReflexID_UnsignedInt) {
+				*(unsigned int*)dataPtr = Cast_EvaluateUnsignedInt(expression);
+			} else if (reflexId == ReflexID_UnsignedShortInt) {
+				*(unsigned short int*)dataPtr = Cast_EvaluateUnsignedShortInt(expression);
+			} else if (reflexId == ReflexID_UnsignedLongInt) {
+				*(unsigned long int*)dataPtr = Cast_EvaluateUnsignedLongInt(expression);
+			} else if (reflexId == ReflexID_UnsignedLongLongInt) {
+				*(unsigned long long int*)dataPtr = Cast_EvaluateUnsignedLongLongInt(expression);
+			} else if (reflexId == ReflexID_Float) {
+				*(float*)dataPtr = Cast_EvaluateFloat(expression);
+			} else if (reflexId == ReflexID_Double) {
+				*(double*)dataPtr = Cast_EvaluateDouble(expression);
+			} else {
+				LOG(Error, "Void member does not expect any number.\n");
+			}
+		}
+		else if (expression->type == CAST_EXPR_STRING)
+		{
+			// TODO: Avoid this allocation
+			char *str = new char[expression->constant.size+1];
+			StrCopyN(str, expression->constant.str, expression->constant.size);
+			*(char **)dataPtr = str;
+		}
+		else if (expression->type == CAST_EXPR_ARRAY_COUNT)
+		{
+			char globalName[128];
+			StrCopyN(globalName, expression->constant.str, expression->constant.size);
+			const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
+			if (clonGlobal)
+			{
+				*(unsigned int*)dataPtr = clonGlobal->elemCount;
+			}
+			else
+			{
+				*(unsigned int*)dataPtr = 1;
+				LOG(Error,"Could not find global %s for ARRAY_COUNT.\n", globalName);
+			}
+		}
+		else if (expression->type == CAST_EXPR_IDENTIFIER)
+		{
+			LOG(Debug, "Identifier?\n");
+		}
+		else
+		{
+			LOG(Error, "Invalid expression type (%u) to initialize trivial type.\n", expression->type);
+		}
+	}
+	else
+	{
+		LOG(Error, "Invalid code path: No expression provided... better handle this error in the calling code.\n");
+	}
+}
+
+void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastInitializer *initializer, const Clon *clon)
 {
 	const CastInitializerList *membersInitializerList = CAST_CHILD(initializer, initializerList);
 
@@ -108,143 +182,66 @@ void ClonFillStruct(void *globalData, const ReflexStruct *rstruct, const CastIni
 		const ReflexMember *member = rstruct->members + i;
 
 		const CastDesignator *designator = CAST_CHILD(membersInitializerList, designation, designatorList, designator);
-		if (designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size))
+
+		if (!designator || designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size))
 		{
-			byte *memberPtr = (byte*)ReflexGetMemberPtr(globalData, member);
+			byte *memberPtr = (byte*)ReflexGetMemberPtr(structData, member);
 			const u32 elemSize = member->pointerCount > 0 ? sizeof(void*) : ReflexGetTypeSize(member->reflexId);
 			const u32 numElems = member->isArray ? member->arrayDim : 1;
 			ASSERT(member->pointerCount < 2);
 
 			const CastInitializer *memberInitializer = CAST_CHILD(membersInitializerList, initializer);
-			const CastInitializer *elementInitializer = memberInitializer;
 
-			// NOTE: Used for arrayed elements
-			const CastInitializerList *elementInitializerList = CAST_CHILD(elementInitializer, initializerList);
+			// NOTE: Used for arrayed or struct elements (initializations within braces { ... })
+			const CastInitializerList *elementInitializerList = CAST_CHILD(memberInitializer, initializerList);
 
 			for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
 			{
-				const CastExpression *expression = 0;
+				const CastInitializer *elementInitializer = memberInitializer;
 				if (member->isArray) {
-					expression = CAST_CHILD(elementInitializerList, initializer, expression);
+					elementInitializer = CAST_CHILD(elementInitializerList, initializer);
 					elementInitializerList = elementInitializerList->next;
-				} else {
-					expression = CAST_CHILD(elementInitializer, expression);
 				}
 
-				if (expression) // TODO: expression cannot be here to initialize members that are arrays
-				{
-					byte *elemPtr = memberPtr + elemIndex * elemSize;
+				const CastExpression *expression = CAST_CHILD(elementInitializer, expression);
 
-					if (ReflexIsTrivial(member->reflexId))
+				byte *elemPtr = memberPtr + elemIndex * elemSize;
+
+				if (ReflexIsTrivial(member->reflexId))
+				{
+					ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
+				}
+				else if (ReflexIsStruct(member->reflexId))
+				{
+					const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
+
+					if (member->pointerCount == 0)
 					{
-						if (expression->type == CAST_EXPR_NUMBER)
-						{
-							if (member->reflexId == ReflexID_Bool) {
-								*(bool*)elemPtr = Cast_EvaluateBool(expression);
-							} else if (member->reflexId == ReflexID_Char) {
-								*(char*)elemPtr = Cast_EvaluateChar(expression);
-							} else if (member->reflexId == ReflexID_UnsignedChar) {
-								*(unsigned char*)elemPtr = Cast_EvaluateUnsignedChar(expression);
-							} else if (member->reflexId == ReflexID_Int) {
-								*(int*)elemPtr = Cast_EvaluateInt(expression);
-							} else if (member->reflexId == ReflexID_ShortInt) {
-								*(short int*)elemPtr = Cast_EvaluateShortInt(expression);
-							} else if (member->reflexId == ReflexID_LongInt) {
-								*(long int*)elemPtr = Cast_EvaluateLongInt(expression);
-							} else if (member->reflexId == ReflexID_LongLongInt) {
-								*(long long int*)elemPtr = Cast_EvaluateLongLongInt(expression);
-							} else if (member->reflexId == ReflexID_UnsignedInt) {
-								*(unsigned int*)elemPtr = Cast_EvaluateUnsignedInt(expression);
-							} else if (member->reflexId == ReflexID_UnsignedShortInt) {
-								*(unsigned short int*)elemPtr = Cast_EvaluateUnsignedShortInt(expression);
-							} else if (member->reflexId == ReflexID_UnsignedLongInt) {
-								*(unsigned long int*)elemPtr = Cast_EvaluateUnsignedLongInt(expression);
-							} else if (member->reflexId == ReflexID_UnsignedLongLongInt) {
-								*(unsigned long long int*)elemPtr = Cast_EvaluateUnsignedLongLongInt(expression);
-							} else if (member->reflexId == ReflexID_Float) {
-								*(float*)elemPtr = Cast_EvaluateFloat(expression);
-							} else if (member->reflexId == ReflexID_Double) {
-								*(double*)elemPtr = Cast_EvaluateDouble(expression);
-							} else {
-								LOG(Error, "Void member does not expect any number.\n");
-							}
-						}
-						else if (expression->type == CAST_EXPR_STRING)
+						ClonFillStruct(elemPtr, rstruct2, elementInitializer, clon);
+					}
+					else if (member->pointerCount == 1)
+					{
+						if (expression->type == CAST_EXPR_IDENTIFIER)
 						{
 							// TODO: Avoid this allocation
-							char *str = new char[expression->constant.size+1];
-							StrCopyN(str, expression->constant.str, expression->constant.size);
-							*(char **)elemPtr = str;
-						}
-						else if (expression->type == CAST_EXPR_ARRAY_COUNT)
-						{
-							char globalName[128];
+							char *globalName = new char[expression->constant.size+1];
 							StrCopyN(globalName, expression->constant.str, expression->constant.size);
-							const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
-							if (clonGlobal)
-							{
-								*(unsigned int*)elemPtr = clonGlobal->elemCount;
-							}
-							else
-							{
-								*(unsigned int*)elemPtr = 1;
-								LOG(Error,"Could not find global %s for ARRAY_COUNT.\n", globalName);
-							}
-						}
-						else if (expression->type == CAST_EXPR_IDENTIFIER)
-						{
-							LOG(Debug, "Identifier?\n");
+							const ClonGlobal *clonGlobal = ClonGetGlobal(clon, rstruct2->name, globalName);
+							*(void**)elemPtr = clonGlobal->data;
 						}
 						else
 						{
-							LOG(Error, "Invalid expression type (%u) to initialize member %s.\n", expression->type, member->name);
+							LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct2->name);
 						}
-					}
-					else if (ReflexIsStruct(member->reflexId))
-					{
-						//if (expression->type == CAST_EXPR_IDENTIFIER)
-						//{
-							const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
-
-							if (member->pointerCount == 0)
-							{
-								LOG(Info, "WTF %s\n", member->name);
-								const CastInitializerList *initializerList2 = memberInitializer->initializerList;
-								ClonFillStruct(elemPtr, rstruct2, memberInitializer, clon);
-							}
-							else if (member->pointerCount == 1)
-							{
-								if (expression->type == CAST_EXPR_IDENTIFIER)
-								{
-									// TODO: Avoid this allocation
-									char *globalName = new char[expression->constant.size+1];
-									StrCopyN(globalName, expression->constant.str, expression->constant.size);
-									const ClonGlobal *clonGlobal = ClonGetGlobal(clon, rstruct2->name, globalName);
-									*(void**)elemPtr = clonGlobal->data;
-								}
-								else
-								{
-									LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct2->name);
-								}
-							}
-							else
-							{
-								LOG(Error, "Unsupported more than one level of pointer indirections.\n");
-							}
-						//}
-						//else
-						//{
-						//	LOG(Error, "Invalid code path: Unhandled expression type for member %s.\n", member->name);
-						//}
 					}
 					else
 					{
-						LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
+						LOG(Error, "Unsupported more than one level of pointer indirections.\n");
 					}
 				}
 				else
 				{
-					LOG(Error, "Invalid code path: No expression for designator .%s.\n", member->name );
+					LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
 				}
 			}
 
