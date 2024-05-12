@@ -65,6 +65,7 @@
 #define MAX_TEXTURES 4
 #define MAX_SAMPLERS 4
 #define MAX_PIPELINES 8
+#define MAX_COMPUTES 8
 #define MAX_SHADER_REFLECTIONS 8
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
@@ -155,6 +156,13 @@ struct Pipeline
 };
 
 typedef u32 PipelineH;
+
+struct Compute
+{
+	const char *name;
+};
+
+typedef u32 ComputeH;
 
 struct Buffer
 {
@@ -349,6 +357,9 @@ struct Graphics
 
 	Pipeline pipelines[MAX_PIPELINES];
 	u32 pipelineCount;
+
+	Compute computes[MAX_COMPUTES];
+	u32 computeCount;
 
 	ShaderReflection shaderReflections[MAX_SHADER_REFLECTIONS];
 	u32 shaderReflectionCount;
@@ -1156,6 +1167,14 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
 
 	return pipelineHandle;
+}
+
+ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
+{
+	ASSERT( gfx.computeCount < ARRAY_COUNT(gfx.computes) );
+	ComputeH computeHandle = gfx.computeCount++;
+	gfx.computes[computeHandle].name = desc.name;
+	return computeHandle;
 }
 
 const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
@@ -2650,6 +2669,11 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		for (uint i = 0; i < gAssets->pipelinesCount; ++i)
 		{
 			CreatePipeline(gfx, scratch, gAssets->pipelines[i]);
+		}
+
+		for (uint i = 0; i < gAssets->computesCount; ++i)
+		{
+			CreateCompute(gfx, scratch, gAssets->computes[i]);
 		}
 
 		for (uint i = 0; i < gAssets->texturesCount; ++i)

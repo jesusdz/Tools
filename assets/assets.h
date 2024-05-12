@@ -20,6 +20,12 @@ struct PipelineDesc
 	const char *fsFilename;
 };
 
+struct ComputeDesc
+{
+	const char *name;
+	const char *filename;
+};
+
 struct MaterialDesc
 {
 	const char *name;
@@ -51,6 +57,9 @@ struct Assets
 	const PipelineDesc *pipelines;
 	unsigned int pipelinesCount;
 
+	const ComputeDesc *computes;
+	unsigned int computesCount;
+
 	const MaterialDesc *materials;
 	unsigned int materialsCount;
 
@@ -77,6 +86,11 @@ static const PipelineDesc pipelines[] =
 	{ .name = "pipeline", .vsFilename = "shaders/vertex.spv", .fsFilename = "shaders/fragment.spv" },
 };
 
+static const ComputeDesc computes[] =
+{
+	{ .name = "compute", .filename = "shaders/compute.spv" },
+};
+
 static const MaterialDesc materials[] =
 {
 	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline", .uvScale = 1.0f },
@@ -100,6 +114,9 @@ static const Assets gAssets =
 
 	.pipelines = pipelines,
 	.pipelinesCount = ARRAY_COUNT(pipelines),
+
+	.computes = computes,
+	.computesCount = ARRAY_COUNT(computes),
 
 	.materials = materials,
 	.materialsCount = ARRAY_COUNT(materials),
