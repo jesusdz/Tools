@@ -279,7 +279,7 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 		else
 		{
 			String design = designator->identifier;
-			LOG(Errpr, "Invalid code path: Designator .%.*s not matching declaration order in struct %s.\n", design.size, design.str, rstruct->name);
+			LOG(Error, "Invalid code path: Designator .%.*s not matching declaration order in struct %s.\n", design.size, design.str, rstruct->name);
 		}
 	}
 }

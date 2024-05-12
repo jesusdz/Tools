@@ -380,11 +380,11 @@ struct Graphics
 	u32 entityCount;
 
 	bool deviceInitialized;
-	bool sceneInitialized;
 };
 
 
-#include "assets.h"
+#include "assets/assets.h"
+#include "clon.h"
 
 static const Vertex cubeVertices[] = {
 	// front
@@ -2478,69 +2478,6 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	}
 #endif
 
-	for (uint i = 0; i < gAssets.pipelinesCount; ++i)
-	{
-		CreatePipeline(gfx, scratch, gAssets.pipelines[i]);
-	}
-
-	for (uint i = 0; i < gAssets.texturesCount; ++i)
-	{
-		CreateTexture(gfx, gAssets.textures[i]);
-	}
-
-	for (uint i = 0; i < gAssets.materialsCount; ++i)
-	{
-		CreateMaterial(gfx, gAssets.materials[i]);
-	}
-
-	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
-
-	// Copy material info to buffer
-	for (u32 i = 0; i < gfx.materialCount; ++i)
-	{
-		const Material &material = GetMaterial(gfx, i);
-		SMaterial shaderMaterial = { material.uvScale };
-		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
-		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
-	}
-
-	// DescriptorSets for materials
-	for (u32 i = 0; i < gfx.materialCount; ++i)
-	{
-		const Material &material = GetMaterial(gfx, i);
-		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
-		if ( pipeline.globalDescriptorSetLayout )
-		{
-			const u32 globalDescriptorSetLayoutCount = ARRAY_COUNT(gfx.globalDescriptorSets[i]);
-			VkDescriptorSetLayout globalDescriptorSetLayouts[globalDescriptorSetLayoutCount];
-			for (u32 i = 0; i < globalDescriptorSetLayoutCount; ++i)
-			{
-				globalDescriptorSetLayouts[i] = pipeline.globalDescriptorSetLayout;
-			}
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.globalDescriptorPool;
-			descriptorSetAllocateInfo.descriptorSetCount = globalDescriptorSetLayoutCount;
-			descriptorSetAllocateInfo.pSetLayouts = globalDescriptorSetLayouts;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.globalDescriptorSets[i]) );
-		}
-		if ( pipeline.materialDescriptorSetLayout )
-		{
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.materialDescriptorPool;
-			descriptorSetAllocateInfo.descriptorSetCount = 1;
-			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialDescriptorSets[i]) );
-		}
-	}
-
-
-	// Samplers
-	gfx.textureSampler = CreateSampler(gfx);
-
-	gfx.deviceInitialized = true;
-
 	return true;
 }
 
@@ -2686,26 +2623,106 @@ void UpdateDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMateria
 	}
 }
 
-void InitializeScene(Graphics &gfx)
+void InitializeScene(Arena scratch, Graphics &gfx)
 {
-	if ( gfx.sceneInitialized )
+	FilePath assetsPath = MakePath("assets/assets.h");
+	DataChunk *chunk = PushFile( scratch, assetsPath.str );
+	if (!chunk)
+	{
+		LOG(Error, "Error reading file: %s\n", assetsPath.str);
 		return;
+	}
+
+	Clon clon = {};
+	const bool clonOk = ClonParse(&scratch, chunk->chars, chunk->size, &clon);
+	if (!clonOk)
+	{
+		LOG(Error, "Error in ClonParse file: %s\n", assetsPath.str);
+		return;
+	}
+
+	const ClonGlobal *clonGlobal = ClonGetGlobal(&clon, "Assets", "gAssets");
+
+	if (clonGlobal)
+	{
+		const Assets *gAssets = (const Assets *)clonGlobal->data;
+
+		for (uint i = 0; i < gAssets->pipelinesCount; ++i)
+		{
+			CreatePipeline(gfx, scratch, gAssets->pipelines[i]);
+		}
+
+		for (uint i = 0; i < gAssets->texturesCount; ++i)
+		{
+			CreateTexture(gfx, gAssets->textures[i]);
+		}
+
+		for (uint i = 0; i < gAssets->materialsCount; ++i)
+		{
+			CreateMaterial(gfx, gAssets->materials[i]);
+		}
+
+		for (uint i = 0; i < gAssets->entitiesCount; ++i)
+		{
+			CreateEntity(gfx, gAssets->entities[i]);
+		}
+	}
+
+	// Samplers
+	gfx.textureSampler = CreateSampler(gfx);
+
+	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
+
+	// Copy material info to buffer
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		const Material &material = GetMaterial(gfx, i);
+		SMaterial shaderMaterial = { material.uvScale };
+		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
+		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
+	}
+
+	// DescriptorSets for materials
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		const Material &material = GetMaterial(gfx, i);
+		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
+		if ( pipeline.globalDescriptorSetLayout )
+		{
+			const u32 globalDescriptorSetLayoutCount = ARRAY_COUNT(gfx.globalDescriptorSets[i]);
+			VkDescriptorSetLayout globalDescriptorSetLayouts[globalDescriptorSetLayoutCount];
+			for (u32 i = 0; i < globalDescriptorSetLayoutCount; ++i)
+			{
+				globalDescriptorSetLayouts[i] = pipeline.globalDescriptorSetLayout;
+			}
+			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			descriptorSetAllocateInfo.descriptorPool = gfx.globalDescriptorPool;
+			descriptorSetAllocateInfo.descriptorSetCount = globalDescriptorSetLayoutCount;
+			descriptorSetAllocateInfo.pSetLayouts = globalDescriptorSetLayouts;
+			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.globalDescriptorSets[i]) );
+		}
+		if ( pipeline.materialDescriptorSetLayout )
+		{
+			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			descriptorSetAllocateInfo.descriptorPool = gfx.materialDescriptorPool;
+			descriptorSetAllocateInfo.descriptorSetCount = 1;
+			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
+			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialDescriptorSets[i]) );
+		}
+	}
+
+	// Update material descriptor sets
+	const bool updateGlobalDS = false;
+	const bool updateMaterialDS = true;
+	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
 	// Camera
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45f};
 
-	const bool updateGlobalDS = false;
-	const bool updateMaterialDS = true;
-	UpdateDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
-
-	// Entities
-	for (uint i = 0; i < gAssets.entitiesCount; ++i)
-	{
-		CreateEntity(gfx, gAssets.entities[i]);
-	}
-
-	gfx.sceneInitialized = true;
+	gfx.deviceInitialized = true;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -2746,8 +2763,6 @@ void CleanupRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 void CleanupGraphicsDevice(Graphics &gfx)
 {
-	gfx.deviceInitialized = false;
-
 	WaitDeviceIdle( gfx );
 
 	vkDestroyDescriptorPool( gfx.device, gfx.globalDescriptorPool, VULKAN_ALLOCATORS );
@@ -2817,6 +2832,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 	vkDestroyInstance(gfx.instance, VULKAN_ALLOCATORS);
 
 	ZeroStruct( &gfx );
+
+	gfx.deviceInitialized = false;
 }
 
 void LoadScene(Graphics &gfx)
@@ -2827,7 +2844,6 @@ void LoadScene(Graphics &gfx)
 void CleanupScene(Graphics &gfx)
 {
 	// TODO
-	gfx.sceneInitialized = false;
 }
 
 float3 ForwardDirectionFromAngles(const float2 &angles)
@@ -3443,9 +3459,9 @@ bool EngineWindowInit(Platform &platform)
 			LOG(Error, "InitializeGraphicsDevice failed!\n");
 			return false;
 		}
-	}
 
-	InitializeScene(gfx);
+		InitializeScene(platform.globalArena, gfx);
+	}
 
 #if USE_IMGUI
 	InitializeImGuiGraphics(gfx, platform.window);

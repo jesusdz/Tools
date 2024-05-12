@@ -61,6 +61,7 @@ struct Assets
 };
 
 
+#ifdef ASSETS_IMPLEMENTATION
 
 // Descriptor definitions
 
@@ -109,6 +110,9 @@ static const Assets gAssets =
 	.arrayTest = {4, 5},
 };
 
-#include "assets.reflex.h"
+#endif // ASSETS_IMPLEMENTATION
+
+#include "../reflex.h"
+#include "../assets.reflex.h"
 
 #endif // ASSETS_H

@@ -10,7 +10,6 @@ void GenerateReflex(const Cast *cast)
 	printf("////////////////////////////////////////////////////////////////////////\n");
 	printf("// Includes\n");
 	printf("#include <stddef.h> // for offsetof macro\n");
-	printf("#include \"reflex.h\" // for Reflex types\n");
 
 	const CastStructSpecifier *structs[128];
 	u32 structCount = 0;
