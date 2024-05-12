@@ -198,89 +198,116 @@ void ClonFillEnum(void *enumData, const ReflexEnum *reflexEnum, const CastInitia
 
 void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastInitializer *initializer, const Clon *clon)
 {
-	const CastInitializerList *membersInitializerList = CAST_CHILD(initializer, initializerList);
+	const CastInitializerList *baseMemberInitializerList = CAST_CHILD(initializer, initializerList);
+	const CastInitializerList *memberInitializerList = baseMemberInitializerList;
+	bool canAssumeNextInitializer = true;
 
-	for (u32 i = 0; i < rstruct->memberCount && membersInitializerList; ++i)
+	// TODO: It might be better to iterate over the initializers and try to match the struct members instead
+	for (u32 i = 0; i < rstruct->memberCount && memberInitializerList; ++i)
 	{
 		const ReflexMember *member = rstruct->members + i;
 
-		const CastDesignator *designator = CAST_CHILD(membersInitializerList, designation, designatorList, designator);
+		const CastDesignator *designator = CAST_CHILD(memberInitializerList, designation, designatorList, designator);
 
-		if (!designator || designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size))
+		const CastInitializer *memberInitializer = NULL;
+		if (designator)
 		{
-			byte *memberPtr = (byte*)ReflexGetMemberPtr(structData, member);
-			const u32 elemSize = member->pointerCount > 0 ? sizeof(void*) : ReflexGetTypeSize(member->reflexId);
-			const u32 numElems = member->isArray ? member->arrayDim : 1;
-			ASSERT(member->pointerCount < 2);
+			if (StrEqN(member->name, designator->identifier.str, designator->identifier.size)) {
+				// Current initializer designator matches current member name
+				memberInitializer = CAST_CHILD(memberInitializerList, initializer);
+			} else {
+				// Search for another designator that matches the current member name
+				memberInitializerList = baseMemberInitializerList;
+				while (memberInitializerList) {
+					designator = CAST_CHILD(memberInitializerList, designation, designatorList, designator);
+					if (designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size)) {
+						memberInitializer = CAST_CHILD(memberInitializerList, initializer);
+						break;
+					}
+					memberInitializerList = memberInitializerList->next;
+				}
+			}
+		}
+		else if (canAssumeNextInitializer)
+		{
+			memberInitializer = CAST_CHILD(memberInitializerList, initializer);
+		}
 
-			const CastInitializer *memberInitializer = CAST_CHILD(membersInitializerList, initializer);
+		// Could not find a valid initializer for the current member
+		if (!memberInitializer) {
+			LOG(Warning, "Couldn't find matching initializer for member %s.\n", member->name);
+			memberInitializerList = baseMemberInitializerList;
+			canAssumeNextInitializer = false;
+			continue;
+		} else {
+			canAssumeNextInitializer = true;
+		}
 
-			// NOTE: Used for arrayed or struct elements (initializations within braces { ... })
-			const CastInitializerList *elementInitializerList = CAST_CHILD(memberInitializer, initializerList);
+		byte *memberPtr = (byte*)ReflexGetMemberPtr(structData, member);
+		const u32 elemSize = member->pointerCount > 0 ? sizeof(void*) : ReflexGetTypeSize(member->reflexId);
+		const u32 numElems = member->isArray ? member->arrayDim : 1;
+		ASSERT(member->pointerCount < 2);
 
-			for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
+		// NOTE: Used for arrayed or struct elements (initializations within braces { ... })
+		const CastInitializerList *elementInitializerList = CAST_CHILD(memberInitializer, initializerList);
+
+		for (u32 elemIndex = 0; elemIndex < numElems; ++elemIndex)
+		{
+			const CastInitializer *elementInitializer = memberInitializer;
+			if (member->isArray) {
+				elementInitializer = CAST_CHILD(elementInitializerList, initializer);
+				elementInitializerList = elementInitializerList->next;
+			}
+
+			const CastExpression *expression = CAST_CHILD(elementInitializer, expression);
+
+			byte *elemPtr = memberPtr + elemIndex * elemSize;
+
+			const bool isString = member->pointerCount == 1 && member->reflexId == ReflexID_Char;
+
+			if (member->pointerCount == 0 || isString)
 			{
-				const CastInitializer *elementInitializer = memberInitializer;
-				if (member->isArray) {
-					elementInitializer = CAST_CHILD(elementInitializerList, initializer);
-					elementInitializerList = elementInitializerList->next;
-				}
-
-				const CastExpression *expression = CAST_CHILD(elementInitializer, expression);
-
-				byte *elemPtr = memberPtr + elemIndex * elemSize;
-
-				const bool isString = member->pointerCount == 1 && member->reflexId == ReflexID_Char;
-
-				if (member->pointerCount == 0 || isString)
+				if (ReflexIsTrivial(member->reflexId))
 				{
-					if (ReflexIsTrivial(member->reflexId))
-					{
-						ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
-					}
-					else if (ReflexIsStruct(member->reflexId))
-					{
-						const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
-						ClonFillStruct(elemPtr, rstruct2, elementInitializer, clon);
-					}
-					else if (ReflexIsEnum(member->reflexId))
-					{
-						const ReflexEnum *renum = ReflexGetEnum(member->reflexId);
-						ClonFillEnum(elemPtr, renum, elementInitializer, clon);
-					}
-					else
-					{
-						LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
-					}
+					ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
 				}
-				else if (member->pointerCount == 1)
+				else if (ReflexIsStruct(member->reflexId))
 				{
-					if (expression->type == CAST_EXPR_IDENTIFIER)
-					{
-						// TODO: Avoid this allocation
-						char *globalName = new char[expression->constant.size+1];
-						StrCopyN(globalName, expression->constant.str, expression->constant.size);
-						const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
-						*(void**)elemPtr = clonGlobal->data;
-					}
-					else
-					{
-						LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct->name);
-					}
+					const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
+					ClonFillStruct(elemPtr, rstruct2, elementInitializer, clon);
+				}
+				else if (ReflexIsEnum(member->reflexId))
+				{
+					const ReflexEnum *renum = ReflexGetEnum(member->reflexId);
+					ClonFillEnum(elemPtr, renum, elementInitializer, clon);
 				}
 				else
 				{
-					LOG(Error, "Unsupported more than one level of pointer indirections.\n");
+					LOG(Error, "Invalid code path: Unhandled type for member %s.\n", member->name);
 				}
 			}
+			else if (member->pointerCount == 1)
+			{
+				if (expression->type == CAST_EXPR_IDENTIFIER)
+				{
+					// TODO: Avoid this allocation
+					char *globalName = new char[expression->constant.size+1];
+					StrCopyN(globalName, expression->constant.str, expression->constant.size);
+					const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
+					*(void**)elemPtr = clonGlobal->data;
+				}
+				else
+				{
+					LOG(Error, "Unsupported expression type for member %s of type %s*.\n", member->name, rstruct->name);
+				}
+			}
+			else
+			{
+				LOG(Error, "Unsupported more than one level of pointer indirections.\n");
+			}
+		}
 
-			membersInitializerList = membersInitializerList->next;
-		}
-		else
-		{
-			String design = designator->identifier;
-			LOG(Error, "Invalid code path: Designator .%.*s not matching declaration order in struct %s.\n", design.size, design.str, rstruct->name);
-		}
+		memberInitializerList = memberInitializerList->next;
 	}
 }
 
