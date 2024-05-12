@@ -280,6 +280,7 @@ struct CastExpression
 {
 	CastExpressionType type;
 	CastString constant; // TODO: Expressions can be much more complex
+	bool negative;
 };
 
 struct CastDirectDeclarator
@@ -1212,12 +1213,13 @@ static CastExpression *Cast_ParseExpression( CParser &parser, CTokenList &tokenL
 	CAST_BACKUP();
 	// TODO: Expressions can be much more complex than simple constants
 	CastExpression *expression = NULL;
-	CParser_TryConsume(parser, TOKEN_MINUS);
+	const bool negative = CParser_TryConsume(parser, TOKEN_MINUS);
 	if ( CParser_TryConsume(parser, TOKEN_NUMBER) )
 	{
 		const CToken &token = CParser_GetPreviousToken(parser);
 		expression = CAST_NODE( CastExpression );
 		expression->type = CAST_EXPR_NUMBER;
+		expression->negative = negative;
 		expression->constant = token.lexeme;
 	}
 	else if ( CParser_TryConsume(parser, TOKEN_STRING ) )
@@ -1909,7 +1911,7 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 		if ( ast->type == CAST_EXPR_NUMBER ) { \
 			res = StrToType(ast->constant); \
 		} \
-		return res; \
+		return ast->negative ? -res : res; \
 	}
 
 CAST_DEFINE_EVALUATE_FUNCTION(bool, Bool, CastStrToBool);
