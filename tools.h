@@ -530,12 +530,12 @@ const char *InternString(const char *str)
 		{
 			return currIntern->str;
 		}
-		currInternOffset += currIntern->size;
+		currInternOffset += currIntern->size + 1;
 		currIntern = (StringIntern*)g_stringInterning.data + currInternOffset;
 	}
 
-	const u32 currInternSize = sizeof(StringIntern) + StrLen(str) + 1;
-	ASSERT( currInternOffset + currInternSize <= g_stringInterning.size );
+	const u32 currInternSize = sizeof(StringIntern) + StrLen(str);
+	ASSERT( currInternOffset + currInternSize + 1 <= g_stringInterning.size );
 	currIntern->size = currInternSize;
 	currIntern->str = (char*)g_stringInterning.data + currInternOffset + sizeof(StringIntern);
 	StrCopy(currIntern->str, str);
