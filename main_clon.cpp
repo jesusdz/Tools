@@ -1,12 +1,12 @@
 #include "tools.h"
 #include "clon.h"
 
-#include "assets.h"
+#include "assets/assets.h"
 
 int main(int argc, char **argv)
 {
 	// File to parse
-	const char *filename = "assets.h";
+	const char *filename = "assets/assets.h";
 
 	// Create a memory arena
 	u32 memorySize = MB(1);
@@ -25,7 +25,7 @@ int main(int argc, char **argv)
 
 	// Parse file
 	Clon clon = {};
-	if (ClonParse(&arena, chunk->chars, chunk->size, &clon))
+	if (ClonParse(&clon, &arena, chunk->chars, chunk->size))
 	{
 		const char *type_name = "Assets";
 		const char *global_name = "gAssets";

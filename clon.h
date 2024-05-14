@@ -37,7 +37,7 @@ struct Clon
 	ClonGlobalsList *globalsList;
 };
 
-void ClonAddGlobal(Arena *arena, Clon *clon, const char *typeName, const char *name, void *data, u32 elemCount)
+void ClonAddGlobal(Clon *clon, Arena *arena, const char *typeName, const char *name, void *data, u32 elemCount)
 {
 	ClonGlobalsList *globalsList = clon->globalsList;
 	if (!globalsList || globalsList->globalsCount == CLON_GLOBALS_LIST_SIZE)
@@ -99,7 +99,7 @@ const ClonGlobal *ClonGetGlobal(const Clon *clon, const char *global_name)
 	return NULL;
 }
 
-void ClonFillTrivial(void *dataPtr, ReflexID reflexId, const CastInitializer *initializer, const Clon *clon)
+void ClonFillTrivial(const Clon *clon, Arena *arena, void *dataPtr, ReflexID reflexId, const CastInitializer *initializer)
 {
 	const CastExpression *expression = CAST_CHILD(initializer, expression);
 	if (expression)
@@ -138,8 +138,7 @@ void ClonFillTrivial(void *dataPtr, ReflexID reflexId, const CastInitializer *in
 		}
 		else if (expression->type == CAST_EXPR_STRING)
 		{
-			// TODO: Avoid this allocation
-			char *str = new char[expression->constant.size+1];
+			char *str = PushArray(*arena, char, expression->constant.size+1);
 			StrCopyN(str, expression->constant.str, expression->constant.size);
 			*(char **)dataPtr = str;
 		}
@@ -173,7 +172,7 @@ void ClonFillTrivial(void *dataPtr, ReflexID reflexId, const CastInitializer *in
 	}
 }
 
-void ClonFillEnum(void *enumData, const ReflexEnum *reflexEnum, const CastInitializer *initializer, const Clon *clon)
+void ClonFillEnum(const Clon *clon, void *enumData, const ReflexEnum *reflexEnum, const CastInitializer *initializer)
 {
 	const CastExpression *expression = CAST_CHILD(initializer, expression);
 	if (expression)
@@ -196,7 +195,7 @@ void ClonFillEnum(void *enumData, const ReflexEnum *reflexEnum, const CastInitia
 	}
 }
 
-void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastInitializer *initializer, const Clon *clon)
+void ClonFillStruct(const Clon *clon, Arena *arena, void *structData, const ReflexStruct *rstruct, const CastInitializer *initializer)
 {
 	const CastInitializerList *baseMemberInitializerList = CAST_CHILD(initializer, initializerList);
 	const CastInitializerList *memberInitializerList = baseMemberInitializerList;
@@ -269,17 +268,17 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 			{
 				if (ReflexIsTrivial(member->reflexId))
 				{
-					ClonFillTrivial(elemPtr, member->reflexId, elementInitializer, clon);
+					ClonFillTrivial(clon, arena, elemPtr, member->reflexId, elementInitializer);
 				}
 				else if (ReflexIsStruct(member->reflexId))
 				{
 					const ReflexStruct *rstruct2 = ReflexGetStruct(member->reflexId);
-					ClonFillStruct(elemPtr, rstruct2, elementInitializer, clon);
+					ClonFillStruct(clon, arena, elemPtr, rstruct2, elementInitializer);
 				}
 				else if (ReflexIsEnum(member->reflexId))
 				{
 					const ReflexEnum *renum = ReflexGetEnum(member->reflexId);
-					ClonFillEnum(elemPtr, renum, elementInitializer, clon);
+					ClonFillEnum(clon, elemPtr, renum, elementInitializer);
 				}
 				else
 				{
@@ -290,8 +289,7 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 			{
 				if (expression->type == CAST_EXPR_IDENTIFIER)
 				{
-					// TODO: Avoid this allocation
-					char *globalName = new char[expression->constant.size+1];
+					char *globalName = PushArray(*arena, char, expression->constant.size+1);
 					StrCopyN(globalName, expression->constant.str, expression->constant.size);
 					const ClonGlobal *clonGlobal = ClonGetGlobal(clon, globalName);
 					*(void**)elemPtr = clonGlobal->data;
@@ -311,7 +309,7 @@ void ClonFillStruct(void *structData, const ReflexStruct *rstruct, const CastIni
 	}
 }
 
-bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
+bool ClonParse(Clon *clon, Arena *arena, const char *data, u32 dataSize)
 {
 	const Cast *cast = Cast_Create(*arena, data, dataSize);
 	if (cast)
@@ -347,7 +345,6 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 
 				if (typeSpecifier && typeSpecifier->type == CAST_IDENTIFIER)
 				{
-					// TODO: Unify string allocations
 					char *globalTypeName = PushArray(*arena, char, typeSpecifier->identifier.size+1);
 					StrCopy(globalTypeName, typeSpecifier->identifier);
 
@@ -362,12 +359,11 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 							initializer->initializerCount;
 						const u32 globalSize = typeSize * elemCount;
 
-						// TODO: Unify string allocations
 						char *globalName = PushArray(*arena, char, directDeclarator->name.size+1);
 						StrCopy(globalName, directDeclarator->name);
 
 						void *globalData = PushSize(*arena, globalSize);
-						ClonAddGlobal(arena, clon, globalTypeName, globalName, globalData, elemCount);
+						ClonAddGlobal(clon, arena, globalTypeName, globalName, globalData, elemCount);
 
 						if ( isArray )
 						{
@@ -377,7 +373,7 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 							while (initializerList)
 							{
 								const CastInitializer *structInitializer = CAST_CHILD(initializerList, initializer);
-								ClonFillStruct((byte*)globalData + elemIndex * typeSize, rstruct, structInitializer, clon);
+								ClonFillStruct(clon, arena, (byte*)globalData + elemIndex * typeSize, rstruct, structInitializer);
 								initializerList = initializerList->next;
 								elemIndex++;
 							}
@@ -385,7 +381,7 @@ bool ClonParse(Arena *arena, const char *data, u32 dataSize, Clon *clon)
 						else
 						{
 							const CastInitializer *structInitializer = initializer;
-							ClonFillStruct(globalData, rstruct, initializer, clon);
+							ClonFillStruct(clon, arena, globalData, rstruct, initializer);
 						}
 					}
 				}
