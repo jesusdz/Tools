@@ -76,6 +76,8 @@
 
 #define INVALID_HANDLE -1
 
+#define InternString(str) MakeStringIntern(gStringInterning, str)
+static StringInterning *gStringInterning;
 
 
 enum HeapType
@@ -2653,7 +2655,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	}
 
 	Clon clon = {};
-	const bool clonOk = ClonParse(&scratch, chunk->chars, chunk->size, &clon);
+	const bool clonOk = ClonParse(&clon, &scratch, chunk->chars, chunk->size);
 	if (!clonOk)
 	{
 		LOG(Error, "Error in ClonParse file: %s\n", assetsPath.str);
@@ -3443,6 +3445,8 @@ Graphics &GetPlatformGraphics(Platform &platform)
 
 bool EngineInit(Platform &platform)
 {
+	gStringInterning = &platform.stringInterning;
+
 	Graphics &gfx = GetPlatformGraphics(platform);
 
 #if USE_IMGUI
@@ -3549,7 +3553,7 @@ void EngineCleanup(Platform &platform)
 	CleanupGraphicsDevice(gfx);
 }
 
-int main(int argc, char **argv)
+void EngineMain( void *userData )
 {
 	Platform platform = {};
 
@@ -3565,12 +3569,20 @@ int main(int argc, char **argv)
 	platform.WindowInitCallback = EngineWindowInit;
 	platform.WindowCleanupCallback = EngineWindowCleanup;
 
+#if PLATFORM_ANDROID
+	platform.androidApp = (android_app*)userData;
+#endif
+
 	// User data
 	Graphics gfx = {};
 	platform.userData = &gfx;
 
 	PlatformRun(platform);
+}
 
+int main(int argc, char **argv)
+{
+	EngineMain(NULL);
 	return 1;
 }
 

@@ -492,59 +492,6 @@ void MemCopy(void *dst, const void *src, u32 size)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// String interning
-
-struct StringIntern
-{
-	u32 size; // size of `size` field + string at `str` (including character `\0`)
-	char *str;
-};
-
-struct StringInterning
-{
-	byte *data; // Raw pointer to memory to contain all the string interns
-	u32 size; // Size of the chunk of memory pointed to by `data`
-	StringIntern *firstIntern;
-};
-
-StringInterning g_stringInterning = {};
-
-void SetStringInterningMemory(byte *data, u32 size)
-{
-	ASSERT(g_stringInterning.data == 0);
-	g_stringInterning.data = data;
-	g_stringInterning.size = size;
-	g_stringInterning.firstIntern = (StringIntern*)data;
-	MemSet(data, size, 0);
-}
-
-const char *InternString(const char *str)
-{
-	ASSERT(g_stringInterning.data != 0);
-
-	StringIntern *currIntern = g_stringInterning.firstIntern;
-	u32 currInternOffset = 0;
-	while (currIntern->size > 0)
-	{
-		if ( StrEq(str, currIntern->str) )
-		{
-			return currIntern->str;
-		}
-		currInternOffset += currIntern->size + 1;
-		currIntern = (StringIntern*)g_stringInterning.data + currInternOffset;
-	}
-
-	const u32 currInternSize = sizeof(StringIntern) + StrLen(str);
-	ASSERT( currInternOffset + currInternSize + 1 <= g_stringInterning.size );
-	currIntern->size = currInternSize;
-	currIntern->str = (char*)g_stringInterning.data + currInternOffset + sizeof(StringIntern);
-	StrCopy(currIntern->str, str);
-	return currIntern->str;
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 // Arena
 
 struct Arena
@@ -597,6 +544,14 @@ byte* PushZeroSize(Arena &arena, u32 size)
 	return bytes;
 }
 
+char *PushStringN(Arena &arena, const char *str, u32 len)
+{
+	char *bytes = (char*)PushSize(arena, len+1);
+	MemCopy(bytes, str, len);
+	bytes[len] = 0;
+	return bytes;
+}
+
 void ResetArena(Arena &arena)
 {
 	// This tells the OS we don't need these pages
@@ -616,6 +571,84 @@ void PrintArenaUsage(Arena &arena)
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 #define PushZeroStruct( arena, struct_type ) (struct_type*)PushZeroSize(arena, sizeof(struct_type))
 #define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * count)
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// String interning
+
+struct StringIntern
+{
+	char *str;
+	u32 hash;
+};
+
+struct StringInterningNode
+{
+	StringIntern stringIntern;
+	StringInterningNode *next;
+};
+
+struct StringInterningTable
+{
+	StringInterningNode* bins[1024];
+};
+
+struct StringInterning
+{
+	Arena *arena;
+	StringInterningTable *table;
+};
+
+StringInterning StringInterningCreate(Arena *arena)
+{
+	StringInterning interning = {
+		.arena = arena,
+		.table = PushZeroStruct(*arena, StringInterningTable),
+	};
+	return interning;
+}
+
+const char *MakeStringIntern(StringInterning *context, const char *str, u32 len)
+{
+	ASSERT(context && context->table);
+	const u32 hash = HashFNV(str, len);
+	const u32 index = hash % ARRAY_COUNT(context->table->bins);
+
+	StringInterningNode *next = NULL;
+
+	if (context->table->bins[index])
+	{
+		StringInterningNode *node = context->table->bins[index];
+		while (node)
+		{
+			if (node->stringIntern.hash == hash) // same hash?
+			{
+				if (StrEq(node->stringIntern.str, str)) // same string?
+				{
+					return node->stringIntern.str; // found!
+				}
+			}
+			node = node->next; // collision! keep searching...
+		}
+		next = context->table->bins[index];
+	}
+
+	// No coincidence found, insert a new node
+	StringInterningNode *node = PushZeroStruct(*(context->arena), StringInterningNode);
+	node->stringIntern.str = PushStringN(*(context->arena), str, len);
+	node->stringIntern.hash = hash;
+	node->next = next;
+	context->table->bins[index] = node;
+	return node->stringIntern.str;
+}
+
+const char *MakeStringIntern(StringInterning *context, const char *str)
+{
+	const u32 len = StrLen(str);
+	const char *internStr = MakeStringIntern(context, str, len);
+	return internStr;
+}
 
 
 
@@ -1494,6 +1527,8 @@ struct Platform
 
 	Arena globalArena;
 	Arena frameArena;
+	Arena stringArena;
+	StringInterning stringInterning;
 	Window window;
 	f32 deltaSeconds;
 };
@@ -2226,16 +2261,18 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
-	byte *stringMemory = (byte*)AllocateVirtualMemory(platform.stringMemorySize);
-	SetStringInterningMemory(stringMemory, platform.stringMemorySize);
-
 	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
 	platform.globalArena = MakeArena(baseMemory, platform.globalMemorySize);
 
 	byte *frameMemory = (byte*)AllocateVirtualMemory(platform.frameMemorySize);
 	platform.frameArena = MakeArena(frameMemory, platform.frameMemorySize);
 
+	byte *stringMemory = (byte*)AllocateVirtualMemory(platform.stringMemorySize);
+	platform.stringArena = MakeArena(stringMemory, platform.stringMemorySize);
+	platform.stringInterning = StringInterningCreate(&platform.stringArena);
+
 #if PLATFORM_ANDROID
+	ASSERT( platform.androidApp );
 	platform.androidApp = platform.androidApp;
 	platform.androidApp->onAppCmd = AndroidHandleAppCommand;
 	platform.androidApp->onInputEvent = AndroidHandleInputEvent;
