@@ -162,6 +162,7 @@ typedef u32 PipelineH;
 struct Compute
 {
 	const char *name;
+	VkPipeline handle;
 };
 
 typedef u32 ComputeH;
@@ -1171,14 +1172,6 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	return pipelineHandle;
 }
 
-ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
-{
-	ASSERT( gfx.computeCount < ARRAY_COUNT(gfx.computes) );
-	ComputeH computeHandle = gfx.computeCount++;
-	gfx.computes[computeHandle].name = desc.name;
-	return computeHandle;
-}
-
 const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
 {
 	const Pipeline &pipeline = gfx.pipelines[handle];
@@ -1194,6 +1187,32 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 	}
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
+}
+
+ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
+{
+	ASSERT( gfx.computeCount < ARRAY_COUNT(gfx.computes) );
+
+	const ShaderSource shaderSource = GetShaderSource(arena, desc.filename);
+	const ShaderModule shaderModule = CreateShaderModule(gfx, shaderSource);
+
+	VkPipelineShaderStageCreateInfo computeShaderStageInfo = {};
+	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	computeShaderStageInfo.module = shaderModule.handle;
+	computeShaderStageInfo.pName = "main";
+
+	DestroyShaderModule(gfx, shaderModule);
+
+	ComputeH computeHandle = gfx.computeCount++;
+	gfx.computes[computeHandle].name = desc.name;
+	return computeHandle;
+}
+
+const Compute &GetCompute(const Graphics &gfx, ComputeH handle)
+{
+	const Compute &compute = gfx.computes[handle];
+	return compute;
 }
 
 Image CreateImage(const Graphics &gfx, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
@@ -2124,7 +2143,9 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 				presentFamilyIndex = i;
 			}
 
-			if ( queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT )
+			// We want the gfx queue to support both gfx and compute tasks
+			if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+				(queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
 			{
 				gfxFamilyIndex = i;
 			}
@@ -2825,6 +2846,12 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		vkDestroyPipelineLayout( gfx.device, pipeline.layout, VULKAN_ALLOCATORS );
 		vkDestroyDescriptorSetLayout( gfx.device, pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
 		vkDestroyDescriptorSetLayout( gfx.device, pipeline.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
+	}
+
+	for (u32 i = 0; i < gfx.computeCount; ++i)
+	{
+		const Compute &compute = GetCompute(gfx, i);
+		vkDestroyPipeline( gfx.device, compute.handle, VULKAN_ALLOCATORS );
 	}
 
 	vkDestroyRenderPass( gfx.device, gfx.renderPass, VULKAN_ALLOCATORS );
