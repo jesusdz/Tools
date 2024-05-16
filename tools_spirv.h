@@ -109,6 +109,7 @@ enum SpvType
 	SpvTypeSampledImage,
 	SpvTypeUniformBuffer,
 	SpvTypeStorageBuffer,
+	SpvTypeStorageTexelBuffer,
 	SpvTypeCount
 };
 
@@ -121,10 +122,33 @@ static const char *SpvTypeStrings[] =
 	"SpvTypeUniformBuffer",
 };
 
+enum SpvDim
+{
+	SpvDim1D,
+	SpvDim2D,
+	SpvDim3D,
+	SpvDimCube,
+	SpvDimRect,
+	SpvDimBuffer,
+	SpvDimSubpassData,
+};
+
+static const char *SpvDimStrings[] =
+{
+	"SpvDim1D",
+	"SpvDim2D",
+	"SpvDim3D",
+	"SpvDimCube",
+	"SpvDimRect",
+	"SpvDimBuffer",
+	"SpvDimSubpassData",
+};
+
 enum SpvExecutionModel
 {
 	SpvExecutionModelVertex = 0,
 	SpvExecutionModelFragment = 4,
+	SpvExecutionModelCompute = 5,
 };
 
 enum SpvDecoration
@@ -144,6 +168,7 @@ enum SpvStageFlagBits
 {
 	SpvStageFlagsVertexBit = (1<<0),
 	SpvStageFlagsFragmentBit = (1<<1),
+	SpvStageFlagsComputeBit = (1<<1),
 };
 
 typedef spv_u8 SpvStageFlags;
@@ -311,12 +336,20 @@ static void SpvTryParseType(SpvParser *parser, SpvId *ids)
 
 	spv_u32 resultId = 0;
 	spv_u32 typeId = 0;
+	spv_u32 dim = 0;
+	spv_u32 sampledType = 0;
 	spv_u32 firstFieldTypeId = 0;
 
 	switch ( opCode ) {
 		case SpvOpTypeImage:
 			resultId = words[1];
-			ids[resultId].type = SpvTypeImage;
+			sampledType = words[2];
+			dim = words[3];
+			if (dim == SpvDimBuffer) {
+				ids[resultId].type = SpvTypeStorageTexelBuffer;
+			} else {
+				ids[resultId].type = SpvTypeImage;
+			}
 			break;
 		case SpvOpTypeSampler:
 			resultId = words[1];
@@ -449,6 +482,7 @@ bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetL
 				descriptor->type = ids[id].type;
 				descriptor->stageFlags |= executionModel == SpvExecutionModelVertex ? SpvStageFlagsVertexBit : 0;
 				descriptor->stageFlags |= executionModel == SpvExecutionModelFragment ? SpvStageFlagsFragmentBit : 0;
+				descriptor->stageFlags |= executionModel == SpvExecutionModelCompute ? SpvStageFlagsComputeBit : 0;
 				descriptor->name = ids[id].name;
 			}
 			else
@@ -765,6 +799,7 @@ void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList)
 				SPV_PRINTF("    stages = ");
 				if ( desc->stageFlags & SpvStageFlagsVertexBit ) SPV_PRINTF("Vertex ");
 				if ( desc->stageFlags & SpvStageFlagsFragmentBit ) SPV_PRINTF("Fragment ");
+				if ( desc->stageFlags & SpvStageFlagsComputeBit ) SPV_PRINTF("Compute ");
 				SPV_PRINTF("\n");
 			}
 		}
