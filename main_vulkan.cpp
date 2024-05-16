@@ -162,6 +162,8 @@ typedef u32 PipelineH;
 struct Compute
 {
 	const char *name;
+	VkDescriptorSetLayout globalDescriptorSetLayout;
+	VkPipelineLayout layout;
 	VkPipeline handle;
 };
 
@@ -866,6 +868,7 @@ static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
 		case SpvTypeSampledImage: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		case SpvTypeUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		case SpvTypeStorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; // Should be DYNAMIC if we use dynamic offsets
+		case SpvTypeStorageTexelBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
 		default: INVALID_CODE_PATH();
 	}
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
@@ -876,6 +879,7 @@ static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
 	VkShaderStageFlags vkStageFlags = 0;
 	vkStageFlags |= ( stageFlags & SpvStageFlagsVertexBit ) ? VK_SHADER_STAGE_VERTEX_BIT : 0;
 	vkStageFlags |= ( stageFlags & SpvStageFlagsFragmentBit ) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsComputeBit ) ? VK_SHADER_STAGE_COMPUTE_BIT : 0;
 	return vkStageFlags;
 }
 
@@ -905,18 +909,19 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
 {
-	ShaderReflection reflection = {};
-
 	void *tempMem = scratch.base + scratch.used;
 	const u32 tempMemSize = scratch.size - scratch.used;
 
-	SpvParser parserForVertex = SpvParserInit( vertexSource.data, vertexSource.dataSize );
-	SpvParser parserForFragment = SpvParserInit( fragmentSource.data, fragmentSource.dataSize );
 	SpvDescriptorSetList spvDescriptorList = {};
-	SpvParseDescriptors( &parserForVertex, &spvDescriptorList, tempMem, tempMemSize );
-	SpvParseDescriptors( &parserForFragment, &spvDescriptorList, tempMem, tempMemSize );
+	for (u32 i = 0; i < microcodeCount; ++i)
+	{
+		SpvParser parser = SpvParserInit( microcodeData[i], microcodeSize[i] );
+		SpvParseDescriptors( &parser, &spvDescriptorList, tempMem, tempMemSize );
+	}
+
+	ShaderReflection reflection = {};
 
 	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
 	{
@@ -947,10 +952,59 @@ ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const Sh
 	return shaderReflectionHandle;
 }
 
+ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &source )
+{
+	byte* microcodeData[] = { source.data };
+	const u64 microcodeSize[] = { source.dataSize };
+	ShaderReflectionH reflectionH = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return reflectionH;
+}
+
+ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+{
+	byte* microcodeData[] = { vertexSource.data, fragmentSource.data };
+	const u64 microcodeSize[] = { vertexSource.dataSize, fragmentSource.dataSize };
+	ShaderReflectionH reflectionH = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return reflectionH;
+}
+
 const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflectionH handle )
 {
 	const ShaderReflection &reflection = gfx.shaderReflections[handle];
 	return reflection;
+}
+
+void CreateDescriptorSetLayouts( const Graphics &gfx, const ShaderReflection &shaderReflection, VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS], u32 &descriptorSetLayoutCount )
+{
+	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
+	{
+		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+		u32 bindingCount = 0;
+
+		for (u32 bindingIndex = 0; bindingIndex < shaderReflection.bindingCount; ++bindingIndex)
+		{
+			const ShaderBinding &shaderBinding = shaderReflection.bindings[bindingIndex];
+
+			if ( shaderBinding.set == set )
+			{
+				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
+				binding.binding = shaderBinding.binding;
+				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
+				binding.descriptorCount = 1;
+				binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
+				binding.pImmutableSamplers = NULL;
+			}
+		}
+
+		if (bindingCount > 0)
+		{
+			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
+			descriptorSetLayoutCreateInfo.pBindings = bindings;
+			VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
+		}
+	}
 }
 
 PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
@@ -1092,40 +1146,12 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
 	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
 
-	// Pipeline layout
+	// Descriptor set layouts
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
 	u32 descriptorSetLayoutCount = 0;
+	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
 
-	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
-	{
-		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-		u32 bindingCount = 0;
-
-		for (u32 bindingIndex = 0; bindingIndex < shaderReflection.bindingCount; ++bindingIndex)
-		{
-			const ShaderBinding &shaderBinding = shaderReflection.bindings[bindingIndex];
-
-			if ( shaderBinding.set == set )
-			{
-				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
-				binding.binding = shaderBinding.binding;
-				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
-				binding.descriptorCount = 1;
-				binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
-				binding.pImmutableSamplers = NULL;
-			}
-		}
-
-		if (bindingCount > 0)
-		{
-			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
-			descriptorSetLayoutCreateInfo.pBindings = bindings;
-			VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
-		}
-	}
-
+	// Pipeline layout
 	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
 	VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
 
@@ -1191,10 +1217,13 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 
 ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
 {
+	Arena scratch = arena;
 	ASSERT( gfx.computeCount < ARRAY_COUNT(gfx.computes) );
 
-	const ShaderSource shaderSource = GetShaderSource(arena, desc.filename);
+	const ShaderSource shaderSource = GetShaderSource(scratch, desc.filename);
 	const ShaderModule shaderModule = CreateShaderModule(gfx, shaderSource);
+	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, shaderSource);
+	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
 
 	VkPipelineShaderStageCreateInfo computeShaderStageInfo = {};
 	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1202,10 +1231,38 @@ ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
 	computeShaderStageInfo.module = shaderModule.handle;
 	computeShaderStageInfo.pName = "main";
 
+	// Descriptor set layouts
+	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
+	u32 descriptorSetLayoutCount = 0;
+	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
+
+	// Pipeline layout
+	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
+	//VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutCreateInfo.setLayoutCount = descriptorSetLayoutCount;
+	pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts;
+
+	VkPipelineLayout pipelineLayout;
+	VK_CALL( vkCreatePipelineLayout(gfx.device, &pipelineLayoutCreateInfo, VULKAN_ALLOCATORS, &pipelineLayout) );
+
+	VkComputePipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.layout = pipelineLayout;
+	pipelineInfo.stage = computeShaderStageInfo;
+
+	VkPipeline computePipeline;
+	VK_CALL( vkCreateComputePipelines(gfx.device, gfx.pipelineCache, 1, &pipelineInfo, VULKAN_ALLOCATORS, &computePipeline) );
+
 	DestroyShaderModule(gfx, shaderModule);
 
 	ComputeH computeHandle = gfx.computeCount++;
 	gfx.computes[computeHandle].name = desc.name;
+	gfx.computes[computeHandle].globalDescriptorSetLayout = globalDescriptorSetLayout;
+	gfx.computes[computeHandle].handle = computePipeline;
+	gfx.computes[computeHandle].layout = pipelineLayout;
 	return computeHandle;
 }
 
@@ -2852,6 +2909,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 	{
 		const Compute &compute = GetCompute(gfx, i);
 		vkDestroyPipeline( gfx.device, compute.handle, VULKAN_ALLOCATORS );
+		vkDestroyPipelineLayout( gfx.device, compute.layout, VULKAN_ALLOCATORS );
+		vkDestroyDescriptorSetLayout( gfx.device, compute.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
 	}
 
 	vkDestroyRenderPass( gfx.device, gfx.renderPass, VULKAN_ALLOCATORS );
