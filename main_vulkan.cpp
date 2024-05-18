@@ -1023,13 +1023,13 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertexShaderStageCreateInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
 	vertexShaderStageCreateInfo.module = vertexShaderModule.handle;
-	vertexShaderStageCreateInfo.pName = "main";
+	vertexShaderStageCreateInfo.pName = desc.vsFunction ? desc.vsFunction : "main";
 
 	VkPipelineShaderStageCreateInfo fragmentShaderStageCreateInfo = {};
 	fragmentShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragmentShaderStageCreateInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	fragmentShaderStageCreateInfo.module = fragmentShaderModule.handle;
-	fragmentShaderStageCreateInfo.pName = "main";
+	fragmentShaderStageCreateInfo.pName = desc.fsFunction ? desc.fsFunction : "main";
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
 
@@ -1229,7 +1229,7 @@ ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
 	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 	computeShaderStageInfo.module = shaderModule.handle;
-	computeShaderStageInfo.pName = "main";
+	computeShaderStageInfo.pName = desc.function ? desc.function : "main";
 
 	// Descriptor set layouts
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};

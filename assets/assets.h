@@ -18,12 +18,15 @@ struct PipelineDesc
 	const char *name;
 	const char *vsFilename;
 	const char *fsFilename;
+	const char *vsFunction;
+	const char *fsFunction;
 };
 
 struct ComputeDesc
 {
 	const char *name;
 	const char *filename;
+	const char *function;
 };
 
 struct MaterialDesc
@@ -88,7 +91,8 @@ static const PipelineDesc pipelines[] =
 
 static const ComputeDesc computes[] =
 {
-	{ .name = "compute", .filename = "shaders/compute.spv" },
+	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
+	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 };
 
 static const MaterialDesc materials[] =

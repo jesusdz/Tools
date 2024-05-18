@@ -29,9 +29,10 @@ cast:
 	${CXX} ${CXXFLAGS} -o cast cast.cpp
 
 shaders:
-	${DXC} -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl
-	${DXC} -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl
-	${DXC} -spirv -T cs_6_7 -Fo shaders/compute.spv -Fc shaders/compute.dis shaders/compute.hlsl
+	${DXC} -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl -E main
+	${DXC} -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl -E main
+	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl -E main_clear
+	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl -E main_update
 
 clean:
 	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
