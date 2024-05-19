@@ -1,5 +1,6 @@
+#include "globals.hlsl"
 
-RWBuffer<float> outBuffer : register(u1);  // RW for read-write, register(u1) for slot assignment
+RWBuffer<float> outBuffer : REGISTER_U(0, 0);
 
 [numthreads(1, 1, 1)]
 void main_clear( uint3 dtid : SV_DispatchThreadID )

@@ -2,11 +2,17 @@
 #include "defines.hlsl"
 
 // register( name<binding>, space<descriptor set> )
-
 #define REGISTER(reg, binding, set) register(reg##binding, space##set)
+
+// Types of registers:
+// t – for shader resource views (SRV)
+// s – for samplers
+// u – for unordered access views (UAV)
+// b – for constant buffer views (CBV)
 #define REGISTER_B(binding, set) REGISTER(b, binding, set)
 #define REGISTER_S(binding, set) REGISTER(s, binding, set)
 #define REGISTER_T(binding, set) REGISTER(t, binding, set)
+#define REGISTER_U(binding, set) REGISTER(u, binding, set)
 
 // Space 0: Globals
 ConstantBuffer<Globals> globals    : REGISTER_B(BINDING_GLOBALS,  DESCRIPTOR_SET_GLOBAL);
