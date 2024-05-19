@@ -168,7 +168,7 @@ enum SpvStageFlagBits
 {
 	SpvStageFlagsVertexBit = (1<<0),
 	SpvStageFlagsFragmentBit = (1<<1),
-	SpvStageFlagsComputeBit = (1<<1),
+	SpvStageFlagsComputeBit = (1<<2),
 };
 
 typedef spv_u8 SpvStageFlags;
