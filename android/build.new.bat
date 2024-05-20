@@ -76,8 +76,8 @@ call %GCC% -fPIC -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_n
 echo %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 call %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 
-echo %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\jni\main.cpp -o main.o
-call %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\jni\main.cpp -o main.o
+echo %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\..\main_vulkan.cpp -o main.o
+call %GXX% -I%NATIVE_APP_GLUE_DIR% --sysroot=%TOOLCHAIN%\sysroot -std=gnu++11 -fPIC -c ..\..\main_vulkan.cpp -o main.o
 
 echo %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
 call %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -lEGL -lGLESv1_CM -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so

@@ -3858,16 +3858,22 @@ void EngineMain( void *userData )
 	PlatformRun(platform);
 }
 
+#if PLATFORM_ANDROID
+void android_main(struct android_app* app)
+{
+	EngineMain(app);
+}
+#else
 int main(int argc, char **argv)
 {
 	EngineMain(NULL);
 	return 1;
 }
+#endif
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
 // - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
-// - [ ] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
 // - [ ] Avoid duplicated global descriptor sets.
 //
@@ -3875,4 +3881,5 @@ int main(int argc, char **argv)
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
 // - [X] Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 // - [X] Put all the geometry in the same buffer.
+// - [X] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
 

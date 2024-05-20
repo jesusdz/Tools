@@ -67,6 +67,7 @@ mkdir %OUT_LIB_DIR% 2> nul
 
 pushd obj
 
+set CODE_DIR="../.."
 set INCLUDES="-I../../"
 set GCC_FLAGS=-fPIC
 set GCC_FLAGS=%GCC_FLAGS% -g -O0
@@ -81,8 +82,8 @@ call %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o and
 echo %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 call %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 
-echo %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c ..\jni\main.cpp -o main.o
-call %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c ..\jni\main.cpp -o main.o
+echo %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\main_vulkan.cpp -o main.o
+call %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\main_vulkan.cpp -o main.o
 
 echo %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so
 call %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ..\%OUT_LIB_DIR%\libgame.so

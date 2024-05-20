@@ -27,6 +27,7 @@ if [[ ${target} = "build" ]]; then
 	pushd obj
 	echo ""
 
+	CODE_DIR="../.."
 	INCLUDES="-I../../"
 	GCC_FLAGS="-fPIC"
 	GCC_FLAGS="${GCC_FLAGS} -g -O0" # With debug info
@@ -44,8 +45,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "main.o:"
-	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ../jni/main.cpp -o main.o
-	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ../jni/main.cpp -o main.o
+	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/main_vulkan.cpp -o main.o
+	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/main_vulkan.cpp -o main.o
 	echo ""
 
 	echo "libgame.so:"
