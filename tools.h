@@ -6,6 +6,7 @@
  * - Platform identification
  * - Assertions, debugging, errors, logging
  * - Aliases for sized types
+ * - Intrinsics
  * - Strings
  * - Hashing
  * - Memory allocators
@@ -177,6 +178,76 @@ void LinuxReportError(const char *context)
 }
 
 #endif
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Intrinsics
+
+#define TOOLS_USE_INTRINSICS 1
+
+#if TOOLS_USE_INTRINSICS
+#if PLATFORM_WINDOWS
+// Count trailing zeros
+u32 CTZ(u32 bitMask)
+{
+	ASSERT(bitMask != 0);
+	u32 firstBitSetIndex;
+	_BitScanForward(&firstBitSetIndex, bitMask);
+	return firstBitSetIndex;
+}
+
+// Count leading zeros
+u32 CLZ(u32 bitMask)
+{
+	ASSERT(bitMask != 0);
+	u32 lastBitSetIndex;
+	_BitScanReverse(&lastBitSetIndex, bitMask);
+	return 31 - lastBitSetIndex;
+}
+#else // #if PLATFORM_WINDOWS
+// Count trailing zeros
+u32 CTZ(u32 bitMask)
+{
+	ASSERT(bitMask != 0);
+	u32 count = __builtin_ctz(bitMask);
+	return count;
+}
+
+// Count leading zeros
+u32 CLZ(u32 bitMask)
+{
+	ASSERT(bitMask != 0);
+	u32 count = __builtin_clz(bitMask);
+	return count;
+}
+#endif // #else // #if PLATFORM_WINDOWS
+#else // #if TOOLS_USE_INTRINSICS
+// Count trailing zeros
+u32 CTZ(u32 bitMask)
+{
+	ASSERT(bitMask != 0);
+	u32 count = 0;
+	while ((bitMask & 1) == 0) {
+		bitMask >>= 1;
+		++count;
+	}
+	return count;
+}
+
+// Count leading zeros
+u32 CLZ(u32 bitMask)
+{
+	// TODO: This has not been tested
+	ASSERT(bitMask != 0);
+	u32 count = 0;
+	while ((bitMask & 0x80000000) == 0) {
+		bitMask <<= 1;
+		++count;
+	}
+	return count;
+}
+#endif // #else // #if TOOLS_USE_INTRINSICS
 
 
 
