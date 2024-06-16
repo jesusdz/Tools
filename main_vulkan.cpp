@@ -237,6 +237,11 @@ struct ShaderModule
 	VkShaderModule handle;
 };
 
+struct RenderPass
+{
+	VkRenderPass handle;
+};
+
 struct Material
 {
 	const char *name;
@@ -330,8 +335,6 @@ struct Graphics
 	VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
 	VkCommandPool transientCommandPool;
 
-	VkRenderPass renderPass;
-
 	VkSurfaceKHR surface;
 	SwapchainInfo swapchainInfo;
 	Swapchain swapchain;
@@ -347,6 +350,8 @@ struct Graphics
 	u32 currentFrame;
 
 	// TODO: Temporary stuff hardcoded here
+
+	RenderPass renderPass;
 
 	RenderTargets renderTargets;
 
@@ -1230,7 +1235,7 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	graphicsPipelineCreateInfo.pColorBlendState = &colorBlendingCreateInfo;
 	graphicsPipelineCreateInfo.pDynamicState = &dynamicStateCreateInfo;
 	graphicsPipelineCreateInfo.layout = pipelineLayout;
-	graphicsPipelineCreateInfo.renderPass = gfx.renderPass;
+	graphicsPipelineCreateInfo.renderPass = gfx.renderPass.handle;
 	graphicsPipelineCreateInfo.subpass = 0;
 	graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 	graphicsPipelineCreateInfo.basePipelineIndex = -1; // Optional
@@ -1963,44 +1968,76 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 	return true;
 }
 
-bool CreateRenderPass( const Graphics &gfx, VkRenderPass &renderPass )
+VkAttachmentLoadOp LoadOpToVk( LoadOp loadOp )
 {
-	// Create render pass
-	VkAttachmentDescription colorAttachmentDesc = {};
-	colorAttachmentDesc.format = gfx.swapchainInfo.format;
-	colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	colorAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	ASSERT(loadOp <= LoadOpDontCare);
+	static VkAttachmentLoadOp vkLoadOps[] = {
+		VK_ATTACHMENT_LOAD_OP_LOAD,
+		VK_ATTACHMENT_LOAD_OP_CLEAR,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	};
+	const VkAttachmentLoadOp vkLoadOp = vkLoadOps[loadOp];
+	return vkLoadOp;
+}
 
-	VkAttachmentReference colorAttachmentRef = {};
-	colorAttachmentRef.attachment = 0;
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+VkAttachmentStoreOp StoreOpToVk( StoreOp storeOp )
+{
+	ASSERT(storeOp <= StoreOpDontCare);
+	static VkAttachmentStoreOp vkStoreOps[] = {
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	};
+	const VkAttachmentStoreOp vkStoreOp = vkStoreOps[storeOp];
+	return vkStoreOp;
+}
 
-	VkAttachmentDescription depthAttachmentDesc = {};
-	depthAttachmentDesc.format = FindDepthFormat(gfx);
-	depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-	depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+RenderPass CreateRenderPass( const Graphics &gfx, const RenderpassDesc &desc )
+{
+	const u8 MAX_COLOR_ATTACHMENTS = 4;
+	const u8 MAX_DEPTH_ATTACHMENTS = 1;
+	ASSERT(desc.colorAttachmentCount <= MAX_COLOR_ATTACHMENTS);
 
+	VkAttachmentDescription attachmentDescs[MAX_COLOR_ATTACHMENTS + MAX_DEPTH_ATTACHMENTS] = {};
+	VkAttachmentReference colorAttachmentRefs[MAX_COLOR_ATTACHMENTS] = {};
 	VkAttachmentReference depthAttachmentRef = {};
-	depthAttachmentRef.attachment = 1;
-	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-	const VkAttachmentDescription attachments[] = { colorAttachmentDesc, depthAttachmentDesc };
+	for (u8 i = 0; i < desc.colorAttachmentCount; ++i)
+	{
+		attachmentDescs[i].format = gfx.swapchainInfo.format;
+		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachmentDescs[i].loadOp = LoadOpToVk( desc.colorAttachments[i].loadOp ); //VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachmentDescs[i].storeOp = StoreOpToVk( desc.colorAttachments[i].storeOp ); // VK_ATTACHMENT_STORE_OP_STORE;
+		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachmentDescs[i].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		colorAttachmentRefs[i].attachment = i;
+		colorAttachmentRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	}
+
+	if ( desc.hasDepthAttachment )
+	{
+		const u8 depthAttachmentIndex = desc.colorAttachmentCount;
+		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
+		depthAttachmentDesc.format = FindDepthFormat(gfx);
+		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachmentDesc.loadOp = LoadOpToVk(desc.depthAttachment.loadOp);//VK_ATTACHMENT_LOAD_OP_CLEAR;
+		depthAttachmentDesc.storeOp = StoreOpToVk(desc.depthAttachment.storeOp);//VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		depthAttachmentRef.attachment = depthAttachmentIndex;;
+		depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	}
 
 	VkSubpassDescription subpassDesc = {};
 	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpassDesc.colorAttachmentCount = 1;
-	subpassDesc.pColorAttachments = &colorAttachmentRef;
-	subpassDesc.pDepthStencilAttachment = &depthAttachmentRef;
+	subpassDesc.colorAttachmentCount = desc.colorAttachmentCount;
+	subpassDesc.pColorAttachments = desc.colorAttachmentCount ? colorAttachmentRefs : NULL;
+	subpassDesc.pDepthStencilAttachment = desc.hasDepthAttachment ? &depthAttachmentRef : NULL;
 
 	VkSubpassDependency subpassDependency = {};
 	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -2012,16 +2049,18 @@ bool CreateRenderPass( const Graphics &gfx, VkRenderPass &renderPass )
 
 	VkRenderPassCreateInfo renderPassCreateInfo = {};
 	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
-	renderPassCreateInfo.pAttachments = attachments;
+	renderPassCreateInfo.attachmentCount = desc.colorAttachmentCount + (desc.hasDepthAttachment ? 1 : 0);
+	renderPassCreateInfo.pAttachments = attachmentDescs;
 	renderPassCreateInfo.subpassCount = 1;
 	renderPassCreateInfo.pSubpasses = &subpassDesc;
 	renderPassCreateInfo.dependencyCount = 1;
 	renderPassCreateInfo.pDependencies = &subpassDependency;
 
-	VK_CALL( vkCreateRenderPass( gfx.device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &renderPass ) );
+	VkRenderPass vkRenderPass;
+	VK_CALL( vkCreateRenderPass( gfx.device, &renderPassCreateInfo, VULKAN_ALLOCATORS, &vkRenderPass ) );
 
-	return true;
+	RenderPass renderPass = { .handle = vkRenderPass };
+	return renderPass;
 }
 
 bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
@@ -2046,7 +2085,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 		VkFramebufferCreateInfo framebufferCreateInfo = {};
 		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebufferCreateInfo.renderPass = gfx.renderPass;
+		framebufferCreateInfo.renderPass = gfx.renderPass.handle;
 		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
 		framebufferCreateInfo.pAttachments = attachments;
 		framebufferCreateInfo.width = gfx.swapchain.extent.width;
@@ -2553,7 +2592,18 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// TODO: All the code that follows shouldn't be part of the device initialization
 
 	// Global render pass
-	CreateRenderPass( gfx, gfx.renderPass );
+	const RenderpassDesc renderpassDesc = {
+		.name = "rp_scene",
+		.colorAttachmentCount = 1,
+		.colorAttachments = {
+			{ .loadOp = LoadOpClear, .storeOp = StoreOpStore },
+		},
+		.hasDepthAttachment = true,
+		.depthAttachment = {
+			.loadOp = LoadOpClear, .storeOp = StoreOpDontCare
+		}
+	};
+	gfx.renderPass = CreateRenderPass( gfx, renderpassDesc );
 
 	// Render targets
 	CreateRenderTargets( gfx, gfx.renderTargets );
@@ -3080,7 +3130,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		vkDestroyDescriptorSetLayout( gfx.device, compute.descriptorSetLayout, VULKAN_ALLOCATORS );
 	}
 
-	vkDestroyRenderPass( gfx.device, gfx.renderPass, VULKAN_ALLOCATORS );
+	vkDestroyRenderPass( gfx.device, gfx.renderPass.handle, VULKAN_ALLOCATORS );
 
 
 	vkDestroyPipelineCache( gfx.device, gfx.pipelineCache, VULKAN_ALLOCATORS );
@@ -3356,7 +3406,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderPass = gfx.renderPass;
+	renderPassBeginInfo.renderPass = gfx.renderPass.handle;
 	renderPassBeginInfo.framebuffer = gfx.renderTargets.framebuffers[imageIndex];
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
 	renderPassBeginInfo.renderArea.extent = gfx.swapchain.extent;
@@ -3556,7 +3606,7 @@ void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
 	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 	init_info.Allocator = VULKAN_ALLOCATORS;
 	init_info.CheckVkResultFn = CheckVulkanResultImGui;
-	ImGui_ImplVulkan_Init(&init_info, gfx.renderPass);
+	ImGui_ImplVulkan_Init(&init_info, gfx.renderPass.handle);
 
 	// Upload Fonts
 	{
