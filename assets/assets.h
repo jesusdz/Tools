@@ -48,6 +48,7 @@ struct PipelineDesc
 	const char *fsFilename;
 	const char *vsFunction;
 	const char *fsFunction;
+	const char *renderPass;
 };
 
 struct ComputeDesc
@@ -114,7 +115,12 @@ static const TextureDesc textures[] =
 
 static const PipelineDesc pipelines[] =
 {
-	{ .name = "pipeline", .vsFilename = "shaders/vertex.spv", .fsFilename = "shaders/fragment.spv" },
+	{
+		.name = "pipeline",
+		.vsFilename = "shaders/vertex.spv",
+		.fsFilename = "shaders/fragment.spv",
+		.renderPass = "main_renderpass",
+	},
 };
 
 static const ComputeDesc computes[] =

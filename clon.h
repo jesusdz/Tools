@@ -234,7 +234,7 @@ void ClonFillStruct(const Clon *clon, Arena *arena, void *structData, const Refl
 
 		// Could not find a valid initializer for the current member
 		if (!memberInitializer) {
-			LOG(Warning, "Couldn't find matching initializer for member %s.\n", member->name);
+			LOG(Warning, "Couldn't find matching initializer for member %s in struct %s.\n", member->name, rstruct->name);
 			memberInitializerList = baseMemberInitializerList;
 			canAssumeNextInitializer = false;
 			continue;
