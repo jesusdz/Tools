@@ -3331,6 +3331,55 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 }
 #endif // USE_CAMERA_MOVEMENT
 
+struct CommandBuffer
+{
+	VkCommandBuffer handle;
+};
+
+CommandBuffer BeginCommandBuffer(const Graphics &gfx)
+{
+	VkCommandBuffer vkCommandBuffer = gfx.commandBuffers[gfx.currentFrame];
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.flags = 0; // Optional
+	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
+	VK_CALL( vkBeginCommandBuffer(vkCommandBuffer, &commandBufferBeginInfo) );
+
+	CommandBuffer commandBuffer = {
+		.handle = vkCommandBuffer,
+	};
+	return commandBuffer;
+}
+
+void EndCommandBuffer(const CommandBuffer &commandBuffer)
+{
+	VK_CALL( vkEndCommandBuffer( commandBuffer.handle ) );
+}
+
+void BeginRenderPass(const Graphics &gfx, CommandBuffer commandBuffer, RenderPass renderPass, VkFramebuffer framebuffer)
+{
+	VkClearValue clearValues[2] = {};
+	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+	clearValues[1].depthStencil = {1.0f, 0};
+
+	VkRenderPassBeginInfo renderPassBeginInfo = {};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = renderPass.handle;
+	renderPassBeginInfo.framebuffer = framebuffer;
+	renderPassBeginInfo.renderArea.offset = { 0, 0 };
+	renderPassBeginInfo.renderArea.extent = gfx.swapchain.extent;
+	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
+	renderPassBeginInfo.pClearValues = clearValues;
+
+	vkCmdBeginRenderPass( commandBuffer.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+}
+
+void EndRenderPass(CommandBuffer commandBuffer)
+{
+	vkCmdEndRenderPass(commandBuffer.handle);
+}
+
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	u32 frameIndex = gfx.currentFrame;
@@ -3403,13 +3452,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	VK_CALL( vkResetCommandPool(gfx.device, commandPool, 0) );
 
 	// Record commands
-	VkCommandBuffer commandBuffer = gfx.commandBuffers[frameIndex];
-
-	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
-	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	commandBufferBeginInfo.flags = 0; // Optional
-	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
-	VK_CALL( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
+	CommandBuffer commandBuffer = BeginCommandBuffer(gfx);
 
 	#define COMPUTE_TEST 0
 	#if COMPUTE_TEST
@@ -3436,22 +3479,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 	#endif // COMPUTE_TEST
 
-	VkClearValue clearValues[2] = {};
-	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-	clearValues[1].depthStencil = {1.0f, 0};
-
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
-
-	VkRenderPassBeginInfo renderPassBeginInfo = {};
-	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderPass = renderPass.handle;
-	renderPassBeginInfo.framebuffer = gfx.renderTargets.framebuffers[imageIndex];
-	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = gfx.swapchain.extent;
-	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
-	renderPassBeginInfo.pClearValues = clearValues;
-
-	vkCmdBeginRenderPass( commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+	BeginRenderPass(gfx, commandBuffer, renderPass, gfx.renderTargets.framebuffers[imageIndex]);
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
@@ -3460,12 +3489,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	viewport.height = -static_cast<float>(gfx.swapchain.extent.height);
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+	vkCmdSetViewport(commandBuffer.handle, 0, 1, &viewport);
 
 	VkRect2D scissor = {};
 	scissor.offset = {0, 0};
 	scissor.extent = gfx.swapchain.extent;
-	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+	vkCmdSetScissor(commandBuffer.handle, 0, 1, &scissor);
 
 	VkPipeline prevPipeline = VK_NULL_HANDLE;
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
@@ -3489,7 +3518,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		if ( vkPipeline != prevPipeline )
 		{
 			prevPipeline = vkPipeline;
-			vkCmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vkPipeline );
+			vkCmdBindPipeline( commandBuffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, vkPipeline );
 		}
 
 		// Descriptor sets
@@ -3515,7 +3544,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		// Bind descriptor sets
 		if ( descriptorSetCount > 0 ) {
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+			vkCmdBindDescriptorSets(commandBuffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		}
 
 		// Vertex buffer
@@ -3525,7 +3554,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			prevVertexBuffer = vertexBuffer;
 			VkBuffer vertexBuffers[] = { vertexBuffer };
 			VkDeviceSize vertexBufferOffsets[] = { 0 };
-			vkCmdBindVertexBuffers(commandBuffer, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
+			vkCmdBindVertexBuffers(commandBuffer.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
 		}
 
 		// Index buffer
@@ -3534,25 +3563,25 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		{
 			prevIndexBuffer = indexBuffer;
 			VkDeviceSize indexBufferOffset = 0;
-			vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indexBufferOffset, VK_INDEX_TYPE_UINT16);
+			vkCmdBindIndexBuffer(commandBuffer.handle, indexBuffer, indexBufferOffset, VK_INDEX_TYPE_UINT16);
 		}
 
 		// Draw!!!
 		const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 		const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 		const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-		vkCmdDrawIndexed(commandBuffer, indexCount, 1, firstIndex, firstVertex, entityIndex);
+		vkCmdDrawIndexed(commandBuffer.handle, indexCount, 1, firstIndex, firstVertex, entityIndex);
 	}
 
 #if USE_IMGUI
 	// Record dear imgui primitives into command buffer
 	ImDrawData* draw_data = ImGui::GetDrawData();
-	ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer);
+	ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer.handle);
 #endif
 
-	vkCmdEndRenderPass(commandBuffer);
+	EndRenderPass(commandBuffer);
 
-	VK_CALL( vkEndCommandBuffer( commandBuffer ) );
+	EndCommandBuffer(commandBuffer);
 
 
 	// Submit commands
@@ -3567,7 +3596,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
 	submitInfo.pSignalSemaphores = signalSemaphores;
 	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer;
+	submitInfo.pCommandBuffers = &commandBuffer.handle;
 
 	VK_CALL( vkQueueSubmit( gfx.graphicsQueue, 1, &submitInfo, gfx.inFlightFences[frameIndex] ) );
 
