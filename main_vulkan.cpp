@@ -287,6 +287,7 @@ struct Swapchain
 	VkImageView imageViews[MAX_SWAPCHAIN_IMAGE_COUNT];
 	float preRotationDegrees;
 	bool outdated;
+	u32 currentImageIndex;
 };
 
 struct RenderTargets
@@ -3333,6 +3334,7 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 
 struct CommandBuffer
 {
+	const Graphics *gfx;
 	VkCommandBuffer handle;
 };
 
@@ -3347,6 +3349,7 @@ CommandBuffer BeginCommandBuffer(const Graphics &gfx)
 	VK_CALL( vkBeginCommandBuffer(vkCommandBuffer, &commandBufferBeginInfo) );
 
 	CommandBuffer commandBuffer = {
+		.gfx = &gfx,
 		.handle = vkCommandBuffer,
 	};
 	return commandBuffer;
@@ -3357,18 +3360,21 @@ void EndCommandBuffer(const CommandBuffer &commandBuffer)
 	VK_CALL( vkEndCommandBuffer( commandBuffer.handle ) );
 }
 
-void BeginRenderPass(const Graphics &gfx, CommandBuffer commandBuffer, RenderPass renderPass, VkFramebuffer framebuffer)
+void BeginRenderPass(CommandBuffer commandBuffer, RenderPass renderPass)
 {
 	VkClearValue clearValues[2] = {};
 	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 	clearValues[1].depthStencil = {1.0f, 0};
+
+	const u32 imageIndex = commandBuffer.gfx->swapchain.currentImageIndex;
+	const VkFramebuffer framebuffer = commandBuffer.gfx->renderTargets.framebuffers[imageIndex];
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassBeginInfo.renderPass = renderPass.handle;
 	renderPassBeginInfo.framebuffer = framebuffer;
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = gfx.swapchain.extent;
+	renderPassBeginInfo.renderArea.extent = commandBuffer.gfx->swapchain.extent;
 	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
 	renderPassBeginInfo.pClearValues = clearValues;
 
@@ -3380,9 +3386,86 @@ void EndRenderPass(CommandBuffer commandBuffer)
 	vkCmdEndRenderPass(commandBuffer.handle);
 }
 
-bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
+void SetFullscreenViewportAndScissor(CommandBuffer commandBuffer)
 {
-	u32 frameIndex = gfx.currentFrame;
+	VkViewport viewport = {};
+	viewport.x = 0.0f;
+	viewport.y = static_cast<float>(commandBuffer.gfx->swapchain.extent.height);
+	viewport.width = static_cast<float>(commandBuffer.gfx->swapchain.extent.width);
+	viewport.height = -static_cast<float>(commandBuffer.gfx->swapchain.extent.height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(commandBuffer.handle, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.offset = {0, 0};
+	scissor.extent = commandBuffer.gfx->swapchain.extent;
+	vkCmdSetScissor(commandBuffer.handle, 0, 1, &scissor);
+}
+
+
+struct SubmitResult
+{
+	VkSemaphore signalSemaphore;
+};
+
+SubmitResult Submit(const Graphics &gfx, CommandBuffer commandBuffer)
+{
+	const u32 frameIndex = gfx.currentFrame;
+
+	VkSemaphore waitSemaphores[] = { gfx.imageAvailableSemaphores[frameIndex] };
+	VkSemaphore signalSemaphores[] = { gfx.renderFinishedSemaphores[frameIndex] };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
+	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitDstStageMask = waitStages;
+	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	submitInfo.pSignalSemaphores = signalSemaphores;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer.handle;
+
+	VK_CALL( vkQueueSubmit( gfx.graphicsQueue, 1, &submitInfo, gfx.inFlightFences[frameIndex] ) );
+
+	SubmitResult res = {
+		.signalSemaphore = signalSemaphores[0],
+	};
+	return res;
+}
+
+bool Present(Graphics &gfx, SubmitResult submitResult)
+{
+	const VkSemaphore signalSemaphores[] = { submitResult.signalSemaphore };
+
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	presentInfo.pWaitSemaphores = signalSemaphores;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = &gfx.swapchain.handle;
+	presentInfo.pImageIndices = &gfx.swapchain.currentImageIndex;
+	presentInfo.pResults = NULL; // Optional
+
+	VkResult presentResult = vkQueuePresentKHR( gfx.presentQueue, &presentInfo );
+
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
+	{
+		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
+		gfx.swapchain.outdated = true;
+	}
+	else if (presentResult != VK_SUCCESS)
+	{
+		LOG(Error, "vkQueuePresentKHR failed.\n");
+		return false;
+	}
+
+	return true;
+}
+
+bool BeginFrame(Graphics &gfx)
+{
+	const u32 frameIndex = gfx.currentFrame;
 
 	// Swapchain sync
 	VK_CALL( vkWaitForFences( gfx.device, 1, &gfx.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
@@ -3403,7 +3486,28 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	VK_CALL( vkResetFences( gfx.device, 1, &gfx.inFlightFences[frameIndex] ) );
+	gfx.swapchain.currentImageIndex = imageIndex;
 
+	// Reset commands for this frame
+	VkCommandPool commandPool = gfx.commandPools[frameIndex];
+	VK_CALL( vkResetCommandPool(gfx.device, commandPool, 0) );
+
+	return true;
+}
+
+void EndFrame(Graphics &gfx)
+{
+	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
+}
+
+bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
+{
+	u32 frameIndex = gfx.currentFrame;
+
+	if ( !BeginFrame(gfx) )
+	{
+		return false;
+	}
 
 	// Calculate camera matrices
 	const f32 ar = static_cast<f32>(gfx.swapchain.extent.width) / static_cast<f32>(gfx.swapchain.extent.height);
@@ -3447,10 +3551,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const bool updateMaterialDS = false;
 	UpdateMaterialDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
-	// Reset commands for this frame
-	VkCommandPool commandPool = gfx.commandPools[frameIndex];
-	VK_CALL( vkResetCommandPool(gfx.device, commandPool, 0) );
-
 	// Record commands
 	CommandBuffer commandBuffer = BeginCommandBuffer(gfx);
 
@@ -3480,21 +3580,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	#endif // COMPUTE_TEST
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
-	BeginRenderPass(gfx, commandBuffer, renderPass, gfx.renderTargets.framebuffers[imageIndex]);
+	BeginRenderPass(commandBuffer, renderPass);
 
-	VkViewport viewport = {};
-	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(gfx.swapchain.extent.height);
-	viewport.width = static_cast<float>(gfx.swapchain.extent.width);
-	viewport.height = -static_cast<float>(gfx.swapchain.extent.height);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(commandBuffer.handle, 0, 1, &viewport);
-
-	VkRect2D scissor = {};
-	scissor.offset = {0, 0};
-	scissor.extent = gfx.swapchain.extent;
-	vkCmdSetScissor(commandBuffer.handle, 0, 1, &scissor);
+	SetFullscreenViewportAndScissor(commandBuffer);
 
 	VkPipeline prevPipeline = VK_NULL_HANDLE;
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
@@ -3583,48 +3671,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	EndCommandBuffer(commandBuffer);
 
+	SubmitResult submitRes = Submit(gfx, commandBuffer);
 
-	// Submit commands
-	VkSemaphore waitSemaphores[] = { gfx.imageAvailableSemaphores[frameIndex] };
-	VkSemaphore signalSemaphores[] = { gfx.renderFinishedSemaphores[frameIndex] };
-	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
-	submitInfo.pWaitSemaphores = waitSemaphores;
-	submitInfo.pWaitDstStageMask = waitStages;
-	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	submitInfo.pSignalSemaphores = signalSemaphores;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer.handle;
-
-	VK_CALL( vkQueueSubmit( gfx.graphicsQueue, 1, &submitInfo, gfx.inFlightFences[frameIndex] ) );
-
-
-	// Presentation
-	VkPresentInfoKHR presentInfo = {};
-	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	presentInfo.pWaitSemaphores = signalSemaphores;
-	presentInfo.swapchainCount = 1;
-	presentInfo.pSwapchains = &gfx.swapchain.handle;
-	presentInfo.pImageIndices = &imageIndex;
-	presentInfo.pResults = NULL; // Optional
-
-	VkResult presentResult = vkQueuePresentKHR( gfx.presentQueue, &presentInfo );
-
-	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
-	{
-		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
-		gfx.swapchain.outdated = true;
-	}
-	else if (presentResult != VK_SUCCESS)
-	{
-		LOG(Error, "vkQueuePresentKHR failed.\n");
+	if ( !Present(gfx, submitRes) ) {
 		return false;
 	}
 
-	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	EndFrame(gfx);
 
 	return true;
 }
