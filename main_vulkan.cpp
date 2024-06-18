@@ -182,7 +182,7 @@ typedef u32 ComputeH;
 
 struct Buffer
 {
-	VkBuffer buffer;
+	VkBuffer handle;
 	Alloc alloc;
 	u32 size;
 };
@@ -436,6 +436,23 @@ struct Graphics
 
 	bool deviceInitialized;
 };
+
+struct CommandList
+{
+	const Graphics *gfx;
+	VkCommandBuffer handle;
+
+	// State
+	VkPipeline pipelineHandle;
+	VkBuffer vertexBufferHandle;
+	VkBuffer indexBufferHandle;
+};
+
+struct SubmitResult
+{
+	VkSemaphore signalSemaphore;
+};
+
 
 
 #include "assets/assets.h"
@@ -720,7 +737,7 @@ BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlag
 	ASSERT( gfx.bufferCount < ARRAY_COUNT(gfx.buffers) );
 	BufferH bufferHandle = gfx.bufferCount++;
 	Buffer &gfxBuffer = gfx.buffers[bufferHandle];
-	gfxBuffer.buffer = buffer;
+	gfxBuffer.handle = buffer;
 	gfxBuffer.alloc = alloc;
 	gfxBuffer.size = size;
 	return bufferHandle;
@@ -744,7 +761,7 @@ BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, VkFormat forma
 
 	VkBufferViewCreateInfo bufferViewCreateInfo = {};
 	bufferViewCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-	bufferViewCreateInfo.buffer = gfxBuffer.buffer;
+	bufferViewCreateInfo.buffer = gfxBuffer.handle;
 	bufferViewCreateInfo.format = format;
 	bufferViewCreateInfo.offset = offset;
 	bufferViewCreateInfo.range = size > 0 ? size : gfxBuffer.size;
@@ -825,7 +842,7 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size)
 	Buffer &stagingBuffer = GetBuffer(gfx, gfx.stagingBuffer);
 
 	StagedData staging = {};
-	staging.buffer = stagingBuffer.buffer;
+	staging.buffer = stagingBuffer.handle;
 	staging.offset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
 
 	Heap &stagingHeap = gfx.heaps[HeapType_Staging];
@@ -858,7 +875,7 @@ BufferH CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBuffer
 	Buffer &finalBuffer = GetBuffer(gfx, finalBufferHandle);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, 0, size);
+	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.handle, 0, size);
 
 	return finalBufferHandle;
 }
@@ -914,7 +931,7 @@ BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 si
 	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.buffer, arena.used, size);
+	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.handle, arena.used, size);
 
 	BufferChunk chunk = {};
 	chunk.buffer = arena.buffer;
@@ -2755,7 +2772,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Buffer &buffer, u32 offset = 0, u32 range = 0)
 {
 	BufferBinding &bufferBinding = bindingTable[binding].buffer;
-	bufferBinding.handle = buffer.buffer;
+	bufferBinding.handle = buffer.handle;
 	bufferBinding.offset = offset;
 	bufferBinding.range = range > 0 ? range : buffer.size;
 }
@@ -3008,7 +3025,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		const Material &material = GetMaterial(gfx, i);
 		SMaterial shaderMaterial = { material.uvScale };
 		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
-		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.buffer, material.bufferOffset, sizeof(shaderMaterial));
+		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.handle, material.bufferOffset, sizeof(shaderMaterial));
 	}
 
 	// DescriptorSets for materials
@@ -3134,7 +3151,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.bufferCount; ++i)
 	{
-		vkDestroyBuffer( gfx.device, gfx.buffers[i].buffer, VULKAN_ALLOCATORS );
+		vkDestroyBuffer( gfx.device, gfx.buffers[i].handle, VULKAN_ALLOCATORS );
 	}
 
 	for (u32 i = 0; i < gfx.bufferViewCount; ++i)
@@ -3332,84 +3349,72 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 }
 #endif // USE_CAMERA_MOVEMENT
 
-struct CommandBuffer
+CommandList BeginCommandList(const Graphics &gfx)
 {
-	const Graphics *gfx;
-	VkCommandBuffer handle;
-};
-
-CommandBuffer BeginCommandBuffer(const Graphics &gfx)
-{
-	VkCommandBuffer vkCommandBuffer = gfx.commandBuffers[gfx.currentFrame];
+	VkCommandBuffer commandBuffer = gfx.commandBuffers[gfx.currentFrame];
 
 	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
 	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	commandBufferBeginInfo.flags = 0; // Optional
 	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
-	VK_CALL( vkBeginCommandBuffer(vkCommandBuffer, &commandBufferBeginInfo) );
+	VK_CALL( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
 
-	CommandBuffer commandBuffer = {
+	CommandList commandList = {
 		.gfx = &gfx,
-		.handle = vkCommandBuffer,
+		.handle = commandBuffer,
 	};
-	return commandBuffer;
+	return commandList;
 }
 
-void EndCommandBuffer(const CommandBuffer &commandBuffer)
+void EndCommandList(const CommandList &commandList)
 {
-	VK_CALL( vkEndCommandBuffer( commandBuffer.handle ) );
+	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
 }
 
-void BeginRenderPass(CommandBuffer commandBuffer, RenderPass renderPass)
+void BeginRenderPass(const CommandList &commandList, RenderPass renderPass)
 {
 	VkClearValue clearValues[2] = {};
 	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 	clearValues[1].depthStencil = {1.0f, 0};
 
-	const u32 imageIndex = commandBuffer.gfx->swapchain.currentImageIndex;
-	const VkFramebuffer framebuffer = commandBuffer.gfx->renderTargets.framebuffers[imageIndex];
+	const u32 imageIndex = commandList.gfx->swapchain.currentImageIndex;
+	const VkFramebuffer framebuffer = commandList.gfx->renderTargets.framebuffers[imageIndex];
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassBeginInfo.renderPass = renderPass.handle;
 	renderPassBeginInfo.framebuffer = framebuffer;
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = commandBuffer.gfx->swapchain.extent;
+	renderPassBeginInfo.renderArea.extent = commandList.gfx->swapchain.extent;
 	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
 	renderPassBeginInfo.pClearValues = clearValues;
 
-	vkCmdBeginRenderPass( commandBuffer.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 }
 
-void EndRenderPass(CommandBuffer commandBuffer)
+void EndRenderPass(const CommandList &commandList)
 {
-	vkCmdEndRenderPass(commandBuffer.handle);
+	vkCmdEndRenderPass(commandList.handle);
 }
 
-void SetFullscreenViewportAndScissor(CommandBuffer commandBuffer)
+void SetFullscreenViewportAndScissor(const CommandList &commandList)
 {
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(commandBuffer.gfx->swapchain.extent.height);
-	viewport.width = static_cast<float>(commandBuffer.gfx->swapchain.extent.width);
-	viewport.height = -static_cast<float>(commandBuffer.gfx->swapchain.extent.height);
+	viewport.y = static_cast<float>(commandList.gfx->swapchain.extent.height);
+	viewport.width = static_cast<float>(commandList.gfx->swapchain.extent.width);
+	viewport.height = -static_cast<float>(commandList.gfx->swapchain.extent.height);
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(commandBuffer.handle, 0, 1, &viewport);
+	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
 
 	VkRect2D scissor = {};
 	scissor.offset = {0, 0};
-	scissor.extent = commandBuffer.gfx->swapchain.extent;
-	vkCmdSetScissor(commandBuffer.handle, 0, 1, &scissor);
+	scissor.extent = commandList.gfx->swapchain.extent;
+	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
 }
 
-
-struct SubmitResult
-{
-	VkSemaphore signalSemaphore;
-};
-
-SubmitResult Submit(const Graphics &gfx, CommandBuffer commandBuffer)
+SubmitResult Submit(const Graphics &gfx, const CommandList &commandList)
 {
 	const u32 frameIndex = gfx.currentFrame;
 
@@ -3424,7 +3429,7 @@ SubmitResult Submit(const Graphics &gfx, CommandBuffer commandBuffer)
 	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
 	submitInfo.pSignalSemaphores = signalSemaphores;
 	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer.handle;
+	submitInfo.pCommandBuffers = &commandList.handle;
 
 	VK_CALL( vkQueueSubmit( gfx.graphicsQueue, 1, &submitInfo, gfx.inFlightFences[frameIndex] ) );
 
@@ -3500,6 +3505,52 @@ void EndFrame(Graphics &gfx)
 	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
 
+void BindCompute(const CommandList &commandList, const Compute &compute)
+{
+	vkCmdBindPipeline(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.handle);
+}
+
+void Dispatch(const CommandList &commandList, u32 x, u32 y, u32 z)
+{
+	vkCmdDispatch(commandList.handle, x, y, z);
+}
+
+void BindPipeline(CommandList &commandList, const Pipeline &pipeline)
+{
+	const VkPipeline vkPipeline = pipeline.handle;
+	if ( commandList.pipelineHandle != pipeline.handle )
+	{
+		commandList.pipelineHandle = pipeline.handle;
+		vkCmdBindPipeline( commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle );
+	}
+}
+
+void BindVertexBuffer(CommandList &commandList, const Buffer &buffer)
+{
+		if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
+		{
+			commandList.vertexBufferHandle = buffer.handle;
+			VkBuffer vertexBuffers[] = { buffer.handle };
+			VkDeviceSize vertexBufferOffsets[] = { 0 };
+			vkCmdBindVertexBuffers(commandList.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
+		}
+}
+
+void BindIndexBuffer(CommandList &commandList, const Buffer &buffer)
+{
+		if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
+		{
+			commandList.indexBufferHandle = buffer.handle;
+			VkDeviceSize indexBufferOffset = 0;
+			vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
+		}
+}
+
+void DrawIndexed(const CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
+{
+	vkCmdDrawIndexed(commandList.handle, indexCount, 1, firstIndex, firstVertex, instanceIndex);
+}
+
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	u32 frameIndex = gfx.currentFrame;
@@ -3552,9 +3603,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	UpdateMaterialDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
 
 	// Record commands
-	CommandBuffer commandBuffer = BeginCommandBuffer(gfx);
+	CommandList commandList = BeginCommandList(gfx);
 
-	#define COMPUTE_TEST 0
+	#define COMPUTE_TEST 1
 	#if COMPUTE_TEST
 	{
 		const Compute &compute = GetCompute(gfx, gfx.computeClearH);
@@ -3571,18 +3622,19 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		UpdateComputeDescriptorSets(gfx, compute, computeDescriptorSet, computeBindingTable);
 
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.handle);
+		BindCompute(commandList, compute);
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.layout, descriptorSetFirst, descriptorSetCount, &computeDescriptorSet, 0, NULL);
+		//BindResources(
+		vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.layout, descriptorSetFirst, descriptorSetCount, &computeDescriptorSet, 0, NULL);
 
-		vkCmdDispatch(commandBuffer, 1, 1, 1);
+		Dispatch(commandList, 1, 1, 1);
 	}
 	#endif // COMPUTE_TEST
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
-	BeginRenderPass(commandBuffer, renderPass);
+	BeginRenderPass(commandList, renderPass);
 
-	SetFullscreenViewportAndScissor(commandBuffer);
+	SetFullscreenViewportAndScissor(commandList);
 
 	VkPipeline prevPipeline = VK_NULL_HANDLE;
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
@@ -3602,12 +3654,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
 
 		// Pipeline
-		const VkPipeline vkPipeline = pipeline.handle;
-		if ( vkPipeline != prevPipeline )
-		{
-			prevPipeline = vkPipeline;
-			vkCmdBindPipeline( commandBuffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, vkPipeline );
-		}
+		BindPipeline(commandList, pipeline);
 
 		// Descriptor sets
 		VkDescriptorSet descriptorSets[4] = {};
@@ -3632,46 +3679,35 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		// Bind descriptor sets
 		if ( descriptorSetCount > 0 ) {
-			vkCmdBindDescriptorSets(commandBuffer.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+			vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		}
 
 		// Vertex buffer
-		const VkBuffer vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer).buffer;
-		if ( vertexBuffer && vertexBuffer != prevVertexBuffer )
-		{
-			prevVertexBuffer = vertexBuffer;
-			VkBuffer vertexBuffers[] = { vertexBuffer };
-			VkDeviceSize vertexBufferOffsets[] = { 0 };
-			vkCmdBindVertexBuffers(commandBuffer.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
-		}
+		const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+		BindVertexBuffer(commandList, vertexBuffer);
 
 		// Index buffer
-		const VkBuffer indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer ).buffer;
-		if ( indexBuffer && indexBuffer != prevIndexBuffer )
-		{
-			prevIndexBuffer = indexBuffer;
-			VkDeviceSize indexBufferOffset = 0;
-			vkCmdBindIndexBuffer(commandBuffer.handle, indexBuffer, indexBufferOffset, VK_INDEX_TYPE_UINT16);
-		}
+		const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
+		BindIndexBuffer(commandList, indexBuffer);
 
 		// Draw!!!
 		const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 		const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 		const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-		vkCmdDrawIndexed(commandBuffer.handle, indexCount, 1, firstIndex, firstVertex, entityIndex);
+		DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
 	}
 
 #if USE_IMGUI
 	// Record dear imgui primitives into command buffer
 	ImDrawData* draw_data = ImGui::GetDrawData();
-	ImGui_ImplVulkan_RenderDrawData(draw_data, commandBuffer.handle);
+	ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
 #endif
 
-	EndRenderPass(commandBuffer);
+	EndRenderPass(commandList);
 
-	EndCommandBuffer(commandBuffer);
+	EndCommandList(commandList);
 
-	SubmitResult submitRes = Submit(gfx, commandBuffer);
+	SubmitResult submitRes = Submit(gfx, commandList);
 
 	if ( !Present(gfx, submitRes) ) {
 		return false;
