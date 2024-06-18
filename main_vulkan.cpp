@@ -439,13 +439,24 @@ struct Graphics
 
 struct CommandList
 {
-	const Graphics *gfx;
 	VkCommandBuffer handle;
+	const Graphics *gfx;
 
 	// State
-	VkPipeline pipelineHandle;
-	VkBuffer vertexBufferHandle;
-	VkBuffer indexBufferHandle;
+	union
+	{
+		struct // For gfx pipelines
+		{
+			const Pipeline *pipeline;
+			VkBuffer vertexBufferHandle;
+			VkBuffer indexBufferHandle;
+		};
+		struct // For compute pipelines
+		{
+			const Compute *compute;
+			ResourceBinding computeBindingTable[MAX_COMPUTE_BINDINGS] = {};
+		};
+	};
 };
 
 struct SubmitResult
@@ -776,9 +787,9 @@ BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, VkFormat forma
 	return bufferViewHandle;
 }
 
-BufferView &GetBufferView(Graphics &gfx, BufferViewH bufferViewHandle)
+const BufferView &GetBufferView(const Graphics &gfx, BufferViewH bufferViewHandle)
 {
-	BufferView &bufferView = gfx.bufferViews[bufferViewHandle];
+	const BufferView &bufferView = gfx.bufferViews[bufferViewHandle];
 	return bufferView;
 }
 
@@ -1156,8 +1167,8 @@ RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 	{
 		attachmentDescs[i].format = gfx.swapchainInfo.format;
 		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDescs[i].loadOp = LoadOpToVk( desc.colorAttachments[i].loadOp ); //VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachmentDescs[i].storeOp = StoreOpToVk( desc.colorAttachments[i].storeOp ); // VK_ATTACHMENT_STORE_OP_STORE;
+		attachmentDescs[i].loadOp = LoadOpToVk( desc.colorAttachments[i].loadOp );
+		attachmentDescs[i].storeOp = StoreOpToVk( desc.colorAttachments[i].storeOp );
 		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1173,8 +1184,8 @@ RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
 		depthAttachmentDesc.format = FindDepthFormat(gfx);
 		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthAttachmentDesc.loadOp = LoadOpToVk(desc.depthAttachment.loadOp);//VK_ATTACHMENT_LOAD_OP_CLEAR;
-		depthAttachmentDesc.storeOp = StoreOpToVk(desc.depthAttachment.storeOp);//VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachmentDesc.loadOp = LoadOpToVk(desc.depthAttachment.loadOp);
+		depthAttachmentDesc.storeOp = StoreOpToVk(desc.depthAttachment.storeOp);
 		depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -2876,7 +2887,7 @@ bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding
 	return true;
 }
 
-void UpdateDescriptorSets(Graphics &gfx, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
+void UpdateDescriptorSets(const Graphics &gfx, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
 {
 	if ( descriptorWriteCount > 0 )
 	{
@@ -2941,7 +2952,7 @@ void UpdateMaterialDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updat
 	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
 }
 
-void UpdateComputeDescriptorSets(Graphics &gfx, const Compute &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
+void UpdateComputeDescriptorSets(const Graphics &gfx, const Compute &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
 {
 	const ShaderReflection &reflection = GetShaderReflection(gfx, compute.shaderReflectionH);
 
@@ -2952,7 +2963,8 @@ void UpdateComputeDescriptorSets(Graphics &gfx, const Compute &compute, VkDescri
 	for (u32 i = 0; i < reflection.bindingCount; ++i)
 	{
 		const ShaderBinding &binding = reflection.bindings[i];
-		if ( !AddDescriptorWrite(bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
+		if ( !AddDescriptorWrite(bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) )
+		{
 			LOG(Warning, "Could not add descriptor write for binding %s of compute %s.\n", binding.name, compute.name);
 		}
 	}
@@ -3360,8 +3372,8 @@ CommandList BeginCommandList(const Graphics &gfx)
 	VK_CALL( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
 
 	CommandList commandList = {
-		.gfx = &gfx,
 		.handle = commandBuffer,
+		.gfx = &gfx,
 	};
 	return commandList;
 }
@@ -3505,45 +3517,66 @@ void EndFrame(Graphics &gfx)
 	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void BindCompute(const CommandList &commandList, const Compute &compute)
+void BindCompute(CommandList &commandList, const Compute &compute)
 {
-	vkCmdBindPipeline(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.handle);
+	if ( commandList.compute != &compute )
+	{
+		commandList.compute = &compute;
+		vkCmdBindPipeline(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.handle);
+	}
 }
 
 void Dispatch(const CommandList &commandList, u32 x, u32 y, u32 z)
 {
+	const Graphics &gfx = *commandList.gfx;
+	const Compute &compute = *commandList.compute;
+
+	// TODO: Use different descriptor sets for different dispatches
+	const VkDescriptorSet computeDescriptorSet = commandList.gfx->computeDescriptorSets[commandList.gfx->computeClearH][commandList.gfx->currentFrame];
+	UpdateComputeDescriptorSets(gfx, compute, computeDescriptorSet, commandList.computeBindingTable);
+
+	const u32 descriptorSetCount = 1;
+	const u32 descriptorSetFirst = 0;
+	vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.layout, descriptorSetFirst, descriptorSetCount, &computeDescriptorSet, 0, NULL);
+
 	vkCmdDispatch(commandList.handle, x, y, z);
 }
 
 void BindPipeline(CommandList &commandList, const Pipeline &pipeline)
 {
-	const VkPipeline vkPipeline = pipeline.handle;
-	if ( commandList.pipelineHandle != pipeline.handle )
+	if ( commandList.pipeline != &pipeline )
 	{
-		commandList.pipelineHandle = pipeline.handle;
+		commandList.pipeline = &pipeline;
 		vkCmdBindPipeline( commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle );
 	}
 }
 
 void BindVertexBuffer(CommandList &commandList, const Buffer &buffer)
 {
-		if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
-		{
-			commandList.vertexBufferHandle = buffer.handle;
-			VkBuffer vertexBuffers[] = { buffer.handle };
-			VkDeviceSize vertexBufferOffsets[] = { 0 };
-			vkCmdBindVertexBuffers(commandList.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
-		}
+	if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
+	{
+		commandList.vertexBufferHandle = buffer.handle;
+		VkBuffer vertexBuffers[] = { buffer.handle };
+		VkDeviceSize vertexBufferOffsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandList.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
+	}
 }
 
 void BindIndexBuffer(CommandList &commandList, const Buffer &buffer)
 {
-		if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
-		{
-			commandList.indexBufferHandle = buffer.handle;
-			VkDeviceSize indexBufferOffset = 0;
-			vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
-		}
+	if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
+	{
+		commandList.indexBufferHandle = buffer.handle;
+		VkDeviceSize indexBufferOffset = 0;
+		vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
+	}
+}
+
+void BindBufferRW(CommandList &commandList, const Buffer &computeBuffer)
+{
+	// TODO: Check type of pipeline bound (computes and gfx pipeline may require different handling here)
+	const BufferView &computeBufferView = GetBufferView(*commandList.gfx, commandList.gfx->computeBufferViewH);
+	BindResource(commandList.computeBindingTable, 0, computeBufferView);
 }
 
 void DrawIndexed(const CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
@@ -3609,39 +3642,26 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	#if COMPUTE_TEST
 	{
 		const Compute &compute = GetCompute(gfx, gfx.computeClearH);
-		const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
-		const BufferView &computeBufferView = GetBufferView(gfx, gfx.computeBufferViewH);
-
-		ResourceBinding computeBindingTable[MAX_COMPUTE_BINDINGS] = {};
-		BindResource(computeBindingTable, 0, computeBufferView);
-
-		// Descriptor sets
-		const u32 descriptorSetCount = 1;
-		const u32 descriptorSetFirst = 0;
-		const VkDescriptorSet computeDescriptorSet = gfx.computeDescriptorSets[gfx.computeClearH][frameIndex];
-
-		UpdateComputeDescriptorSets(gfx, compute, computeDescriptorSet, computeBindingTable);
 
 		BindCompute(commandList, compute);
 
-		//BindResources(
-		vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.layout, descriptorSetFirst, descriptorSetCount, &computeDescriptorSet, 0, NULL);
+		const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
+		BindBufferRW(commandList, computeBuffer);
 
 		Dispatch(commandList, 1, 1, 1);
 	}
 	#endif // COMPUTE_TEST
 
+	// TODO: Maybe better to begin a render pass by passing a framebuffer instead
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
 	BeginRenderPass(commandList, renderPass);
 
+	// TODO: maybe better to set the size more explicitly so we don't need
+	// to access the Gfx struct inside of the following function
 	SetFullscreenViewportAndScissor(commandList);
 
-	VkPipeline prevPipeline = VK_NULL_HANDLE;
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
 	VkDescriptorSet prevMaterialSet = VK_NULL_HANDLE;
-
-	VkBuffer prevVertexBuffer = VK_NULL_HANDLE;
-	VkBuffer prevIndexBuffer = VK_NULL_HANDLE;
 
 	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
