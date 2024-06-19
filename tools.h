@@ -904,6 +904,12 @@ FilePath MakePath(const char *relativePath)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math
 
+struct uint2
+{
+	union { u32 x, r; };
+	union { u32 y, g; };
+};
+
 struct float2
 {
 	union { float x, r; };

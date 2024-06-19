@@ -246,6 +246,13 @@ struct RenderPass
 
 typedef u32 RenderPassH;
 
+struct Framebuffer
+{
+	VkFramebuffer handle;
+	VkRenderPass renderPassHandle;
+	VkExtent2D extent;
+};
+
 struct Material
 {
 	const char *name;
@@ -3383,21 +3390,37 @@ void EndCommandList(const CommandList &commandList)
 	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
 }
 
-void BeginRenderPass(const CommandList &commandList, RenderPass renderPass)
+uint2 GetDisplaySize(const Graphics &gfx)
+{
+	const uint2 size = { gfx.swapchain.extent.width, gfx.swapchain.extent.height };
+	return size;
+}
+
+Framebuffer GetDisplayFramebuffer(const Graphics &gfx)
+{
+	const u32 imageIndex = gfx.swapchain.currentImageIndex;
+	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
+
+	const Framebuffer framebuffer = {
+		.handle = gfx.renderTargets.framebuffers[imageIndex],
+		.renderPassHandle = renderPass.handle,
+		.extent = gfx.swapchain.extent,
+	};
+	return framebuffer;
+}
+
+void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
 {
 	VkClearValue clearValues[2] = {};
 	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 	clearValues[1].depthStencil = {1.0f, 0};
 
-	const u32 imageIndex = commandList.gfx->swapchain.currentImageIndex;
-	const VkFramebuffer framebuffer = commandList.gfx->renderTargets.framebuffers[imageIndex];
-
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderPass = renderPass.handle;
-	renderPassBeginInfo.framebuffer = framebuffer;
+	renderPassBeginInfo.renderPass = framebuffer.renderPassHandle;
+	renderPassBeginInfo.framebuffer = framebuffer.handle;
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = commandList.gfx->swapchain.extent;
+	renderPassBeginInfo.renderArea.extent = framebuffer.extent;
 	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
 	renderPassBeginInfo.pClearValues = clearValues;
 
@@ -3409,20 +3432,20 @@ void EndRenderPass(const CommandList &commandList)
 	vkCmdEndRenderPass(commandList.handle);
 }
 
-void SetFullscreenViewportAndScissor(const CommandList &commandList)
+void SetFullscreenViewportAndScissor(const CommandList &commandList, uint2 size)
 {
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(commandList.gfx->swapchain.extent.height);
-	viewport.width = static_cast<float>(commandList.gfx->swapchain.extent.width);
-	viewport.height = -static_cast<float>(commandList.gfx->swapchain.extent.height);
+	viewport.y = static_cast<float>(size.y);
+	viewport.width = static_cast<float>(size.x);
+	viewport.height = -static_cast<float>(size.y);
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
 
 	VkRect2D scissor = {};
 	scissor.offset = {0, 0};
-	scissor.extent = commandList.gfx->swapchain.extent;
+	scissor.extent = {size.x, size.y};
 	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
 }
 
@@ -3652,13 +3675,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 	#endif // COMPUTE_TEST
 
-	// TODO: Maybe better to begin a render pass by passing a framebuffer instead
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
-	BeginRenderPass(commandList, renderPass);
+	const Framebuffer framebuffer = GetDisplayFramebuffer(gfx);
+	BeginRenderPass(commandList, framebuffer);
 
 	// TODO: maybe better to set the size more explicitly so we don't need
 	// to access the Gfx struct inside of the following function
-	SetFullscreenViewportAndScissor(commandList);
+	const uint2 displaySize = GetDisplaySize(gfx);
+	SetFullscreenViewportAndScissor(commandList, displaySize);
 
 	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
 	VkDescriptorSet prevMaterialSet = VK_NULL_HANDLE;
