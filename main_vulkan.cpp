@@ -3623,13 +3623,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
 	//const float4x4 = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
 	const float preRotationDegrees = gfx.swapchain.preRotationDegrees;
+	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
+	const float fovy = (preRotationDegrees == 0 || preRotationDegrees == 180) ? 60.0f : 90.0f;
 	const float4x4 preTransformMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
-#if PLATFORM_ANDROID
-	const float4x4 perspectiveMatrix = Perspective(90.0f, ar, 0.1f, 1000.0f);
-#else
-	// TODO: Make this depend on swapchain config, not platform
-	const float4x4 perspectiveMatrix = Perspective(60.0f, ar, 0.1f, 1000.0f);
-#endif
+	const float4x4 perspectiveMatrix = Perspective(fovy, ar, 0.1f, 1000.0f);
 	const float4x4 projectionMatrix = Mul(perspectiveMatrix, preTransformMatrix);
 
 	// Update globals data
