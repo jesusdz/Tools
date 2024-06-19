@@ -1402,6 +1402,8 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	// Pipeline layout
 	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
 	VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
+	ASSERT(descriptorSetLayouts[2] == 0); // Only descriptor sets 0,1 allowed
+	ASSERT(descriptorSetLayouts[3] == 0); // Only descriptor sets 0,1 allowed
 
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -3675,8 +3677,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const Framebuffer framebuffer = GetDisplayFramebuffer(gfx);
 	BeginRenderPass(commandList, framebuffer);
 
-	// TODO: maybe better to set the size more explicitly so we don't need
-	// to access the Gfx struct inside of the following function
 	const uint2 displaySize = GetDisplaySize(gfx);
 	SetFullscreenViewportAndScissor(commandList, displaySize);
 
