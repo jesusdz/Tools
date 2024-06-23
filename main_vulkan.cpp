@@ -297,6 +297,29 @@ struct Swapchain
 	u32 currentImageIndex;
 };
 
+struct BindGroupAllocatorCounts
+{
+	u32 uniformBufferCount;
+	u32 storageBufferCount;
+	u32 storageTexelBufferCount;
+	u32 textureCount;
+	u32 samplerCount;
+	u32 combinedImageSamplerCount;
+	u32 groupCount;
+	bool allowIndividualFrees;
+};
+
+struct BindGroupAllocator
+{
+	BindGroupAllocatorCounts maxCounts;
+	BindGroupAllocatorCounts usedCounts;
+	VkDescriptorPool handle;
+};
+
+struct BindGroup
+{
+};
+
 struct RenderTargets
 {
 	Image depthImage;
@@ -412,11 +435,11 @@ struct Graphics
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
 
-	VkDescriptorPool globalDescriptorPool;
-	VkDescriptorPool materialDescriptorPool;
-	VkDescriptorPool computeDescriptorPool;
+	BindGroupAllocator globalBindGroupAllocator;
+	BindGroupAllocator materialBindGroupAllocator;
+	BindGroupAllocator computeBindGroupAllocator;
 #if USE_IMGUI
-	VkDescriptorPool imGuiDescriptorPool;
+	BindGroupAllocator imGuiBindGroupAllocator;
 #endif
 
 	// Updated each frame so we need MAX_FRAMES_IN_FLIGHT elements
@@ -1073,6 +1096,49 @@ const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflecti
 {
 	const ShaderReflection &reflection = gfx.shaderReflections[handle];
 	return reflection;
+}
+
+BindGroupAllocator CreateBindGroupAllocator(const Graphics &gfx, const BindGroupAllocatorCounts &counts)
+{
+	u32 poolSizeCount = 0;
+	VkDescriptorPoolSize poolSizes[8] = {};
+
+	if (counts.uniformBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, counts.uniformBufferCount };
+	}
+	if (counts.storageBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, counts.storageBufferCount };
+	}
+	if (counts.storageTexelBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, counts.storageTexelBufferCount };
+	}
+	if (counts.textureCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, counts.textureCount };
+	}
+	if (counts.samplerCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLER, counts.samplerCount };
+	}
+	if (counts.combinedImageSamplerCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, counts.combinedImageSamplerCount };
+	}
+
+	ASSERT(poolSizeCount <= ARRAY_COUNT(poolSizes));
+
+	VkDescriptorPoolCreateInfo createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	createInfo.flags = counts.allowIndividualFrees ? VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT : 0;
+	createInfo.poolSizeCount = poolSizeCount;
+	createInfo.pPoolSizes = poolSizes;
+	createInfo.maxSets = counts.groupCount;
+
+	VkDescriptorPool descriptorPool;
+	VK_CALL( vkCreateDescriptorPool( gfx.device, &createInfo, VULKAN_ALLOCATORS, &descriptorPool) );
+
+	BindGroupAllocator allocator = {
+		.maxCounts = counts,
+		.handle = descriptorPool,
+	};
+	return allocator;
 }
 
 void CreateDescriptorSetLayouts( const Graphics &gfx, const ShaderReflection &shaderReflection, VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS], u32 &descriptorSetLayoutCount )
@@ -2726,63 +2792,42 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 
 	// Create Global Descriptor Pool
 	{
-		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS) },
+		const BindGroupAllocatorCounts allocatorCounts = {
+			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.storageBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.samplerCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
 		};
-		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
-		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS);
-		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.globalDescriptorPool ) );
+		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 	// Create Material Descriptor Pool
 	{
-		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<u32>(MAX_MATERIALS) },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<u32>(MAX_MATERIALS) }
+		const BindGroupAllocatorCounts allocatorCounts = {
+			.uniformBufferCount = MAX_MATERIALS,
+			.textureCount = MAX_MATERIALS,
+			.groupCount = MAX_MATERIALS,
 		};
-		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
-		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_MATERIALS);
-		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.materialDescriptorPool ) );
+		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 	// Create Compute Descriptor Pool
 	{
-		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, static_cast<u32>(MAX_FRAMES_IN_FLIGHT * MAX_COMPUTES) },
+		const BindGroupAllocatorCounts allocatorCounts = {
+			.storageTexelBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_COMPUTES,
+			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_COMPUTES,
 		};
-		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		//descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
-		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = static_cast<u32>(MAX_COMPUTES * MAX_FRAMES_IN_FLIGHT);
-		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.computeDescriptorPool ) );
+		gfx.computeBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 
 
 #if USE_IMGUI
 	// Create Imgui Descriptor Pool
 	{
-		// The example only requires a single combined image sampler descriptor for the font image and only uses one descriptor set (for that)
-		// If you wish to load e.g. additional textures you may need to alter pools sizes.
-		VkDescriptorPoolSize descriptorPoolSizes[] = {
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+		const BindGroupAllocatorCounts allocatorCounts = {
+			.combinedImageSamplerCount = 1,
+			.groupCount = 1,
+			.allowIndividualFrees = true,
 		};
-		VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
-		descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		descriptorPoolCreateInfo.poolSizeCount = ARRAY_COUNT(descriptorPoolSizes);
-		descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
-		descriptorPoolCreateInfo.maxSets = 1;
-		VK_CALL( vkCreateDescriptorPool( gfx.device, &descriptorPoolCreateInfo, VULKAN_ALLOCATORS, &gfx.imGuiDescriptorPool ) );
+		gfx.imGuiBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 #endif
 
@@ -3064,7 +3109,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 			}
 			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.globalDescriptorPool;
+			descriptorSetAllocateInfo.descriptorPool = gfx.globalBindGroupAllocator.handle;
 			descriptorSetAllocateInfo.descriptorSetCount = globalDescriptorSetLayoutCount;
 			descriptorSetAllocateInfo.pSetLayouts = globalDescriptorSetLayouts;
 			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.globalDescriptorSets[i]) );
@@ -3073,7 +3118,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		{
 			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.materialDescriptorPool;
+			descriptorSetAllocateInfo.descriptorPool = gfx.materialBindGroupAllocator.handle;
 			descriptorSetAllocateInfo.descriptorSetCount = 1;
 			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
 			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialDescriptorSets[i]) );
@@ -3093,7 +3138,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 			}
 			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
 			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.computeDescriptorPool;
+			descriptorSetAllocateInfo.descriptorPool = gfx.computeBindGroupAllocator.handle;
 			descriptorSetAllocateInfo.descriptorSetCount = computeDescriptorSetLayoutCount;
 			descriptorSetAllocateInfo.pSetLayouts = computeDescriptorSetLayouts;
 			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.computeDescriptorSets[i]) );
@@ -3152,11 +3197,11 @@ void CleanupGraphicsDevice(Graphics &gfx)
 {
 	WaitDeviceIdle( gfx );
 
-	vkDestroyDescriptorPool( gfx.device, gfx.globalDescriptorPool, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorPool( gfx.device, gfx.materialDescriptorPool, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorPool( gfx.device, gfx.computeDescriptorPool, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.globalBindGroupAllocator.handle, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.materialBindGroupAllocator.handle, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.computeBindGroupAllocator.handle, VULKAN_ALLOCATORS );
 #if USE_IMGUI
-	vkDestroyDescriptorPool( gfx.device, gfx.imGuiDescriptorPool, VULKAN_ALLOCATORS );
+	vkDestroyDescriptorPool( gfx.device, gfx.imGuiBindGroupAllocator.handle, VULKAN_ALLOCATORS );
 #endif
 
 	for (u32 i = 0; i < gfx.samplerCount; ++i)
@@ -3797,7 +3842,7 @@ void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
 	init_info.QueueFamily = gfx.graphicsQueueFamilyIndex;
 	init_info.Queue = gfx.graphicsQueue;
 	init_info.PipelineCache = gfx.pipelineCache;
-	init_info.DescriptorPool = gfx.imGuiDescriptorPool;
+	init_info.DescriptorPool = gfx.imGuiBindGroupAllocator.handle;
 	init_info.Subpass = 0;
 	init_info.MinImageCount = gfx.swapchain.imageCount;
 	init_info.ImageCount = gfx.swapchain.imageCount;
