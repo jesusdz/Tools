@@ -318,6 +318,7 @@ struct BindGroupAllocator
 
 struct BindGroup
 {
+	VkDescriptorSet handle;
 };
 
 struct RenderTargets
@@ -443,11 +444,11 @@ struct Graphics
 #endif
 
 	// Updated each frame so we need MAX_FRAMES_IN_FLIGHT elements
-	VkDescriptorSet globalDescriptorSets[MAX_MATERIALS][MAX_FRAMES_IN_FLIGHT];
+	BindGroup globalBindGroups[MAX_MATERIALS][MAX_FRAMES_IN_FLIGHT];
 	// Updated once at the beginning for each material
-	VkDescriptorSet materialDescriptorSets[MAX_MATERIALS];
+	BindGroup materialBindGroups[MAX_MATERIALS];
 	// For computes
-	VkDescriptorSet computeDescriptorSets[MAX_COMPUTES][MAX_FRAMES_IN_FLIGHT];
+	BindGroup computeBindGroups[MAX_COMPUTES][MAX_FRAMES_IN_FLIGHT];
 
 	struct
 	{
@@ -471,6 +472,9 @@ struct CommandList
 {
 	VkCommandBuffer handle;
 	const Graphics *gfx;
+
+	VkDescriptorSet descriptorSetHandles[4];
+	u8 descriptorSetDirtyMask;
 
 	// State
 	union
@@ -2984,12 +2988,12 @@ void UpdateMaterialDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updat
 			if ( binding.set == DESCRIPTOR_SET_GLOBAL )
 			{
 				bindingTable = bindingTables[DESCRIPTOR_SET_GLOBAL];
-				descriptorSet = gfx.globalDescriptorSets[materialIndex][gfx.currentFrame];
+				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.currentFrame].handle;
 			}
 			else if ( binding.set == DESCRIPTOR_SET_MATERIAL )
 			{
 				bindingTable = bindingTables[DESCRIPTOR_SET_MATERIAL];
-				descriptorSet = gfx.materialDescriptorSets[materialIndex];
+				descriptorSet = gfx.materialBindGroups[materialIndex].handle;
 			}
 			else
 			{
@@ -3101,18 +3105,16 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		if ( pipeline.globalDescriptorSetLayout )
 		{
-			const u32 globalDescriptorSetLayoutCount = ARRAY_COUNT(gfx.globalDescriptorSets[i]);
-			VkDescriptorSetLayout globalDescriptorSetLayouts[globalDescriptorSetLayoutCount];
-			for (u32 i = 0; i < globalDescriptorSetLayoutCount; ++i)
+			const u32 bindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
+			for (u32 j = 0; j < bindGroupCount; ++j)
 			{
-				globalDescriptorSetLayouts[i] = pipeline.globalDescriptorSetLayout;
+				VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+				descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				descriptorSetAllocateInfo.descriptorPool = gfx.globalBindGroupAllocator.handle;
+				descriptorSetAllocateInfo.descriptorSetCount = 1;
+				descriptorSetAllocateInfo.pSetLayouts = &pipeline.globalDescriptorSetLayout;
+				VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.globalBindGroups[i][j].handle) );
 			}
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.globalBindGroupAllocator.handle;
-			descriptorSetAllocateInfo.descriptorSetCount = globalDescriptorSetLayoutCount;
-			descriptorSetAllocateInfo.pSetLayouts = globalDescriptorSetLayouts;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.globalDescriptorSets[i]) );
 		}
 		if ( pipeline.materialDescriptorSetLayout )
 		{
@@ -3121,7 +3123,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 			descriptorSetAllocateInfo.descriptorPool = gfx.materialBindGroupAllocator.handle;
 			descriptorSetAllocateInfo.descriptorSetCount = 1;
 			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialDescriptorSets[i]) );
+			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialBindGroups[i].handle) );
 		}
 	}
 
@@ -3131,17 +3133,16 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		const Compute &compute = GetCompute(gfx, i);
 		if ( compute.descriptorSetLayout )
 		{
-			const u32 computeDescriptorSetLayoutCount = ARRAY_COUNT(gfx.computeDescriptorSets[i]);
-			VkDescriptorSetLayout computeDescriptorSetLayouts[computeDescriptorSetLayoutCount];
-			for (u32 i = 0; i < computeDescriptorSetLayoutCount; ++i) {
-				computeDescriptorSetLayouts[i] = compute.descriptorSetLayout;
+			const u32 bindGroupCount = ARRAY_COUNT(gfx.computeBindGroups[i]);
+			for (u32 j = 0; j < bindGroupCount; ++j)
+			{
+				VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+				descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+				descriptorSetAllocateInfo.descriptorPool = gfx.computeBindGroupAllocator.handle;
+				descriptorSetAllocateInfo.descriptorSetCount = 1;
+				descriptorSetAllocateInfo.pSetLayouts = &compute.descriptorSetLayout;
+				VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.computeBindGroups[i][j].handle) );
 			}
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.computeBindGroupAllocator.handle;
-			descriptorSetAllocateInfo.descriptorSetCount = computeDescriptorSetLayoutCount;
-			descriptorSetAllocateInfo.pSetLayouts = computeDescriptorSetLayouts;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, gfx.computeDescriptorSets[i]) );
 		}
 	}
 
@@ -3602,7 +3603,7 @@ void Dispatch(const CommandList &commandList, u32 x, u32 y, u32 z)
 	const Compute &compute = *commandList.compute;
 
 	// TODO: Use different descriptor sets for different dispatches
-	const VkDescriptorSet computeDescriptorSet = commandList.gfx->computeDescriptorSets[commandList.gfx->computeClearH][commandList.gfx->currentFrame];
+	const VkDescriptorSet computeDescriptorSet = gfx.computeBindGroups[gfx.computeClearH][gfx.currentFrame].handle;
 	UpdateComputeDescriptorSets(gfx, compute, computeDescriptorSet, commandList.computeBindingTable);
 
 	const u32 descriptorSetCount = 1;
@@ -3612,7 +3613,7 @@ void Dispatch(const CommandList &commandList, u32 x, u32 y, u32 z)
 	vkCmdDispatch(commandList.handle, x, y, z);
 }
 
-void BindPipeline(CommandList &commandList, const Pipeline &pipeline)
+void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
 {
 	if ( commandList.pipeline != &pipeline )
 	{
@@ -3621,7 +3622,16 @@ void BindPipeline(CommandList &commandList, const Pipeline &pipeline)
 	}
 }
 
-void BindVertexBuffer(CommandList &commandList, const Buffer &buffer)
+void SetBindGroup(CommandList &commandList, u32 bindGroupIndex, const BindGroup &bindGroup)
+{
+	if ( commandList.descriptorSetHandles[bindGroupIndex] != bindGroup.handle )
+	{
+		commandList.descriptorSetDirtyMask |= 1 << bindGroupIndex;
+		commandList.descriptorSetHandles[bindGroupIndex] = bindGroup.handle;
+	}
+}
+
+void SetVertexBuffer(CommandList &commandList, const Buffer &buffer)
 {
 	if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
 	{
@@ -3632,7 +3642,7 @@ void BindVertexBuffer(CommandList &commandList, const Buffer &buffer)
 	}
 }
 
-void BindIndexBuffer(CommandList &commandList, const Buffer &buffer)
+void SetIndexBuffer(CommandList &commandList, const Buffer &buffer)
 {
 	if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
 	{
@@ -3649,8 +3659,30 @@ void BindBufferRW(CommandList &commandList, const Buffer &computeBuffer)
 	BindResource(commandList.computeBindingTable, 0, computeBufferView);
 }
 
-void DrawIndexed(const CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
+void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
 {
+	if ( commandList.descriptorSetDirtyMask )
+	{
+		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
+
+		u32 descriptorSetCount = 0;
+		VkDescriptorSet descriptorSets[4] = {};
+		for (u32 i = descriptorSetFirst; i < 4; ++i )
+		{
+			if ( commandList.descriptorSetDirtyMask & (1 << i) )
+			{
+				descriptorSets[descriptorSetCount++] = commandList.descriptorSetHandles[i];
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, commandList.pipeline->layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+		commandList.descriptorSetDirtyMask = 0;
+	}
+
 	vkCmdDrawIndexed(commandList.handle, indexCount, 1, firstIndex, firstVertex, instanceIndex);
 }
 
@@ -3725,9 +3757,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const uint2 displaySize = GetDisplaySize(gfx);
 	SetFullscreenViewportAndScissor(commandList, displaySize);
 
-	VkDescriptorSet prevGlobalSet = VK_NULL_HANDLE;
-	VkDescriptorSet prevMaterialSet = VK_NULL_HANDLE;
-
 	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
 		const Entity &entity = gfx.entities[entityIndex];
@@ -3739,41 +3768,19 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
 
 		// Pipeline
-		BindPipeline(commandList, pipeline);
+		SetPipeline(commandList, pipeline);
 
-		// Descriptor sets
-		VkDescriptorSet descriptorSets[4] = {};
-		u32 descriptorSetCount = 0;
-		u32 descriptorSetFirst = UINT32_MAX;
-
-		// firstSet = 0
-		const VkDescriptorSet globalSet = gfx.globalDescriptorSets[materialIndex][frameIndex];
-		if ( globalSet && globalSet != prevGlobalSet ) {
-			prevGlobalSet = globalSet;
-			descriptorSetFirst = 0;
-			descriptorSets[descriptorSetCount++] = globalSet;
-		}
-
-		// firstSet = 1
-		const VkDescriptorSet materialSet = gfx.materialDescriptorSets[materialIndex];
-		if ( materialSet && materialSet != prevMaterialSet ) {
-			prevMaterialSet = materialSet;
-			descriptorSetFirst = Min(descriptorSetFirst, 1u);
-			descriptorSets[descriptorSetCount++] = materialSet;
-		}
-
-		// Bind descriptor sets
-		if ( descriptorSetCount > 0 ) {
-			vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
-		}
+		// Bind groups
+		SetBindGroup(commandList, 0, gfx.globalBindGroups[materialIndex][frameIndex]);
+		SetBindGroup(commandList, 1, gfx.materialBindGroups[materialIndex]);
 
 		// Vertex buffer
 		const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
-		BindVertexBuffer(commandList, vertexBuffer);
+		SetVertexBuffer(commandList, vertexBuffer);
 
 		// Index buffer
 		const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
-		BindIndexBuffer(commandList, indexBuffer);
+		SetIndexBuffer(commandList, indexBuffer);
 
 		// Draw!!!
 		const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
