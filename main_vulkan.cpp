@@ -318,6 +318,13 @@ struct BindGroupAllocator
 	VkDescriptorPool handle;
 };
 
+struct BindGroupDesc
+{
+	BindGroupLayout layout;
+	ShaderReflection reflection;
+	ResourceBinding bindings[MAX_SHADER_BINDINGS];
+};
+
 struct BindGroup
 {
 	VkDescriptorSet handle;
@@ -440,7 +447,7 @@ struct Graphics
 
 	BindGroupAllocator globalBindGroupAllocator;
 	BindGroupAllocator materialBindGroupAllocator;
-	BindGroupAllocator computeBindGroupAllocator;
+	BindGroupAllocator computeBindGroupAllocator[MAX_FRAMES_IN_FLIGHT];
 #if USE_IMGUI
 	BindGroupAllocator imGuiBindGroupAllocator;
 #endif
@@ -450,7 +457,7 @@ struct Graphics
 	// Updated once at the beginning for each material
 	BindGroup materialBindGroups[MAX_MATERIALS];
 	// For computes
-	BindGroup computeBindGroups[MAX_COMPUTES][MAX_FRAMES_IN_FLIGHT];
+	// Compute bind groups are created on-the-fly every frame
 
 	struct
 	{
@@ -478,6 +485,8 @@ struct CommandList
 	VkDescriptorSet descriptorSetHandles[4];
 	u8 descriptorSetDirtyMask;
 
+	VkPipelineBindPoint bindPoint;
+
 	// State
 	union
 	{
@@ -490,7 +499,6 @@ struct CommandList
 		struct // For compute pipelines
 		{
 			const Compute *compute;
-			ResourceBinding computeBindingTable[MAX_COMPUTE_BINDINGS] = {};
 		};
 	};
 };
@@ -1104,6 +1112,74 @@ const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflecti
 	return reflection;
 }
 
+union VkDescriptorGenericInfo
+{
+	VkDescriptorImageInfo imageInfo;
+	VkDescriptorBufferInfo bufferInfo;
+	VkBufferView bufferView;
+};
+
+static bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
+{
+	const ResourceBinding &resourceBinding = bindingTable[binding.binding];
+
+	VkDescriptorImageInfo *imageInfo = 0;
+	VkDescriptorBufferInfo *bufferInfo = 0;
+	VkBufferView *bufferView = 0;
+
+	if ( binding.type == SpvTypeSampler )
+	{
+		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
+		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo->imageView = VK_NULL_HANDLE;
+		imageInfo->sampler = resourceBinding.sampler.handle;
+	}
+	else if ( binding.type == SpvTypeImage )
+	{
+		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
+		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo->imageView = resourceBinding.texture.handle;
+		imageInfo->sampler = VK_NULL_HANDLE;
+	}
+	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
+	{
+		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
+		bufferInfo->buffer = resourceBinding.buffer.handle;
+		bufferInfo->offset = resourceBinding.buffer.offset;
+		bufferInfo->range = resourceBinding.buffer.range;
+	}
+	else if ( binding.type == SpvTypeStorageTexelBuffer )
+	{
+		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
+		*bufferView = resourceBinding.bufferView.handle;
+	}
+	else
+	{
+		LOG(Warning, "Unhandled descriptor type (%u) for binding %s.\n", binding.type, binding.name);
+		return false;
+	}
+
+	VkWriteDescriptorSet *descriptorWrite = &descriptorWrites[descriptorWriteCount++];
+	descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite->dstSet = descriptorSet;
+	descriptorWrite->dstBinding = binding.binding;
+	descriptorWrite->dstArrayElement = 0;
+	descriptorWrite->descriptorType = SpvDescriptorTypeToVulkan( binding.type );
+	descriptorWrite->descriptorCount = 1;
+	descriptorWrite->pBufferInfo = bufferInfo;
+	descriptorWrite->pImageInfo = imageInfo;
+	descriptorWrite->pTexelBufferView = bufferView;
+	return true;
+}
+
+static void UpdateDescriptorSets(const Graphics &gfx, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
+{
+	if ( descriptorWriteCount > 0 )
+	{
+		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
+	}
+}
+
 BindGroupAllocator CreateBindGroupAllocator(const Graphics &gfx, const BindGroupAllocatorCounts &counts)
 {
 	u32 poolSizeCount = 0;
@@ -1153,13 +1229,38 @@ BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, co
 
 	if (layout)
 	{
-		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		descriptorSetAllocateInfo.descriptorPool = allocator.handle;
-		descriptorSetAllocateInfo.descriptorSetCount = 1;
-		descriptorSetAllocateInfo.pSetLayouts = &layout;
-		VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &bindGroup.handle) );
+		VkDescriptorSetAllocateInfo allocateInfo = {};
+		allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocateInfo.descriptorPool = allocator.handle;
+		allocateInfo.descriptorSetCount = 1;
+		allocateInfo.pSetLayouts = &layout;
+		VK_CALL( vkAllocateDescriptorSets(gfx.device, &allocateInfo, &bindGroup.handle) );
 	}
+
+	return bindGroup;
+}
+
+BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, const BindGroupAllocator &allocator)
+{
+	BindGroup bindGroup = CreateBindGroup(gfx, desc.layout, allocator);
+
+	// TODO: Update
+	const ShaderReflection &reflection = desc.reflection;
+
+	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
+	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
+	u32 descriptorWriteCount = 0;
+
+	for (u32 i = 0; i < reflection.bindingCount; ++i)
+	{
+		const ShaderBinding &binding = reflection.bindings[i];
+		if ( !AddDescriptorWrite(desc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
+		{
+			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", binding.name, "<compute>");
+		}
+	}
+
+	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
 
 	return bindGroup;
 }
@@ -2833,12 +2934,13 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 	// Create Compute Descriptor Pool
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
-			.storageTexelBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_COMPUTES,
-			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_COMPUTES,
+			.storageTexelBufferCount = MAX_COMPUTES,
+			.groupCount = MAX_COMPUTES,
 		};
-		gfx.computeBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
+		gfx.computeBindGroupAllocator[i] = CreateBindGroupAllocator(gfx, allocatorCounts);
 	}
 
 
@@ -2904,75 +3006,7 @@ void BindMaterialResources(const Graphics &gfx, const Material &material, Resour
 	BindResource(bindingTable, BINDING_ALBEDO, albedoTexture);
 }
 
-union VkDescriptorGenericInfo
-{
-	VkDescriptorImageInfo imageInfo;
-	VkDescriptorBufferInfo bufferInfo;
-	VkBufferView bufferView;
-};
-
-bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
-{
-	const ResourceBinding &resourceBinding = bindingTable[binding.binding];
-
-	VkDescriptorImageInfo *imageInfo = 0;
-	VkDescriptorBufferInfo *bufferInfo = 0;
-	VkBufferView *bufferView = 0;
-
-	if ( binding.type == SpvTypeSampler )
-	{
-		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
-		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo->imageView = VK_NULL_HANDLE;
-		imageInfo->sampler = resourceBinding.sampler.handle;
-	}
-	else if ( binding.type == SpvTypeImage )
-	{
-		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
-		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo->imageView = resourceBinding.texture.handle;
-		imageInfo->sampler = VK_NULL_HANDLE;
-	}
-	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
-	{
-		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
-		bufferInfo->buffer = resourceBinding.buffer.handle;
-		bufferInfo->offset = resourceBinding.buffer.offset;
-		bufferInfo->range = resourceBinding.buffer.range;
-	}
-	else if ( binding.type == SpvTypeStorageTexelBuffer )
-	{
-		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
-		*bufferView = resourceBinding.bufferView.handle;
-	}
-	else
-	{
-		LOG(Warning, "Unhandled descriptor type (%u) for binding %s.\n", binding.type, binding.name);
-		return false;
-	}
-
-	VkWriteDescriptorSet *descriptorWrite = &descriptorWrites[descriptorWriteCount++];
-	descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	descriptorWrite->dstSet = descriptorSet;
-	descriptorWrite->dstBinding = binding.binding;
-	descriptorWrite->dstArrayElement = 0;
-	descriptorWrite->descriptorType = SpvDescriptorTypeToVulkan( binding.type );
-	descriptorWrite->descriptorCount = 1;
-	descriptorWrite->pBufferInfo = bufferInfo;
-	descriptorWrite->pImageInfo = imageInfo;
-	descriptorWrite->pTexelBufferView = bufferView;
-	return true;
-}
-
-void UpdateDescriptorSets(const Graphics &gfx, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
-{
-	if ( descriptorWriteCount > 0 )
-	{
-		vkUpdateDescriptorSets(gfx.device, descriptorWriteCount, descriptorWrites, 0, NULL);
-	}
-}
-
-void UpdateMaterialDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updateMaterialDS)
+void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 {
 	VkDescriptorGenericInfo descriptorInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
@@ -2998,8 +3032,7 @@ void UpdateMaterialDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updat
 		{
 			const ShaderBinding &binding = reflection.bindings[bindingIndex];
 
-			if ( binding.set == DESCRIPTOR_SET_GLOBAL && !updateGlobalDS ) continue;
-			if ( binding.set == DESCRIPTOR_SET_MATERIAL && !updateMaterialDS ) continue;
+			if ( binding.set != bindGroupIndex ) continue;
 
 			ResourceBinding *bindingTable = 0;
 			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
@@ -3016,7 +3049,7 @@ void UpdateMaterialDescriptorSets(Graphics &gfx, bool updateGlobalDS, bool updat
 			}
 			else
 			{
-				LOG(Warning, "Unhandled descriptor set (%u) in UpdateMaterialDescriptorSets.\n", binding.set);
+				LOG(Warning, "Unhandled descriptor set (%u) in UpdateMaterialBindGroup.\n", binding.set);
 				continue;
 			}
 
@@ -3130,21 +3163,8 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		gfx.materialBindGroups[i] = CreateBindGroup(gfx, pipeline.materialBindGroupLayout, gfx.materialBindGroupAllocator);
 	}
 
-	// Descriptor set for computes
-	for (u32 i = 0; i < gfx.computeCount; ++i)
-	{
-		const Compute &compute = GetCompute(gfx, i);
-		const u32 computeBindGroupCount = ARRAY_COUNT(gfx.computeBindGroups[i]);
-		for (u32 j = 0; j < computeBindGroupCount; ++j)
-		{
-			gfx.computeBindGroups[i][j] = CreateBindGroup(gfx, compute.bindGroupLayout, gfx.computeBindGroupAllocator);
-		}
-	}
-
 	// Update material descriptor sets
-	const bool updateGlobalDS = false;
-	const bool updateMaterialDS = true;
-	UpdateMaterialDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
+	UpdateMaterialBindGroup(gfx, DESCRIPTOR_SET_MATERIAL);
 
 	// Camera
 	gfx.camera.position = {0, 1, 2};
@@ -3195,7 +3215,10 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	vkDestroyDescriptorPool( gfx.device, gfx.globalBindGroupAllocator.handle, VULKAN_ALLOCATORS );
 	vkDestroyDescriptorPool( gfx.device, gfx.materialBindGroupAllocator.handle, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorPool( gfx.device, gfx.computeBindGroupAllocator.handle, VULKAN_ALLOCATORS );
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
+	{
+		vkDestroyDescriptorPool( gfx.device, gfx.computeBindGroupAllocator[i].handle, VULKAN_ALLOCATORS );
+	}
 #if USE_IMGUI
 	vkDestroyDescriptorPool( gfx.device, gfx.imGuiBindGroupAllocator.handle, VULKAN_ALLOCATORS );
 #endif
@@ -3571,6 +3594,10 @@ bool BeginFrame(Graphics &gfx)
 	VK_CALL( vkResetFences( gfx.device, 1, &gfx.inFlightFences[frameIndex] ) );
 	gfx.swapchain.currentImageIndex = imageIndex;
 
+	// Reset descriptor pools for this frame
+	VkDescriptorPool descriptorPool = gfx.computeBindGroupAllocator[frameIndex].handle;
+	VK_CALL( vkResetDescriptorPool(gfx.device, descriptorPool, 0) );
+
 	// Reset commands for this frame
 	VkCommandPool commandPool = gfx.commandPools[frameIndex];
 	VK_CALL( vkResetCommandPool(gfx.device, commandPool, 0) );
@@ -3583,29 +3610,14 @@ void EndFrame(Graphics &gfx)
 	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void BindCompute(CommandList &commandList, const Compute &compute)
+void SetCompute(CommandList &commandList, const Compute &compute)
 {
 	if ( commandList.compute != &compute )
 	{
 		commandList.compute = &compute;
-		vkCmdBindPipeline(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.handle);
+		commandList.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+		vkCmdBindPipeline(commandList.handle, commandList.bindPoint, compute.handle);
 	}
-}
-
-void Dispatch(const CommandList &commandList, u32 x, u32 y, u32 z)
-{
-	const Graphics &gfx = *commandList.gfx;
-	const Compute &compute = *commandList.compute;
-
-	// TODO: Use different descriptor sets for different dispatches
-	const VkDescriptorSet computeDescriptorSet = gfx.computeBindGroups[gfx.computeClearH][gfx.currentFrame].handle;
-	UpdateComputeDescriptorSets(gfx, compute, computeDescriptorSet, commandList.computeBindingTable);
-
-	const u32 descriptorSetCount = 1;
-	const u32 descriptorSetFirst = 0;
-	vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_COMPUTE, compute.layout, descriptorSetFirst, descriptorSetCount, &computeDescriptorSet, 0, NULL);
-
-	vkCmdDispatch(commandList.handle, x, y, z);
 }
 
 void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
@@ -3613,7 +3625,8 @@ void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
 	if ( commandList.pipeline != &pipeline )
 	{
 		commandList.pipeline = &pipeline;
-		vkCmdBindPipeline( commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle );
+		commandList.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		vkCmdBindPipeline( commandList.handle, commandList.bindPoint, pipeline.handle );
 	}
 }
 
@@ -3647,14 +3660,7 @@ void SetIndexBuffer(CommandList &commandList, const Buffer &buffer)
 	}
 }
 
-void BindBufferRW(CommandList &commandList, const Buffer &computeBuffer)
-{
-	// TODO: Check type of pipeline bound (computes and gfx pipeline may require different handling here)
-	const BufferView &computeBufferView = GetBufferView(*commandList.gfx, commandList.gfx->computeBufferViewH);
-	BindResource(commandList.computeBindingTable, 0, computeBufferView);
-}
-
-void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
+static void BindDescriptorSets(CommandList &commandList)
 {
 	if ( commandList.descriptorSetDirtyMask )
 	{
@@ -3674,11 +3680,24 @@ void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 f
 			}
 		}
 
-		vkCmdBindDescriptorSets(commandList.handle, VK_PIPELINE_BIND_POINT_GRAPHICS, commandList.pipeline->layout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+		VkPipelineLayout pipelineLayout = commandList.bindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS ? commandList.pipeline->layout : commandList.compute->layout;
+		vkCmdBindDescriptorSets(commandList.handle, commandList.bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		commandList.descriptorSetDirtyMask = 0;
 	}
+}
+
+void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
+{
+	BindDescriptorSets(commandList);
 
 	vkCmdDrawIndexed(commandList.handle, indexCount, 1, firstIndex, firstVertex, instanceIndex);
+}
+
+void Dispatch(CommandList &commandList, u32 x, u32 y, u32 z)
+{
+	BindDescriptorSets(commandList);
+
+	vkCmdDispatch(commandList.handle, x, y, z);
 }
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
@@ -3725,9 +3744,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	// Update global descriptor sets
-	const bool updateGlobalDS = true;
-	const bool updateMaterialDS = false;
-	UpdateMaterialDescriptorSets(gfx, updateGlobalDS, updateMaterialDS);
+	UpdateMaterialBindGroup(gfx, DESCRIPTOR_SET_GLOBAL);
 
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx);
@@ -3736,11 +3753,23 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	#if COMPUTE_TEST
 	{
 		const Compute &compute = GetCompute(gfx, gfx.computeClearH);
+		const ShaderReflection &reflection = GetShaderReflection(gfx, compute.shaderReflectionH);
 
-		BindCompute(commandList, compute);
+		SetCompute(commandList, compute);
 
-		const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
-		BindBufferRW(commandList, computeBuffer);
+		//const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
+		const BufferView &computeBufferView = GetBufferView(gfx, commandList.gfx->computeBufferViewH);
+
+		const BindGroupDesc bindGroupDesc = {
+			.layout = compute.bindGroupLayout,
+			.reflection = reflection,
+			.bindings = {
+				{ .bufferView = computeBufferView.handle },
+			},
+		};
+		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+
+		SetBindGroup(commandList, 0, bindGroup);
 
 		Dispatch(commandList, 1, 1, 1);
 	}
