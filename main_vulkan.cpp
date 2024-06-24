@@ -2846,7 +2846,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	gfx.cubeVertices = PushData(gfx, gfx.globalVertexArena, cubeVertices, sizeof(cubeVertices));
 	gfx.cubeIndices = PushData(gfx, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
 	gfx.planeVertices = PushData(gfx, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
-	gfx.planeIndices = PushData(gfx, gfx.globalIndexArena, planeIndices, sizeof(cubeIndices));
+	gfx.planeIndices = PushData(gfx, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
 
 	// Create globals buffer
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
