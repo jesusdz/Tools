@@ -157,11 +157,13 @@ union ResourceBinding
 
 typedef u32 ShaderReflectionH;
 
+typedef VkDescriptorSetLayout BindGroupLayout;
+
 struct Pipeline
 {
 	const char *name;
-	VkDescriptorSetLayout globalDescriptorSetLayout;
-	VkDescriptorSetLayout materialDescriptorSetLayout;
+	BindGroupLayout globalBindGroupLayout;
+	BindGroupLayout materialBindGroupLayout;
 	VkPipelineLayout layout;
 	VkPipeline handle;
 	ShaderReflectionH shaderReflectionH;
@@ -172,7 +174,7 @@ typedef u32 PipelineH;
 struct Compute
 {
 	const char *name;
-	VkDescriptorSetLayout descriptorSetLayout;
+	BindGroupLayout bindGroupLayout;
 	VkPipelineLayout layout;
 	VkPipeline handle;
 	ShaderReflectionH shaderReflectionH;
@@ -1145,6 +1147,23 @@ BindGroupAllocator CreateBindGroupAllocator(const Graphics &gfx, const BindGroup
 	return allocator;
 }
 
+BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, const BindGroupAllocator &allocator)
+{
+	BindGroup bindGroup = {};
+
+	if (layout)
+	{
+		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		descriptorSetAllocateInfo.descriptorPool = allocator.handle;
+		descriptorSetAllocateInfo.descriptorSetCount = 1;
+		descriptorSetAllocateInfo.pSetLayouts = &layout;
+		VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &bindGroup.handle) );
+	}
+
+	return bindGroup;
+}
+
 void CreateDescriptorSetLayouts( const Graphics &gfx, const ShaderReflection &shaderReflection, VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS], u32 &descriptorSetLayoutCount )
 {
 	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
@@ -1470,8 +1489,8 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
 
 	// Pipeline layout
-	VkDescriptorSetLayout globalDescriptorSetLayout = descriptorSetLayouts[0];
-	VkDescriptorSetLayout materialDescriptorSetLayout = descriptorSetLayouts[1];
+	VkDescriptorSetLayout globalBindGroupLayout = descriptorSetLayouts[0];
+	VkDescriptorSetLayout materialBindGroupLayout = descriptorSetLayouts[1];
 	ASSERT(descriptorSetLayouts[2] == 0); // Only descriptor sets 0,1 allowed
 	ASSERT(descriptorSetLayouts[3] == 0); // Only descriptor sets 0,1 allowed
 
@@ -1513,8 +1532,8 @@ PipelineH CreatePipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	gfx.pipelines[pipelineHandle].name = desc.name;
-	gfx.pipelines[pipelineHandle].globalDescriptorSetLayout = globalDescriptorSetLayout;
-	gfx.pipelines[pipelineHandle].materialDescriptorSetLayout = materialDescriptorSetLayout;
+	gfx.pipelines[pipelineHandle].globalBindGroupLayout = globalBindGroupLayout;
+	gfx.pipelines[pipelineHandle].materialBindGroupLayout = materialBindGroupLayout;
 	gfx.pipelines[pipelineHandle].layout = pipelineLayout;
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
 	gfx.pipelines[pipelineHandle].shaderReflectionH = shaderReflectionH;
@@ -1561,7 +1580,7 @@ ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
 	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
 
 	// Pipeline layout
-	VkDescriptorSetLayout descriptorSetLayout = descriptorSetLayouts[0];
+	VkDescriptorSetLayout bindGroupLayout = descriptorSetLayouts[0];
 	ASSERT(descriptorSetLayouts[1] == 0); // Only descriptor set 0 allowed
 	ASSERT(descriptorSetLayouts[2] == 0); // Only descriptor set 0 allowed
 	ASSERT(descriptorSetLayouts[3] == 0); // Only descriptor set 0 allowed
@@ -1586,7 +1605,7 @@ ComputeH CreateCompute(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
 
 	ComputeH computeHandle = gfx.computeCount++;
 	gfx.computes[computeHandle].name = desc.name;
-	gfx.computes[computeHandle].descriptorSetLayout = descriptorSetLayout;
+	gfx.computes[computeHandle].bindGroupLayout = bindGroupLayout;
 	gfx.computes[computeHandle].handle = computePipeline;
 	gfx.computes[computeHandle].layout = pipelineLayout;
 	gfx.computes[computeHandle].shaderReflectionH = shaderReflectionH;
@@ -3103,46 +3122,22 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	{
 		const Material &material = GetMaterial(gfx, i);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
-		if ( pipeline.globalDescriptorSetLayout )
+		const u32 globalBindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
+		for (u32 j = 0; j < globalBindGroupCount; ++j)
 		{
-			const u32 bindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
-			for (u32 j = 0; j < bindGroupCount; ++j)
-			{
-				VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-				descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-				descriptorSetAllocateInfo.descriptorPool = gfx.globalBindGroupAllocator.handle;
-				descriptorSetAllocateInfo.descriptorSetCount = 1;
-				descriptorSetAllocateInfo.pSetLayouts = &pipeline.globalDescriptorSetLayout;
-				VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.globalBindGroups[i][j].handle) );
-			}
+			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx, pipeline.globalBindGroupLayout, gfx.globalBindGroupAllocator);
 		}
-		if ( pipeline.materialDescriptorSetLayout )
-		{
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = gfx.materialBindGroupAllocator.handle;
-			descriptorSetAllocateInfo.descriptorSetCount = 1;
-			descriptorSetAllocateInfo.pSetLayouts = &pipeline.materialDescriptorSetLayout;
-			VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.materialBindGroups[i].handle) );
-		}
+		gfx.materialBindGroups[i] = CreateBindGroup(gfx, pipeline.materialBindGroupLayout, gfx.materialBindGroupAllocator);
 	}
 
 	// Descriptor set for computes
 	for (u32 i = 0; i < gfx.computeCount; ++i)
 	{
 		const Compute &compute = GetCompute(gfx, i);
-		if ( compute.descriptorSetLayout )
+		const u32 computeBindGroupCount = ARRAY_COUNT(gfx.computeBindGroups[i]);
+		for (u32 j = 0; j < computeBindGroupCount; ++j)
 		{
-			const u32 bindGroupCount = ARRAY_COUNT(gfx.computeBindGroups[i]);
-			for (u32 j = 0; j < bindGroupCount; ++j)
-			{
-				VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-				descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-				descriptorSetAllocateInfo.descriptorPool = gfx.computeBindGroupAllocator.handle;
-				descriptorSetAllocateInfo.descriptorSetCount = 1;
-				descriptorSetAllocateInfo.pSetLayouts = &compute.descriptorSetLayout;
-				VK_CALL( vkAllocateDescriptorSets(gfx.device, &descriptorSetAllocateInfo, &gfx.computeBindGroups[i][j].handle) );
-			}
+			gfx.computeBindGroups[i][j] = CreateBindGroup(gfx, compute.bindGroupLayout, gfx.computeBindGroupAllocator);
 		}
 	}
 
@@ -3236,8 +3231,8 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		const Pipeline &pipeline = GetPipeline(gfx, i);
 		vkDestroyPipeline( gfx.device, pipeline.handle, VULKAN_ALLOCATORS );
 		vkDestroyPipelineLayout( gfx.device, pipeline.layout, VULKAN_ALLOCATORS );
-		vkDestroyDescriptorSetLayout( gfx.device, pipeline.globalDescriptorSetLayout, VULKAN_ALLOCATORS );
-		vkDestroyDescriptorSetLayout( gfx.device, pipeline.materialDescriptorSetLayout, VULKAN_ALLOCATORS );
+		vkDestroyDescriptorSetLayout( gfx.device, pipeline.globalBindGroupLayout, VULKAN_ALLOCATORS );
+		vkDestroyDescriptorSetLayout( gfx.device, pipeline.materialBindGroupLayout, VULKAN_ALLOCATORS );
 	}
 
 	for (u32 i = 0; i < gfx.computeCount; ++i)
@@ -3245,7 +3240,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		const Compute &compute = GetCompute(gfx, i);
 		vkDestroyPipeline( gfx.device, compute.handle, VULKAN_ALLOCATORS );
 		vkDestroyPipelineLayout( gfx.device, compute.layout, VULKAN_ALLOCATORS );
-		vkDestroyDescriptorSetLayout( gfx.device, compute.descriptorSetLayout, VULKAN_ALLOCATORS );
+		vkDestroyDescriptorSetLayout( gfx.device, compute.bindGroupLayout, VULKAN_ALLOCATORS );
 	}
 
 	for (u32 i = 0; i < gfx.renderPassCount; ++i)
