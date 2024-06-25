@@ -3094,30 +3094,52 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	return true;
 }
 
+BufferBinding Binding(const Buffer &buffer, u32 offset = 0, u32 range = 0)
+{
+	const BufferBinding binding = {
+		.handle = buffer.handle,
+		.offset = offset,
+		.range = range > 0 ? range : buffer.size,
+	};
+	return binding;
+}
+
+BufferViewBinding Binding(const BufferView &bufferView)
+{
+	const BufferViewBinding binding = { .handle = bufferView.handle };
+	return binding;
+}
+
+TextureBinding Binding(const Texture &texture)
+{
+	const TextureBinding binding = { .handle = texture.imageView };
+	return binding;
+}
+
+SamplerBinding Binding(const Sampler &sampler)
+{
+	const SamplerBinding binding = { .handle = sampler.handle };
+	return binding;
+}
+
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Buffer &buffer, u32 offset = 0, u32 range = 0)
 {
-	BufferBinding &bufferBinding = bindingTable[binding].buffer;
-	bufferBinding.handle = buffer.handle;
-	bufferBinding.offset = offset;
-	bufferBinding.range = range > 0 ? range : buffer.size;
+	bindingTable[binding].buffer = Binding(buffer, offset, range);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const BufferView &bufferView)
 {
-	BufferViewBinding &bufferViewBinding = bindingTable[binding].bufferView;
-	bufferViewBinding.handle = bufferView.handle;
+	bindingTable[binding].bufferView = Binding(bufferView);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Texture &texture)
 {
-	TextureBinding &textureBinding = bindingTable[binding].texture;
-	textureBinding.handle = texture.imageView;
+	bindingTable[binding].texture = Binding(texture);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sampler)
 {
-	SamplerBinding &samplerBinding = bindingTable[binding].sampler;
-	samplerBinding.handle = sampler.handle;
+	bindingTable[binding].sampler = Binding(sampler);;
 }
 
 void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
@@ -3940,7 +3962,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			.layout = pipeline.bindGroupLayouts[0],
 			.reflection = reflection,
 			.bindings = {
-				{ .bufferView = computeBufferView.handle },
+				{ .bufferView = Binding(computeBufferView) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
@@ -3969,9 +3991,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			.layout = pipeline.bindGroupLayouts[0],
 			.reflection = reflection,
 			.bindings = {
-				{ .buffer = { .handle = globalsBuffer.handle, .offset = 0, .range = globalsBuffer.size} },
-				{ .sampler = { .handle = sampler.handle } },
-				{ .buffer = { .handle = entityBuffer.handle, .offset = 0, .range = entityBuffer.size} },
+				{ .buffer = Binding(globalsBuffer) },
+				{ .sampler = Binding(sampler) },
+				{ .buffer = Binding(entityBuffer) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
