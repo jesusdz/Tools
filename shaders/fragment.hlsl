@@ -63,11 +63,7 @@ float4 main(PixelInput IN) : SV_Target
 	float fragmentShadowmapDepth = IN.shadowmapCoord.z;
 	float2 fragmentShadowmapTexCoord = IN.shadowmapCoord.xy * 0.5 + 0.5;
 	fragmentShadowmapTexCoord.y = 1.0 - fragmentShadowmapTexCoord.y;
-	float sampledShadowmapDepth = shadowmap.Sample(shadowmapSampler, fragmentShadowmapTexCoord).r;
-	float sunVisibility = sampledShadowmapDepth + 0.005 > fragmentShadowmapDepth ? 1.0 : 0.0;
-	//if (sampledShadowmapDepth == 0.0) {
-	//	sunVisibility = 1.0f;
-	//}
+	float sunVisibility = shadowmap.SampleCmp(shadowmapSampler, fragmentShadowmapTexCoord, fragmentShadowmapDepth - 0.005).r;
 
 #if 1
 	float ambient = 0.1;

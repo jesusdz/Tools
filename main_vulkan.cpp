@@ -273,10 +273,18 @@ enum AddressMode
 	AddressModeCount,
 };
 
+enum CompareOp
+{
+	CompareOpNone,
+	CompareOpLess,
+	CompareOpCount,
+};
+
 struct SamplerDesc
 {
 	AddressMode addressMode;
 	BorderColor borderColor;
+	CompareOp compareOp;
 };
 
 struct Sampler
@@ -1828,6 +1836,18 @@ static VkSamplerAddressMode AddressModeToVkSamplerAddressMode(AddressMode mode)
 	return vkAddressMode;
 }
 
+static VkCompareOp CompareOpToVkCompareOp(CompareOp compareOp)
+{
+	static const VkCompareOp vkCompareOps[] = {
+		VK_COMPARE_OP_NEVER,
+		VK_COMPARE_OP_LESS,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
+	ASSERT(compareOp < CompareOpCount);
+	const VkCompareOp vkCompareOp = vkCompareOps[compareOp];
+	return vkCompareOp;
+}
+
 SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 {
 	VkPhysicalDeviceProperties properties;
@@ -1844,8 +1864,8 @@ SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
 	samplerCreateInfo.borderColor = BorderColorToVkBorderColor(desc.borderColor);
 	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-	samplerCreateInfo.compareEnable = VK_FALSE; // For PCF shadows for instance
-	samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerCreateInfo.compareEnable = desc.compareOp != CompareOpNone; // For PCF shadows for instance
+	samplerCreateInfo.compareOp = CompareOpToVkCompareOp(desc.compareOp);
 	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerCreateInfo.mipLodBias = 0.0f;
 	samplerCreateInfo.minLod = 0.0f;
@@ -3268,6 +3288,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
 		.borderColor = BorderColorWhiteFloat,
+		.compareOp = CompareOpLess,
 	};
 	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
 
