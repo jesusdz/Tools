@@ -48,9 +48,9 @@
 #define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
-// C/HLSL shared structs and defines
-#include "shaders/structs.hlsl"
-#include "shaders/defines.hlsl"
+// C/HLSL shared types and bindings
+#include "shaders/types.hlsl"
+#include "shaders/bindings.hlsl"
 
 
 #define VULKAN_ALLOCATORS NULL
@@ -1092,9 +1092,9 @@ ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, byte* mi
 			if ( descriptor.type != SpvTypeNone )
 			{
 				ASSERT( reflection.bindingCount < ARRAY_COUNT(reflection.bindings) );
-				ASSERT( ( setIndex == DESCRIPTOR_SET_GLOBAL && descriptor.binding < MAX_GLOBAL_BINDINGS ) ||
-						( setIndex == DESCRIPTOR_SET_MATERIAL && descriptor.binding < MAX_MATERIAL_BINDINGS ) ||
-						( setIndex > DESCRIPTOR_SET_MATERIAL ) );
+				ASSERT( ( setIndex == BIND_GROUP_GLOBAL && descriptor.binding < MAX_GLOBAL_BINDINGS ) ||
+						( setIndex == BIND_GROUP_MATERIAL && descriptor.binding < MAX_MATERIAL_BINDINGS ) ||
+						( setIndex > BIND_GROUP_MATERIAL ) );
 				ShaderBinding &shaderBinding = reflection.bindings[reflection.bindingCount++];
 				shaderBinding.binding = descriptor.binding;
 				shaderBinding.set = setIndex;
@@ -3156,10 +3156,10 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 	ResourceBinding globalBindingTable[MAX_GLOBAL_BINDINGS];
 	ResourceBinding materialBindingTable[MAX_MATERIAL_BINDINGS];
 	ResourceBinding *bindingTables[MAX_DESCRIPTOR_SETS];
-	bindingTables[DESCRIPTOR_SET_GLOBAL] = globalBindingTable;
-	bindingTables[DESCRIPTOR_SET_MATERIAL] = materialBindingTable;
+	bindingTables[BIND_GROUP_GLOBAL] = globalBindingTable;
+	bindingTables[BIND_GROUP_MATERIAL] = materialBindingTable;
 
-	BindGlobalResources(gfx, bindingTables[DESCRIPTOR_SET_GLOBAL]);
+	BindGlobalResources(gfx, bindingTables[BIND_GROUP_GLOBAL]);
 
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
@@ -3167,7 +3167,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		const ShaderReflection &reflection = GetShaderReflection(gfx, pipeline.shaderReflectionH);
 
-		BindMaterialResources(gfx, material, bindingTables[DESCRIPTOR_SET_MATERIAL]);
+		BindMaterialResources(gfx, material, bindingTables[BIND_GROUP_MATERIAL]);
 
 		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
 		{
@@ -3178,14 +3178,14 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 			ResourceBinding *bindingTable = 0;
 			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 
-			if ( binding.set == DESCRIPTOR_SET_GLOBAL )
+			if ( binding.set == BIND_GROUP_GLOBAL )
 			{
-				bindingTable = bindingTables[DESCRIPTOR_SET_GLOBAL];
+				bindingTable = bindingTables[BIND_GROUP_GLOBAL];
 				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.currentFrame].handle;
 			}
-			else if ( binding.set == DESCRIPTOR_SET_MATERIAL )
+			else if ( binding.set == BIND_GROUP_MATERIAL )
 			{
-				bindingTable = bindingTables[DESCRIPTOR_SET_MATERIAL];
+				bindingTable = bindingTables[BIND_GROUP_MATERIAL];
 				descriptorSet = gfx.materialBindGroups[materialIndex].handle;
 			}
 			else
@@ -3317,7 +3317,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	}
 
 	// Update material descriptor sets
-	UpdateMaterialBindGroup(gfx, DESCRIPTOR_SET_MATERIAL);
+	UpdateMaterialBindGroup(gfx, BIND_GROUP_MATERIAL);
 
 	// Camera
 	gfx.camera.position = {0, 1, 2};
@@ -3920,7 +3920,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	// Update global descriptor sets
-	UpdateMaterialBindGroup(gfx, DESCRIPTOR_SET_GLOBAL);
+	UpdateMaterialBindGroup(gfx, BIND_GROUP_GLOBAL);
 
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx);

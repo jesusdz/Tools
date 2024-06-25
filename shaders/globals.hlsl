@@ -1,5 +1,5 @@
-#include "structs.hlsl"
-#include "defines.hlsl"
+#include "types.hlsl"
+#include "bindings.hlsl"
 
 // register( name<binding>, space<descriptor set> )
 #define REGISTER(reg, set, binding) register(reg##binding, space##set)
@@ -15,13 +15,13 @@
 #define REGISTER_U(set, binding) REGISTER(u, set, binding)
 
 // Space 0: Globals
-ConstantBuffer<Globals> globals         : REGISTER_B(DESCRIPTOR_SET_GLOBAL, BINDING_GLOBALS);
-SamplerState linearSampler              : REGISTER_S(DESCRIPTOR_SET_GLOBAL, BINDING_SAMPLER);
-ByteAddressBuffer entities              : REGISTER_T(DESCRIPTOR_SET_GLOBAL, BINDING_ENTITIES);
-Texture2D<float4> shadowmap             : REGISTER_T(DESCRIPTOR_SET_GLOBAL, BINDING_SHADOWMAP);
-SamplerComparisonState shadowmapSampler : REGISTER_S(DESCRIPTOR_SET_GLOBAL, BINDING_SHADOWMAP_SAMPLER);
+ConstantBuffer<Globals> globals         : REGISTER_B(BIND_GROUP_GLOBAL, BINDING_GLOBALS);
+SamplerState linearSampler              : REGISTER_S(BIND_GROUP_GLOBAL, BINDING_SAMPLER);
+ByteAddressBuffer entities              : REGISTER_T(BIND_GROUP_GLOBAL, BINDING_ENTITIES);
+Texture2D<float4> shadowmap             : REGISTER_T(BIND_GROUP_GLOBAL, BINDING_SHADOWMAP);
+SamplerComparisonState shadowmapSampler : REGISTER_S(BIND_GROUP_GLOBAL, BINDING_SHADOWMAP_SAMPLER);
 
 // Space 1: Materials
-ConstantBuffer<SMaterial> material      : REGISTER_B(DESCRIPTOR_SET_MATERIAL, BINDING_MATERIAL);
-Texture2D<float4> albedoTexture         : REGISTER_T(DESCRIPTOR_SET_MATERIAL, BINDING_ALBEDO);
+ConstantBuffer<SMaterial> material      : REGISTER_B(BIND_GROUP_MATERIAL, BINDING_MATERIAL);
+Texture2D<float4> albedoTexture         : REGISTER_T(BIND_GROUP_MATERIAL, BINDING_ALBEDO);
 

@@ -133,9 +133,11 @@ static const TextureDesc textures[] =
 static const PipelineDesc pipelines[] =
 {
 	{
-		.name = "pipeline_lit",
-		.vsFilename = "shaders/vertex.spv",
-		.fsFilename = "shaders/fragment.spv",
+		.name = "pipeline_shading",
+		.vsFilename = "shaders/vs_shading.spv",
+		.fsFilename = "shaders/fs_shading.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
 		.vertexAttributeCount = 3,
 		.vertexAttributes = {
@@ -148,6 +150,8 @@ static const PipelineDesc pipelines[] =
 		.name = "pipeline_shadowmap",
 		.vsFilename = "shaders/vs_shadowmap.spv",
 		.fsFilename = "shaders/fs_shadowmap.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
 		.renderPass = "shadowmap_renderpass",
 		.vertexAttributeCount = 1,
 		.vertexAttributes = {
@@ -164,9 +168,9 @@ static const ComputeDesc computes[] =
 
 static const MaterialDesc materials[] =
 {
-	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_lit", .uvScale = 1.0f },
-	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_lit", .uvScale = 1.0f },
-	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_lit", .uvScale = 11.0f },
+	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
+	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_shading", .uvScale = 1.0f },
+	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_shading", .uvScale = 11.0f },
 };
 
 static const EntityDesc entities[] =

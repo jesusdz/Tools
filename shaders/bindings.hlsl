@@ -1,6 +1,6 @@
 
-#define DESCRIPTOR_SET_GLOBAL 0
-#define DESCRIPTOR_SET_MATERIAL 1
+#define BIND_GROUP_GLOBAL   0
+#define BIND_GROUP_MATERIAL 1
 
 #define BINDING_GLOBALS           0
 #define BINDING_SAMPLER           1
