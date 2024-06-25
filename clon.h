@@ -255,6 +255,9 @@ void ClonFillStruct(const Clon *clon, Arena *arena, void *structData, const Refl
 			const CastInitializer *elementInitializer = memberInitializer;
 			if (member->isArray) {
 				elementInitializer = CAST_CHILD(elementInitializerList, initializer);
+				if (!elementInitializer) {
+					break;
+				}
 				elementInitializerList = elementInitializerList->next;
 			}
 

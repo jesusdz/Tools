@@ -1211,6 +1211,7 @@ float4x4 LookAt(const float3 &vrp, const float3 &obs, const float3 &up)
 
 //#define USE_DEPTH_ZERO_TO_ONE 0 // For OpenGL
 #define USE_DEPTH_ZERO_TO_ONE 1 // For DX12, Vulkan
+
 float4x4 Perspective(float fov, float aspect, float Near, float Far)
 {
 	const f32 yScale = 1.0f / Tan(fov * ToRadians / 2.0f);
@@ -1242,8 +1243,13 @@ float4x4 Orthogonal(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f)
 	mat.m30 = -(r + l)/RminusL;
 	mat.m11 = 2.0f / TminusB;
 	mat.m31 = -(t + b)/TminusB;
+#if USE_DEPTH_ZERO_TO_ONE
+	mat.m22 = -1.0f / FminusN;
+	mat.m32 = - n /FminusN;
+#else
 	mat.m22 = -2.0f / FminusN;
 	mat.m32 = -(f + n)/FminusN;
+#endif
 	mat.m33 = 1.0f;
 	return mat;
 }

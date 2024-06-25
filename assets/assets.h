@@ -41,6 +41,21 @@ struct RenderpassDesc
 	AttachmentDesc depthAttachment;
 };
 
+enum Format
+{
+	FormatFloat2,
+	FormatFloat3,
+	FormatCount,
+};
+
+struct VertexAttributeDesc
+{
+	unsigned int bufferIndex;
+	unsigned int location;
+	unsigned int offset;
+	Format format;
+};
+
 struct PipelineDesc
 {
 	const char *name;
@@ -49,6 +64,8 @@ struct PipelineDesc
 	const char *vsFunction;
 	const char *fsFunction;
 	const char *renderPass;
+	unsigned int vertexAttributeCount;
+	VertexAttributeDesc vertexAttributes[4];
 };
 
 struct ComputeDesc
@@ -116,10 +133,26 @@ static const TextureDesc textures[] =
 static const PipelineDesc pipelines[] =
 {
 	{
-		.name = "pipeline",
+		.name = "pipeline_lit",
 		.vsFilename = "shaders/vertex.spv",
 		.fsFilename = "shaders/fragment.spv",
 		.renderPass = "main_renderpass",
+		.vertexAttributeCount = 3,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+		}
+	},
+	{
+		.name = "pipeline_shadowmap",
+		.vsFilename = "shaders/vs_shadowmap.spv",
+		.fsFilename = "shaders/fs_shadowmap.spv",
+		.renderPass = "shadowmap_renderpass",
+		.vertexAttributeCount = 1,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+		}
 	},
 };
 
@@ -131,9 +164,9 @@ static const ComputeDesc computes[] =
 
 static const MaterialDesc materials[] =
 {
-	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline", .uvScale = 1.0f },
-	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline", .uvScale = 1.0f },
-	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline", .uvScale = 11.0f },
+	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_lit", .uvScale = 1.0f },
+	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_lit", .uvScale = 1.0f },
+	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_lit", .uvScale = 11.0f },
 };
 
 static const EntityDesc entities[] =

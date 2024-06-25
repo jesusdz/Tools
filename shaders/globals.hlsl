@@ -15,11 +15,13 @@
 #define REGISTER_U(binding, set) REGISTER(u, binding, set)
 
 // Space 0: Globals
-ConstantBuffer<Globals> globals    : REGISTER_B(BINDING_GLOBALS,  DESCRIPTOR_SET_GLOBAL);
-SamplerState linearSampler         : REGISTER_S(BINDING_SAMPLER,  DESCRIPTOR_SET_GLOBAL);
-ByteAddressBuffer entities         : REGISTER_T(BINDING_ENTITIES, DESCRIPTOR_SET_GLOBAL);
+ConstantBuffer<Globals> globals    : REGISTER_B(BINDING_GLOBALS,           DESCRIPTOR_SET_GLOBAL);
+SamplerState linearSampler         : REGISTER_S(BINDING_SAMPLER,           DESCRIPTOR_SET_GLOBAL);
+ByteAddressBuffer entities         : REGISTER_T(BINDING_ENTITIES,          DESCRIPTOR_SET_GLOBAL);
+Texture2D<float4> shadowmap        : REGISTER_T(BINDING_SHADOWMAP,         DESCRIPTOR_SET_GLOBAL);
+SamplerState shadowmapSampler      : REGISTER_S(BINDING_SHADOWMAP_SAMPLER, DESCRIPTOR_SET_GLOBAL);
 
 // Space 1: Materials
-ConstantBuffer<SMaterial> material : REGISTER_B(BINDING_MATERIAL, DESCRIPTOR_SET_MATERIAL);
-Texture2D<float4> albedoTexture    : REGISTER_T(BINDING_ALBEDO,   DESCRIPTOR_SET_MATERIAL);
+ConstantBuffer<SMaterial> material : REGISTER_B(BINDING_MATERIAL,  DESCRIPTOR_SET_MATERIAL);
+Texture2D<float4> albedoTexture    : REGISTER_T(BINDING_ALBEDO,    DESCRIPTOR_SET_MATERIAL);
 

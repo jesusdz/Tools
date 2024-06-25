@@ -1,5 +1,11 @@
 #include "globals.hlsl"
+
+#define USE_INTERPOLATOR_POSITION_WS 1
+#define USE_INTERPOLATOR_NORMAL_WS 1
+#define USE_INTERPOLATOR_TEXCOORD 1
+#define USE_INTERPOLATOR_SHADOWMAP_COORD 1
 #include "interpolators.hlsl"
+
 #include "brdf.hlsl"
 
 float Lambert(float3 L, float3 N)
@@ -32,7 +38,8 @@ float Luminance(float3 color)
 float4 main(PixelInput IN) : SV_Target
 {
 	// Directional light
-	float3 L = normalize(float3(1.0, 3.0, 2.0));
+	//float3 L = normalize(float3(1.0, 3.0, 2.0));
+	float3 L = globals.sunDir.xyz; //normalize(float3(1.0, 3.0, 2.0));
 	float attenuationFactor = 1.0;
 
 #if 0
@@ -52,10 +59,20 @@ float4 main(PixelInput IN) : SV_Target
 	float3 albedo = albedoTexture.Sample(linearSampler, IN.texCoord).rgb;
 	//float3 albedo = float3(0.5, 0.5, 0.5);
 
+	//IN.shadowmapCoord.xyz /= IN.shadowmapCoord.w;
+	float fragmentShadowmapDepth = IN.shadowmapCoord.z;
+	float2 fragmentShadowmapTexCoord = IN.shadowmapCoord.xy * 0.5 + 0.5;
+	fragmentShadowmapTexCoord.y = 1.0 - fragmentShadowmapTexCoord.y;
+	float sampledShadowmapDepth = shadowmap.Sample(shadowmapSampler, fragmentShadowmapTexCoord).r;
+	float sunVisibility = sampledShadowmapDepth + 0.005 > fragmentShadowmapDepth ? 1.0 : 0.0;
+	//if (sampledShadowmapDepth == 0.0) {
+	//	sunVisibility = 1.0f;
+	//}
+
 #if 1
 	float ambient = 0.1;
-	float diffuse = Lambert(L, N);
-	float specular = BlinnPhong(H, N) * Luminance(albedo);
+	float diffuse = Lambert(L, N) * sunVisibility;
+	float specular = BlinnPhong(H, N) * Luminance(albedo) * sunVisibility;
 
 	float3 shadedColor = ((ambient + diffuse) * albedo + specular) * attenuationFactor;
 #else

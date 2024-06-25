@@ -31,6 +31,8 @@ cast:
 shaders:
 	${DXC} -spirv -T vs_6_7 -Fo shaders/vertex.spv -Fc shaders/vertex.dis shaders/vertex.hlsl -E main
 	${DXC} -spirv -T ps_6_7 -Fo shaders/fragment.spv -Fc shaders/fragment.dis shaders/fragment.hlsl -E main
+	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_shadowmap.spv -Fc shaders/vs_shadowmap.dis shaders/vs_shadowmap.hlsl -E main
+	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_shadowmap.spv -Fc shaders/fs_shadowmap.dis shaders/fs_shadowmap.hlsl -E main
 	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl -E main_clear
 	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl -E main_update
 

@@ -1,8 +1,11 @@
 
 struct Globals
 {
-	float4x4 view;
-	float4x4 proj;
+	float4x4 cameraView;
+	float4x4 cameraProj;
+	float4x4 sunView;
+	float4x4 sunProj;
+	float4 sunDir;
 	float4 eyePosition;
 };
 

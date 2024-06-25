@@ -72,7 +72,7 @@
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
 #define MAX_DESCRIPTOR_SETS 4
-#define MAX_GLOBAL_BINDINGS 4
+#define MAX_GLOBAL_BINDINGS 8
 #define MAX_MATERIAL_BINDINGS 4
 #define MAX_COMPUTE_BINDINGS 4
 #define MAX_SHADER_BINDINGS ( MAX_GLOBAL_BINDINGS + MAX_MATERIAL_BINDINGS )
@@ -242,6 +242,8 @@ struct Framebuffer
 	VkFramebuffer handle;
 	VkRenderPass renderPassHandle;
 	VkExtent2D extent;
+	bool isDisplay : 1;
+	bool isShadowmap : 1;
 };
 
 struct Material
@@ -255,9 +257,31 @@ struct Material
 
 typedef u32 MaterialH;
 
+enum BorderColor
+{
+	BorderColorBlackInt,
+	BorderColorWhiteInt,
+	BorderColorBlackFloat,
+	BorderColorWhiteFloat,
+	BorderColorCount,
+};
+
+enum AddressMode
+{
+	AddressModeRepeat,
+	AddressModeClampToBorder,
+	AddressModeCount,
+};
+
+struct SamplerDesc
+{
+	AddressMode addressMode;
+	BorderColor borderColor;
+};
+
 struct Sampler
 {
-	VkSampler sampler;
+	VkSampler handle;
 };
 
 typedef u32 SamplerH;
@@ -324,6 +348,10 @@ struct RenderTargets
 	Image depthImage;
 	VkImageView depthImageView;
 	VkFramebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
+
+	Image shadowmapImage;
+	VkImageView shadowmapImageView;
+	VkFramebuffer shadowmapFramebuffer;
 };
 
 struct Camera
@@ -414,7 +442,10 @@ struct Graphics
 	BufferViewH computeBufferViewH;
 
 	SamplerH samplerH;
-	RenderPassH renderPassH;
+	SamplerH shadowmapSamplerH;
+
+	RenderPassH litRenderPassH;
+	RenderPassH shadowmapRenderPassH;
 
 	Sampler samplers[MAX_SAMPLERS];
 	u32 samplerCount;
@@ -457,6 +488,8 @@ struct Graphics
 	Entity entities[MAX_ENTITIES];
 	u32 entityCount;
 
+	PipelineH shadowmapPipelineH;
+
 	PipelineH computeClearH;
 	PipelineH computeUpdateH;
 
@@ -480,9 +513,6 @@ struct CommandList
 		{
 			VkBuffer vertexBufferHandle;
 			VkBuffer indexBufferHandle;
-		};
-		struct // For compute pipelines
-		{
 		};
 	};
 };
@@ -1228,7 +1258,6 @@ BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, const 
 {
 	BindGroup bindGroup = CreateBindGroup(gfx, desc.layout, allocator);
 
-	// TODO: Update
 	const ShaderReflection &reflection = desc.reflection;
 
 	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
@@ -1426,9 +1455,23 @@ RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
 			return i;
 		}
 	}
+	LOG(Warning, "Could not find render <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
 }
+
+static VkFormat FormatToVkFormat(Format format)
+{
+	ASSERT(format < FormatCount);
+	static VkFormat vkFormats[] = {
+		VK_FORMAT_R32G32_SFLOAT,
+		VK_FORMAT_R32G32B32_SFLOAT,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkFormats) == FormatCount);
+	const VkFormat vkFormat = vkFormats[format];
+	return vkFormat;
+}
+
 PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 {
 	Arena scratch = MakeSubArena(arena);
@@ -1455,31 +1498,25 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
 
-	// TODO: Like I said before, vertex description shouldn't go here
-	VkVertexInputBindingDescription bindingDescription = {};
-	bindingDescription.binding = 0;
-	bindingDescription.stride = sizeof(Vertex);
-	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputBindingDescription bindingDescriptions[1] = {};
+	bindingDescriptions[0].binding = 0;
+	bindingDescriptions[0].stride = sizeof(Vertex);
+	bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-	VkVertexInputAttributeDescription attributeDescriptions[3] = {};
-	attributeDescriptions[0].binding = 0;
-	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[0].offset = offsetof(Vertex, pos);
-	attributeDescriptions[1].binding = 0;
-	attributeDescriptions[1].location = 1;
-	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-	attributeDescriptions[1].offset = offsetof(Vertex, normal);
-	attributeDescriptions[2].binding = 0;
-	attributeDescriptions[2].location = 2;
-	attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-	attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+	VkVertexInputAttributeDescription attributeDescriptions[4] = {};
+	for (u32 i = 0; i < desc.vertexAttributeCount; ++i)
+	{
+		attributeDescriptions[i].binding = desc.vertexAttributes[i].bufferIndex;
+		attributeDescriptions[i].location = desc.vertexAttributes[i].location;
+		attributeDescriptions[i].format = FormatToVkFormat(desc.vertexAttributes[i].format);
+		attributeDescriptions[i].offset = desc.vertexAttributes[i].offset;
+	}
 
 	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
 	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	vertexInputCreateInfo.vertexBindingDescriptionCount = 1;
-	vertexInputCreateInfo.pVertexBindingDescriptions = &bindingDescription; // Optional
-	vertexInputCreateInfo.vertexAttributeDescriptionCount = ARRAY_COUNT(attributeDescriptions);
+	vertexInputCreateInfo.pVertexBindingDescriptions = bindingDescriptions; // Optional
+	vertexInputCreateInfo.vertexAttributeDescriptionCount = desc.vertexAttributeCount;
 	vertexInputCreateInfo.pVertexAttributeDescriptions = attributeDescriptions; // Optional
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo = {};
@@ -1636,6 +1673,7 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 			return i;
 		}
 	}
+	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
 }
@@ -1764,7 +1802,33 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	return imageView;
 }
 
-SamplerH CreateSampler(Graphics &gfx)
+static VkBorderColor BorderColorToVkBorderColor(BorderColor color)
+{
+	static const VkBorderColor vkBorderColors[] = {
+		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_BORDER_COLOR_INT_OPAQUE_WHITE,
+		VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+		VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkBorderColors) == BorderColorCount);
+	ASSERT(color < BorderColorCount);
+	const VkBorderColor vkBorderColor = vkBorderColors[color];
+	return vkBorderColor;
+};
+
+static VkSamplerAddressMode AddressModeToVkSamplerAddressMode(AddressMode mode)
+{
+	static const VkSamplerAddressMode vkAddressModes[] = {
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkAddressModes) == AddressModeCount);
+	ASSERT(mode < AddressModeCount);
+	const VkSamplerAddressMode vkAddressMode = vkAddressModes[mode];
+	return vkAddressMode;
+}
+
+SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 {
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(gfx.physicalDevice, &properties);
@@ -1773,12 +1837,12 @@ SamplerH CreateSampler(Graphics &gfx)
 	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
 	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeU = AddressModeToVkSamplerAddressMode(desc.addressMode);
+	samplerCreateInfo.addressModeV = AddressModeToVkSamplerAddressMode(desc.addressMode);
+	samplerCreateInfo.addressModeW = AddressModeToVkSamplerAddressMode(desc.addressMode);
 	samplerCreateInfo.anisotropyEnable = VK_TRUE;
 	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-	samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	samplerCreateInfo.borderColor = BorderColorToVkBorderColor(desc.borderColor);
 	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 	samplerCreateInfo.compareEnable = VK_FALSE; // For PCF shadows for instance
 	samplerCreateInfo.compareOp = VK_COMPARE_OP_ALWAYS;
@@ -1804,18 +1868,28 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 	return sampler;
 }
 
-bool HasStencilComponent(VkFormat format)
+static bool IsDepthFormat(VkFormat format)
+{
+	const bool isDepthFormat =
+		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		format == VK_FORMAT_D32_SFLOAT ||
+		format == VK_FORMAT_D16_UNORM_S8_UINT ||
+		format == VK_FORMAT_D16_UNORM;
+	return isDepthFormat;
+}
+
+static bool HasStencilComponent(VkFormat format)
 {
 	const bool hasStencil =
 		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-		format == VK_FORMAT_D24_UNORM_S8_UINT;
+		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+		format == VK_FORMAT_D16_UNORM_S8_UINT;
 	return hasStencil;
 }
 
-void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
+void TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
-
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	barrier.oldLayout = oldLayout;
@@ -1828,7 +1902,7 @@ void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImag
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 
-	if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+	if (IsDepthFormat(format)) {
 		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		if (HasStencilComponent(format)) {
 			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
@@ -1858,6 +1932,18 @@ void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImag
 
 		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	} else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+		barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	} else if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 	} else {
 		INVALID_CODE_PATH();
 	}
@@ -1870,6 +1956,18 @@ void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImag
 		0, NULL,    // Buffer barriers
 		1, &barrier // Image barriers
 		);
+}
+
+void TransitionImageLayout(CommandList &commandList, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
+{
+	TransitionImageLayout(commandList.handle, image, format, oldLayout, newLayout, mipLevels);
+}
+
+void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
+{
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+
+	TransitionImageLayout(commandBuffer, image, format, oldLayout, newLayout, mipLevels);
 
 	EndTransientCommandBuffer(gfx, commandBuffer);
 }
@@ -2060,6 +2158,7 @@ TextureH TextureHandle(const Graphics &gfx, const char *name)
 			return i;
 		}
 	}
+	LOG(Warning, "Could not find texture <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
 }
@@ -2093,6 +2192,7 @@ MaterialH MaterialHandle(const Graphics &gfx, const char *name)
 			return i;
 		}
 	}
+	LOG(Warning, "Could not find material <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
 }
@@ -2303,7 +2403,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	TransitionImageLayout(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	renderTargets.depthImageView = depthImageView;
 
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
+	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
 
 	// Framebuffer
 	for ( u32 i = 0; i < gfx.swapchain.imageCount; ++i )
@@ -2320,6 +2420,35 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 		framebufferCreateInfo.layers = 1;
 
 		VK_CALL( vkCreateFramebuffer( gfx.device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.framebuffers[i]) );
+	}
+
+	// Shadowmap
+	{
+		VkFormat depthFormat = FindDepthFormat(gfx);
+		renderTargets.shadowmapImage = CreateImage(gfx,
+				1024, 1024, 1,
+				depthFormat,
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				gfx.heaps[HeapType_RTs]);
+		VkImageView shadowmapImageView = CreateImageView(gfx, renderTargets.shadowmapImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		TransitionImageLayout(gfx, renderTargets.shadowmapImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+		renderTargets.shadowmapImageView = shadowmapImageView;
+
+		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
+
+		VkImageView attachments[] = { renderTargets.shadowmapImageView };
+
+		VkFramebufferCreateInfo framebufferCreateInfo = {};
+		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferCreateInfo.renderPass = renderPass.handle;
+		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
+		framebufferCreateInfo.pAttachments = attachments;
+		framebufferCreateInfo.width = 1024;
+		framebufferCreateInfo.height = 1024;
+		framebufferCreateInfo.layers = 1;
+
+		VK_CALL( vkCreateFramebuffer( gfx.device, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.shadowmapFramebuffer ) );
 	}
 
 	return true;
@@ -2819,18 +2948,33 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	// TODO: All the code that follows shouldn't be part of the device initialization
 
 	// Global render pass
-	const RenderpassDesc renderpassDesc = {
-		.name = "main_renderpass",
-		.colorAttachmentCount = 1,
-		.colorAttachments = {
-			{ .loadOp = LoadOpClear, .storeOp = StoreOpStore },
-		},
-		.hasDepthAttachment = true,
-		.depthAttachment = {
-			.loadOp = LoadOpClear, .storeOp = StoreOpDontCare
-		}
-	};
-	gfx.renderPassH = CreateRenderPass( gfx, renderpassDesc );
+	{
+		const RenderpassDesc renderpassDesc = {
+			.name = "main_renderpass",
+			.colorAttachmentCount = 1,
+			.colorAttachments = {
+				{ .loadOp = LoadOpClear, .storeOp = StoreOpStore },
+			},
+			.hasDepthAttachment = true,
+			.depthAttachment = {
+				.loadOp = LoadOpClear, .storeOp = StoreOpDontCare
+			}
+		};
+		gfx.litRenderPassH = CreateRenderPass( gfx, renderpassDesc );
+	}
+
+	// Shadowmap render pass
+	{
+		const RenderpassDesc renderpassDesc = {
+			.name = "shadowmap_renderpass",
+			.colorAttachmentCount = 0,
+			.hasDepthAttachment = true,
+			.depthAttachment = {
+				.loadOp = LoadOpClear, .storeOp = StoreOpStore
+			}
+		};
+		gfx.shadowmapRenderPassH = CreateRenderPass( gfx, renderpassDesc );
+	}
 
 	// Render targets
 	CreateRenderTargets( gfx, gfx.renderTargets );
@@ -2885,7 +3029,8 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 		const BindGroupAllocatorCounts allocatorCounts = {
 			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
 			.storageBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
-			.samplerCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.textureCount = 1000,
+			.samplerCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS * 2,
 			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
 		};
 		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
@@ -2903,7 +3048,11 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
-			.storageTexelBufferCount = MAX_COMPUTES,
+			.uniformBufferCount = 1000,
+			.storageBufferCount = 1000,
+			.storageTexelBufferCount = 1000,
+			.textureCount = 1000,
+			.samplerCount = 1000,
 			.groupCount = MAX_COMPUTES,
 		};
 		gfx.computeBindGroupAllocator[i] = CreateBindGroupAllocator(gfx, allocatorCounts);
@@ -2948,7 +3097,7 @@ void BindResource(ResourceBinding *bindingTable, u32 binding, const Texture &tex
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sampler)
 {
 	SamplerBinding &samplerBinding = bindingTable[binding].sampler;
-	samplerBinding.handle = sampler.sampler;
+	samplerBinding.handle = sampler.handle;
 }
 
 void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
@@ -2958,9 +3107,15 @@ void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 	const Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
 	const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
 
+	// TODO: Make this better, the shadowmap should also figure as a texture somewhere
+	const Texture shadowmap = { .imageView = gfx.renderTargets.shadowmapImageView };
+	const Sampler &shadowmapSampler = GetSampler(gfx, gfx.shadowmapSamplerH);
+
 	BindResource(bindingTable, BINDING_GLOBALS, globalsBuffer);
 	BindResource(bindingTable, BINDING_ENTITIES, entityBuffer);
 	BindResource(bindingTable, BINDING_SAMPLER, sampler);
+	BindResource(bindingTable, BINDING_SHADOWMAP, shadowmap);
+	BindResource(bindingTable, BINDING_SHADOWMAP_SAMPLER, shadowmapSampler);
 }
 
 void BindMaterialResources(const Graphics &gfx, const Material &material, ResourceBinding bindingTable[])
@@ -3098,12 +3253,23 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		}
 	}
 
+	// Pipelines
+	gfx.shadowmapPipelineH = PipelineHandle(gfx, "pipeline_shadowmap");
+
 	// Computes
 	gfx.computeClearH = PipelineHandle(gfx, "compute_clear");
 	gfx.computeUpdateH = PipelineHandle(gfx, "compute_update");
 
 	// Samplers
-	gfx.samplerH = CreateSampler(gfx);
+	const SamplerDesc samplerDesc = {
+		.addressMode = AddressModeRepeat,
+	};
+	gfx.samplerH = CreateSampler(gfx, samplerDesc);
+	const SamplerDesc shadowmapSamplerDesc = {
+		.addressMode = AddressModeClampToBorder,
+		.borderColor = BorderColorWhiteFloat,
+	};
+	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
@@ -3172,6 +3338,10 @@ void CleanupRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 		vkDestroyFramebuffer( gfx.device, renderTargets.framebuffers[i], VULKAN_ALLOCATORS );
 	}
 
+	vkDestroyImageView(gfx.device, renderTargets.shadowmapImageView, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device, renderTargets.shadowmapImage.image, VULKAN_ALLOCATORS);
+	vkDestroyFramebuffer( gfx.device, renderTargets.shadowmapFramebuffer, VULKAN_ALLOCATORS );
+
 	renderTargets = {};
 }
 
@@ -3191,7 +3361,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.samplerCount; ++i)
 	{
-		vkDestroySampler( gfx.device, gfx.samplers[i].sampler, VULKAN_ALLOCATORS );
+		vkDestroySampler( gfx.device, gfx.samplers[i].handle, VULKAN_ALLOCATORS );
 	}
 
 	for (u32 i = 0; i < gfx.textureCount; ++i)
@@ -3415,21 +3585,35 @@ void EndCommandList(const CommandList &commandList)
 	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
 }
 
-uint2 GetDisplaySize(const Graphics &gfx)
+uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 {
-	const uint2 size = { gfx.swapchain.extent.width, gfx.swapchain.extent.height };
+	const uint2 size = { framebuffer.extent.width, framebuffer.extent.height };
 	return size;
 }
 
 Framebuffer GetDisplayFramebuffer(const Graphics &gfx)
 {
 	const u32 imageIndex = gfx.swapchain.currentImageIndex;
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
+	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
 
 	const Framebuffer framebuffer = {
 		.handle = gfx.renderTargets.framebuffers[imageIndex],
 		.renderPassHandle = renderPass.handle,
 		.extent = gfx.swapchain.extent,
+		.isDisplay = true,
+	};
+	return framebuffer;
+}
+
+Framebuffer GetShadowmapFramebuffer(const Graphics &gfx)
+{
+	const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
+
+	const Framebuffer framebuffer = {
+		.handle = gfx.renderTargets.shadowmapFramebuffer,
+		.renderPassHandle = renderPass.handle,
+		.extent = { 1024, 1024 },
+		.isShadowmap = true,
 	};
 	return framebuffer;
 }
@@ -3437,8 +3621,18 @@ Framebuffer GetDisplayFramebuffer(const Graphics &gfx)
 void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
 {
 	VkClearValue clearValues[2] = {};
-	clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-	clearValues[1].depthStencil = {1.0f, 0};
+	u32 clearValueCount = 0;
+	if (framebuffer.isDisplay)
+	{
+		clearValueCount = 2;
+		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+		clearValues[1].depthStencil = {1.0f, 0};
+	}
+	if (framebuffer.isShadowmap)
+	{
+		clearValueCount = 1;
+		clearValues[0].depthStencil = {1.0f, 0};
+	}
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
 	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -3446,7 +3640,7 @@ void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuf
 	renderPassBeginInfo.framebuffer = framebuffer.handle;
 	renderPassBeginInfo.renderArea.offset = { 0, 0 };
 	renderPassBeginInfo.renderArea.extent = framebuffer.extent;
-	renderPassBeginInfo.clearValueCount = ARRAY_COUNT(clearValues);
+	renderPassBeginInfo.clearValueCount = clearValueCount;
 	renderPassBeginInfo.pClearValues = clearValues;
 
 	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
@@ -3457,7 +3651,7 @@ void EndRenderPass(const CommandList &commandList)
 	vkCmdEndRenderPass(commandList.handle);
 }
 
-void SetFullscreenViewportAndScissor(const CommandList &commandList, uint2 size)
+void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 {
 	VkViewport viewport = {};
 	viewport.x = 0.0f;
@@ -3671,11 +3865,23 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4x4 perspectiveMatrix = Perspective(fovy, ar, 0.1f, 1000.0f);
 	const float4x4 projectionMatrix = Mul(perspectiveMatrix, preTransformMatrix);
 
-	// Update globals data
+	// Sun matrices
+	const float3 sunPos = float3{0.0f, 0.0f, 0.0f};
+	const float3 sunVrp = float3{-2.0f, -6.0f, -4.0f};
+	const float3 sunUp = float3{0.0f, 1.0f, 0.0f};
+	const float4x4 sunViewMatrix = LookAt(sunVrp, sunPos, sunUp);
+	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -5.0f, 5.0f, -5.0f, 5.0f);
+
+	// Update globals struct
 	Globals globals;
-	globals.view = viewMatrix;
-	globals.proj = projectionMatrix;
+	globals.cameraView = viewMatrix;
+	globals.cameraProj = projectionMatrix;
+	globals.sunView = sunViewMatrix;
+	globals.sunProj = sunProjMatrix;
+	globals.sunDir = Float4(Normalize(FromTo(sunVrp, sunPos)), 0.0f);
 	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
+
+	// Update globals buffer
 	Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
 	Heap &globalsBufferHeap = gfx.heaps[globalsBuffer.alloc.heap];
 	void *ptr = globalsBufferHeap.data + globalsBuffer.alloc.offset;
@@ -3698,7 +3904,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx);
 
-	#define COMPUTE_TEST 1
+	#define COMPUTE_TEST 0
 	#if COMPUTE_TEST
 	{
 		const Pipeline &pipeline = GetPipeline(gfx, gfx.computeClearH);
@@ -3724,11 +3930,65 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 	#endif // COMPUTE_TEST
 
-	const Framebuffer framebuffer = GetDisplayFramebuffer(gfx);
-	BeginRenderPass(commandList, framebuffer);
+	{
+		const Framebuffer shadowmapFramebuffer = GetShadowmapFramebuffer(gfx);
+		BeginRenderPass(commandList, shadowmapFramebuffer);
 
-	const uint2 displaySize = GetDisplaySize(gfx);
-	SetFullscreenViewportAndScissor(commandList, displaySize);
+		const uint2 shadowmapSize = GetFramebufferSize(shadowmapFramebuffer);
+		SetViewportAndScissor(commandList, shadowmapSize);
+
+		// Pipeline
+		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
+		const ShaderReflection &reflection = GetShaderReflection(gfx, pipeline.shaderReflectionH);
+		SetPipeline(commandList, pipeline);
+
+		const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
+
+		const BindGroupDesc bindGroupDesc = {
+			.layout = pipeline.bindGroupLayouts[0],
+			.reflection = reflection,
+			.bindings = {
+				{ .buffer = { .handle = globalsBuffer.handle, .offset = 0, .range = globalsBuffer.size} },
+				{ .sampler = { .handle = sampler.handle } },
+				{ .buffer = { .handle = entityBuffer.handle, .offset = 0, .range = entityBuffer.size} },
+			},
+		};
+		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+		SetBindGroup(commandList, 0, bindGroup);
+
+		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+		{
+			const Entity &entity = gfx.entities[entityIndex];
+
+			if ( !entity.visible ) continue;
+
+			// Vertex buffer
+			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+			SetVertexBuffer(commandList, vertexBuffer);
+
+			// Index buffer
+			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			// Draw!!!
+			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
+			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+		}
+
+		EndRenderPass(commandList);
+
+		VkFormat depthFormat = FindDepthFormat(gfx);
+		VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
+		TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+	}
+
+	const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
+	BeginRenderPass(commandList, displayFramebuffer);
+
+	const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
+	SetViewportAndScissor(commandList, displaySize);
 
 	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 	{
@@ -3769,6 +4029,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 #endif
 
 	EndRenderPass(commandList);
+
+	VkFormat depthFormat = FindDepthFormat(gfx);
+	VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
+	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 
 	EndCommandList(commandList);
 
@@ -3813,7 +4077,7 @@ void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
 #error "Missing codepath"
 #endif
 
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.renderPassH);
+	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
 
 	ImGui_ImplVulkan_InitInfo init_info = {};
 	init_info.Instance = gfx.instance;
