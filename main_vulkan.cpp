@@ -162,12 +162,17 @@ struct BindGroupLayout
 	VkDescriptorSetLayout handle;
 };
 
+struct PipelineLayout
+{
+	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
+	VkPipelineLayout handle;
+};
+
 struct Pipeline
 {
 	const char *name;
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
-	VkPipelineLayout layout;
 	VkPipeline handle;
+	PipelineLayout layout;
 	ShaderReflectionH shaderReflectionH;
 	VkPipelineBindPoint bindPoint;
 };
@@ -1669,9 +1674,9 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	gfx.pipelines[pipelineHandle].name = desc.name;
 	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) {
-		gfx.pipelines[pipelineHandle].bindGroupLayouts[i].handle = descriptorSetLayouts[i];
+		gfx.pipelines[pipelineHandle].layout.bindGroupLayouts[i].handle = descriptorSetLayouts[i];
 	}
-	gfx.pipelines[pipelineHandle].layout = pipelineLayout;
+	gfx.pipelines[pipelineHandle].layout.handle = pipelineLayout;
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
 	gfx.pipelines[pipelineHandle].shaderReflectionH = shaderReflectionH;
 	gfx.pipelines[pipelineHandle].bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -1744,9 +1749,9 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	PipelineH computeHandle = gfx.pipelineCount++;
 	gfx.pipelines[computeHandle].name = desc.name;
-	gfx.pipelines[computeHandle].bindGroupLayouts[0].handle = descriptorSetLayout;
+	gfx.pipelines[computeHandle].layout.bindGroupLayouts[0].handle = descriptorSetLayout;
+	gfx.pipelines[computeHandle].layout.handle = pipelineLayout;
 	gfx.pipelines[computeHandle].handle = computePipeline;
-	gfx.pipelines[computeHandle].layout = pipelineLayout;
 	gfx.pipelines[computeHandle].shaderReflectionH = shaderReflectionH;
 	gfx.pipelines[computeHandle].bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
 	return computeHandle;
@@ -3344,9 +3349,9 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		const u32 globalBindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
 		for (u32 j = 0; j < globalBindGroupCount; ++j)
 		{
-			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx, pipeline.bindGroupLayouts[0], gfx.globalBindGroupAllocator);
+			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx, pipeline.layout.bindGroupLayouts[0], gfx.globalBindGroupAllocator);
 		}
-		gfx.materialBindGroups[i] = CreateBindGroup(gfx, pipeline.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
+		gfx.materialBindGroups[i] = CreateBindGroup(gfx, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
 	// Update material descriptor sets
@@ -3443,9 +3448,9 @@ void CleanupGraphicsDevice(Graphics &gfx)
 	{
 		const Pipeline &pipeline = GetPipeline(gfx, i);
 		vkDestroyPipeline( gfx.device, pipeline.handle, VULKAN_ALLOCATORS );
-		vkDestroyPipelineLayout( gfx.device, pipeline.layout, VULKAN_ALLOCATORS );
-		for (u32 j = 0; j < ARRAY_COUNT(pipeline.bindGroupLayouts); ++j) {
-			vkDestroyDescriptorSetLayout( gfx.device, pipeline.bindGroupLayouts[j].handle, VULKAN_ALLOCATORS );
+		vkDestroyPipelineLayout( gfx.device, pipeline.layout.handle, VULKAN_ALLOCATORS );
+		for (u32 j = 0; j < ARRAY_COUNT(pipeline.layout.bindGroupLayouts); ++j) {
+			vkDestroyDescriptorSetLayout( gfx.device, pipeline.layout.bindGroupLayouts[j].handle, VULKAN_ALLOCATORS );
 		}
 	}
 
@@ -3876,7 +3881,7 @@ static void BindDescriptorSets(CommandList &commandList)
 		}
 
 		VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
-		VkPipelineLayout pipelineLayout = commandList.pipeline->layout;
+		VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
 		vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		commandList.descriptorSetDirtyMask = 0;
 	}
@@ -3998,7 +4003,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
 
 		const BindGroupDesc bindGroupDesc = {
-			.layout = pipeline.bindGroupLayouts[0],
+			.layout = pipeline.layout.bindGroupLayouts[0],
 			.reflection = reflection,
 			.bindings = {
 				{ .buffer = Binding(globalsBuffer) },
