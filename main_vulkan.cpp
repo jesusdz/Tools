@@ -157,7 +157,10 @@ union ResourceBinding
 
 typedef u32 ShaderReflectionH;
 
-typedef VkDescriptorSetLayout BindGroupLayout;
+struct BindGroupLayout
+{
+	VkDescriptorSetLayout handle;
+};
 
 struct Pipeline
 {
@@ -1245,24 +1248,32 @@ BindGroupAllocator CreateBindGroupAllocator(const Graphics &gfx, const BindGroup
 	return allocator;
 }
 
-BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, const BindGroupAllocator &allocator)
+void ResetBindGroupAllocator(const Graphics &gfx, BindGroupAllocator &bindGroupAllocator)
+{
+	const VkDescriptorPool descriptorPool = bindGroupAllocator.handle;
+	VK_CALL( vkResetDescriptorPool(gfx.device, descriptorPool, 0) );
+
+	bindGroupAllocator.usedCounts = {};
+}
+
+BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, BindGroupAllocator &allocator)
 {
 	BindGroup bindGroup = {};
 
-	if (layout)
+	if (layout.handle)
 	{
 		VkDescriptorSetAllocateInfo allocateInfo = {};
 		allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		allocateInfo.descriptorPool = allocator.handle;
 		allocateInfo.descriptorSetCount = 1;
-		allocateInfo.pSetLayouts = &layout;
+		allocateInfo.pSetLayouts = &layout.handle;
 		VK_CALL( vkAllocateDescriptorSets(gfx.device, &allocateInfo, &bindGroup.handle) );
 	}
 
 	return bindGroup;
 }
 
-BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, const BindGroupAllocator &allocator)
+BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, BindGroupAllocator &allocator)
 {
 	BindGroup bindGroup = CreateBindGroup(gfx, desc.layout, allocator);
 
@@ -1658,7 +1669,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	gfx.pipelines[pipelineHandle].name = desc.name;
 	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) {
-		gfx.pipelines[pipelineHandle].bindGroupLayouts[i] = descriptorSetLayouts[i];
+		gfx.pipelines[pipelineHandle].bindGroupLayouts[i].handle = descriptorSetLayouts[i];
 	}
 	gfx.pipelines[pipelineHandle].layout = pipelineLayout;
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
@@ -1708,7 +1719,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
 
 	// Pipeline layout
-	VkDescriptorSetLayout bindGroupLayout = descriptorSetLayouts[0];
+	VkDescriptorSetLayout descriptorSetLayout = descriptorSetLayouts[0];
 	ASSERT(descriptorSetLayouts[1] == 0); // Only descriptor set 0 allowed
 	ASSERT(descriptorSetLayouts[2] == 0); // Only descriptor set 0 allowed
 	ASSERT(descriptorSetLayouts[3] == 0); // Only descriptor set 0 allowed
@@ -1733,7 +1744,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	PipelineH computeHandle = gfx.pipelineCount++;
 	gfx.pipelines[computeHandle].name = desc.name;
-	gfx.pipelines[computeHandle].bindGroupLayouts[0] = bindGroupLayout;
+	gfx.pipelines[computeHandle].bindGroupLayouts[0].handle = descriptorSetLayout;
 	gfx.pipelines[computeHandle].handle = computePipeline;
 	gfx.pipelines[computeHandle].layout = pipelineLayout;
 	gfx.pipelines[computeHandle].shaderReflectionH = shaderReflectionH;
@@ -3434,7 +3445,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 		vkDestroyPipeline( gfx.device, pipeline.handle, VULKAN_ALLOCATORS );
 		vkDestroyPipelineLayout( gfx.device, pipeline.layout, VULKAN_ALLOCATORS );
 		for (u32 j = 0; j < ARRAY_COUNT(pipeline.bindGroupLayouts); ++j) {
-			vkDestroyDescriptorSetLayout( gfx.device, pipeline.bindGroupLayouts[j], VULKAN_ALLOCATORS );
+			vkDestroyDescriptorSetLayout( gfx.device, pipeline.bindGroupLayouts[j].handle, VULKAN_ALLOCATORS );
 		}
 	}
 
@@ -3791,8 +3802,7 @@ bool BeginFrame(Graphics &gfx)
 	gfx.swapchain.currentImageIndex = imageIndex;
 
 	// Reset descriptor pools for this frame
-	VkDescriptorPool descriptorPool = gfx.computeBindGroupAllocator[frameIndex].handle;
-	VK_CALL( vkResetDescriptorPool(gfx.device, descriptorPool, 0) );
+	ResetBindGroupAllocator( gfx, gfx.computeBindGroupAllocator[frameIndex] );
 
 	// Reset commands for this frame
 	VkCommandPool commandPool = gfx.commandPools[frameIndex];
