@@ -1025,16 +1025,20 @@ BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 si
 
 static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
 {
-	switch (type) {
-		case SpvTypeImage: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		case SpvTypeSampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
-		case SpvTypeSampledImage: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		case SpvTypeUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		case SpvTypeStorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; // Should be DYNAMIC if we use dynamic offsets
-		case SpvTypeStorageTexelBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-		default: INVALID_CODE_PATH();
-	}
-	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+	static const VkDescriptorType vkDescriptorTypes[] = {
+		VK_DESCRIPTOR_TYPE_MAX_ENUM,
+		VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+		VK_DESCRIPTOR_TYPE_SAMPLER,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // Should be DYNAMIC if we use dynamic offsets
+		VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkDescriptorTypes) == SpvTypeCount);
+	ASSERT(type != SpvTypeNone);
+	ASSERT(type < SpvTypeCount);
+	const VkDescriptorType vkDescriptorType = vkDescriptorTypes[type];
+	return vkDescriptorType;
 }
 
 static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
@@ -1280,6 +1284,21 @@ BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, Bi
 		allocateInfo.descriptorSetCount = 1;
 		allocateInfo.pSetLayouts = &layout.handle;
 		VK_CALL( vkAllocateDescriptorSets(gfx.device, &allocateInfo, &bindGroup.handle) );
+
+		// Update the used descriptor counters in the allocator
+		for (u32 i = 0; i < layout.bindingCount; ++i)
+		{
+			const ShaderBinding &binding = layout.bindings[i];
+			switch (binding.type) {
+				case SpvTypeImage: allocator.usedCounts.textureCount++; break;
+				case SpvTypeSampler: allocator.usedCounts.samplerCount++; break;
+				case SpvTypeSampledImage: allocator.usedCounts.combinedImageSamplerCount++; break;
+				case SpvTypeUniformBuffer: allocator.usedCounts.uniformBufferCount++; break;
+				case SpvTypeStorageBuffer: allocator.usedCounts.storageBufferCount++; break;
+				case SpvTypeStorageTexelBuffer: allocator.usedCounts.storageTexelBufferCount++; break;
+				default: INVALID_CODE_PATH();
+			}
+		}
 	}
 
 	return bindGroup;

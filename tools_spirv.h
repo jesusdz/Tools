@@ -40,6 +40,8 @@ Check the following link for reference on the implementation of Spirv tools:
 #define SPV_CT_ASSERT2(expression, line) SPV_CT_ASSERT3(expression, line)
 #define SPV_CT_ASSERT(expression) SPV_CT_ASSERT2(expression, __LINE__)
 
+#define SPV_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
+
 
 // Sized types ///////////////////////////////////////////////////////////////////////////
 
@@ -120,7 +122,11 @@ static const char *SpvTypeStrings[] =
 	"SpvTypeSampler",
 	"SpvTypeSampledImage",
 	"SpvTypeUniformBuffer",
+	"SpvTypeStorageBuffer",
+	"SpvTypeStorageTexelBuffer",
 };
+
+SPV_CT_ASSERT(SPV_ARRAY_COUNT(SpvTypeStrings) == SpvTypeCount);
 
 enum SpvDim
 {
