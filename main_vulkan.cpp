@@ -68,7 +68,6 @@
 #define MAX_PIPELINES 8
 #define MAX_COMPUTES 8
 #define MAX_RENDERPASSES 4
-#define MAX_SHADER_REFLECTIONS 8
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
 #define MAX_DESCRIPTOR_SETS 4
@@ -110,21 +109,6 @@ struct Alloc
 	u64 size;
 };
 
-struct ShaderBinding
-{
-	u8 set;
-	u8 binding;
-	SpvType type;
-	SpvStageFlags stageFlags;
-	const char *name;
-};
-
-struct ShaderReflection
-{
-	ShaderBinding bindings[MAX_SHADER_BINDINGS];
-	u8 bindingCount;
-};
-
 struct BufferBinding
 {
 	VkBuffer handle;
@@ -155,7 +139,20 @@ union ResourceBinding
 	SamplerBinding sampler;
 };
 
-typedef u32 ShaderReflectionH;
+struct ShaderBinding
+{
+	u8 set;
+	u8 binding;
+	SpvType type;
+	SpvStageFlags stageFlags;
+	const char *name;
+};
+
+struct ShaderReflection
+{
+	ShaderBinding bindings[MAX_SHADER_BINDINGS];
+	u8 bindingCount;
+};
 
 struct BindGroupLayout
 {
@@ -164,8 +161,9 @@ struct BindGroupLayout
 
 struct PipelineLayout
 {
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
 	VkPipelineLayout handle;
+	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
+	ShaderReflection shaderReflection;
 };
 
 struct Pipeline
@@ -173,7 +171,6 @@ struct Pipeline
 	const char *name;
 	VkPipeline handle;
 	PipelineLayout layout;
-	ShaderReflectionH shaderReflectionH;
 	VkPipelineBindPoint bindPoint;
 };
 
@@ -471,9 +468,6 @@ struct Graphics
 
 	Pipeline pipelines[MAX_PIPELINES];
 	u32 pipelineCount;
-
-	ShaderReflection shaderReflections[MAX_SHADER_REFLECTIONS];
-	u32 shaderReflectionCount;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -1077,7 +1071,7 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
+ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
 {
 	void *tempMem = scratch.base + scratch.used;
 	const u32 tempMemSize = scratch.size - scratch.used;
@@ -1114,31 +1108,22 @@ ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, byte* mi
 		}
 	}
 
-	ASSERT( gfx.shaderReflectionCount < ARRAY_COUNT(gfx.shaderReflections) );
-	ShaderReflectionH shaderReflectionHandle = gfx.shaderReflectionCount++;
-	gfx.shaderReflections[shaderReflectionHandle] = reflection;
-	return shaderReflectionHandle;
+	return reflection;
 }
 
-ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &source )
+ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &source )
 {
 	byte* microcodeData[] = { source.data };
 	const u64 microcodeSize[] = { source.dataSize };
-	ShaderReflectionH reflectionH = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return reflectionH;
+	const ShaderReflection reflection = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return reflection;
 }
 
-ShaderReflectionH CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
 {
 	byte* microcodeData[] = { vertexSource.data, fragmentSource.data };
 	const u64 microcodeSize[] = { vertexSource.dataSize, fragmentSource.dataSize };
-	ShaderReflectionH reflectionH = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return reflectionH;
-}
-
-const ShaderReflection &GetShaderReflection( const Graphics &gfx, ShaderReflectionH handle )
-{
-	const ShaderReflection &reflection = gfx.shaderReflections[handle];
+	ShaderReflection reflection = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
 	return reflection;
 }
 
@@ -1505,8 +1490,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, desc.fsFilename);
 	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
-	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
+	const ShaderReflection shaderReflection = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1673,12 +1657,12 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	gfx.pipelines[pipelineHandle].name = desc.name;
+	gfx.pipelines[pipelineHandle].layout.handle = pipelineLayout;
+	gfx.pipelines[pipelineHandle].layout.shaderReflection = shaderReflection;
 	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) {
 		gfx.pipelines[pipelineHandle].layout.bindGroupLayouts[i].handle = descriptorSetLayouts[i];
 	}
-	gfx.pipelines[pipelineHandle].layout.handle = pipelineLayout;
 	gfx.pipelines[pipelineHandle].handle = vkPipelineHandle;
-	gfx.pipelines[pipelineHandle].shaderReflectionH = shaderReflectionH;
 	gfx.pipelines[pipelineHandle].bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
 	return pipelineHandle;
@@ -1709,8 +1693,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	const ShaderSource shaderSource = GetShaderSource(scratch, desc.filename);
 	const ShaderModule shaderModule = CreateShaderModule(gfx, shaderSource);
-	ShaderReflectionH shaderReflectionH = CreateShaderReflection(gfx, scratch, shaderSource);
-	const ShaderReflection &shaderReflection = GetShaderReflection(gfx, shaderReflectionH);
+	const ShaderReflection shaderReflection = CreateShaderReflection(gfx, scratch, shaderSource);
 
 	VkPipelineShaderStageCreateInfo computeShaderStageInfo = {};
 	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1749,10 +1732,10 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	PipelineH computeHandle = gfx.pipelineCount++;
 	gfx.pipelines[computeHandle].name = desc.name;
-	gfx.pipelines[computeHandle].layout.bindGroupLayouts[0].handle = descriptorSetLayout;
 	gfx.pipelines[computeHandle].layout.handle = pipelineLayout;
+	gfx.pipelines[computeHandle].layout.shaderReflection = shaderReflection;
+	gfx.pipelines[computeHandle].layout.bindGroupLayouts[0].handle = descriptorSetLayout;
 	gfx.pipelines[computeHandle].handle = computePipeline;
-	gfx.pipelines[computeHandle].shaderReflectionH = shaderReflectionH;
 	gfx.pipelines[computeHandle].bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
 	return computeHandle;
 }
@@ -3203,7 +3186,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
-		const ShaderReflection &reflection = GetShaderReflection(gfx, pipeline.shaderReflectionH);
+		const ShaderReflection &reflection = pipeline.layout.shaderReflection;
 
 		BindMaterialResources(gfx, material, bindingTables[BIND_GROUP_MATERIAL]);
 
@@ -3243,7 +3226,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 
 void UpdateComputeDescriptorSets(const Graphics &gfx, const Pipeline &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
 {
-	const ShaderReflection &reflection = GetShaderReflection(gfx, compute.shaderReflectionH);
+	const ShaderReflection &reflection = compute.layout.shaderReflection;
 
 	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
 	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
@@ -3997,7 +3980,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		// Pipeline
 		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
-		const ShaderReflection &reflection = GetShaderReflection(gfx, pipeline.shaderReflectionH);
+		const ShaderReflection &reflection = pipeline.layout.shaderReflection;
 		SetPipeline(commandList, pipeline);
 
 		const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
