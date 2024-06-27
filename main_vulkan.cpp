@@ -148,7 +148,7 @@ struct ShaderBinding
 	const char *name;
 };
 
-struct ShaderReflection
+struct ShaderBindings
 {
 	ShaderBinding bindings[MAX_SHADER_BINDINGS];
 	u8 bindingCount;
@@ -165,7 +165,7 @@ struct PipelineLayout
 {
 	VkPipelineLayout handle;
 	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
-	ShaderReflection shaderReflection;
+	ShaderBindings shaderBindings;
 };
 
 struct Pipeline
@@ -1076,7 +1076,7 @@ void DestroyShaderModule(const Graphics &gfx, const ShaderModule &module)
 	vkDestroyShaderModule(gfx.device, module.handle, VULKAN_ALLOCATORS);
 }
 
-ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
+ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
 {
 	void *tempMem = scratch.base + scratch.used;
 	const u32 tempMemSize = scratch.size - scratch.used;
@@ -1088,7 +1088,7 @@ ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, byte* mic
 		SpvParseDescriptors( &parser, &spvDescriptorList, tempMem, tempMemSize );
 	}
 
-	ShaderReflection reflection = {};
+	ShaderBindings shaderBindings = {};
 
 	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
 	{
@@ -1098,11 +1098,11 @@ ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, byte* mic
 
 			if ( descriptor.type != SpvTypeNone )
 			{
-				ASSERT( reflection.bindingCount < ARRAY_COUNT(reflection.bindings) );
+				ASSERT( shaderBindings.bindingCount < ARRAY_COUNT(shaderBindings.bindings) );
 				ASSERT( ( setIndex == BIND_GROUP_GLOBAL && descriptor.binding < MAX_GLOBAL_BINDINGS ) ||
 						( setIndex == BIND_GROUP_MATERIAL && descriptor.binding < MAX_MATERIAL_BINDINGS ) ||
 						( setIndex > BIND_GROUP_MATERIAL ) );
-				ShaderBinding &shaderBinding = reflection.bindings[reflection.bindingCount++];
+				ShaderBinding &shaderBinding = shaderBindings.bindings[shaderBindings.bindingCount++];
 				shaderBinding.binding = descriptor.binding;
 				shaderBinding.set = setIndex;
 				shaderBinding.type = (SpvType)descriptor.type;
@@ -1113,41 +1113,41 @@ ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, byte* mic
 		}
 	}
 
-	return reflection;
+	return shaderBindings;
 }
 
-ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &source )
+ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, const ShaderSource &source )
 {
 	byte* microcodeData[] = { source.data };
 	const u64 microcodeSize[] = { source.dataSize };
-	const ShaderReflection reflection = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return reflection;
+	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return shaderBindings;
 }
 
-ShaderReflection CreateShaderReflection( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
 {
 	byte* microcodeData[] = { vertexSource.data, fragmentSource.data };
 	const u64 microcodeSize[] = { vertexSource.dataSize, fragmentSource.dataSize };
-	ShaderReflection reflection = CreateShaderReflection(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return reflection;
+	ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return shaderBindings;
 }
 
-u8 GetShaderReflectionBindingCount(const ShaderReflection &shaderReflection, u8 bindGroupIndex)
+u8 GetBindGroupBindingCount(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
 {
 	u8 bindingCount = 0;
-	for (u32 i = 0; i < shaderReflection.bindingCount; ++i) {
-		if ( shaderReflection.bindings[i].set == bindGroupIndex ) {
+	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
+		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
 			bindingCount++;
 		}
 	}
 	return bindingCount;
 }
 
-const ShaderBinding *GetShaderReflectionBindingPointer(const ShaderReflection &shaderReflection, u8 bindGroupIndex)
+const ShaderBinding *GetBindGroupBindingPointer(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
 {
-	for (u32 i = 0; i < shaderReflection.bindingCount; ++i) {
-		if ( shaderReflection.bindings[i].set == bindGroupIndex ) {
-			return &shaderReflection.bindings[i];
+	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
+		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
+			return &shaderBindings.bindings[i];
 		}
 	}
 	return NULL;
@@ -1272,6 +1272,46 @@ void ResetBindGroupAllocator(const Graphics &gfx, BindGroupAllocator &bindGroupA
 	bindGroupAllocator.usedCounts = {};
 }
 
+BindGroupLayout CreateBindGroupLayout(const Graphics &gfx, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
+{
+	BindGroupLayout layout = {};
+
+	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+	u32 bindingCount = 0;
+
+	for (u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex)
+	{
+		const ShaderBinding &shaderBinding = shaderBindings.bindings[bindingIndex];
+
+		if ( shaderBinding.set == bindGroupIndex )
+		{
+			VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
+			binding.binding = shaderBinding.binding;
+			binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
+			binding.descriptorCount = 1;
+			binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
+			binding.pImmutableSamplers = NULL;
+		}
+	}
+
+	if (bindingCount > 0)
+	{
+		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
+		descriptorSetLayoutCreateInfo.pBindings = vkBindings;
+
+		VkDescriptorSetLayout layoutHandle;
+		VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &layoutHandle) );
+
+		layout.handle = layoutHandle;
+		layout.bindingCount = bindingCount;
+		layout.bindings = GetBindGroupBindingPointer(shaderBindings, bindGroupIndex);
+	}
+
+	return layout;
+}
+
 BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, BindGroupAllocator &allocator)
 {
 	BindGroup bindGroup = {};
@@ -1326,39 +1366,6 @@ BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, BindGr
 	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
 
 	return bindGroup;
-}
-
-void CreateDescriptorSetLayouts( const Graphics &gfx, const ShaderReflection &shaderReflection, VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS], u32 &descriptorSetLayoutCount )
-{
-	for (u32 set = 0; set < SPV_MAX_DESCRIPTOR_SETS; ++set)
-	{
-		VkDescriptorSetLayoutBinding bindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-		u32 bindingCount = 0;
-
-		for (u32 bindingIndex = 0; bindingIndex < shaderReflection.bindingCount; ++bindingIndex)
-		{
-			const ShaderBinding &shaderBinding = shaderReflection.bindings[bindingIndex];
-
-			if ( shaderBinding.set == set )
-			{
-				VkDescriptorSetLayoutBinding &binding = bindings[bindingCount++];
-				binding.binding = shaderBinding.binding;
-				binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
-				binding.descriptorCount = 1;
-				binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
-				binding.pImmutableSamplers = NULL;
-			}
-		}
-
-		if (bindingCount > 0)
-		{
-			VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-			descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
-			descriptorSetLayoutCreateInfo.pBindings = bindings;
-			VK_CALL( vkCreateDescriptorSetLayout(gfx.device, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &descriptorSetLayouts[descriptorSetLayoutCount++]) );
-		}
-	}
 }
 
 static VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
@@ -1531,7 +1538,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, desc.fsFilename);
 	const ShaderModule vertexShaderModule = CreateShaderModule(gfx, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx, fragmentShaderSource);
-	const ShaderReflection shaderReflection = CreateShaderReflection(gfx, scratch, vertexShaderSource, fragmentShaderSource);
+	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, vertexShaderSource, fragmentShaderSource);
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1654,10 +1661,19 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	colorBlendingCreateInfo.blendConstants[2] = 0.0f; // Optional
 	colorBlendingCreateInfo.blendConstants[3] = 0.0f; // Optional
 
-	// Descriptor set layouts
+	// DescriptorSet/BindGroup layouts
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
 	u32 descriptorSetLayoutCount = 0;
-	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
+
+	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
+	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
+	{
+		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx, shaderBindings, bindGroup);
+
+		if (bindGroupLayouts[bindGroup].handle) {
+			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
+		}
+	}
 
 	// Pipeline layout
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
@@ -1700,11 +1716,10 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
 	pipeline.name = desc.name;
 	pipeline.layout.handle = pipelineLayout;
-	pipeline.layout.shaderReflection = shaderReflection;
-	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) {
-		pipeline.layout.bindGroupLayouts[i].handle = descriptorSetLayouts[i];
-		pipeline.layout.bindGroupLayouts[i].bindingCount = GetShaderReflectionBindingCount(pipeline.layout.shaderReflection, i);
-		pipeline.layout.bindGroupLayouts[i].bindings = GetShaderReflectionBindingPointer(pipeline.layout.shaderReflection, i);
+	pipeline.layout.shaderBindings = shaderBindings;
+	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
+		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
+		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
 	}
 	pipeline.handle = vkPipelineHandle;
 	pipeline.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -1737,7 +1752,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	const ShaderSource shaderSource = GetShaderSource(scratch, desc.filename);
 	const ShaderModule shaderModule = CreateShaderModule(gfx, shaderSource);
-	const ShaderReflection shaderReflection = CreateShaderReflection(gfx, scratch, shaderSource);
+	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, shaderSource);
 
 	VkPipelineShaderStageCreateInfo computeShaderStageInfo = {};
 	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1745,17 +1760,21 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 	computeShaderStageInfo.module = shaderModule.handle;
 	computeShaderStageInfo.pName = desc.function ? desc.function : "main";
 
-	// Descriptor set layouts
+	// DescriptorSet/BindGroup layouts
 	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
 	u32 descriptorSetLayoutCount = 0;
-	CreateDescriptorSetLayouts(gfx, shaderReflection, descriptorSetLayouts, descriptorSetLayoutCount);
+
+	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
+	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
+	{
+		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx, shaderBindings, bindGroup);
+
+		if (bindGroupLayouts[bindGroup].handle) {
+			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
+		}
+	}
 
 	// Pipeline layout
-	VkDescriptorSetLayout descriptorSetLayout = descriptorSetLayouts[0];
-	ASSERT(descriptorSetLayouts[1] == 0); // Only descriptor set 0 allowed
-	ASSERT(descriptorSetLayouts[2] == 0); // Only descriptor set 0 allowed
-	ASSERT(descriptorSetLayouts[3] == 0); // Only descriptor set 0 allowed
-
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutCreateInfo.setLayoutCount = descriptorSetLayoutCount;
@@ -1778,10 +1797,10 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 	Pipeline &pipeline = gfx.pipelines[computeHandle];
 	pipeline.name = desc.name;
 	pipeline.layout.handle = pipelineLayout;
-	for (u32 i = 0; i < MAX_DESCRIPTOR_SETS; ++i) {
-		pipeline.layout.bindGroupLayouts[i].handle = descriptorSetLayouts[i];
-		pipeline.layout.bindGroupLayouts[i].bindingCount = GetShaderReflectionBindingCount(pipeline.layout.shaderReflection, i);
-		pipeline.layout.bindGroupLayouts[i].bindings = GetShaderReflectionBindingPointer(pipeline.layout.shaderReflection, i);
+	pipeline.layout.shaderBindings = shaderBindings;
+	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
+		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
+		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
 	}
 	pipeline.handle = computePipeline;
 	pipeline.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
@@ -3234,13 +3253,13 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
-		const ShaderReflection &reflection = pipeline.layout.shaderReflection;
+		const ShaderBindings &shaderBindings = pipeline.layout.shaderBindings;
 
 		BindMaterialResources(gfx, material, bindingTables[BIND_GROUP_MATERIAL]);
 
-		for ( u32 bindingIndex = 0; bindingIndex < reflection.bindingCount; ++bindingIndex )
+		for ( u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex )
 		{
-			const ShaderBinding &binding = reflection.bindings[bindingIndex];
+			const ShaderBinding &binding = shaderBindings.bindings[bindingIndex];
 
 			if ( binding.set != bindGroupIndex ) continue;
 
@@ -3274,15 +3293,15 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 
 void UpdateComputeDescriptorSets(const Graphics &gfx, const Pipeline &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
 {
-	const ShaderReflection &reflection = compute.layout.shaderReflection;
+	const ShaderBindings &shaderBindings = compute.layout.shaderBindings;
 
 	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
 	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
 	u32 descriptorWriteCount = 0;
 
-	for (u32 i = 0; i < reflection.bindingCount; ++i)
+	for (u32 i = 0; i < shaderBindings.bindingCount; ++i)
 	{
-		const ShaderBinding &binding = reflection.bindings[i];
+		const ShaderBinding &binding = shaderBindings.bindings[i];
 		if ( !AddDescriptorWrite(bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) )
 		{
 			LOG(Warning, "Could not add descriptor write for binding %s of compute %s.\n", binding.name, compute.name);
@@ -3997,7 +4016,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	#if COMPUTE_TEST
 	{
 		const Pipeline &pipeline = GetPipeline(gfx, gfx.computeClearH);
-		const ShaderReflection &reflection = GetShaderReflection(gfx, pipeline.shaderReflectionH);
 
 		SetPipeline(commandList, pipeline);
 
@@ -4005,7 +4023,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const BufferView &computeBufferView = GetBufferView(gfx, commandList.gfx->computeBufferViewH);
 
 		const BindGroupDesc bindGroupDesc = {
-			.layout = pipeline.bindGroupLayouts[0],
+			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
 				{ .bufferView = Binding(computeBufferView) },
 			},
@@ -4027,7 +4045,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		// Pipeline
 		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
-		const ShaderReflection &reflection = pipeline.layout.shaderReflection;
 		SetPipeline(commandList, pipeline);
 
 		const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
