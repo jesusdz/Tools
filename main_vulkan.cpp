@@ -284,6 +284,7 @@ enum CompareOp
 {
 	CompareOpNone,
 	CompareOpLess,
+	CompareOpGreater,
 	CompareOpCount,
 };
 
@@ -1623,7 +1624,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	depthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	depthStencilCreateInfo.depthTestEnable = VK_TRUE;
 	depthStencilCreateInfo.depthWriteEnable = VK_TRUE;
-	depthStencilCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencilCreateInfo.depthCompareOp = USE_REVERSE_Z ? VK_COMPARE_OP_GREATER : VK_COMPARE_OP_LESS;
 	depthStencilCreateInfo.depthBoundsTestEnable = VK_FALSE;
 	depthStencilCreateInfo.minDepthBounds = 0.0f;
 	depthStencilCreateInfo.maxDepthBounds = 1.0f;
@@ -1907,6 +1908,7 @@ static VkCompareOp CompareOpToVkCompareOp(CompareOp compareOp)
 	static const VkCompareOp vkCompareOps[] = {
 		VK_COMPARE_OP_NEVER,
 		VK_COMPARE_OP_LESS,
+		VK_COMPARE_OP_GREATER,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
 	ASSERT(compareOp < CompareOpCount);
@@ -3375,8 +3377,8 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	gfx.samplerH = CreateSampler(gfx, samplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
-		.borderColor = BorderColorWhiteFloat,
-		.compareOp = CompareOpLess,
+		.borderColor = USE_REVERSE_Z ? BorderColorBlackFloat : BorderColorWhiteFloat,
+		.compareOp = USE_REVERSE_Z ? CompareOpGreater : CompareOpLess,
 	};
 	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
 
@@ -3731,16 +3733,17 @@ void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuf
 {
 	VkClearValue clearValues[2] = {};
 	u32 clearValueCount = 0;
+	const float depthClearValue = USE_REVERSE_Z ? 0.0f : 1.0f;
 	if (framebuffer.isDisplay)
 	{
 		clearValueCount = 2;
 		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-		clearValues[1].depthStencil = {1.0f, 0};
+		clearValues[1].depthStencil = {depthClearValue, 0};
 	}
 	if (framebuffer.isShadowmap)
 	{
 		clearValueCount = 1;
-		clearValues[0].depthStencil = {1.0f, 0};
+		clearValues[0].depthStencil = {depthClearValue, 0};
 	}
 
 	VkRenderPassBeginInfo renderPassBeginInfo = {};
@@ -3988,6 +3991,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	globals.sunProj = sunProjMatrix;
 	globals.sunDir = Float4(Normalize(FromTo(sunVrp, sunPos)), 0.0f);
 	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
+	globals.shadowmapDepthBias = USE_REVERSE_Z ? 0.005 : -0.005;
 
 	// Update globals buffer
 	Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);

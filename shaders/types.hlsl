@@ -7,6 +7,8 @@ struct Globals
 	float4x4 sunProj;
 	float4 sunDir;
 	float4 eyePosition;
+	float shadowmapDepthBias;
+	float3 unused;
 };
 
 struct SEntity
