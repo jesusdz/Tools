@@ -842,6 +842,61 @@ static VkFormat FindDepthFormat(const GraphicsDevice &device)
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
+static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
+{
+	void *tempMem = scratch.base + scratch.used;
+	const u32 tempMemSize = scratch.size - scratch.used;
+
+	SpvDescriptorSetList spvDescriptorList = {};
+	for (u32 i = 0; i < microcodeCount; ++i)
+	{
+		SpvParser parser = SpvParserInit( microcodeData[i], microcodeSize[i] );
+		SpvParseDescriptors( &parser, &spvDescriptorList, tempMem, tempMemSize );
+	}
+
+	ShaderBindings shaderBindings = {};
+
+	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
+	{
+		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
+		{
+			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
+
+			if ( descriptor.type != SpvTypeNone )
+			{
+				ASSERT( shaderBindings.bindingCount < ARRAY_COUNT(shaderBindings.bindings) );
+				ShaderBinding &shaderBinding = shaderBindings.bindings[shaderBindings.bindingCount++];
+				shaderBinding.binding = descriptor.binding;
+				shaderBinding.set = setIndex;
+				shaderBinding.type = (SpvType)descriptor.type;
+				shaderBinding.stageFlags = descriptor.stageFlags;
+				shaderBinding.name = InternString( descriptor.name );
+				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
+			}
+		}
+	}
+
+	return shaderBindings;
+}
+
+static ShaderBindings ReflectShaderBindings( Arena scratch, const ShaderSource &source )
+{
+	byte* microcodeData[] = { source.data };
+	const u64 microcodeSize[] = { source.dataSize };
+	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return shaderBindings;
+}
+
+static ShaderBindings ReflectShaderBindings( Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
+{
+	byte* microcodeData[] = { vertexSource.data, fragmentSource.data };
+	const u64 microcodeSize[] = { vertexSource.dataSize, fragmentSource.dataSize };
+	ShaderBindings shaderBindings = ReflectShaderBindings(scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
+	return shaderBindings;
+}
+
+
+
 
 
 

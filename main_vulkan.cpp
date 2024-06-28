@@ -7,6 +7,11 @@
 #include "assets/assets.h"
 #include "clon.h"
 
+// TODO: This StringInterning also needs to be declared before we
+// include `tools_gfx.h` as it still makes use of it.
+#define InternString(str) MakeStringIntern(gStringInterning, str)
+static StringInterning *gStringInterning;
+
 #include "tools_gfx.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -32,9 +37,6 @@
 #define MAX_COMPUTE_BINDINGS 4
 
 #define INVALID_HANDLE -1
-
-#define InternString(str) MakeStringIntern(gStringInterning, str)
-static StringInterning *gStringInterning;
 
 
 
@@ -448,63 +450,6 @@ BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 si
 	return chunk;
 }
 
-ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
-{
-	void *tempMem = scratch.base + scratch.used;
-	const u32 tempMemSize = scratch.size - scratch.used;
-
-	SpvDescriptorSetList spvDescriptorList = {};
-	for (u32 i = 0; i < microcodeCount; ++i)
-	{
-		SpvParser parser = SpvParserInit( microcodeData[i], microcodeSize[i] );
-		SpvParseDescriptors( &parser, &spvDescriptorList, tempMem, tempMemSize );
-	}
-
-	ShaderBindings shaderBindings = {};
-
-	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
-	{
-		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
-		{
-			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
-
-			if ( descriptor.type != SpvTypeNone )
-			{
-				ASSERT( shaderBindings.bindingCount < ARRAY_COUNT(shaderBindings.bindings) );
-				ASSERT( ( setIndex == BIND_GROUP_GLOBAL && descriptor.binding < MAX_GLOBAL_BINDINGS ) ||
-						( setIndex == BIND_GROUP_MATERIAL && descriptor.binding < MAX_MATERIAL_BINDINGS ) ||
-						( setIndex > BIND_GROUP_MATERIAL ) );
-				ShaderBinding &shaderBinding = shaderBindings.bindings[shaderBindings.bindingCount++];
-				shaderBinding.binding = descriptor.binding;
-				shaderBinding.set = setIndex;
-				shaderBinding.type = (SpvType)descriptor.type;
-				shaderBinding.stageFlags = descriptor.stageFlags;
-				shaderBinding.name = InternString( descriptor.name );
-				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
-			}
-		}
-	}
-
-	return shaderBindings;
-}
-
-ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, const ShaderSource &source )
-{
-	byte* microcodeData[] = { source.data };
-	const u64 microcodeSize[] = { source.dataSize };
-	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return shaderBindings;
-}
-
-ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, const ShaderSource &vertexSource, const ShaderSource &fragmentSource )
-{
-	byte* microcodeData[] = { vertexSource.data, fragmentSource.data };
-	const u64 microcodeSize[] = { vertexSource.dataSize, fragmentSource.dataSize };
-	ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, microcodeData, microcodeSize, ARRAY_COUNT(microcodeData));
-	return shaderBindings;
-}
-
-
 RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 {
 	const u8 MAX_COLOR_ATTACHMENTS = 4;
@@ -611,7 +556,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, desc.fsFilename);
 	const ShaderModule vertexShaderModule = CreateShaderModule(gfx.device, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(gfx.device, fragmentShaderSource);
-	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, vertexShaderSource, fragmentShaderSource);
+	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, vertexShaderSource, fragmentShaderSource);
 
 	VkPipelineShaderStageCreateInfo vertexShaderStageCreateInfo = {};
 	vertexShaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -825,7 +770,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 
 	const ShaderSource shaderSource = GetShaderSource(scratch, desc.filename);
 	const ShaderModule shaderModule = CreateShaderModule(gfx.device, shaderSource);
-	const ShaderBindings shaderBindings = CreateShaderBindings(gfx, scratch, shaderSource);
+	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, shaderSource);
 
 	VkPipelineShaderStageCreateInfo computeShaderStageInfo = {};
 	computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
