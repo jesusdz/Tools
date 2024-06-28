@@ -17,7 +17,6 @@
 #include "shaders/bindings.hlsl"
 
 
-#define VULKAN_ALLOCATORS NULL
 
 
 #define MAX_BUFFERS 64
@@ -245,56 +244,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 	return VK_FALSE;
 }
 
-static const char *VkResultToString(VkResult result)
-{
-	switch (result)
-	{
-		case VK_SUCCESS: return "VK_SUCCESS";
-		case VK_NOT_READY: return "VK_NOT_READY";
-		case VK_TIMEOUT: return "VK_TIMEOUT";
-		case VK_EVENT_SET: return "VK_EVENT_SET";
-		case VK_EVENT_RESET: return "VK_EVENT_RESET";
-		case VK_INCOMPLETE: return "VK_INCOMPLETE";
-		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-		case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-		case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-		case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-		case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-		case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
-		case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
-		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
-		case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
-		default: break;
-	}
-	return "VK_ERROR_UNHANDLED";
-}
-
-static void CheckVulkanResult(VkResult result, const char *callString)
-{
-	if (result == VK_SUCCESS)
-		return;
-	LOG(Error, "[vulkan] VkResult error:\n");
-	LOG(Error, "[vulkan] - errorCode: %d\n", result);
-	LOG(Error, "[vulkan] - errorString: %s\n", VkResultToString(result));
-	LOG(Error, "[vulkan] - callString: %s\n", callString);
-	if (result < VK_SUCCESS)
-		QUIT_ABNORMALLY();
-}
-
-#if USE_IMGUI
-static void CheckVulkanResultImGui(VkResult result)
-{
-	CheckVulkanResult(result, "ImGui");
-}
-#endif
-
-#define VK_CALL( call ) CheckVulkanResult( call, #call )
-
 VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 {
 	VkShaderModuleCreateInfo createInfo{};
@@ -310,49 +259,6 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 	}
 
 	return shaderModule;
-}
-
-Heap CreateHeap(const Graphics &gfx, HeapType heapType, u32 size, bool mapMemory)
-{
-	u32 memoryTypeIndex = -1;
-
-	VkMemoryPropertyFlags requiredFlags = HeapTypeToVkMemoryPropertyFlags( heapType );
-
-	VkPhysicalDeviceMemoryProperties memoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(gfx.device.physicalDevice, &memoryProperties);
-
-	for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
-	{
-		const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
-
-		if ( ( memoryType.propertyFlags & requiredFlags ) == requiredFlags )
-		{
-			memoryTypeIndex = i;
-			break;
-		}
-	}
-
-	VkMemoryAllocateInfo memoryAllocateInfo = {};
-	memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	memoryAllocateInfo.allocationSize = size;
-	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
-
-	VkDeviceMemory memory;
-	VK_CALL( vkAllocateMemory(gfx.device.device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
-
-	u8 *data = 0;
-	if ( mapMemory )
-	{
-		VK_CALL( vkMapMemory(gfx.device.device, memory, 0, size, 0, (void**)&data) );
-	}
-
-	Heap heap = {};
-	heap.type = heapType;
-	heap.size = size;
-	heap.memoryTypeIndex = memoryTypeIndex;
-	heap.memory = memory;
-	heap.data = data;
-	return heap;
 }
 
 BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, Heap &memoryHeap)
@@ -2453,10 +2359,10 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 
 
 	// Create heaps
-	gfx.device.heaps[HeapType_General] = CreateHeap(gfx, HeapType_General, MB(16), false);
-	gfx.device.heaps[HeapType_RTs] = CreateHeap(gfx, HeapType_RTs, MB(64), false);
-	gfx.device.heaps[HeapType_Staging] = CreateHeap(gfx, HeapType_Staging, MB(16), true);
-	gfx.device.heaps[HeapType_Dynamic] = CreateHeap(gfx, HeapType_Dynamic, MB(16), true);
+	gfx.device.heaps[HeapType_General] = CreateHeap(gfx.device, HeapType_General, MB(16), false);
+	gfx.device.heaps[HeapType_RTs] = CreateHeap(gfx.device, HeapType_RTs, MB(64), false);
+	gfx.device.heaps[HeapType_Staging] = CreateHeap(gfx.device, HeapType_Staging, MB(16), true);
+	gfx.device.heaps[HeapType_Dynamic] = CreateHeap(gfx.device, HeapType_Dynamic, MB(16), true);
 	//gfx.device.heaps[HeapType_Readback] = CreateHeap(gfx, HeapType_Readback, 0);
 
 
