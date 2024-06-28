@@ -54,6 +54,10 @@ In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lis
 With this SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
 thus avoiding unnecessary boilerplate code.
 
+## tools_gfx.h
+
+Abstraction of a modern graphics API for now made on top of Vulkan.
+
 
 ## Other projects
 
