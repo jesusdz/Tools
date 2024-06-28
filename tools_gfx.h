@@ -381,7 +381,7 @@ struct GraphicsDevice
 {
 	VkInstance instance;
 	VkPhysicalDevice physicalDevice;
-	VkDevice device;
+	VkDevice handle;
 
 	Alignment alignment;
 
@@ -410,7 +410,7 @@ struct GraphicsDevice
 
 
 ////////////////////////////////////////////////////////////////////////
-// Conversion functions
+// Helper functions to map Vulkan types
 ////////////////////////////////////////////////////////////////////////
 
 static const char *VkPhysicalDeviceTypeToString( VkPhysicalDeviceType type )
@@ -558,6 +558,26 @@ static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
 	return vkCompareOp;
 }
 
+static bool IsDepthFormat(VkFormat format)
+{
+	const bool isDepthFormat =
+		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		format == VK_FORMAT_D32_SFLOAT ||
+		format == VK_FORMAT_D16_UNORM_S8_UINT ||
+		format == VK_FORMAT_D16_UNORM;
+	return isDepthFormat;
+}
+
+static bool HasStencilComponent(VkFormat format)
+{
+	const bool hasStencil =
+		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+		format == VK_FORMAT_D16_UNORM_S8_UINT;
+	return hasStencil;
+}
+
 
 ////////////////////////////////////////////////////////////////////////
 // Internal functions
@@ -637,12 +657,12 @@ static Heap CreateHeap(const GraphicsDevice &device, HeapType heapType, u32 size
 	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
 
 	VkDeviceMemory memory;
-	VK_CALL( vkAllocateMemory(device.device, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
+	VK_CALL( vkAllocateMemory(device.handle, &memoryAllocateInfo, VULKAN_ALLOCATORS, &memory) );
 
 	u8 *data = 0;
 	if ( mapMemory )
 	{
-		VK_CALL( vkMapMemory(device.device, memory, 0, size, 0, (void**)&data) );
+		VK_CALL( vkMapMemory(device.handle, memory, 0, size, 0, (void**)&data) );
 	}
 
 	Heap heap = {};
@@ -652,6 +672,30 @@ static Heap CreateHeap(const GraphicsDevice &device, HeapType heapType, u32 size
 	heap.memory = memory;
 	heap.data = data;
 	return heap;
+}
+
+static ShaderModule CreateShaderModule(const GraphicsDevice &device, const ShaderSource &source)
+{
+	VkShaderModuleCreateInfo createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	createInfo.codeSize = source.dataSize;
+	createInfo.pCode = reinterpret_cast<const u32*>(source.data);
+
+	VkShaderModule shaderModuleHandle;
+	if ( vkCreateShaderModule(device.handle, &createInfo, VULKAN_ALLOCATORS, &shaderModuleHandle) != VK_SUCCESS )
+	{
+		LOG(Error, "Error in CreateShaderModule.\n");
+		shaderModuleHandle = VK_NULL_HANDLE;
+	}
+
+	ShaderModule shaderModule = {};
+	shaderModule.handle = shaderModuleHandle;
+	return shaderModule;
+}
+
+static void DestroyShaderModule(const GraphicsDevice &device, const ShaderModule &shaderModule)
+{
+	vkDestroyShaderModule(device.handle, shaderModule.handle, VULKAN_ALLOCATORS);
 }
 
 #endif // #ifndef TOOLS_GFX_H
