@@ -406,6 +406,7 @@ struct GraphicsDevice
 
 	Heap heaps[HeapType_COUNT];
 
+	u32 currentFrame;
 };
 
 
@@ -578,6 +579,30 @@ static bool HasStencilComponent(VkFormat format)
 	return hasStencil;
 }
 
+static VkAttachmentLoadOp LoadOpToVulkan( LoadOp loadOp )
+{
+	ASSERT(loadOp <= LoadOpDontCare);
+	static VkAttachmentLoadOp vkLoadOps[] = {
+		VK_ATTACHMENT_LOAD_OP_LOAD,
+		VK_ATTACHMENT_LOAD_OP_CLEAR,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	};
+	const VkAttachmentLoadOp vkLoadOp = vkLoadOps[loadOp];
+	return vkLoadOp;
+}
+
+static VkAttachmentStoreOp StoreOpToVulkan( StoreOp storeOp )
+{
+	ASSERT(storeOp <= StoreOpDontCare);
+	static VkAttachmentStoreOp vkStoreOps[] = {
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	};
+	const VkAttachmentStoreOp vkStoreOp = vkStoreOps[storeOp];
+	return vkStoreOp;
+}
+
+
 
 ////////////////////////////////////////////////////////////////////////
 // Internal functions
@@ -697,6 +722,328 @@ static void DestroyShaderModule(const GraphicsDevice &device, const ShaderModule
 {
 	vkDestroyShaderModule(device.handle, shaderModule.handle, VULKAN_ALLOCATORS);
 }
+
+static void UpdateDescriptorSets(const GraphicsDevice &device, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
+{
+	if ( descriptorWriteCount > 0 )
+	{
+		vkUpdateDescriptorSets(device.handle, descriptorWriteCount, descriptorWrites, 0, NULL);
+	}
+}
+
+static const ShaderBinding *GetBindGroupBindingPointer(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
+{
+	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
+		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
+			return &shaderBindings.bindings[i];
+		}
+	}
+	return NULL;
+}
+
+union VkDescriptorGenericInfo
+{
+	VkDescriptorImageInfo imageInfo;
+	VkDescriptorBufferInfo bufferInfo;
+	VkBufferView bufferView;
+};
+
+static bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
+{
+	const ResourceBinding &resourceBinding = bindingTable[binding.binding];
+
+	VkDescriptorImageInfo *imageInfo = 0;
+	VkDescriptorBufferInfo *bufferInfo = 0;
+	VkBufferView *bufferView = 0;
+
+	if ( binding.type == SpvTypeSampler )
+	{
+		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
+		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo->imageView = VK_NULL_HANDLE;
+		imageInfo->sampler = resourceBinding.sampler.handle;
+	}
+	else if ( binding.type == SpvTypeImage )
+	{
+		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
+		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo->imageView = resourceBinding.texture.handle;
+		imageInfo->sampler = VK_NULL_HANDLE;
+	}
+	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
+	{
+		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
+		bufferInfo->buffer = resourceBinding.buffer.handle;
+		bufferInfo->offset = resourceBinding.buffer.offset;
+		bufferInfo->range = resourceBinding.buffer.range;
+	}
+	else if ( binding.type == SpvTypeStorageTexelBuffer )
+	{
+		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
+		*bufferView = resourceBinding.bufferView.handle;
+	}
+	else
+	{
+		LOG(Warning, "Unhandled descriptor type (%u) for binding %s.\n", binding.type, binding.name);
+		return false;
+	}
+
+	VkWriteDescriptorSet *descriptorWrite = &descriptorWrites[descriptorWriteCount++];
+	descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite->dstSet = descriptorSet;
+	descriptorWrite->dstBinding = binding.binding;
+	descriptorWrite->dstArrayElement = 0;
+	descriptorWrite->descriptorType = SpvDescriptorTypeToVulkan( binding.type );
+	descriptorWrite->descriptorCount = 1;
+	descriptorWrite->pBufferInfo = bufferInfo;
+	descriptorWrite->pImageInfo = imageInfo;
+	descriptorWrite->pTexelBufferView = bufferView;
+	return true;
+}
+
+static ShaderSource GetShaderSource(Arena &arena, const char *filename)
+{
+	FilePath shaderPath = MakePath(filename);
+	DataChunk *chunk = PushFile( arena, shaderPath.str );
+	if ( !chunk ) {
+		LOG( Error, "Could not open shader file %s.\n", shaderPath.str );
+		QUIT_ABNORMALLY();
+	}
+	ShaderSource shaderSource = { chunk->bytes, chunk->size };
+	return shaderSource;
+}
+
+static VkFormat FindSupportedFormat(const GraphicsDevice &device, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+	for (u32 i = 0; i < candidateCount; ++i)
+	{
+		VkFormat format = candidates[i];
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(device.physicalDevice, format, &properties);
+
+		if (tiling == VK_IMAGE_TILING_LINEAR && (features & properties.linearTilingFeatures) == features)
+		{
+			return format;
+		}
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (features & properties.optimalTilingFeatures) == features)
+		{
+			return format;
+		}
+	}
+
+	INVALID_CODE_PATH();
+	return VK_FORMAT_MAX_ENUM;
+}
+
+static VkFormat FindDepthFormat(const GraphicsDevice &device)
+{
+	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
+	return FindSupportedFormat(device, candidates, ARRAY_COUNT(candidates),
+			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
+
+
+
+
+////////////////////////////////////////////////////////////////////////
+// Public API
+////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////
+// BindGroupAllocator
+//////////////////////////////
+
+BindGroupAllocator CreateBindGroupAllocator(const GraphicsDevice &device, const BindGroupAllocatorCounts &counts)
+{
+	u32 poolSizeCount = 0;
+	VkDescriptorPoolSize poolSizes[8] = {};
+
+	if (counts.uniformBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, counts.uniformBufferCount };
+	}
+	if (counts.storageBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, counts.storageBufferCount };
+	}
+	if (counts.storageTexelBufferCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, counts.storageTexelBufferCount };
+	}
+	if (counts.textureCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, counts.textureCount };
+	}
+	if (counts.samplerCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLER, counts.samplerCount };
+	}
+	if (counts.combinedImageSamplerCount > 0) {
+		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, counts.combinedImageSamplerCount };
+	}
+
+	ASSERT(poolSizeCount <= ARRAY_COUNT(poolSizes));
+
+	VkDescriptorPoolCreateInfo createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	createInfo.flags = counts.allowIndividualFrees ? VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT : 0;
+	createInfo.poolSizeCount = poolSizeCount;
+	createInfo.pPoolSizes = poolSizes;
+	createInfo.maxSets = counts.groupCount;
+
+	VkDescriptorPool descriptorPool;
+	VK_CALL( vkCreateDescriptorPool( device.handle, &createInfo, VULKAN_ALLOCATORS, &descriptorPool) );
+
+	BindGroupAllocator allocator = {
+		.maxCounts = counts,
+		.handle = descriptorPool,
+	};
+	return allocator;
+}
+
+void ResetBindGroupAllocator(const GraphicsDevice &device, BindGroupAllocator &bindGroupAllocator)
+{
+	const VkDescriptorPool descriptorPool = bindGroupAllocator.handle;
+	VK_CALL( vkResetDescriptorPool(device.handle, descriptorPool, 0) );
+
+	bindGroupAllocator.usedCounts = {};
+}
+
+
+//////////////////////////////
+// BindGroup
+//////////////////////////////
+
+BindGroupLayout CreateBindGroupLayout(const GraphicsDevice &device, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
+{
+	BindGroupLayout layout = {};
+
+	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+	u32 bindingCount = 0;
+
+	for (u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex)
+	{
+		const ShaderBinding &shaderBinding = shaderBindings.bindings[bindingIndex];
+
+		if ( shaderBinding.set == bindGroupIndex )
+		{
+			VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
+			binding.binding = shaderBinding.binding;
+			binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
+			binding.descriptorCount = 1;
+			binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
+			binding.pImmutableSamplers = NULL;
+		}
+	}
+
+	if (bindingCount > 0)
+	{
+		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
+		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
+		descriptorSetLayoutCreateInfo.pBindings = vkBindings;
+
+		VkDescriptorSetLayout layoutHandle;
+		VK_CALL( vkCreateDescriptorSetLayout(device.handle, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &layoutHandle) );
+
+		layout.handle = layoutHandle;
+		layout.bindingCount = bindingCount;
+		layout.bindings = GetBindGroupBindingPointer(shaderBindings, bindGroupIndex);
+	}
+
+	return layout;
+}
+
+BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator)
+{
+	BindGroup bindGroup = {};
+
+	if (layout.handle)
+	{
+		VkDescriptorSetAllocateInfo allocateInfo = {};
+		allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocateInfo.descriptorPool = allocator.handle;
+		allocateInfo.descriptorSetCount = 1;
+		allocateInfo.pSetLayouts = &layout.handle;
+		VK_CALL( vkAllocateDescriptorSets(device.handle, &allocateInfo, &bindGroup.handle) );
+
+		// Update the used descriptor counters in the allocator
+		for (u32 i = 0; i < layout.bindingCount; ++i)
+		{
+			const ShaderBinding &binding = layout.bindings[i];
+			switch (binding.type) {
+				case SpvTypeImage: allocator.usedCounts.textureCount++; break;
+				case SpvTypeSampler: allocator.usedCounts.samplerCount++; break;
+				case SpvTypeSampledImage: allocator.usedCounts.combinedImageSamplerCount++; break;
+				case SpvTypeUniformBuffer: allocator.usedCounts.uniformBufferCount++; break;
+				case SpvTypeStorageBuffer: allocator.usedCounts.storageBufferCount++; break;
+				case SpvTypeStorageTexelBuffer: allocator.usedCounts.storageTexelBufferCount++; break;
+				default: INVALID_CODE_PATH();
+			}
+		}
+	}
+
+	return bindGroup;
+}
+
+BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &desc, BindGroupAllocator &allocator)
+{
+	BindGroup bindGroup = CreateBindGroup(device, desc.layout, allocator);
+
+	const BindGroupLayout &layout = desc.layout;
+
+	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
+	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
+	u32 descriptorWriteCount = 0;
+
+	for (u32 i = 0; i < layout.bindingCount; ++i)
+	{
+		const ShaderBinding &binding = layout.bindings[i];
+		if ( !AddDescriptorWrite(desc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
+		{
+			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", binding.name, "<pipeline>");
+		}
+	}
+
+	UpdateDescriptorSets(device, descriptorWrites, descriptorWriteCount);
+
+	return bindGroup;
+}
+
+//////////////////////////////
+// CommandList
+//////////////////////////////
+
+CommandList BeginCommandList(const GraphicsDevice &device)
+{
+	VkCommandBuffer commandBuffer = device.commandBuffers[device.currentFrame];
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.flags = 0; // Optional
+	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
+	VK_CALL( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
+
+	CommandList commandList = {
+		.handle = commandBuffer,
+	};
+	return commandList;
+}
+
+void EndCommandList(const CommandList &commandList)
+{
+	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
+}
+
+
+//////////////////////////////
+// Commands
+//////////////////////////////
+
+// TODO
+
+
+//////////////////////////////
+// Frame
+//////////////////////////////
+
+// TODO
+
 
 #endif // #ifndef TOOLS_GFX_H
 

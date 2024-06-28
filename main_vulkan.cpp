@@ -88,8 +88,6 @@ struct Graphics
 {
 	GraphicsDevice device;
 
-	u32 currentFrame;
-
 	// TODO: Temporary stuff hardcoded here
 
 	RenderTargets renderTargets;
@@ -399,31 +397,6 @@ BufferH CreateStagingBuffer(Graphics &gfx)
 	return stagingBufferHandle;
 }
 
-BufferH CreateBufferWithData(Graphics &gfx, const void *data, u32 size, VkBufferUsageFlags usage)
-{
-	StagedData staged = StageData(gfx, data, size);
-
-	// Create a buffer in device local memory
-	BufferH finalBufferHandle = CreateBuffer(
-			gfx,
-			size,
-			VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-			gfx.device.heaps[HeapType_General]);
-
-	Buffer &finalBuffer = GetBuffer(gfx, finalBufferHandle);
-
-	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.handle, 0, size);
-
-	return finalBufferHandle;
-}
-
-BufferH CreateVertexBuffer(Graphics &gfx, const void *data, u32 size )
-{
-	BufferH vertexBufferHandle = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-	return vertexBufferHandle;
-}
-
 BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 {
 	BufferH vertexBufferHandle = CreateBuffer(
@@ -443,12 +416,6 @@ BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
 			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			gfx.device.heaps[HeapType_General]);
 
-	return indexBufferHandle;
-}
-
-BufferH CreateIndexBuffer(Graphics &gfx, const void *data, u32 size )
-{
-	BufferH indexBufferHandle = CreateBufferWithData(gfx, data, size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	return indexBufferHandle;
 }
 
@@ -479,18 +446,6 @@ BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 si
 	arena.used += size;
 
 	return chunk;
-}
-
-ShaderSource GetShaderSource(Arena &arena, const char *filename)
-{
-	FilePath shaderPath = MakePath(filename);
-	DataChunk *chunk = PushFile( arena, shaderPath.str );
-	if ( !chunk ) {
-		LOG( Error, "Could not open shader file %s.\n", shaderPath.str );
-		QUIT_ABNORMALLY();
-	}
-	ShaderSource shaderSource = { chunk->bytes, chunk->size };
-	return shaderSource;
 }
 
 ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
@@ -549,293 +504,6 @@ ShaderBindings CreateShaderBindings( Graphics &gfx, Arena scratch, const ShaderS
 	return shaderBindings;
 }
 
-u8 GetBindGroupBindingCount(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
-{
-	u8 bindingCount = 0;
-	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
-		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
-			bindingCount++;
-		}
-	}
-	return bindingCount;
-}
-
-const ShaderBinding *GetBindGroupBindingPointer(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
-{
-	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
-		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
-			return &shaderBindings.bindings[i];
-		}
-	}
-	return NULL;
-}
-
-union VkDescriptorGenericInfo
-{
-	VkDescriptorImageInfo imageInfo;
-	VkDescriptorBufferInfo bufferInfo;
-	VkBufferView bufferView;
-};
-
-static bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
-{
-	const ResourceBinding &resourceBinding = bindingTable[binding.binding];
-
-	VkDescriptorImageInfo *imageInfo = 0;
-	VkDescriptorBufferInfo *bufferInfo = 0;
-	VkBufferView *bufferView = 0;
-
-	if ( binding.type == SpvTypeSampler )
-	{
-		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
-		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo->imageView = VK_NULL_HANDLE;
-		imageInfo->sampler = resourceBinding.sampler.handle;
-	}
-	else if ( binding.type == SpvTypeImage )
-	{
-		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
-		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo->imageView = resourceBinding.texture.handle;
-		imageInfo->sampler = VK_NULL_HANDLE;
-	}
-	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
-	{
-		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
-		bufferInfo->buffer = resourceBinding.buffer.handle;
-		bufferInfo->offset = resourceBinding.buffer.offset;
-		bufferInfo->range = resourceBinding.buffer.range;
-	}
-	else if ( binding.type == SpvTypeStorageTexelBuffer )
-	{
-		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
-		*bufferView = resourceBinding.bufferView.handle;
-	}
-	else
-	{
-		LOG(Warning, "Unhandled descriptor type (%u) for binding %s.\n", binding.type, binding.name);
-		return false;
-	}
-
-	VkWriteDescriptorSet *descriptorWrite = &descriptorWrites[descriptorWriteCount++];
-	descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	descriptorWrite->dstSet = descriptorSet;
-	descriptorWrite->dstBinding = binding.binding;
-	descriptorWrite->dstArrayElement = 0;
-	descriptorWrite->descriptorType = SpvDescriptorTypeToVulkan( binding.type );
-	descriptorWrite->descriptorCount = 1;
-	descriptorWrite->pBufferInfo = bufferInfo;
-	descriptorWrite->pImageInfo = imageInfo;
-	descriptorWrite->pTexelBufferView = bufferView;
-	return true;
-}
-
-static void UpdateDescriptorSets(const Graphics &gfx, VkWriteDescriptorSet *descriptorWrites, u32 descriptorWriteCount)
-{
-	if ( descriptorWriteCount > 0 )
-	{
-		vkUpdateDescriptorSets(gfx.device.handle, descriptorWriteCount, descriptorWrites, 0, NULL);
-	}
-}
-
-BindGroupAllocator CreateBindGroupAllocator(const Graphics &gfx, const BindGroupAllocatorCounts &counts)
-{
-	u32 poolSizeCount = 0;
-	VkDescriptorPoolSize poolSizes[8] = {};
-
-	if (counts.uniformBufferCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, counts.uniformBufferCount };
-	}
-	if (counts.storageBufferCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, counts.storageBufferCount };
-	}
-	if (counts.storageTexelBufferCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, counts.storageTexelBufferCount };
-	}
-	if (counts.textureCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, counts.textureCount };
-	}
-	if (counts.samplerCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_SAMPLER, counts.samplerCount };
-	}
-	if (counts.combinedImageSamplerCount > 0) {
-		poolSizes[poolSizeCount++] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, counts.combinedImageSamplerCount };
-	}
-
-	ASSERT(poolSizeCount <= ARRAY_COUNT(poolSizes));
-
-	VkDescriptorPoolCreateInfo createInfo = {};
-	createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	createInfo.flags = counts.allowIndividualFrees ? VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT : 0;
-	createInfo.poolSizeCount = poolSizeCount;
-	createInfo.pPoolSizes = poolSizes;
-	createInfo.maxSets = counts.groupCount;
-
-	VkDescriptorPool descriptorPool;
-	VK_CALL( vkCreateDescriptorPool( gfx.device.handle, &createInfo, VULKAN_ALLOCATORS, &descriptorPool) );
-
-	BindGroupAllocator allocator = {
-		.maxCounts = counts,
-		.handle = descriptorPool,
-	};
-	return allocator;
-}
-
-void ResetBindGroupAllocator(const Graphics &gfx, BindGroupAllocator &bindGroupAllocator)
-{
-	const VkDescriptorPool descriptorPool = bindGroupAllocator.handle;
-	VK_CALL( vkResetDescriptorPool(gfx.device.handle, descriptorPool, 0) );
-
-	bindGroupAllocator.usedCounts = {};
-}
-
-BindGroupLayout CreateBindGroupLayout(const Graphics &gfx, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
-{
-	BindGroupLayout layout = {};
-
-	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-	u32 bindingCount = 0;
-
-	for (u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex)
-	{
-		const ShaderBinding &shaderBinding = shaderBindings.bindings[bindingIndex];
-
-		if ( shaderBinding.set == bindGroupIndex )
-		{
-			VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
-			binding.binding = shaderBinding.binding;
-			binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
-			binding.descriptorCount = 1;
-			binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
-			binding.pImmutableSamplers = NULL;
-		}
-	}
-
-	if (bindingCount > 0)
-	{
-		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {};
-		descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		descriptorSetLayoutCreateInfo.bindingCount = bindingCount;
-		descriptorSetLayoutCreateInfo.pBindings = vkBindings;
-
-		VkDescriptorSetLayout layoutHandle;
-		VK_CALL( vkCreateDescriptorSetLayout(gfx.device.handle, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &layoutHandle) );
-
-		layout.handle = layoutHandle;
-		layout.bindingCount = bindingCount;
-		layout.bindings = GetBindGroupBindingPointer(shaderBindings, bindGroupIndex);
-	}
-
-	return layout;
-}
-
-BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupLayout &layout, BindGroupAllocator &allocator)
-{
-	BindGroup bindGroup = {};
-
-	if (layout.handle)
-	{
-		VkDescriptorSetAllocateInfo allocateInfo = {};
-		allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		allocateInfo.descriptorPool = allocator.handle;
-		allocateInfo.descriptorSetCount = 1;
-		allocateInfo.pSetLayouts = &layout.handle;
-		VK_CALL( vkAllocateDescriptorSets(gfx.device.handle, &allocateInfo, &bindGroup.handle) );
-
-		// Update the used descriptor counters in the allocator
-		for (u32 i = 0; i < layout.bindingCount; ++i)
-		{
-			const ShaderBinding &binding = layout.bindings[i];
-			switch (binding.type) {
-				case SpvTypeImage: allocator.usedCounts.textureCount++; break;
-				case SpvTypeSampler: allocator.usedCounts.samplerCount++; break;
-				case SpvTypeSampledImage: allocator.usedCounts.combinedImageSamplerCount++; break;
-				case SpvTypeUniformBuffer: allocator.usedCounts.uniformBufferCount++; break;
-				case SpvTypeStorageBuffer: allocator.usedCounts.storageBufferCount++; break;
-				case SpvTypeStorageTexelBuffer: allocator.usedCounts.storageTexelBufferCount++; break;
-				default: INVALID_CODE_PATH();
-			}
-		}
-	}
-
-	return bindGroup;
-}
-
-BindGroup CreateBindGroup(const Graphics &gfx, const BindGroupDesc &desc, BindGroupAllocator &allocator)
-{
-	BindGroup bindGroup = CreateBindGroup(gfx, desc.layout, allocator);
-
-	const BindGroupLayout &layout = desc.layout;
-
-	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
-	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
-	u32 descriptorWriteCount = 0;
-
-	for (u32 i = 0; i < layout.bindingCount; ++i)
-	{
-		const ShaderBinding &binding = layout.bindings[i];
-		if ( !AddDescriptorWrite(desc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
-		{
-			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", binding.name, "<pipeline>");
-		}
-	}
-
-	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
-
-	return bindGroup;
-}
-
-static VkFormat FindSupportedFormat(const Graphics &gfx, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
-{
-	for (u32 i = 0; i < candidateCount; ++i)
-	{
-		VkFormat format = candidates[i];
-		VkFormatProperties properties;
-		vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, format, &properties);
-
-		if (tiling == VK_IMAGE_TILING_LINEAR && (features & properties.linearTilingFeatures) == features)
-		{
-			return format;
-		}
-		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (features & properties.optimalTilingFeatures) == features)
-		{
-			return format;
-		}
-	}
-
-	INVALID_CODE_PATH();
-	return VK_FORMAT_MAX_ENUM;
-}
-
-static VkFormat FindDepthFormat(const Graphics &gfx)
-{
-	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
-	return FindSupportedFormat(gfx, candidates, ARRAY_COUNT(candidates),
-			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
-}
-
-static VkAttachmentLoadOp LoadOpToVk( LoadOp loadOp )
-{
-	ASSERT(loadOp <= LoadOpDontCare);
-	static VkAttachmentLoadOp vkLoadOps[] = {
-		VK_ATTACHMENT_LOAD_OP_LOAD,
-		VK_ATTACHMENT_LOAD_OP_CLEAR,
-		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-	};
-	const VkAttachmentLoadOp vkLoadOp = vkLoadOps[loadOp];
-	return vkLoadOp;
-}
-
-static VkAttachmentStoreOp StoreOpToVk( StoreOp storeOp )
-{
-	ASSERT(storeOp <= StoreOpDontCare);
-	static VkAttachmentStoreOp vkStoreOps[] = {
-		VK_ATTACHMENT_STORE_OP_STORE,
-		VK_ATTACHMENT_STORE_OP_DONT_CARE,
-	};
-	const VkAttachmentStoreOp vkStoreOp = vkStoreOps[storeOp];
-	return vkStoreOp;
-}
 
 RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 {
@@ -851,8 +519,8 @@ RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 	{
 		attachmentDescs[i].format = gfx.device.swapchainInfo.format;
 		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDescs[i].loadOp = LoadOpToVk( desc.colorAttachments[i].loadOp );
-		attachmentDescs[i].storeOp = StoreOpToVk( desc.colorAttachments[i].storeOp );
+		attachmentDescs[i].loadOp = LoadOpToVulkan( desc.colorAttachments[i].loadOp );
+		attachmentDescs[i].storeOp = StoreOpToVulkan( desc.colorAttachments[i].storeOp );
 		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -866,10 +534,10 @@ RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
 	{
 		const u8 depthAttachmentIndex = desc.colorAttachmentCount;
 		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
-		depthAttachmentDesc.format = FindDepthFormat(gfx);
+		depthAttachmentDesc.format = FindDepthFormat(gfx.device);
 		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthAttachmentDesc.loadOp = LoadOpToVk(desc.depthAttachment.loadOp);
-		depthAttachmentDesc.storeOp = StoreOpToVk(desc.depthAttachment.storeOp);
+		depthAttachmentDesc.loadOp = LoadOpToVulkan(desc.depthAttachment.loadOp);
+		depthAttachmentDesc.storeOp = StoreOpToVulkan(desc.depthAttachment.storeOp);
 		depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1073,7 +741,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
 	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
 	{
-		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx, shaderBindings, bindGroup);
+		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx.device, shaderBindings, bindGroup);
 
 		if (bindGroupLayouts[bindGroup].handle) {
 			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
@@ -1172,7 +840,7 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
 	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
 	{
-		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx, shaderBindings, bindGroup);
+		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(gfx.device, shaderBindings, bindGroup);
 
 		if (bindGroupLayouts[bindGroup].handle) {
 			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
@@ -1825,7 +1493,7 @@ bool CreateSwapchain(const Graphics &gfx, Window &window, const SwapchainInfo &s
 bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	// Depth buffer
-	VkFormat depthFormat = FindDepthFormat(gfx);
+	VkFormat depthFormat = FindDepthFormat(gfx.device);
 	renderTargets.depthImage = CreateImage(gfx,
 			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
 			depthFormat,
@@ -1857,7 +1525,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 	// Shadowmap
 	{
-		VkFormat depthFormat = FindDepthFormat(gfx);
+		VkFormat depthFormat = FindDepthFormat(gfx.device);
 		renderTargets.shadowmapImage = CreateImage(gfx,
 				1024, 1024, 1,
 				depthFormat,
@@ -2466,7 +2134,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			.samplerCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS * 2,
 			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
 		};
-		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
+		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 	// Create Material Descriptor Pool
 	{
@@ -2475,7 +2143,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			.textureCount = MAX_MATERIALS,
 			.groupCount = MAX_MATERIALS,
 		};
-		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
+		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 	// Create Compute Descriptor Pool
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
@@ -2488,7 +2156,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			.samplerCount = 1000,
 			.groupCount = MAX_COMPUTES,
 		};
-		gfx.computeBindGroupAllocator[i] = CreateBindGroupAllocator(gfx, allocatorCounts);
+		gfx.computeBindGroupAllocator[i] = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 
 
@@ -2500,7 +2168,7 @@ bool InitializeGraphicsDevice(Arena &arena, Window &window, Graphics &gfx)
 			.groupCount = 1,
 			.allowIndividualFrees = true,
 		};
-		gfx.imGuiBindGroupAllocator = CreateBindGroupAllocator(gfx, allocatorCounts);
+		gfx.imGuiBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 #endif
 
@@ -2557,7 +2225,7 @@ void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sam
 
 void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 {
-	const u32 frameIndex = gfx.currentFrame;
+	const u32 frameIndex = gfx.device.currentFrame;
 	const Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
 	const Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
 	const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
@@ -2616,7 +2284,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 			if ( binding.set == BIND_GROUP_GLOBAL )
 			{
 				bindingTable = bindingTables[BIND_GROUP_GLOBAL];
-				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.currentFrame].handle;
+				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.device.currentFrame].handle;
 			}
 			else if ( binding.set == BIND_GROUP_MATERIAL )
 			{
@@ -2635,7 +2303,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 		}
 	}
 
-	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
+	UpdateDescriptorSets(gfx.device, descriptorWrites, descriptorWriteCount);
 }
 
 void UpdateComputeDescriptorSets(const Graphics &gfx, const Pipeline &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
@@ -2655,7 +2323,7 @@ void UpdateComputeDescriptorSets(const Graphics &gfx, const Pipeline &compute, V
 		}
 	}
 
-	UpdateDescriptorSets(gfx, descriptorWrites, descriptorWriteCount);
+	UpdateDescriptorSets(gfx.device, descriptorWrites, descriptorWriteCount);
 }
 
 void InitializeScene(Arena scratch, Graphics &gfx)
@@ -2746,9 +2414,9 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		const u32 globalBindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
 		for (u32 j = 0; j < globalBindGroupCount; ++j)
 		{
-			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx, pipeline.layout.bindGroupLayouts[0], gfx.globalBindGroupAllocator);
+			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[0], gfx.globalBindGroupAllocator);
 		}
-		gfx.materialBindGroups[i] = CreateBindGroup(gfx, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
+		gfx.materialBindGroups[i] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
 	// Update material descriptor sets
@@ -3019,27 +2687,6 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
 }
 #endif // USE_CAMERA_MOVEMENT
 
-CommandList BeginCommandList(const Graphics &gfx)
-{
-	VkCommandBuffer commandBuffer = gfx.device.commandBuffers[gfx.currentFrame];
-
-	VkCommandBufferBeginInfo commandBufferBeginInfo = {};
-	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	commandBufferBeginInfo.flags = 0; // Optional
-	commandBufferBeginInfo.pInheritanceInfo = NULL; // Optional
-	VK_CALL( vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo) );
-
-	CommandList commandList = {
-		.handle = commandBuffer,
-	};
-	return commandList;
-}
-
-void EndCommandList(const CommandList &commandList)
-{
-	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
-}
-
 uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 {
 	const uint2 size = { framebuffer.extent.width, framebuffer.extent.height };
@@ -3126,7 +2773,7 @@ void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 
 SubmitResult Submit(const Graphics &gfx, const CommandList &commandList)
 {
-	const u32 frameIndex = gfx.currentFrame;
+	const u32 frameIndex = gfx.device.currentFrame;
 
 	VkSemaphore waitSemaphores[] = { gfx.device.imageAvailableSemaphores[frameIndex] };
 	VkSemaphore signalSemaphores[] = { gfx.device.renderFinishedSemaphores[frameIndex] };
@@ -3180,7 +2827,7 @@ bool Present(Graphics &gfx, SubmitResult submitResult)
 
 bool BeginFrame(Graphics &gfx)
 {
-	const u32 frameIndex = gfx.currentFrame;
+	const u32 frameIndex = gfx.device.currentFrame;
 
 	// Swapchain sync
 	VK_CALL( vkWaitForFences( gfx.device.handle, 1, &gfx.device.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
@@ -3204,7 +2851,7 @@ bool BeginFrame(Graphics &gfx)
 	gfx.device.swapchain.currentImageIndex = imageIndex;
 
 	// Reset descriptor pools for this frame
-	ResetBindGroupAllocator( gfx, gfx.computeBindGroupAllocator[frameIndex] );
+	ResetBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[frameIndex] );
 
 	// Reset commands for this frame
 	VkCommandPool commandPool = gfx.device.commandPools[frameIndex];
@@ -3215,7 +2862,7 @@ bool BeginFrame(Graphics &gfx)
 
 void EndFrame(Graphics &gfx)
 {
-	gfx.currentFrame = ( gfx.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	gfx.device.currentFrame = ( gfx.device.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
@@ -3300,7 +2947,7 @@ void Dispatch(CommandList &commandList, u32 x, u32 y, u32 z)
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
-	u32 frameIndex = gfx.currentFrame;
+	u32 frameIndex = gfx.device.currentFrame;
 
 	if ( !BeginFrame(gfx) )
 	{
@@ -3358,7 +3005,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	UpdateMaterialBindGroup(gfx, BIND_GROUP_GLOBAL);
 
 	// Record commands
-	CommandList commandList = BeginCommandList(gfx);
+	CommandList commandList = BeginCommandList(gfx.device);
 
 	#define COMPUTE_TEST 0
 	#if COMPUTE_TEST
@@ -3405,7 +3052,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 				{ .buffer = Binding(entityBuffer) },
 			},
 		};
-		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
 		SetBindGroup(commandList, 0, bindGroup);
 
 		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
@@ -3431,7 +3078,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		EndRenderPass(commandList);
 
-		VkFormat depthFormat = FindDepthFormat(gfx);
+		VkFormat depthFormat = FindDepthFormat(gfx.device);
 		VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
 		TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
 	}
@@ -3482,7 +3129,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	EndRenderPass(commandList);
 
-	VkFormat depthFormat = FindDepthFormat(gfx);
+	VkFormat depthFormat = FindDepthFormat(gfx.device);
 	VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
 	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 
