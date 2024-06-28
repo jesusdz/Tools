@@ -1,8 +1,13 @@
 #define TOOLS_WINDOW
 #include "tools.h"
 
-#include "tools_gfx.h"
+// TODO: For now `assets.h` needs to be included before `tools_gfx.h
+// as it defines types used by some functions there. We should make
+// possible for assets.h to use types defined externally.
+#include "assets/assets.h"
+#include "clon.h"
 
+#include "tools_gfx.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -196,9 +201,6 @@ struct SubmitResult
 
 
 
-#include "assets/assets.h"
-#include "clon.h"
-
 static const Vertex cubeVertices[] = {
 	// front
 	{{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
@@ -335,19 +337,6 @@ VkShaderModule CreateShaderModule( VkDevice device, byte *data, u32 size )
 
 	return shaderModule;
 }
-
-VkMemoryPropertyFlags HeapTypeToVkMemoryPropertyFlags( HeapType heapType )
-{
-	static const VkMemoryPropertyFlags flags[] = {
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_General,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_RTs,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Staging,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Dynamic,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, // HeapType_Readback,
-	};
-	CT_ASSERT( ARRAY_COUNT(flags) == HeapType_COUNT );
-	return flags[heapType];
-};
 
 Heap CreateHeap(const Graphics &gfx, HeapType heapType, u32 size, bool mapMemory)
 {
@@ -627,33 +616,6 @@ BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 si
 	arena.used += size;
 
 	return chunk;
-}
-
-static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
-{
-	static const VkDescriptorType vkDescriptorTypes[] = {
-		VK_DESCRIPTOR_TYPE_MAX_ENUM,
-		VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-		VK_DESCRIPTOR_TYPE_SAMPLER,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // Should be DYNAMIC if we use dynamic offsets
-		VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
-	};
-	CT_ASSERT(ARRAY_COUNT(vkDescriptorTypes) == SpvTypeCount);
-	ASSERT(type != SpvTypeNone);
-	ASSERT(type < SpvTypeCount);
-	const VkDescriptorType vkDescriptorType = vkDescriptorTypes[type];
-	return vkDescriptorType;
-}
-
-static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
-{
-	VkShaderStageFlags vkStageFlags = 0;
-	vkStageFlags |= ( stageFlags & SpvStageFlagsVertexBit ) ? VK_SHADER_STAGE_VERTEX_BIT : 0;
-	vkStageFlags |= ( stageFlags & SpvStageFlagsFragmentBit ) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
-	vkStageFlags |= ( stageFlags & SpvStageFlagsComputeBit ) ? VK_SHADER_STAGE_COMPUTE_BIT : 0;
-	return vkStageFlags;
 }
 
 ShaderSource GetShaderSource(Arena &arena, const char *filename)
@@ -1123,18 +1085,6 @@ RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
-static VkFormat FormatToVkFormat(Format format)
-{
-	ASSERT(format < FormatCount);
-	static VkFormat vkFormats[] = {
-		VK_FORMAT_R32G32_SFLOAT,
-		VK_FORMAT_R32G32B32_SFLOAT,
-	};
-	CT_ASSERT(ARRAY_COUNT(vkFormats) == FormatCount);
-	const VkFormat vkFormat = vkFormats[format];
-	return vkFormat;
-}
-
 PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
 {
 	Arena scratch = MakeSubArena(arena);
@@ -1170,7 +1120,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	{
 		attributeDescriptions[i].binding = desc.vertexAttributes[i].bufferIndex;
 		attributeDescriptions[i].location = desc.vertexAttributes[i].location;
-		attributeDescriptions[i].format = FormatToVkFormat(desc.vertexAttributes[i].format);
+		attributeDescriptions[i].format = FormatToVulkan(desc.vertexAttributes[i].format);
 		attributeDescriptions[i].offset = desc.vertexAttributes[i].offset;
 	}
 
@@ -1482,45 +1432,6 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 	return imageView;
 }
 
-static VkBorderColor BorderColorToVkBorderColor(BorderColor color)
-{
-	static const VkBorderColor vkBorderColors[] = {
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-		VK_BORDER_COLOR_INT_OPAQUE_WHITE,
-		VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
-		VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-	};
-	CT_ASSERT(ARRAY_COUNT(vkBorderColors) == BorderColorCount);
-	ASSERT(color < BorderColorCount);
-	const VkBorderColor vkBorderColor = vkBorderColors[color];
-	return vkBorderColor;
-};
-
-static VkSamplerAddressMode AddressModeToVkSamplerAddressMode(AddressMode mode)
-{
-	static const VkSamplerAddressMode vkAddressModes[] = {
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-	};
-	CT_ASSERT(ARRAY_COUNT(vkAddressModes) == AddressModeCount);
-	ASSERT(mode < AddressModeCount);
-	const VkSamplerAddressMode vkAddressMode = vkAddressModes[mode];
-	return vkAddressMode;
-}
-
-static VkCompareOp CompareOpToVkCompareOp(CompareOp compareOp)
-{
-	static const VkCompareOp vkCompareOps[] = {
-		VK_COMPARE_OP_NEVER,
-		VK_COMPARE_OP_LESS,
-		VK_COMPARE_OP_GREATER,
-	};
-	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
-	ASSERT(compareOp < CompareOpCount);
-	const VkCompareOp vkCompareOp = vkCompareOps[compareOp];
-	return vkCompareOp;
-}
-
 SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 {
 	VkPhysicalDeviceProperties properties;
@@ -1530,15 +1441,15 @@ SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
 	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.addressModeU = AddressModeToVkSamplerAddressMode(desc.addressMode);
-	samplerCreateInfo.addressModeV = AddressModeToVkSamplerAddressMode(desc.addressMode);
-	samplerCreateInfo.addressModeW = AddressModeToVkSamplerAddressMode(desc.addressMode);
+	samplerCreateInfo.addressModeU = AddressModeToVulkan(desc.addressMode);
+	samplerCreateInfo.addressModeV = AddressModeToVulkan(desc.addressMode);
+	samplerCreateInfo.addressModeW = AddressModeToVulkan(desc.addressMode);
 	samplerCreateInfo.anisotropyEnable = VK_TRUE;
 	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-	samplerCreateInfo.borderColor = BorderColorToVkBorderColor(desc.borderColor);
+	samplerCreateInfo.borderColor = BorderColorToVulkan(desc.borderColor);
 	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 	samplerCreateInfo.compareEnable = desc.compareOp != CompareOpNone; // For PCF shadows for instance
-	samplerCreateInfo.compareOp = CompareOpToVkCompareOp(desc.compareOp);
+	samplerCreateInfo.compareOp = CompareOpToVulkan(desc.compareOp);
 	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerCreateInfo.mipLodBias = 0.0f;
 	samplerCreateInfo.minLod = 0.0f;

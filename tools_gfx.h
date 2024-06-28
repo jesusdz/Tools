@@ -14,6 +14,11 @@
 #ifndef TOOLS_GFX_H
 #define TOOLS_GFX_H
 
+
+////////////////////////////////////////////////////////////////////////
+// Includes and definitions
+////////////////////////////////////////////////////////////////////////
+
 #include "tools.h"
 
 #if USE_XCB
@@ -72,6 +77,10 @@
 #define MAX_FRAMES_IN_FLIGHT 2
 
 
+////////////////////////////////////////////////////////////////////////
+// Types
+////////////////////////////////////////////////////////////////////////
+
 enum HeapType
 {
 	HeapType_General,
@@ -80,6 +89,30 @@ enum HeapType
 	HeapType_Dynamic,
 	HeapType_Readback,
 	HeapType_COUNT,
+};
+
+enum BorderColor
+{
+	BorderColorBlackInt,
+	BorderColorWhiteInt,
+	BorderColorBlackFloat,
+	BorderColorWhiteFloat,
+	BorderColorCount,
+};
+
+enum AddressMode
+{
+	AddressModeRepeat,
+	AddressModeClampToBorder,
+	AddressModeCount,
+};
+
+enum CompareOp
+{
+	CompareOpNone,
+	CompareOpLess,
+	CompareOpGreater,
+	CompareOpCount,
 };
 
 struct Heap
@@ -273,30 +306,6 @@ struct Framebuffer
 	bool isShadowmap : 1;
 };
 
-enum BorderColor
-{
-	BorderColorBlackInt,
-	BorderColorWhiteInt,
-	BorderColorBlackFloat,
-	BorderColorWhiteFloat,
-	BorderColorCount,
-};
-
-enum AddressMode
-{
-	AddressModeRepeat,
-	AddressModeClampToBorder,
-	AddressModeCount,
-};
-
-enum CompareOp
-{
-	CompareOpNone,
-	CompareOpLess,
-	CompareOpGreater,
-	CompareOpCount,
-};
-
 struct SamplerDesc
 {
 	AddressMode addressMode;
@@ -371,7 +380,9 @@ struct GraphicsDevice
 };
 
 
-// Static functions ////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+// Conversion functions
+////////////////////////////////////////////////////////////////////////
 
 static const char *VkPhysicalDeviceTypeToString( VkPhysicalDeviceType type )
 {
@@ -425,6 +436,97 @@ static const char *HeapTypeToString(HeapType heapType)
 	CT_ASSERT( ARRAY_COUNT(toString) == HeapType_COUNT );
 	ASSERT( heapType < ARRAY_COUNT(toString) );
 	return toString[heapType];
+}
+
+static VkMemoryPropertyFlags HeapTypeToVkMemoryPropertyFlags( HeapType heapType )
+{
+	static const VkMemoryPropertyFlags flags[] = {
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_General,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, // HeapType_RTs,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Staging,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, // HeapType_Dynamic,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, // HeapType_Readback,
+	};
+	CT_ASSERT( ARRAY_COUNT(flags) == HeapType_COUNT );
+	return flags[heapType];
+};
+
+static VkDescriptorType SpvDescriptorTypeToVulkan(SpvType type)
+{
+	static const VkDescriptorType vkDescriptorTypes[] = {
+		VK_DESCRIPTOR_TYPE_MAX_ENUM,
+		VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+		VK_DESCRIPTOR_TYPE_SAMPLER,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // Should be DYNAMIC if we use dynamic offsets
+		VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkDescriptorTypes) == SpvTypeCount);
+	ASSERT(type != SpvTypeNone);
+	ASSERT(type < SpvTypeCount);
+	const VkDescriptorType vkDescriptorType = vkDescriptorTypes[type];
+	return vkDescriptorType;
+}
+
+static VkShaderStageFlags SpvStageFlagsToVulkan(u8 stageFlags)
+{
+	VkShaderStageFlags vkStageFlags = 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsVertexBit ) ? VK_SHADER_STAGE_VERTEX_BIT : 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsFragmentBit ) ? VK_SHADER_STAGE_FRAGMENT_BIT : 0;
+	vkStageFlags |= ( stageFlags & SpvStageFlagsComputeBit ) ? VK_SHADER_STAGE_COMPUTE_BIT : 0;
+	return vkStageFlags;
+}
+
+static VkFormat FormatToVulkan(Format format)
+{
+	ASSERT(format < FormatCount);
+	static VkFormat vkFormats[] = {
+		VK_FORMAT_R32G32_SFLOAT,
+		VK_FORMAT_R32G32B32_SFLOAT,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkFormats) == FormatCount);
+	const VkFormat vkFormat = vkFormats[format];
+	return vkFormat;
+}
+
+static VkBorderColor BorderColorToVulkan(BorderColor color)
+{
+	static const VkBorderColor vkBorderColors[] = {
+		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_BORDER_COLOR_INT_OPAQUE_WHITE,
+		VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+		VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkBorderColors) == BorderColorCount);
+	ASSERT(color < BorderColorCount);
+	const VkBorderColor vkBorderColor = vkBorderColors[color];
+	return vkBorderColor;
+};
+
+static VkSamplerAddressMode AddressModeToVulkan(AddressMode mode)
+{
+	static const VkSamplerAddressMode vkAddressModes[] = {
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkAddressModes) == AddressModeCount);
+	ASSERT(mode < AddressModeCount);
+	const VkSamplerAddressMode vkAddressMode = vkAddressModes[mode];
+	return vkAddressMode;
+}
+
+static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
+{
+	static const VkCompareOp vkCompareOps[] = {
+		VK_COMPARE_OP_NEVER,
+		VK_COMPARE_OP_LESS,
+		VK_COMPARE_OP_GREATER,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
+	ASSERT(compareOp < CompareOpCount);
+	const VkCompareOp vkCompareOp = vkCompareOps[compareOp];
+	return vkCompareOp;
 }
 
 #endif // #ifndef TOOLS_GFX_H
