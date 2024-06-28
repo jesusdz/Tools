@@ -348,6 +348,31 @@ struct Alignment
 	// VkExtent3D minImageTransferGranularity;
 };
 
+struct CommandList
+{
+	VkCommandBuffer handle;
+
+	VkDescriptorSet descriptorSetHandles[4];
+	u8 descriptorSetDirtyMask;
+
+	const Pipeline *pipeline;
+
+	// State
+	union
+	{
+		struct // For gfx pipelines
+		{
+			VkBuffer vertexBufferHandle;
+			VkBuffer indexBufferHandle;
+		};
+	};
+};
+
+struct SubmitResult
+{
+	VkSemaphore signalSemaphore;
+};
+
 struct GraphicsDevice
 {
 	VkInstance instance;

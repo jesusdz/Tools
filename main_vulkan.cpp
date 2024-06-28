@@ -173,32 +173,6 @@ struct Graphics
 	bool deviceInitialized;
 };
 
-struct CommandList
-{
-	VkCommandBuffer handle;
-	const Graphics *gfx;
-
-	VkDescriptorSet descriptorSetHandles[4];
-	u8 descriptorSetDirtyMask;
-
-	const Pipeline *pipeline;
-
-	// State
-	union
-	{
-		struct // For gfx pipelines
-		{
-			VkBuffer vertexBufferHandle;
-			VkBuffer indexBufferHandle;
-		};
-	};
-};
-
-struct SubmitResult
-{
-	VkSemaphore signalSemaphore;
-};
-
 
 
 static const Vertex cubeVertices[] = {
@@ -3202,7 +3176,6 @@ CommandList BeginCommandList(const Graphics &gfx)
 
 	CommandList commandList = {
 		.handle = commandBuffer,
-		.gfx = &gfx,
 	};
 	return commandList;
 }
@@ -3540,7 +3513,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		SetPipeline(commandList, pipeline);
 
 		//const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
-		const BufferView &computeBufferView = GetBufferView(gfx, commandList.gfx->computeBufferViewH);
+		const BufferView &computeBufferView = GetBufferView(gfx, gfx->computeBufferViewH);
 
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
