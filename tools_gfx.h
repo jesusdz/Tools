@@ -895,6 +895,34 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, const ShaderSource &
 	return shaderBindings;
 }
 
+static void BindDescriptorSets(CommandList &commandList)
+{
+	if ( commandList.descriptorSetDirtyMask )
+	{
+		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
+
+		u32 descriptorSetCount = 0;
+		VkDescriptorSet descriptorSets[4] = {};
+		for (u32 i = descriptorSetFirst; i < 4; ++i )
+		{
+			if ( commandList.descriptorSetDirtyMask & (1 << i) )
+			{
+				descriptorSets[descriptorSetCount++] = commandList.descriptorSetHandles[i];
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
+		VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
+		vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+		commandList.descriptorSetDirtyMask = 0;
+	}
+}
+
+
 
 
 
@@ -949,6 +977,11 @@ BindGroupAllocator CreateBindGroupAllocator(const GraphicsDevice &device, const 
 		.handle = descriptorPool,
 	};
 	return allocator;
+}
+
+void DestroyBindGroupAllocator( const GraphicsDevice &device, const BindGroupAllocator &bindGroupAllocator )
+{
+	vkDestroyDescriptorPool( device.handle, bindGroupAllocator.handle, VULKAN_ALLOCATORS );
 }
 
 void ResetBindGroupAllocator(const GraphicsDevice &device, BindGroupAllocator &bindGroupAllocator)
@@ -1090,14 +1123,212 @@ void EndCommandList(const CommandList &commandList)
 // Commands
 //////////////////////////////
 
-// TODO
+void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
+{
+	VkClearValue clearValues[2] = {};
+	u32 clearValueCount = 0;
+	const float depthClearValue = USE_REVERSE_Z ? 0.0f : 1.0f;
+	if (framebuffer.isDisplay)
+	{
+		clearValueCount = 2;
+		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+		clearValues[1].depthStencil = {depthClearValue, 0};
+	}
+	if (framebuffer.isShadowmap)
+	{
+		clearValueCount = 1;
+		clearValues[0].depthStencil = {depthClearValue, 0};
+	}
+
+	VkRenderPassBeginInfo renderPassBeginInfo = {};
+	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassBeginInfo.renderPass = framebuffer.renderPassHandle;
+	renderPassBeginInfo.framebuffer = framebuffer.handle;
+	renderPassBeginInfo.renderArea.offset = { 0, 0 };
+	renderPassBeginInfo.renderArea.extent = framebuffer.extent;
+	renderPassBeginInfo.clearValueCount = clearValueCount;
+	renderPassBeginInfo.pClearValues = clearValues;
+
+	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+}
+
+void SetViewportAndScissor(const CommandList &commandList, uint2 size)
+{
+	VkViewport viewport = {};
+	viewport.x = 0.0f;
+	viewport.y = static_cast<float>(size.y);
+	viewport.width = static_cast<float>(size.x);
+	viewport.height = -static_cast<float>(size.y);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.offset = {0, 0};
+	scissor.extent = {size.x, size.y};
+	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
+}
+
+void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
+{
+	if ( commandList.pipeline != &pipeline )
+	{
+		commandList.pipeline = &pipeline;
+		vkCmdBindPipeline( commandList.handle, pipeline.bindPoint, pipeline.handle );
+	}
+}
+
+void SetBindGroup(CommandList &commandList, u32 bindGroupIndex, const BindGroup &bindGroup)
+{
+	if ( commandList.descriptorSetHandles[bindGroupIndex] != bindGroup.handle )
+	{
+		commandList.descriptorSetDirtyMask |= 1 << bindGroupIndex;
+		commandList.descriptorSetHandles[bindGroupIndex] = bindGroup.handle;
+	}
+}
+
+void SetVertexBuffer(CommandList &commandList, const Buffer &buffer)
+{
+	if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
+	{
+		commandList.vertexBufferHandle = buffer.handle;
+		VkBuffer vertexBuffers[] = { buffer.handle };
+		VkDeviceSize vertexBufferOffsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandList.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
+	}
+}
+
+void SetIndexBuffer(CommandList &commandList, const Buffer &buffer)
+{
+	if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
+	{
+		commandList.indexBufferHandle = buffer.handle;
+		VkDeviceSize indexBufferOffset = 0;
+		vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
+	}
+}
+
+void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
+{
+	BindDescriptorSets(commandList);
+
+	vkCmdDrawIndexed(commandList.handle, indexCount, 1, firstIndex, firstVertex, instanceIndex);
+}
+
+void Dispatch(CommandList &commandList, u32 x, u32 y, u32 z)
+{
+	BindDescriptorSets(commandList);
+
+	vkCmdDispatch(commandList.handle, x, y, z);
+}
+
+void EndRenderPass(const CommandList &commandList)
+{
+	vkCmdEndRenderPass(commandList.handle);
+}
+
+
+//////////////////////////////
+// Submission and Presentation
+//////////////////////////////
+
+SubmitResult Submit(const GraphicsDevice &device, const CommandList &commandList)
+{
+	const u32 frameIndex = device.currentFrame;
+
+	VkSemaphore waitSemaphores[] = { device.imageAvailableSemaphores[frameIndex] };
+	VkSemaphore signalSemaphores[] = { device.renderFinishedSemaphores[frameIndex] };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
+	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitDstStageMask = waitStages;
+	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	submitInfo.pSignalSemaphores = signalSemaphores;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandList.handle;
+
+	VK_CALL( vkQueueSubmit( device.graphicsQueue, 1, &submitInfo, device.inFlightFences[frameIndex] ) );
+
+	SubmitResult res = {
+		.signalSemaphore = signalSemaphores[0],
+	};
+	return res;
+}
+
+bool Present(GraphicsDevice &device, SubmitResult submitResult)
+{
+	const VkSemaphore signalSemaphores[] = { submitResult.signalSemaphore };
+
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
+	presentInfo.pWaitSemaphores = signalSemaphores;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = &device.swapchain.handle;
+	presentInfo.pImageIndices = &device.swapchain.currentImageIndex;
+	presentInfo.pResults = NULL; // Optional
+
+	VkResult presentResult = vkQueuePresentKHR( device.presentQueue, &presentInfo );
+
+	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
+	{
+		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
+		device.swapchain.outdated = true;
+	}
+	else if (presentResult != VK_SUCCESS)
+	{
+		LOG(Error, "vkQueuePresentKHR failed.\n");
+		return false;
+	}
+
+	return true;
+}
+
 
 
 //////////////////////////////
 // Frame
 //////////////////////////////
 
-// TODO
+bool BeginFrame(GraphicsDevice &device)
+{
+	const u32 frameIndex = device.currentFrame;
+
+	// Swapchain sync
+	VK_CALL( vkWaitForFences( device.handle, 1, &device.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
+
+	u32 imageIndex;
+	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
+
+	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		LOG(Warning, "vkAcquireNextImageKHR - result: VK_ERROR_OUT_OF_DATE_KHR\n");
+		device.swapchain.outdated = true;
+		return false;
+	}
+	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+	{
+		LOG(Error, "vkAcquireNextImageKHR failed.\n");
+		return false;
+	}
+
+	VK_CALL( vkResetFences( device.handle, 1, &device.inFlightFences[frameIndex] ) );
+	device.swapchain.currentImageIndex = imageIndex;
+
+	// Reset commands for this frame
+	VkCommandPool commandPool = device.commandPools[frameIndex];
+	VK_CALL( vkResetCommandPool(device.handle, commandPool, 0) );
+
+	return true;
+}
+
+void EndFrame(GraphicsDevice &device)
+{
+	device.currentFrame = ( device.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
+}
+
 
 
 #endif // #ifndef TOOLS_GFX_H

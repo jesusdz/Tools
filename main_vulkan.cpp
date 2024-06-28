@@ -2418,14 +2418,14 @@ void CleanupGraphicsDevice(Graphics &gfx)
 {
 	WaitDeviceIdle( gfx );
 
-	vkDestroyDescriptorPool( gfx.device.handle, gfx.globalBindGroupAllocator.handle, VULKAN_ALLOCATORS );
-	vkDestroyDescriptorPool( gfx.device.handle, gfx.materialBindGroupAllocator.handle, VULKAN_ALLOCATORS );
+	DestroyBindGroupAllocator( gfx.device, gfx.globalBindGroupAllocator );
+	DestroyBindGroupAllocator( gfx.device, gfx.materialBindGroupAllocator );
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
 	{
-		vkDestroyDescriptorPool( gfx.device.handle, gfx.computeBindGroupAllocator[i].handle, VULKAN_ALLOCATORS );
+		DestroyBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[i] );
 	}
 #if USE_IMGUI
-	vkDestroyDescriptorPool( gfx.device.handle, gfx.imGuiBindGroupAllocator.handle, VULKAN_ALLOCATORS );
+	DestroyBindGroupAllocator( gfx.device, gfx.imGuiBindGroupAllocator );
 #endif
 
 	for (u32 i = 0; i < gfx.samplerCount; ++i)
@@ -2665,236 +2665,12 @@ Framebuffer GetShadowmapFramebuffer(const Graphics &gfx)
 	return framebuffer;
 }
 
-void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
-{
-	VkClearValue clearValues[2] = {};
-	u32 clearValueCount = 0;
-	const float depthClearValue = USE_REVERSE_Z ? 0.0f : 1.0f;
-	if (framebuffer.isDisplay)
-	{
-		clearValueCount = 2;
-		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-		clearValues[1].depthStencil = {depthClearValue, 0};
-	}
-	if (framebuffer.isShadowmap)
-	{
-		clearValueCount = 1;
-		clearValues[0].depthStencil = {depthClearValue, 0};
-	}
-
-	VkRenderPassBeginInfo renderPassBeginInfo = {};
-	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderPass = framebuffer.renderPassHandle;
-	renderPassBeginInfo.framebuffer = framebuffer.handle;
-	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = framebuffer.extent;
-	renderPassBeginInfo.clearValueCount = clearValueCount;
-	renderPassBeginInfo.pClearValues = clearValues;
-
-	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
-}
-
-void EndRenderPass(const CommandList &commandList)
-{
-	vkCmdEndRenderPass(commandList.handle);
-}
-
-void SetViewportAndScissor(const CommandList &commandList, uint2 size)
-{
-	VkViewport viewport = {};
-	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(size.y);
-	viewport.width = static_cast<float>(size.x);
-	viewport.height = -static_cast<float>(size.y);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
-
-	VkRect2D scissor = {};
-	scissor.offset = {0, 0};
-	scissor.extent = {size.x, size.y};
-	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
-}
-
-SubmitResult Submit(const Graphics &gfx, const CommandList &commandList)
-{
-	const u32 frameIndex = gfx.device.currentFrame;
-
-	VkSemaphore waitSemaphores[] = { gfx.device.imageAvailableSemaphores[frameIndex] };
-	VkSemaphore signalSemaphores[] = { gfx.device.renderFinishedSemaphores[frameIndex] };
-	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
-	submitInfo.pWaitSemaphores = waitSemaphores;
-	submitInfo.pWaitDstStageMask = waitStages;
-	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	submitInfo.pSignalSemaphores = signalSemaphores;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandList.handle;
-
-	VK_CALL( vkQueueSubmit( gfx.device.graphicsQueue, 1, &submitInfo, gfx.device.inFlightFences[frameIndex] ) );
-
-	SubmitResult res = {
-		.signalSemaphore = signalSemaphores[0],
-	};
-	return res;
-}
-
-bool Present(Graphics &gfx, SubmitResult submitResult)
-{
-	const VkSemaphore signalSemaphores[] = { submitResult.signalSemaphore };
-
-	VkPresentInfoKHR presentInfo = {};
-	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	presentInfo.pWaitSemaphores = signalSemaphores;
-	presentInfo.swapchainCount = 1;
-	presentInfo.pSwapchains = &gfx.device.swapchain.handle;
-	presentInfo.pImageIndices = &gfx.device.swapchain.currentImageIndex;
-	presentInfo.pResults = NULL; // Optional
-
-	VkResult presentResult = vkQueuePresentKHR( gfx.device.presentQueue, &presentInfo );
-
-	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
-	{
-		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
-		gfx.device.swapchain.outdated = true;
-	}
-	else if (presentResult != VK_SUCCESS)
-	{
-		LOG(Error, "vkQueuePresentKHR failed.\n");
-		return false;
-	}
-
-	return true;
-}
-
-bool BeginFrame(Graphics &gfx)
-{
-	const u32 frameIndex = gfx.device.currentFrame;
-
-	// Swapchain sync
-	VK_CALL( vkWaitForFences( gfx.device.handle, 1, &gfx.device.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
-
-	u32 imageIndex;
-	VkResult acquireResult = vkAcquireNextImageKHR( gfx.device.handle, gfx.device.swapchain.handle, UINT64_MAX, gfx.device.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
-
-	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
-	{
-		LOG(Warning, "vkAcquireNextImageKHR - result: VK_ERROR_OUT_OF_DATE_KHR\n");
-		gfx.device.swapchain.outdated = true;
-		return false;
-	}
-	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
-	{
-		LOG(Error, "vkAcquireNextImageKHR failed.\n");
-		return false;
-	}
-
-	VK_CALL( vkResetFences( gfx.device.handle, 1, &gfx.device.inFlightFences[frameIndex] ) );
-	gfx.device.swapchain.currentImageIndex = imageIndex;
-
-	// Reset descriptor pools for this frame
-	ResetBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[frameIndex] );
-
-	// Reset commands for this frame
-	VkCommandPool commandPool = gfx.device.commandPools[frameIndex];
-	VK_CALL( vkResetCommandPool(gfx.device.handle, commandPool, 0) );
-
-	return true;
-}
-
-void EndFrame(Graphics &gfx)
-{
-	gfx.device.currentFrame = ( gfx.device.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
-}
-
-void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
-{
-	if ( commandList.pipeline != &pipeline )
-	{
-		commandList.pipeline = &pipeline;
-		vkCmdBindPipeline( commandList.handle, pipeline.bindPoint, pipeline.handle );
-	}
-}
-
-void SetBindGroup(CommandList &commandList, u32 bindGroupIndex, const BindGroup &bindGroup)
-{
-	if ( commandList.descriptorSetHandles[bindGroupIndex] != bindGroup.handle )
-	{
-		commandList.descriptorSetDirtyMask |= 1 << bindGroupIndex;
-		commandList.descriptorSetHandles[bindGroupIndex] = bindGroup.handle;
-	}
-}
-
-void SetVertexBuffer(CommandList &commandList, const Buffer &buffer)
-{
-	if ( buffer.handle && buffer.handle != commandList.vertexBufferHandle )
-	{
-		commandList.vertexBufferHandle = buffer.handle;
-		VkBuffer vertexBuffers[] = { buffer.handle };
-		VkDeviceSize vertexBufferOffsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandList.handle, 0, ARRAY_COUNT(vertexBuffers), vertexBuffers, vertexBufferOffsets);
-	}
-}
-
-void SetIndexBuffer(CommandList &commandList, const Buffer &buffer)
-{
-	if ( buffer.handle && buffer.handle != commandList.indexBufferHandle )
-	{
-		commandList.indexBufferHandle = buffer.handle;
-		VkDeviceSize indexBufferOffset = 0;
-		vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
-	}
-}
-
-static void BindDescriptorSets(CommandList &commandList)
-{
-	if ( commandList.descriptorSetDirtyMask )
-	{
-		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
-
-		u32 descriptorSetCount = 0;
-		VkDescriptorSet descriptorSets[4] = {};
-		for (u32 i = descriptorSetFirst; i < 4; ++i )
-		{
-			if ( commandList.descriptorSetDirtyMask & (1 << i) )
-			{
-				descriptorSets[descriptorSetCount++] = commandList.descriptorSetHandles[i];
-			}
-			else
-			{
-				break;
-			}
-		}
-
-		VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
-		VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
-		vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
-		commandList.descriptorSetDirtyMask = 0;
-	}
-}
-
-void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)
-{
-	BindDescriptorSets(commandList);
-
-	vkCmdDrawIndexed(commandList.handle, indexCount, 1, firstIndex, firstVertex, instanceIndex);
-}
-
-void Dispatch(CommandList &commandList, u32 x, u32 y, u32 z)
-{
-	BindDescriptorSets(commandList);
-
-	vkCmdDispatch(commandList.handle, x, y, z);
-}
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	u32 frameIndex = gfx.device.currentFrame;
 
-	if ( !BeginFrame(gfx) )
+	if ( !BeginFrame(gfx.device) )
 	{
 		return false;
 	}
@@ -2945,6 +2721,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		entities[i].world = worldMatrix;
 	}
+
+	// Reset descriptor pools for this frame
+	ResetBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[frameIndex] );
 
 	// Update global descriptor sets
 	UpdateMaterialBindGroup(gfx, BIND_GROUP_GLOBAL);
@@ -3080,13 +2859,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	EndCommandList(commandList);
 
-	SubmitResult submitRes = Submit(gfx, commandList);
+	SubmitResult submitRes = Submit(gfx.device, commandList);
 
-	if ( !Present(gfx, submitRes) ) {
+	if ( !Present(gfx.device, submitRes) ) {
 		return false;
 	}
 
-	EndFrame(gfx);
+	EndFrame(gfx.device);
 
 	return true;
 }
