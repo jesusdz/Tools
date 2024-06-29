@@ -295,22 +295,11 @@ const Buffer &GetBuffer(const Graphics &gfx, BufferH bufferHandle)
 
 BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, VkFormat format, u32 offset = 0, u32 size = 0)
 {
-	const Buffer &gfxBuffer = GetBuffer(gfx, bufferHandle);
-
-	VkBufferViewCreateInfo bufferViewCreateInfo = {};
-	bufferViewCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-	bufferViewCreateInfo.buffer = gfxBuffer.handle;
-	bufferViewCreateInfo.format = format;
-	bufferViewCreateInfo.offset = offset;
-	bufferViewCreateInfo.range = size > 0 ? size : gfxBuffer.size;
-
-	VkBufferView bufferView;
-	VK_CALL( vkCreateBufferView(gfx.device.handle, &bufferViewCreateInfo, VULKAN_ALLOCATORS, &bufferView) );
+	const Buffer &buffer = GetBuffer(gfx, bufferHandle);
 
 	ASSERT( gfx.bufferViewCount < ARRAY_COUNT(gfx.bufferViews) );
 	BufferViewH bufferViewHandle = gfx.bufferViewCount++;
-	BufferView &gfxBufferView = gfx.bufferViews[bufferViewHandle];
-	gfxBufferView.handle = bufferView;
+	gfx.bufferViews[bufferViewHandle] = CreateBufferView(gfx.device, buffer, format, offset, size);
 	return bufferViewHandle;
 }
 
@@ -2096,7 +2085,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.bufferViewCount; ++i)
 	{
-		vkDestroyBufferView( gfx.device.handle, gfx.bufferViews[i].handle, VULKAN_ALLOCATORS );
+		DestroyBufferView( gfx.device, gfx.bufferViews[i] );
 	}
 
 	for (u32 i = 0; i < HeapType_COUNT; ++i)
@@ -2384,8 +2373,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		SetPipeline(commandList, pipeline);
 
-		//const Buffer &computeBuffer = GetBuffer(gfx, gfx.computeBufferH);
-		const BufferView &computeBufferView = GetBufferView(gfx, gfx->computeBufferViewH);
+		const BufferView &computeBufferView = GetBufferView(gfx, gfx.computeBufferViewH);
 
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
@@ -2393,7 +2381,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 				{ .bufferView = Binding(computeBufferView) },
 			},
 		};
-		const BindGroup bindGroup = CreateBindGroup(gfx, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
 
 		SetBindGroup(commandList, 0, bindGroup);
 

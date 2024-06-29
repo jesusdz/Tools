@@ -1095,6 +1095,35 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 
 
 //////////////////////////////
+// BufferView
+//////////////////////////////
+
+// TODO: Make the format parameter not be Vulkan specific
+BufferView CreateBufferView(const GraphicsDevice &device, const Buffer &buffer, VkFormat format, u32 offset = 0, u32 size = 0)
+{
+	VkBufferViewCreateInfo bufferViewCreateInfo = {};
+	bufferViewCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+	bufferViewCreateInfo.buffer = buffer.handle;
+	bufferViewCreateInfo.format = format;
+	bufferViewCreateInfo.offset = offset;
+	bufferViewCreateInfo.range = size > 0 ? size : buffer.size;
+
+	VkBufferView bufferViewHandle;
+	VK_CALL( vkCreateBufferView(device.handle, &bufferViewCreateInfo, VULKAN_ALLOCATORS, &bufferViewHandle) );
+
+	const BufferView bufferView = {
+		.handle = bufferViewHandle
+	};
+	return bufferView;
+}
+
+void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferView)
+{
+	vkDestroyBufferView( device.handle, bufferView.handle, VULKAN_ALLOCATORS );
+}
+
+
+//////////////////////////////
 // Sampler
 //////////////////////////////
 
