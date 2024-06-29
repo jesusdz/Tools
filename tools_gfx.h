@@ -1372,6 +1372,92 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 
 
 //////////////////////////////
+// RenderPass
+//////////////////////////////
+
+RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc &desc )
+{
+	const u8 MAX_COLOR_ATTACHMENTS = 4;
+	const u8 MAX_DEPTH_ATTACHMENTS = 1;
+	ASSERT(desc.colorAttachmentCount <= MAX_COLOR_ATTACHMENTS);
+
+	VkAttachmentDescription attachmentDescs[MAX_COLOR_ATTACHMENTS + MAX_DEPTH_ATTACHMENTS] = {};
+	VkAttachmentReference colorAttachmentRefs[MAX_COLOR_ATTACHMENTS] = {};
+	VkAttachmentReference depthAttachmentRef = {};
+
+	for (u8 i = 0; i < desc.colorAttachmentCount; ++i)
+	{
+		attachmentDescs[i].format = device.swapchainInfo.format;
+		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachmentDescs[i].loadOp = LoadOpToVulkan( desc.colorAttachments[i].loadOp );
+		attachmentDescs[i].storeOp = StoreOpToVulkan( desc.colorAttachments[i].storeOp );
+		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachmentDescs[i].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		colorAttachmentRefs[i].attachment = i;
+		colorAttachmentRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	}
+
+	if ( desc.hasDepthAttachment )
+	{
+		const u8 depthAttachmentIndex = desc.colorAttachmentCount;
+		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
+		depthAttachmentDesc.format = FindDepthFormat(device);
+		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
+		depthAttachmentDesc.loadOp = LoadOpToVulkan(desc.depthAttachment.loadOp);
+		depthAttachmentDesc.storeOp = StoreOpToVulkan(desc.depthAttachment.storeOp);
+		depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		depthAttachmentRef.attachment = depthAttachmentIndex;;
+		depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	}
+
+	VkSubpassDescription subpassDesc = {};
+	subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDesc.colorAttachmentCount = desc.colorAttachmentCount;
+	subpassDesc.pColorAttachments = desc.colorAttachmentCount ? colorAttachmentRefs : NULL;
+	subpassDesc.pDepthStencilAttachment = desc.hasDepthAttachment ? &depthAttachmentRef : NULL;
+
+	VkSubpassDependency subpassDependency = {};
+	subpassDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependency.dstSubpass = 0;
+	subpassDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	subpassDependency.srcAccessMask = 0;
+	subpassDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	subpassDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo renderPassCreateInfo = {};
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.attachmentCount = desc.colorAttachmentCount + (desc.hasDepthAttachment ? 1 : 0);
+	renderPassCreateInfo.pAttachments = attachmentDescs;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpassDesc;
+	renderPassCreateInfo.dependencyCount = 1;
+	renderPassCreateInfo.pDependencies = &subpassDependency;
+
+	VkRenderPass vkRenderPass;
+	VK_CALL( vkCreateRenderPass( device.handle, &renderPassCreateInfo, VULKAN_ALLOCATORS, &vkRenderPass ) );
+
+	const RenderPass renderPass = {
+		.name = InternString(desc.name),
+		.handle = vkRenderPass
+	};
+
+	return renderPass;
+}
+
+void DestroyRenderPass(const GraphicsDevice &device, const RenderPass &renderPass)
+{
+	vkDestroyRenderPass( device.handle, renderPass.handle, VULKAN_ALLOCATORS );
+}
+
+
+//////////////////////////////
 // CommandList
 //////////////////////////////
 
