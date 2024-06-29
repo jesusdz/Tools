@@ -92,8 +92,6 @@ struct Graphics
 {
 	GraphicsDevice device;
 
-	// TODO: Temporary stuff hardcoded here
-
 	RenderTargets renderTargets;
 
 	RenderPass renderPasses[MAX_RENDERPASSES];
@@ -594,35 +592,9 @@ VkImageView CreateImageView(const Graphics &gfx, VkImage image, VkFormat format,
 
 SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
 {
-	VkPhysicalDeviceProperties properties;
-	vkGetPhysicalDeviceProperties(gfx.device.physicalDevice, &properties);
-
-	VkSamplerCreateInfo samplerCreateInfo = {};
-	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-	samplerCreateInfo.addressModeU = AddressModeToVulkan(desc.addressMode);
-	samplerCreateInfo.addressModeV = AddressModeToVulkan(desc.addressMode);
-	samplerCreateInfo.addressModeW = AddressModeToVulkan(desc.addressMode);
-	samplerCreateInfo.anisotropyEnable = VK_TRUE;
-	samplerCreateInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-	samplerCreateInfo.borderColor = BorderColorToVulkan(desc.borderColor);
-	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
-	samplerCreateInfo.compareEnable = desc.compareOp != CompareOpNone; // For PCF shadows for instance
-	samplerCreateInfo.compareOp = CompareOpToVulkan(desc.compareOp);
-	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	samplerCreateInfo.mipLodBias = 0.0f;
-	samplerCreateInfo.minLod = 0.0f;
-	samplerCreateInfo.maxLod = VK_LOD_CLAMP_NONE;
-
-	VkSampler vkSampler;
-	VK_CALL( vkCreateSampler(gfx.device.handle, &samplerCreateInfo, VULKAN_ALLOCATORS, &vkSampler) );
-
-	Sampler sampler = {vkSampler};
-
 	ASSERT( gfx.samplerCount < ARRAY_COUNT( gfx.samplers ) );
 	SamplerH samplerHandle = gfx.samplerCount++;
-	gfx.samplers[samplerHandle] = sampler;
+	gfx.samplers[samplerHandle] = CreateSampler(gfx.device, desc);
 	return samplerHandle;
 }
 
@@ -1949,26 +1921,6 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 	UpdateDescriptorSets(gfx.device, descriptorWrites, descriptorWriteCount);
 }
 
-void UpdateComputeDescriptorSets(const Graphics &gfx, const Pipeline &compute, VkDescriptorSet descriptorSet, const ResourceBinding *bindingTable)
-{
-	const ShaderBindings &shaderBindings = compute.layout.shaderBindings;
-
-	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
-	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
-	u32 descriptorWriteCount = 0;
-
-	for (u32 i = 0; i < shaderBindings.bindingCount; ++i)
-	{
-		const ShaderBinding &binding = shaderBindings.bindings[i];
-		if ( !AddDescriptorWrite(bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) )
-		{
-			LOG(Warning, "Could not add descriptor write for binding %s of compute %s.\n", binding.name, compute.name);
-		}
-	}
-
-	UpdateDescriptorSets(gfx.device, descriptorWrites, descriptorWriteCount);
-}
-
 void InitializeScene(Arena scratch, Graphics &gfx)
 {
 	FilePath assetsPath = MakePath("assets/assets.h");
@@ -2128,7 +2080,7 @@ void CleanupGraphicsDevice(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.samplerCount; ++i)
 	{
-		vkDestroySampler( gfx.device.handle, gfx.samplers[i].handle, VULKAN_ALLOCATORS );
+		DestroySampler( gfx.device, gfx.samplers[i] );
 	}
 
 	for (u32 i = 0; i < gfx.textureCount; ++i)
