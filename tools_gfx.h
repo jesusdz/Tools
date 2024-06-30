@@ -1,5 +1,5 @@
 /*
- * tools.h
+ * tools_gfx.h
  * Author: Jesus Diaz Garcia
  *
  * Graphics API abstraction made on top of Vulkan.
@@ -16,7 +16,9 @@
  * - (Create/Destroy/Reset)BindGroupAllocator
  * - (Create/Destroy)BindGroupLayout
  * - CreateBindGroup
+ * - (Create/Destroy)Buffer
  * - (Create/Destroy)BufferView
+ * - (Create/Destroy)Image
  * - (Create/Destroy)Sampler
  * - CreateGraphicsPipeline
  * - CreateComputePipeline
@@ -297,7 +299,7 @@ typedef u32 BufferViewH;
 
 struct Image
 {
-	VkImage image;
+	VkImage handle;
 	VkFormat format;
 	Alloc alloc;
 };
@@ -1881,6 +1883,56 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 
 
 //////////////////////////////
+// Buffer
+//////////////////////////////
+
+// TODO: Make the bufferUsage parameter not be Vulkan specific
+Buffer CreateBuffer(GraphicsDevice &device, u32 size, VkBufferUsageFlags bufferUsageFlags, HeapType heapType)
+{
+	// Buffer
+	VkBufferCreateInfo bufferCreateInfo = {};
+	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferCreateInfo.size = size;
+	bufferCreateInfo.usage = bufferUsageFlags;
+	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer bufferHandle;
+	VK_CALL( vkCreateBuffer(device.handle, &bufferCreateInfo, VULKAN_ALLOCATORS, &bufferHandle) );
+
+	// Memory
+	Heap &memoryHeap = device.heaps[heapType];
+	VkDeviceMemory memory = memoryHeap.memory;
+	VkMemoryRequirements memoryRequirements = {};
+	vkGetBufferMemoryRequirements(device.handle, bufferHandle, &memoryRequirements);
+	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
+	ASSERT( offset + memoryRequirements.size <= memoryHeap.size );
+	memoryHeap.used = offset + memoryRequirements.size;
+
+	VK_CALL( vkBindBufferMemory(device.handle, bufferHandle, memory, offset) );
+
+	Alloc alloc = {
+		heapType,
+		offset,
+		memoryRequirements.size,
+	};
+
+	const Buffer buffer = {
+		.handle = bufferHandle,
+		.alloc = alloc,
+		.size = size,
+	};
+	return buffer;
+}
+
+void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer)
+{
+	vkDestroyBuffer( device.handle, buffer.handle, VULKAN_ALLOCATORS );
+
+	// TODO: We should somehow deallocate memory when destroying buffers at runtime
+}
+
+
+//////////////////////////////
 // BufferView
 //////////////////////////////
 
@@ -1906,6 +1958,64 @@ BufferView CreateBufferView(const GraphicsDevice &device, const Buffer &buffer, 
 void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferView)
 {
 	vkDestroyBufferView( device.handle, bufferView.handle, VULKAN_ALLOCATORS );
+}
+
+
+//////////////////////////////
+// Image
+//////////////////////////////
+
+// TODO: Make the format and usage parameters not be Vulkan specific
+Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, HeapType heapType)
+{
+	// Image
+	VkImageCreateInfo imageCreateInfo = {};
+	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageCreateInfo.extent.width = width;
+	imageCreateInfo.extent.height = height;
+	imageCreateInfo.extent.depth = 1;
+	imageCreateInfo.mipLevels = mipLevels;
+	imageCreateInfo.arrayLayers = 1;
+	imageCreateInfo.format = format;
+	imageCreateInfo.tiling = tiling;
+	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageCreateInfo.usage = usage;
+	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageCreateInfo.flags = 0;
+
+	VkImage imageHandle;
+	VK_CALL( vkCreateImage(device.handle, &imageCreateInfo, VULKAN_ALLOCATORS, &imageHandle) );
+
+	// Memory
+	Heap &memoryHeap = device.heaps[heapType];
+	VkMemoryRequirements memoryRequirements = {};
+	vkGetImageMemoryRequirements(device.handle, imageHandle, &memoryRequirements);
+	VkDeviceMemory memory = memoryHeap.memory;
+	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
+	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
+	memoryHeap.used = offset + memoryRequirements.size;
+
+	VK_CALL( vkBindImageMemory(device.handle, imageHandle, memory, offset) );
+
+	const Image image = {
+		.handle = imageHandle,
+		.format = format,
+		.alloc = {
+			.heap = memoryHeap.type,
+			.offset = offset,
+			.size = memoryRequirements.size,
+		},
+	};
+	return image;
+}
+
+void DestroyImage(const GraphicsDevice &device, const Image &image)
+{
+	vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
+
+	// TODO: We should somehow deallocate memory when destroying buffers at runtime
 }
 
 

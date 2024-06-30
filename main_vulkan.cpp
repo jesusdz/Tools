@@ -221,40 +221,11 @@ static const u16 planeIndices[] = {
 };
 
 
-BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, Heap &memoryHeap)
+BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, HeapType heapType)
 {
-	// Buffer
-	VkBufferCreateInfo bufferCreateInfo = {};
-	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferCreateInfo.size = size;
-	bufferCreateInfo.usage = bufferUsageFlags;
-	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-	VkBuffer buffer;
-	VK_CALL( vkCreateBuffer(gfx.device.handle, &bufferCreateInfo, VULKAN_ALLOCATORS, &buffer) );
-
-	// Memory
-	VkDeviceMemory memory = memoryHeap.memory;
-	VkMemoryRequirements memoryRequirements = {};
-	vkGetBufferMemoryRequirements(gfx.device.handle, buffer, &memoryRequirements);
-	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
-	ASSERT( offset + memoryRequirements.size <= memoryHeap.size );
-	memoryHeap.used = offset + memoryRequirements.size;
-
-	VK_CALL( vkBindBufferMemory(gfx.device.handle, buffer, memory, offset) );
-
-	Alloc alloc = {
-		memoryHeap.type,
-		offset,
-		memoryRequirements.size,
-	};
-
 	ASSERT( gfx.bufferCount < ARRAY_COUNT(gfx.buffers) );
 	BufferH bufferHandle = gfx.bufferCount++;
-	Buffer &gfxBuffer = gfx.buffers[bufferHandle];
-	gfxBuffer.handle = buffer;
-	gfxBuffer.alloc = alloc;
-	gfxBuffer.size = size;
+	gfx.buffers[bufferHandle] = CreateBuffer(gfx.device, size, bufferUsageFlags, heapType);
 	return bufferHandle;
 }
 
@@ -360,8 +331,8 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size)
 
 BufferH CreateStagingBuffer(Graphics &gfx)
 {
-	Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
-	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingHeap);
+	const Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
+	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, HeapType_Staging);
 	return stagingBufferHandle;
 }
 
@@ -371,7 +342,7 @@ BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 			gfx,
 			size,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			gfx.device.heaps[HeapType_General]);
+			HeapType_General);
 
 	return vertexBufferHandle;
 }
@@ -382,7 +353,7 @@ BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
 			gfx,
 			size,
 			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			gfx.device.heaps[HeapType_General]);
+			HeapType_General);
 
 	return indexBufferHandle;
 }
@@ -485,53 +456,6 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
-}
-
-
-
-Image CreateImage(const Graphics &gfx, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, Heap &memoryHeap)
-{
-	// Image
-	VkImageCreateInfo imageCreateInfo = {};
-	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageCreateInfo.extent.width = width;
-	imageCreateInfo.extent.height = height;
-	imageCreateInfo.extent.depth = 1;
-	imageCreateInfo.mipLevels = mipLevels;
-	imageCreateInfo.arrayLayers = 1;
-	imageCreateInfo.format = format;
-	imageCreateInfo.tiling = tiling;
-	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	imageCreateInfo.usage = usage;
-	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageCreateInfo.flags = 0;
-
-	VkImage image;
-	VK_CALL( vkCreateImage(gfx.device.handle, &imageCreateInfo, VULKAN_ALLOCATORS, &image) );
-
-	// Memory
-	VkMemoryRequirements memoryRequirements = {};
-	vkGetImageMemoryRequirements(gfx.device.handle, image, &memoryRequirements);
-	VkDeviceMemory memory = memoryHeap.memory;
-	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
-	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
-	memoryHeap.used = offset + memoryRequirements.size;
-
-	VK_CALL( vkBindImageMemory(gfx.device.handle, image, memory, offset) );
-
-	Alloc alloc = {
-		memoryHeap.type,
-		offset,
-		memoryRequirements.size,
-	};
-	Image imageStruct = {
-		image,
-		format,
-		alloc,
-	};
-	return imageStruct;
 }
 
 SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
@@ -779,27 +703,27 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const u32 mipLevels = static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1;
 
-	Image image = CreateImage(gfx,
+	Image image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
 			VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // for mipmap blits
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // for intitial copy from buffer and blits
 			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
-			gfx.device.heaps[HeapType_General]);
+			HeapType_General);
 
-	TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
-	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.image, texWidth, texHeight);
+	TransitionImageLayout(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
+	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
 
 	// GenerateMipmaps takes care of this transition after generating the mip levels
-	//TransitionImageLayout(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
+	//TransitionImageLayout(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
 
-	GenerateMipmaps(gfx, image.image, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+	GenerateMipmaps(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = image;
-	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image.image, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image.handle, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 	gfx.textures[textureHandle].mipLevels = mipLevels;
 
 	return textureHandle;
@@ -902,14 +826,14 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	// Depth buffer
 	VkFormat depthFormat = FindDepthFormat(gfx.device);
-	renderTargets.depthImage = CreateImage(gfx,
+	renderTargets.depthImage = CreateImage(gfx.device,
 			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
 			depthFormat,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-			gfx.device.heaps[HeapType_RTs]);
-	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	TransitionImageLayout(gfx, renderTargets.depthImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+			HeapType_RTs);
+	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	TransitionImageLayout(gfx, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -934,14 +858,14 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	// Shadowmap
 	{
 		VkFormat depthFormat = FindDepthFormat(gfx.device);
-		renderTargets.shadowmapImage = CreateImage(gfx,
+		renderTargets.shadowmapImage = CreateImage(gfx.device,
 				1024, 1024, 1,
 				depthFormat,
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-				gfx.device.heaps[HeapType_RTs]);
-		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.image, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-		TransitionImageLayout(gfx, renderTargets.shadowmapImage.image, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+				HeapType_RTs);
+		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		TransitionImageLayout(gfx, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -966,7 +890,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	vkDestroyImageView(gfx.device.handle, renderTargets.depthImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.image, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.handle, VULKAN_ALLOCATORS);
 
 	// Reset the heap used for render targets
 	Heap &rtHeap = gfx.device.heaps[HeapType_RTs];
@@ -978,7 +902,7 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	}
 
 	vkDestroyImageView(gfx.device.handle, renderTargets.shadowmapImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.image, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.handle, VULKAN_ALLOCATORS);
 	vkDestroyFramebuffer( gfx.device.handle, renderTargets.shadowmapFramebuffer, VULKAN_ALLOCATORS );
 
 	renderTargets = {};
@@ -1046,7 +970,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			gfx,
 			globalsBufferSize,
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			gfx.device.heaps[HeapType_Dynamic]);
+			HeapType_Dynamic);
 	}
 
 	// Create entities buffer
@@ -1057,16 +981,16 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			gfx,
 			entityBufferSize,
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			gfx.device.heaps[HeapType_Dynamic]);
+			HeapType_Dynamic);
 	}
 
 	// Create material buffer
 	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset );
-	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, gfx.device.heaps[HeapType_General]);
+	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HeapType_General);
 
 	// Create buffer for computes
 	const u32 computeBufferSize = sizeof(float);
-	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT, gfx.device.heaps[HeapType_General]);
+	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT, HeapType_General);
 	gfx.computeBufferViewH = CreateBufferView(gfx, gfx.computeBufferH, VK_FORMAT_R32_SFLOAT);
 
 
@@ -1383,12 +1307,12 @@ void CleanupGraphics(Graphics &gfx)
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
 		vkDestroyImageView( gfx.device.handle, gfx.textures[i].imageView, VULKAN_ALLOCATORS );
-		vkDestroyImage( gfx.device.handle, gfx.textures[i].image.image, VULKAN_ALLOCATORS );
+		DestroyImage( gfx.device, gfx.textures[i].image );
 	}
 
 	for (u32 i = 0; i < gfx.bufferCount; ++i)
 	{
-		vkDestroyBuffer( gfx.device.handle, gfx.buffers[i].handle, VULKAN_ALLOCATORS );
+		DestroyBuffer( gfx.device, gfx.buffers[i] );
 	}
 
 	for (u32 i = 0; i < gfx.bufferViewCount; ++i)
@@ -1666,6 +1590,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 	#endif // COMPUTE_TEST
 
+	// Shadow map
 	{
 		const Framebuffer shadowmapFramebuffer = GetShadowmapFramebuffer(gfx);
 		BeginRenderPass(commandList, shadowmapFramebuffer);
@@ -1712,60 +1637,61 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		}
 
 		EndRenderPass(commandList);
-
-		VkFormat depthFormat = FindDepthFormat(gfx.device);
-		VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
-		TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
 	}
-
-	const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
-	BeginRenderPass(commandList, displayFramebuffer);
-
-	const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
-	SetViewportAndScissor(commandList, displaySize);
-
-	for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
-	{
-		const Entity &entity = gfx.entities[entityIndex];
-
-		if ( !entity.visible ) continue;
-
-		const u32 materialIndex = entity.materialIndex;
-		const Material &material = gfx.materials[materialIndex];
-		const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
-
-		// Pipeline
-		SetPipeline(commandList, pipeline);
-
-		// Bind groups
-		SetBindGroup(commandList, 0, gfx.globalBindGroups[materialIndex][frameIndex]);
-		SetBindGroup(commandList, 1, gfx.materialBindGroups[materialIndex]);
-
-		// Vertex buffer
-		const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
-		SetVertexBuffer(commandList, vertexBuffer);
-
-		// Index buffer
-		const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
-		SetIndexBuffer(commandList, indexBuffer);
-
-		// Draw!!!
-		const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
-		const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
-		const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-		DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
-	}
-
-#if USE_IMGUI
-	// Record dear imgui primitives into command buffer
-	ImDrawData* draw_data = ImGui::GetDrawData();
-	ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
-#endif
-
-	EndRenderPass(commandList);
 
 	VkFormat depthFormat = FindDepthFormat(gfx.device);
-	VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.image;
+	VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.handle;
+	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+
+	// Scene and UI
+	{
+		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
+		BeginRenderPass(commandList, displayFramebuffer);
+
+		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
+		SetViewportAndScissor(commandList, displaySize);
+
+		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+		{
+			const Entity &entity = gfx.entities[entityIndex];
+
+			if ( !entity.visible ) continue;
+
+			const u32 materialIndex = entity.materialIndex;
+			const Material &material = gfx.materials[materialIndex];
+			const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
+
+			// Pipeline
+			SetPipeline(commandList, pipeline);
+
+			// Bind groups
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[materialIndex][frameIndex]);
+			SetBindGroup(commandList, 1, gfx.materialBindGroups[materialIndex]);
+
+			// Vertex buffer
+			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+			SetVertexBuffer(commandList, vertexBuffer);
+
+			// Index buffer
+			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			// Draw!!!
+			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
+			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+		}
+
+#if USE_IMGUI
+		// Record dear imgui primitives into command buffer
+		ImDrawData* draw_data = ImGui::GetDrawData();
+		ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
+#endif
+
+		EndRenderPass(commandList);
+	}
+
 	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 
 	EndCommandList(commandList);
