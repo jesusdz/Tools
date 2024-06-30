@@ -963,35 +963,33 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	return true;
 }
 
-bool InitializeGraphicsSurface(const Window &window, GraphicsDevice &device)
+void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
-#if VK_USE_PLATFORM_XCB_KHR
-	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.connection = window.connection;
-	surfaceCreateInfo.window = window.window;
-	VK_CALL( vkCreateXcbSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
-#elif VK_USE_PLATFORM_ANDROID_KHR
-	VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.window = window.nativeWindow;
-	VK_CALL( vkCreateAndroidSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
-#elif VK_USE_PLATFORM_WIN32_KHR
-	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
-	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	surfaceCreateInfo.hinstance = window.hInstance;
-	surfaceCreateInfo.hwnd = window.hWnd;
-	VK_CALL( vkCreateWin32SurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
-#endif
+	vkDestroyImageView(gfx.device.handle, renderTargets.depthImageView, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.image, VULKAN_ALLOCATORS);
 
-	return true;
+	// Reset the heap used for render targets
+	Heap &rtHeap = gfx.device.heaps[HeapType_RTs];
+	rtHeap.used = 0;
+
+	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
+	{
+		vkDestroyFramebuffer( gfx.device.handle, renderTargets.framebuffers[i], VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyImageView(gfx.device.handle, renderTargets.shadowmapImageView, VULKAN_ALLOCATORS);
+	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.image, VULKAN_ALLOCATORS);
+	vkDestroyFramebuffer( gfx.device.handle, renderTargets.shadowmapFramebuffer, VULKAN_ALLOCATORS );
+
+	renderTargets = {};
 }
 
-bool InitializeGraphics(Arena &arena, Window &window, Graphics &gfx)
+
+bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 {
 	Arena scratch = MakeSubArena(arena);
 
-	if ( !InitializeGraphicsDevice(scratch, window, gfx.device) ) {
+	if ( !InitializeGraphicsDevice( gfx.device, scratch, window ) ) {
 		return false;
 	}
 
@@ -1358,30 +1356,9 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 void WaitDeviceIdle(Graphics &gfx)
 {
-	vkDeviceWaitIdle( gfx.device.handle );
+	WaitDeviceIdle(gfx.device);
 
 	gfx.stagingBufferOffset = 0;
-}
-
-void CleanupRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
-{
-	vkDestroyImageView(gfx.device.handle, renderTargets.depthImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.image, VULKAN_ALLOCATORS);
-
-	// Reset the heap used for render targets
-	Heap &rtHeap = gfx.device.heaps[HeapType_RTs];
-	rtHeap.used = 0;
-
-	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
-	{
-		vkDestroyFramebuffer( gfx.device.handle, renderTargets.framebuffers[i], VULKAN_ALLOCATORS );
-	}
-
-	vkDestroyImageView(gfx.device.handle, renderTargets.shadowmapImageView, VULKAN_ALLOCATORS);
-	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.image, VULKAN_ALLOCATORS);
-	vkDestroyFramebuffer( gfx.device.handle, renderTargets.shadowmapFramebuffer, VULKAN_ALLOCATORS );
-
-	renderTargets = {};
 }
 
 void CleanupGraphics(Graphics &gfx)
@@ -1419,11 +1396,6 @@ void CleanupGraphics(Graphics &gfx)
 		DestroyBufferView( gfx.device, gfx.bufferViews[i] );
 	}
 
-	for (u32 i = 0; i < HeapType_COUNT; ++i)
-	{
-		vkFreeMemory(gfx.device.handle, gfx.device.heaps[i].memory, VULKAN_ALLOCATORS);
-	}
-
 	for (u32 i = 0; i < gfx.pipelineCount; ++i )
 	{
 		const Pipeline &pipeline = GetPipeline(gfx, i);
@@ -1436,6 +1408,8 @@ void CleanupGraphics(Graphics &gfx)
 	}
 
 	CleanupGraphicsDevice( gfx.device );
+
+	CleanupGraphicsDriver( gfx.device );
 
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
@@ -2029,7 +2003,7 @@ bool EngineInit(Platform &platform)
 #endif
 
 	// Initialize graphics
-	if ( !InitializeGraphicsDriver(platform.globalArena, gfx.device) )
+	if ( !InitializeGraphicsDriver(gfx.device, platform.globalArena) )
 	{
 		// TODO: Actually we could throw a system error and exit...
 		LOG(Error, "InitializeGraphicsDriver failed!\n");
@@ -2043,7 +2017,7 @@ bool EngineWindowInit(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
-	if ( !InitializeGraphicsSurface(platform.window, gfx.device) )
+	if ( !InitializeGraphicsSurface(gfx.device, platform.window) )
 	{
 		// TODO: Actually we could throw a system error and exit...
 		LOG(Error, "InitializeGraphicsSurface failed!\n");
@@ -2056,7 +2030,7 @@ bool EngineWindowInit(Platform &platform)
 	}
 	else
 	{
-		if ( !InitializeGraphics(platform.globalArena, platform.window, gfx) )
+		if ( !InitializeGraphics(gfx, platform.globalArena, platform.window) )
 		{
 			// TODO: Actually we could throw a system error and exit...
 			LOG(Error, "InitializeGraphics failed!\n");
@@ -2080,8 +2054,8 @@ void EngineUpdate(Platform &platform)
 	if ( gfx.device.swapchain.outdated || platform.window.flags & WindowFlags_WasResized )
 	{
 		WaitDeviceIdle(gfx);
-		CleanupRenderTargets(gfx, gfx.renderTargets);
-		CleanupSwapchain(gfx.device, gfx.device.swapchain);
+		DestroyRenderTargets(gfx, gfx.renderTargets);
+		DestroySwapchain(gfx.device, gfx.device.swapchain);
 		gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
 		CreateRenderTargets(gfx, gfx.renderTargets);
 		gfx.device.swapchain.outdated = false;
@@ -2106,8 +2080,8 @@ void EngineWindowCleanup(Platform &platform)
 	Graphics &gfx = GetPlatformGraphics(platform);
 
 	WaitDeviceIdle(gfx);
-	CleanupRenderTargets(gfx, gfx.renderTargets);
-	CleanupSwapchain(gfx.device, gfx.device.swapchain);
+	DestroyRenderTargets(gfx, gfx.renderTargets);
+	DestroySwapchain(gfx.device, gfx.device.swapchain);
 }
 
 void EngineCleanup(Platform &platform)
@@ -2122,8 +2096,8 @@ void EngineCleanup(Platform &platform)
 
 	CleanupScene(gfx);
 
-	CleanupRenderTargets(gfx, gfx.renderTargets);
-	CleanupSwapchain(gfx.device, gfx.device.swapchain);
+	DestroyRenderTargets(gfx, gfx.renderTargets);
+	DestroySwapchain(gfx.device, gfx.device.swapchain);
 
 	CleanupGraphics(gfx);
 }

@@ -723,6 +723,11 @@ static Heap CreateHeap(const GraphicsDevice &device, HeapType heapType, u32 size
 	return heap;
 }
 
+static void DestroyHeap(const GraphicsDevice &device, const Heap &heap)
+{
+	vkFreeMemory(device.handle, heap.memory, VULKAN_ALLOCATORS);
+}
+
 static ShaderModule CreateShaderModule(const GraphicsDevice &device, const ShaderSource &source)
 {
 	VkShaderModuleCreateInfo createInfo{};
@@ -1135,7 +1140,7 @@ Swapchain CreateSwapchain(const GraphicsDevice &device, Window &window, const Sw
 	return swapchain;
 }
 
-void CleanupSwapchain(const GraphicsDevice &device, Swapchain &swapchain)
+void DestroySwapchain(const GraphicsDevice &device, Swapchain &swapchain)
 {
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
@@ -1147,7 +1152,7 @@ void CleanupSwapchain(const GraphicsDevice &device, Swapchain &swapchain)
 	swapchain = {};
 }
 
-bool InitializeGraphicsDriver(Arena scratch, GraphicsDevice &device)
+bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 {
 	// Initialize Volk -- load basic Vulkan function pointers
 	VkResult result = volkInitialize();
@@ -1274,7 +1279,41 @@ bool InitializeGraphicsDriver(Arena scratch, GraphicsDevice &device)
 	return true;
 }
 
-bool InitializeGraphicsDevice(Arena scratch, Window &window, GraphicsDevice &device)
+void CleanupGraphicsDriver(GraphicsDevice &device)
+{
+	if ( device.support.debugReportCallbacks )
+	{
+		vkDestroyDebugReportCallbackEXT( device.instance, device.debugReportCallback, VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);
+}
+
+bool InitializeGraphicsSurface(GraphicsDevice &device, const Window &window)
+{
+#if VK_USE_PLATFORM_XCB_KHR
+	VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.connection = window.connection;
+	surfaceCreateInfo.window = window.window;
+	VK_CALL( vkCreateXcbSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
+#elif VK_USE_PLATFORM_ANDROID_KHR
+	VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.window = window.nativeWindow;
+	VK_CALL( vkCreateAndroidSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
+#elif VK_USE_PLATFORM_WIN32_KHR
+	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.hinstance = window.hInstance;
+	surfaceCreateInfo.hwnd = window.hWnd;
+	VK_CALL( vkCreateWin32SurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
+#endif
+
+	return true;
+}
+
+bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &window)
 {
 	VkResult result = VK_RESULT_MAX_ENUM;
 
@@ -1630,16 +1669,14 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 		vkDestroyCommandPool( device.handle, device.commandPools[i], VULKAN_ALLOCATORS );
 	}
 
+	for (u32 i = 0; i < HeapType_COUNT; ++i)
+	{
+		DestroyHeap(device, device.heaps[i]);
+	}
+
 	vkDestroyDevice(device.handle, VULKAN_ALLOCATORS);
 
 	vkDestroySurfaceKHR(device.instance, device.surface, VULKAN_ALLOCATORS);
-
-	if ( device.support.debugReportCallbacks )
-	{
-		vkDestroyDebugReportCallbackEXT( device.instance, device.debugReportCallback, VULKAN_ALLOCATORS );
-	}
-
-	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);
 }
 
 
@@ -2475,6 +2512,10 @@ void EndFrame(GraphicsDevice &device)
 	device.currentFrame = ( device.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
 
+void WaitDeviceIdle(const GraphicsDevice &device)
+{
+	vkDeviceWaitIdle( device.handle );
+}
 
 
 #endif // #ifndef TOOLS_GFX_H
