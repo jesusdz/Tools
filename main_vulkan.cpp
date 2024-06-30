@@ -2082,6 +2082,7 @@ void EngineWindowCleanup(Platform &platform)
 	WaitDeviceIdle(gfx);
 	DestroyRenderTargets(gfx, gfx.renderTargets);
 	DestroySwapchain(gfx.device, gfx.device.swapchain);
+	CleanupGraphicsSurface(gfx.device);
 }
 
 void EngineCleanup(Platform &platform)
@@ -2098,6 +2099,7 @@ void EngineCleanup(Platform &platform)
 
 	DestroyRenderTargets(gfx, gfx.renderTargets);
 	DestroySwapchain(gfx.device, gfx.device.swapchain);
+	CleanupGraphicsSurface(gfx.device);
 
 	CleanupGraphics(gfx);
 }

@@ -4,11 +4,41 @@
  *
  * Graphics API abstraction made on top of Vulkan.
  *
- * Some concepts abstracted from the low-level API are:
- * - Device creation
- * - Bind groups
- * - Render passes
- * - Pipelines
+ * These are the functions abstracted from the low-level API.
+ *
+ * Device initialization:
+ * - (Create/Destroy)Swapchain
+ * - (Initialize/Cleanup)GraphicsDriver
+ * - (Initialize/Cleanup)GraphicsSurface
+ * - (Initialize/Cleanup)GraphicsDevice
+ *
+ * Resource management:
+ * - (Create/Destroy/Reset)BindGroupAllocator
+ * - (Create/Destroy)BindGroupLayout
+ * - CreateBindGroup
+ * - (Create/Destroy)BufferView
+ * - (Create/Destroy)Sampler
+ * - CreateGraphicsPipeline
+ * - CreateComputePipeline
+ * - DestroyPipeline
+ * - (Create/Destroy)RenderPass
+ *
+ * Command lists and commands:
+ * - (Begin/End)CommandList
+ * - (Begin/End)RenderPass
+ * - SetViewportAndScissor
+ * - SetPipeline
+ * - SetBindGroup
+ * - SetVertexBuffer
+ * - SetIndexBuffer
+ * - DrawIndexed
+ * - Dispatch
+ *
+ * Work submission and synchronization:
+ * - Submit
+ * - Present
+ * - (Begin/End)Frame
+ * - WaitDeviceIdle
  */
 
 #ifndef TOOLS_GFX_H
@@ -1313,6 +1343,11 @@ bool InitializeGraphicsSurface(GraphicsDevice &device, const Window &window)
 	return true;
 }
 
+void CleanupGraphicsSurface(const GraphicsDevice &device)
+{
+	vkDestroySurfaceKHR(device.instance, device.surface, VULKAN_ALLOCATORS);
+}
+
 bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &window)
 {
 	VkResult result = VK_RESULT_MAX_ENUM;
@@ -1675,8 +1710,6 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 	}
 
 	vkDestroyDevice(device.handle, VULKAN_ALLOCATORS);
-
-	vkDestroySurfaceKHR(device.instance, device.surface, VULKAN_ALLOCATORS);
 }
 
 
@@ -1783,6 +1816,11 @@ BindGroupLayout CreateBindGroupLayout(const GraphicsDevice &device, const Shader
 	}
 
 	return layout;
+}
+
+void DestroyBindGroupLayout(const GraphicsDevice &device, const BindGroupLayout &bindGroupLayout)
+{
+	vkDestroyDescriptorSetLayout( device.handle, bindGroupLayout.handle, VULKAN_ALLOCATORS );
 }
 
 BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator)
@@ -2184,8 +2222,8 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 {
 	vkDestroyPipeline( device.handle, pipeline.handle, VULKAN_ALLOCATORS );
 	vkDestroyPipelineLayout( device.handle, pipeline.layout.handle, VULKAN_ALLOCATORS );
-	for (u32 j = 0; j < ARRAY_COUNT(pipeline.layout.bindGroupLayouts); ++j) {
-		vkDestroyDescriptorSetLayout( device.handle, pipeline.layout.bindGroupLayouts[j].handle, VULKAN_ALLOCATORS );
+	for (u32 i = 0; i < ARRAY_COUNT(pipeline.layout.bindGroupLayouts); ++i) {
+		DestroyBindGroupLayout(device, pipeline.layout.bindGroupLayouts[i]);
 	}
 }
 
