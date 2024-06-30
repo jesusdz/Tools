@@ -380,6 +380,7 @@ struct SubmitResult
 struct GraphicsDevice
 {
 	VkInstance instance;
+
 	VkPhysicalDevice physicalDevice;
 	VkDevice handle;
 
@@ -407,6 +408,13 @@ struct GraphicsDevice
 	Heap heaps[HeapType_COUNT];
 
 	u32 currentFrame;
+
+	struct
+	{
+		bool debugReportCallbacks;
+	} support;
+
+	VkDebugReportCallbackEXT debugReportCallback;
 };
 
 
@@ -607,6 +615,22 @@ static VkAttachmentStoreOp StoreOpToVulkan( StoreOp storeOp )
 ////////////////////////////////////////////////////////////////////////
 // Internal functions
 ////////////////////////////////////////////////////////////////////////
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
+		VkDebugReportFlagsEXT       flags,
+		VkDebugReportObjectTypeEXT  objectType,
+		uint64_t                    object,
+		size_t                      location,
+		int32_t                     messageCode,
+		const char*                 pLayerPrefix,
+		const char*                 pMessage,
+		void*                       pUserData)
+{
+	LOG(Warning, "VulkanDebugReportCallback was called.\n");
+	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
+	LOG(Warning, " - pMessage: %s.\n", pMessage);
+	return VK_FALSE;
+}
 
 static const char *VkResultToString(VkResult result)
 {
@@ -922,6 +946,28 @@ static void BindDescriptorSets(CommandList &commandList)
 	}
 }
 
+static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, u32 mipLevels)
+{
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = format;
+	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.subresourceRange.aspectMask = aspectFlags;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = mipLevels;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	VkImageView imageView;
+	VK_CALL( vkCreateImageView(device.handle, &viewInfo, VULKAN_ALLOCATORS, &imageView) );
+	return imageView;
+}
+
 
 
 
@@ -931,6 +977,671 @@ static void BindDescriptorSets(CommandList &commandList)
 ////////////////////////////////////////////////////////////////////////
 // Public API
 ////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////
+// Device
+//////////////////////////////
+
+Swapchain CreateSwapchain(const GraphicsDevice &device, Window &window, const SwapchainInfo &swapchainInfo)
+{
+	Swapchain swapchain = {};
+
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice, device.surface, &surfaceCapabilities);
+
+	// Swapchain extent
+	if ( surfaceCapabilities.currentExtent.width != 0xFFFFFFFF )
+	{
+		swapchain.extent = surfaceCapabilities.currentExtent;
+
+		// This is the size of the window. We get it here just in case it was not set by the window manager yet.
+		window.width = swapchain.extent.width;
+		window.height = swapchain.extent.height;
+		window.flags &= ~WindowFlags_WasResized;
+	}
+	else
+	{
+		swapchain.extent.width = Clamp( window.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width );
+		swapchain.extent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
+	}
+
+
+	LOG(Info, "Swapchain:\n");
+#if PLATFORM_ANDROID
+	const u32 baseWidth = swapchain.extent.width;
+	const u32 baseHeight = swapchain.extent.height;
+	const u32 reducedWidth = Max(baseWidth/2, surfaceCapabilities.minImageExtent.width);
+	const u32 reducedHeight = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
+	swapchain.extent.width = reducedWidth;
+	swapchain.extent.height = reducedHeight;
+	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
+	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
+	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
+#endif
+	LOG(Info, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
+
+
+	// Pre transform
+	VkSurfaceTransformFlagBitsKHR preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR;
+		const u32 temp = swapchain.extent.width;
+		swapchain.extent.width = swapchain.extent.height;
+		swapchain.extent.height = temp;
+		swapchain.preRotationDegrees = 90.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR;
+		swapchain.preRotationDegrees = 180.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ) {
+		preTransform = VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR;
+		const u32 temp = swapchain.extent.width;
+		swapchain.extent.width = swapchain.extent.height;
+		swapchain.extent.height = temp;
+		swapchain.preRotationDegrees = 270.0f;
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR ) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else if ( surfaceCapabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+		INVALID_CODE_PATH();
+	} else {
+		INVALID_CODE_PATH();
+	}
+	LOG(Info, "- preRotationDegrees: %f\n", swapchain.preRotationDegrees);
+
+
+	// Image count
+	u32 imageCount = surfaceCapabilities.minImageCount + 1;
+	if ( surfaceCapabilities.maxImageCount > 0 )
+		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
+
+
+	// Queues
+	u32 queueFamilyIndices[] = {
+		device.graphicsQueueFamilyIndex,
+		device.presentQueueFamilyIndex
+	};
+
+	VkSharingMode imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	u32 queueFamilyIndexCount = 0;
+	u32 *pQueueFamilyIndices = NULL;
+	if ( device.graphicsQueueFamilyIndex != device.presentQueueFamilyIndex )
+	{
+		imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+		queueFamilyIndexCount = ARRAY_COUNT(queueFamilyIndices);
+		pQueueFamilyIndices = queueFamilyIndices;
+	}
+
+
+	// Composite alpha
+	VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+	} else if ( surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR ) {
+		compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+	} else {
+		INVALID_CODE_PATH();
+	}
+
+
+	// Swapchain
+	VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+	swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	swapchainCreateInfo.surface = device.surface;
+	swapchainCreateInfo.minImageCount = imageCount;
+	swapchainCreateInfo.imageFormat = swapchainInfo.format;
+	swapchainCreateInfo.imageColorSpace = swapchainInfo.colorSpace;
+	swapchainCreateInfo.imageExtent = swapchain.extent;
+	swapchainCreateInfo.imageArrayLayers = 1;
+	swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // we will render directly on it
+	//swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // for typical engines with several render passes before
+	swapchainCreateInfo.imageSharingMode = imageSharingMode;
+	swapchainCreateInfo.queueFamilyIndexCount = queueFamilyIndexCount;
+	swapchainCreateInfo.pQueueFamilyIndices = pQueueFamilyIndices;
+	swapchainCreateInfo.compositeAlpha = compositeAlpha;
+	swapchainCreateInfo.presentMode = swapchainInfo.presentMode;
+	swapchainCreateInfo.clipped = VK_TRUE; // Don't care about pixels obscured by other windows
+	swapchainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
+	swapchainCreateInfo.preTransform = preTransform;
+
+	VK_CALL( vkCreateSwapchainKHR(device.handle, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain.handle) );
+
+
+	// Get the swapchain images
+	vkGetSwapchainImagesKHR( device.handle, swapchain.handle, &swapchain.imageCount, NULL );
+	ASSERT( swapchain.imageCount <= ARRAY_COUNT(swapchain.images) );
+	vkGetSwapchainImagesKHR( device.handle, swapchain.handle, &swapchain.imageCount, swapchain.images );
+
+
+	// Create image views
+	for ( u32 i = 0; i < swapchain.imageCount; ++i )
+	{
+		const VkImage image = swapchain.images[i];
+		const VkFormat format = swapchainInfo.format;
+		swapchain.imageViews[i] = CreateImageView(device, image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	}
+
+
+	return swapchain;
+}
+
+void CleanupSwapchain(const GraphicsDevice &device, Swapchain &swapchain)
+{
+	for ( u32 i = 0; i < swapchain.imageCount; ++i )
+	{
+		vkDestroyImageView(device.handle, swapchain.imageViews[i], VULKAN_ALLOCATORS);
+	}
+
+	vkDestroySwapchainKHR(device.handle, swapchain.handle, VULKAN_ALLOCATORS);
+
+	swapchain = {};
+}
+
+bool InitializeGraphicsDriver(Arena scratch, GraphicsDevice &device)
+{
+	// Initialize Volk -- load basic Vulkan function pointers
+	VkResult result = volkInitialize();
+	if ( result != VK_SUCCESS )
+	{
+		LOG(Error, "The Vulkan loader was not found in the system.\n");
+		return false;
+	}
+
+
+	// Instance creation
+	VkApplicationInfo applicationInfo = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
+	applicationInfo.pApplicationName = "Vulkan application";
+	applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+	applicationInfo.pEngineName = "Vulkan engine";
+	applicationInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+	applicationInfo.apiVersion = VK_API_VERSION_1_1;
+
+	u32 instanceLayerCount;
+	VK_CALL( vkEnumerateInstanceLayerProperties( &instanceLayerCount, NULL ) );
+	VkLayerProperties *instanceLayers = PushArray(scratch, VkLayerProperties, instanceLayerCount);
+	VK_CALL( vkEnumerateInstanceLayerProperties( &instanceLayerCount, instanceLayers ) );
+
+	const char *wantedInstanceLayerNames[] = {
+		"VK_LAYER_KHRONOS_validation"
+	};
+	const char *enabledInstanceLayerNames[ARRAY_COUNT(wantedInstanceLayerNames)];
+	u32 enabledInstanceLayerCount = 0;
+
+	LOG(Info, "Instance layers:\n");
+	for (u32 i = 0; i < instanceLayerCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *iteratedLayerName = instanceLayers[i].layerName;
+		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceLayerNames); ++j)
+		{
+			const char *wantedLayerName = wantedInstanceLayerNames[j];
+			if ( StrEq( iteratedLayerName, wantedLayerName ) )
+			{
+				enabledInstanceLayerNames[enabledInstanceLayerCount++] = wantedLayerName;
+				enabled = true;
+			}
+		}
+
+		LOG(Info, "%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
+	}
+
+	u32 instanceExtensionCount;
+	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, NULL ) );
+	VkExtensionProperties *instanceExtensions = PushArray(scratch, VkExtensionProperties, instanceExtensionCount);
+	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, instanceExtensions ) );
+
+	const char *wantedInstanceExtensionNames[] = {
+#if USE_VK_EXT_PORTABILITY_ENUMERATION
+		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+#endif
+		VK_KHR_SURFACE_EXTENSION_NAME,
+#if VK_USE_PLATFORM_XCB_KHR
+		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+#elif VK_USE_PLATFORM_ANDROID_KHR
+		VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+#elif VK_USE_PLATFORM_WIN32_KHR
+		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#endif
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+		//VK_EXT_DEBUG_UTILS_EXTENSION_NAME, // This one is newer, only supported from vulkan 1.1
+	};
+	const char *enabledInstanceExtensionNames[ARRAY_COUNT(wantedInstanceExtensionNames)];
+	u32 enabledInstanceExtensionCount = 0;
+
+	LOG(Info, "Instance extensions:\n");
+	for (u32 i = 0; i < instanceExtensionCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *availableExtensionName = instanceExtensions[i].extensionName;
+		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceExtensionNames); ++j)
+		{
+			const char *wantedExtensionName = wantedInstanceExtensionNames[j];
+			if ( StrEq( availableExtensionName, wantedExtensionName ) )
+			{
+				enabledInstanceExtensionNames[enabledInstanceExtensionCount++] = wantedExtensionName;
+				enabled = true;
+			}
+		}
+
+		LOG(Info, "%c %s\n", enabled?'*':' ', instanceExtensions[i].extensionName);
+	}
+
+	VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+	instanceCreateInfo.pApplicationInfo = &applicationInfo;
+#if USE_VK_EXT_PORTABILITY_ENUMERATION
+	instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+	instanceCreateInfo.enabledLayerCount = enabledInstanceLayerCount;
+	instanceCreateInfo.ppEnabledLayerNames = enabledInstanceLayerNames;
+	instanceCreateInfo.enabledExtensionCount = enabledInstanceExtensionCount;
+	instanceCreateInfo.ppEnabledExtensionNames = enabledInstanceExtensionNames;
+
+	VK_CALL ( vkCreateInstance( &instanceCreateInfo, VULKAN_ALLOCATORS, &device.instance ) );
+
+
+	// Load the instance-related Vulkan function pointers
+	volkLoadInstanceOnly(device.instance);
+
+
+	// Report callback
+	if ( vkCreateDebugReportCallbackEXT )
+	{
+		device.support.debugReportCallbacks = true;
+
+		VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT };
+		//debugReportCallbackCreateInfo.flags = VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_WARNING_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+		debugReportCallbackCreateInfo.flags |= VK_DEBUG_REPORT_ERROR_BIT_EXT;
+		debugReportCallbackCreateInfo.pfnCallback = VulkanDebugReportCallback;
+		debugReportCallbackCreateInfo.pUserData = 0;
+
+		VK_CALL( vkCreateDebugReportCallbackEXT( device.instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &device.debugReportCallback) );
+	}
+
+	return true;
+}
+
+bool InitializeGraphicsDevice(Arena scratch, Window &window, GraphicsDevice &device)
+{
+	VkResult result = VK_RESULT_MAX_ENUM;
+
+
+	// List of physical devices
+	u32 physicalDeviceCount = 0;
+	VK_CALL( vkEnumeratePhysicalDevices( device.instance, &physicalDeviceCount, NULL ) );
+	VkPhysicalDevice *physicalDevices = PushArray( scratch, VkPhysicalDevice, physicalDeviceCount );
+	VK_CALL( vkEnumeratePhysicalDevices( device.instance, &physicalDeviceCount, physicalDevices ) );
+
+	const char *requiredDeviceExtensionNames[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+
+
+	// Data to discover from the physical device selection
+	bool suitableDeviceFound = false;
+
+	// Physical device selection
+	for (u32 i = 0; i < physicalDeviceCount; ++i)
+	{
+		VkPhysicalDevice physicalDevice = physicalDevices[i];
+
+		Arena scratch2 = MakeSubArena(scratch);
+
+		#if !PLATFORM_ANDROID
+		// We only want dedicated GPUs
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties( physicalDevice, &properties );
+		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+			continue;
+		#endif
+
+		VkPhysicalDeviceFeatures features;
+		vkGetPhysicalDeviceFeatures( physicalDevice, &features );
+		// Check any needed features here
+		if ( features.samplerAnisotropy == VK_FALSE )
+			continue;
+
+		// Check the available queue families
+		u32 queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, NULL);
+		VkQueueFamilyProperties *queueFamilies = PushArray( scratch2, VkQueueFamilyProperties, queueFamilyCount );
+		vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, queueFamilies );
+
+		u32 gfxFamilyIndex = -1;
+		u32 presentFamilyIndex = -1;
+		for ( u32 i = 0; i < queueFamilyCount; ++i )
+		{
+			VkBool32 presentSupport = VK_FALSE;
+			vkGetPhysicalDeviceSurfaceSupportKHR( physicalDevice, i, device.surface, &presentSupport );
+			if ( presentSupport )
+			{
+				presentFamilyIndex = i;
+			}
+
+			// We want the gfx queue to support both gfx and compute tasks
+			if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+				(queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
+			{
+				gfxFamilyIndex = i;
+			}
+		}
+
+		// We don't want a device that does not support both queue types
+		if ( gfxFamilyIndex == -1 || presentFamilyIndex == -1 )
+			continue;
+
+		// Check if this physical device has all the required extensions
+		u32 deviceExtensionCount;
+		VK_CALL( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, NULL ) );
+		VkExtensionProperties *deviceExtensions = PushArray( scratch2, VkExtensionProperties, deviceExtensionCount );
+		VK_CALL( vkEnumerateDeviceExtensionProperties( physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
+
+		u32 foundDeviceExtensionCount = 0;
+
+		for (u32 j = 0; j < ARRAY_COUNT(requiredDeviceExtensionNames); ++j)
+		{
+			const char *requiredExtensionName = requiredDeviceExtensionNames[j];
+			bool found = false;
+
+			for (u32 i = 0; i < deviceExtensionCount; ++i)
+			{
+				const char *availableExtensionName = deviceExtensions[i].extensionName;
+				if ( StrEq( availableExtensionName, requiredExtensionName ) )
+				{
+					foundDeviceExtensionCount++;
+					found = true;
+					break;
+				}
+			}
+
+			if ( !found )
+			{
+				break;
+			}
+		}
+
+		// We only want devices with all the required extensions
+		if ( foundDeviceExtensionCount < ARRAY_COUNT(requiredDeviceExtensionNames) )
+			continue;
+
+		// Swapchain format
+		u32 surfaceFormatCount = 0;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, device.surface, &surfaceFormatCount, NULL);
+		if ( surfaceFormatCount == 0 )
+			continue;
+		VkSurfaceFormatKHR *surfaceFormats = PushArray( scratch2, VkSurfaceFormatKHR, surfaceFormatCount );
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, device.surface, &surfaceFormatCount, surfaceFormats);
+
+		device.swapchainInfo.format = VK_FORMAT_MAX_ENUM;
+		for ( u32 i = 0; i < surfaceFormatCount; ++i )
+		{
+			if ( ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB || surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB ) &&
+					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
+			{
+				device.swapchainInfo.format = surfaceFormats[i].format;
+				device.swapchainInfo.colorSpace = surfaceFormats[i].colorSpace;
+				break;
+			}
+		}
+		if ( device.swapchainInfo.format == VK_FORMAT_MAX_ENUM )
+		{
+			device.swapchainInfo.format = surfaceFormats[0].format;
+			device.swapchainInfo.colorSpace = surfaceFormats[0].colorSpace;
+		}
+
+		// Swapchain present mode
+		u32 surfacePresentModeCount = 0;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, device.surface, &surfacePresentModeCount, NULL);
+		if ( surfacePresentModeCount == 0 )
+			continue;
+		VkPresentModeKHR *surfacePresentModes = PushArray( scratch2, VkPresentModeKHR, surfacePresentModeCount );
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, device.surface, &surfacePresentModeCount, surfacePresentModes);
+
+#if USE_SWAPCHAIN_MAILBOX_PRESENT_MODE
+		device.swapchainPresentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+		for ( u32 i = 0; i < surfacePresentModeCount; ++i )
+		{
+			if ( surfacePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR )
+			{
+				device.swapchainPresentMode = surfacePresentModes[i];
+			}
+		}
+		if ( device.swapchainInfo.presentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+			device.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+#else
+		device.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+#endif
+
+		// At this point, we know this device meets all the requirements
+		suitableDeviceFound = true;
+		device.physicalDevice = physicalDevice;
+		device.graphicsQueueFamilyIndex = gfxFamilyIndex;
+		device.presentQueueFamilyIndex = presentFamilyIndex;
+		break;
+	}
+
+	if ( !suitableDeviceFound )
+	{
+		LOG(Error, "Could not find any suitable GFX device.\n");
+		return false;
+	}
+
+
+	// Device creation
+	u32 queueCount = 1;
+	float queuePriorities[1] = { 1.0f };
+	VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
+	u32 queueCreateInfoCount = 0;
+	u32 queueCreateInfoIndex = queueCreateInfoCount++;
+	queueCreateInfos[queueCreateInfoIndex].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueCreateInfos[queueCreateInfoIndex].queueFamilyIndex = device.graphicsQueueFamilyIndex;
+	queueCreateInfos[queueCreateInfoIndex].queueCount = queueCount;
+	queueCreateInfos[queueCreateInfoIndex].pQueuePriorities = queuePriorities;
+	if ( device.presentQueueFamilyIndex != device.graphicsQueueFamilyIndex )
+	{
+		queueCreateInfoIndex = queueCreateInfoCount++;
+		queueCreateInfos[queueCreateInfoIndex].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfos[queueCreateInfoIndex].queueFamilyIndex = device.presentQueueFamilyIndex;
+		queueCreateInfos[queueCreateInfoIndex].queueCount = queueCount;
+		queueCreateInfos[queueCreateInfoIndex].pQueuePriorities = queuePriorities;
+	}
+
+#if 0
+	u32 deviceExtensionCount;
+	VK_CALL( vkEnumerateDeviceExtensionProperties( device.physicalDevice, NULL, &deviceExtensionCount, NULL ) );
+	VkExtensionProperties *deviceExtensions = PushArray(scratch, VkExtensionProperties, deviceExtensionCount);
+	VK_CALL( vkEnumerateDeviceExtensionProperties( device.physicalDevice, NULL, &deviceExtensionCount, deviceExtensions ) );
+
+	// We don't need this loop anymore unless we want to print this device extensions
+	const char *enabledDeviceExtensionNames[ARRAY_COUNT(requiredDeviceExtensionNames)];
+	u32 enabledDeviceExtensionCount = 0;
+
+	LOG(Info, "Device extensions:\n");
+	for (u32 i = 0; i < deviceExtensionCount; ++i)
+	{
+		bool enabled = false;
+
+		const char *availableExtensionName = deviceExtensions[i].extensionName;
+		for (u32 j = 0; j < ARRAY_COUNT(requiredDeviceExtensionNames); ++j)
+		{
+			const char *requiredExtensionName = requiredDeviceExtensionNames[j];
+			if ( StrEq( availableExtensionName, requiredExtensionName ) )
+			{
+				enabledDeviceExtensionNames[enabledDeviceExtensionCount++] = requiredExtensionName;
+				enabled = true;
+			}
+		}
+
+		LOG(Info, "%c %s\n", enabled?'*':' ', deviceExtensions[i].extensionName);
+	}
+#else
+	const char **enabledDeviceExtensionNames = requiredDeviceExtensionNames;
+	u32 enabledDeviceExtensionCount = ARRAY_COUNT(requiredDeviceExtensionNames);
+#endif
+
+	VkPhysicalDeviceFeatures requiredPhysicalDeviceFeatures = {};
+	requiredPhysicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
+
+	VkDeviceCreateInfo deviceCreateInfo = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+	deviceCreateInfo.queueCreateInfoCount = queueCreateInfoCount;
+	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
+	deviceCreateInfo.enabledLayerCount = 0;
+	deviceCreateInfo.ppEnabledLayerNames = NULL;
+	deviceCreateInfo.enabledExtensionCount = enabledDeviceExtensionCount;
+	deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensionNames;
+	deviceCreateInfo.pEnabledFeatures = &requiredPhysicalDeviceFeatures;
+
+	result = vkCreateDevice( device.physicalDevice, &deviceCreateInfo, VULKAN_ALLOCATORS, &device.handle );
+	if ( result != VK_SUCCESS )
+	{
+		LOG(Error, "vkCreateDevice failed!\n");
+		return false;
+	}
+
+
+	// Load all the remaining device-related Vulkan function pointers
+	volkLoadDevice(device.handle);
+
+
+	// Print physical device info
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(device.physicalDevice, &properties);
+	LOG(Info, "Physical device info:\n");
+	LOG(Info, "- apiVersion: %u\n", properties.apiVersion); // uint32_t
+	LOG(Info, "- driverVersion: %u.%u.%u\n",
+			VK_VERSION_MAJOR(properties.driverVersion),
+			VK_VERSION_MINOR(properties.driverVersion),
+			VK_VERSION_PATCH(properties.driverVersion)); // uint32_t
+	LOG(Info, "- vendorID: %u\n", properties.vendorID); // uint32_t
+	LOG(Info, "- deviceID: %u\n", properties.deviceID); // uint32_t
+	LOG(Info, "- deviceType: %s\n", VkPhysicalDeviceTypeToString(properties.deviceType)); // VkPhysicalDeviceType
+	LOG(Info, "- deviceName: %s\n", properties.deviceName); // char
+	//LOG(Info, "- \n"); // uint8_t							 pipelineCacheUUID[VK_UUID_SIZE];
+	//LOG(Info, "- \n"); // VkPhysicalDeviceLimits			  limits;
+	//LOG(Info, "- \n"); // VkPhysicalDeviceSparseProperties	sparseProperties;
+
+
+	// Get alignments
+	device.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
+	device.alignment.optimalBufferCopyOffset = properties.limits.optimalBufferCopyOffsetAlignment;
+	device.alignment.optimalBufferCopyRowPitch = properties.limits.optimalBufferCopyRowPitchAlignment;
+
+
+	// Create heaps
+	device.heaps[HeapType_General] = CreateHeap(device, HeapType_General, MB(16), false);
+	device.heaps[HeapType_RTs] = CreateHeap(device, HeapType_RTs, MB(64), false);
+	device.heaps[HeapType_Staging] = CreateHeap(device, HeapType_Staging, MB(16), true);
+	device.heaps[HeapType_Dynamic] = CreateHeap(device, HeapType_Dynamic, MB(16), true);
+	//device.heaps[HeapType_Readback] = CreateHeap(gfx, HeapType_Readback, 0);
+
+
+	// Retrieve queues
+	vkGetDeviceQueue(device.handle, device.graphicsQueueFamilyIndex, 0, &device.graphicsQueue);
+	vkGetDeviceQueue(device.handle, device.presentQueueFamilyIndex, 0, &device.presentQueue);
+
+
+	// Command pools
+	for (u32 i = 0; i < ARRAY_COUNT(device.commandPools); ++i)
+	{
+		VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+		commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		commandPoolCreateInfo.flags = 0; // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT allows individual resets using vkResetCommandBuffer
+		commandPoolCreateInfo.queueFamilyIndex = device.graphicsQueueFamilyIndex;
+		VK_CALL( vkCreateCommandPool(device.handle, &commandPoolCreateInfo, VULKAN_ALLOCATORS, &device.commandPools[i]) );
+	}
+
+
+	// Command buffers
+	for (u32 i = 0; i < ARRAY_COUNT(device.commandBuffers); ++i)
+	{
+		VkCommandBufferAllocateInfo commandBufferAllocInfo = {};
+		commandBufferAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		commandBufferAllocInfo.commandPool = device.commandPools[i];
+		commandBufferAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		commandBufferAllocInfo.commandBufferCount = 1;
+		VK_CALL( vkAllocateCommandBuffers( device.handle, &commandBufferAllocInfo, &device.commandBuffers[i]) );
+	}
+
+
+	// Transient command pool
+	VkCommandPoolCreateInfo transientCommandPoolCreateInfo = {};
+	transientCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	transientCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	transientCommandPoolCreateInfo.queueFamilyIndex = device.graphicsQueueFamilyIndex;
+	VK_CALL( vkCreateCommandPool(device.handle, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &device.transientCommandPool) );
+
+
+	// Create swapchain
+	device.swapchain = CreateSwapchain( device, window, device.swapchainInfo );
+
+
+	// Synchronization objects
+	VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled
+
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.imageAvailableSemaphores[i] ) );
+		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.renderFinishedSemaphores[i] ) );
+		VK_CALL( vkCreateFence( device.handle, &fenceCreateInfo, VULKAN_ALLOCATORS, &device.inFlightFences[i] ) );
+	}
+
+
+	// Create pipeline cache
+	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
+	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	pipelineCacheCreateInfo.flags = 0;
+	pipelineCacheCreateInfo.initialDataSize = 0;
+	pipelineCacheCreateInfo.pInitialData = NULL;
+	VK_CALL( vkCreatePipelineCache( device.handle, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &device.pipelineCache ) );
+
+	return true;
+}
+
+void CleanupGraphicsDevice(const GraphicsDevice &device)
+{
+	vkDestroyPipelineCache( device.handle, device.pipelineCache, VULKAN_ALLOCATORS );
+
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		vkDestroySemaphore( device.handle, device.imageAvailableSemaphores[i], VULKAN_ALLOCATORS );
+		vkDestroySemaphore( device.handle, device.renderFinishedSemaphores[i], VULKAN_ALLOCATORS );
+		vkDestroyFence( device.handle, device.inFlightFences[i], VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyCommandPool( device.handle, device.transientCommandPool, VULKAN_ALLOCATORS );
+
+	for ( u32 i = 0; i < ARRAY_COUNT(device.commandPools); ++i )
+	{
+		vkDestroyCommandPool( device.handle, device.commandPools[i], VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyDevice(device.handle, VULKAN_ALLOCATORS);
+
+	vkDestroySurfaceKHR(device.instance, device.surface, VULKAN_ALLOCATORS);
+
+	if ( device.support.debugReportCallbacks )
+	{
+		vkDestroyDebugReportCallbackEXT( device.instance, device.debugReportCallback, VULKAN_ALLOCATORS );
+	}
+
+	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);
+}
+
 
 //////////////////////////////
 // BindGroupAllocator
