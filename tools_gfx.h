@@ -107,6 +107,7 @@
 #define MAX_SWAPCHAIN_IMAGE_COUNT 3
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
+#define MAX_FENCES 128
 
 #define VULKAN_ALLOCATORS NULL
 
@@ -433,7 +434,18 @@ struct GraphicsDevice
 
 	VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
 	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
-	VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
+
+	VkFence fences[MAX_FENCES];
+	u32 firstFenceIndex;
+	u32 usedFenceCount;
+
+	struct FrameData
+	{
+		u32 firstFenceIndex;
+		u32 usedFenceCount;
+	};
+
+	FrameData frameData[MAX_FRAMES_IN_FLIGHT];
 
 	VkPipelineCache pipelineCache;
 
@@ -1666,14 +1678,20 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 
 	// Synchronization objects
 	VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-	VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // Start signaled
 
 	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
 	{
 		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.imageAvailableSemaphores[i] ) );
 		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.renderFinishedSemaphores[i] ) );
-		VK_CALL( vkCreateFence( device.handle, &fenceCreateInfo, VULKAN_ALLOCATORS, &device.inFlightFences[i] ) );
+	}
+
+	const VkFenceCreateInfo fenceCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		//.flags = VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled
+	};
+	for ( u32 i = 0; i < MAX_FENCES; ++i )
+	{
+		VK_CALL( vkCreateFence( device.handle, &fenceCreateInfo, VULKAN_ALLOCATORS, &device.fences[i] ) );
 	}
 
 
@@ -1696,7 +1714,11 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 	{
 		vkDestroySemaphore( device.handle, device.imageAvailableSemaphores[i], VULKAN_ALLOCATORS );
 		vkDestroySemaphore( device.handle, device.renderFinishedSemaphores[i], VULKAN_ALLOCATORS );
-		vkDestroyFence( device.handle, device.inFlightFences[i], VULKAN_ALLOCATORS );
+	}
+
+	for ( u32 i = 0; i < MAX_FENCES; ++i )
+	{
+		vkDestroyFence( device.handle, device.fences[i], VULKAN_ALLOCATORS );
 	}
 
 	vkDestroyCommandPool( device.handle, device.transientCommandPool, VULKAN_ALLOCATORS );
@@ -2563,7 +2585,7 @@ void EndRenderPass(const CommandList &commandList)
 // Submission and Presentation
 //////////////////////////////
 
-SubmitResult Submit(const GraphicsDevice &device, const CommandList &commandList)
+SubmitResult Submit(GraphicsDevice &device, const CommandList &commandList)
 {
 	const u32 frameIndex = device.currentFrame;
 
@@ -2580,7 +2602,14 @@ SubmitResult Submit(const GraphicsDevice &device, const CommandList &commandList
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &commandList.handle;
 
-	VK_CALL( vkQueueSubmit( device.graphicsQueue, 1, &submitInfo, device.inFlightFences[frameIndex] ) );
+	ASSERT(device.usedFenceCount < MAX_FENCES);
+	device.usedFenceCount++;
+
+	GraphicsDevice::FrameData &frameData = device.frameData[frameIndex];
+	const u32 fenceIndex = ( frameData.firstFenceIndex + frameData.usedFenceCount ) % MAX_FENCES;
+	frameData.usedFenceCount++;
+
+	VK_CALL( vkQueueSubmit( device.graphicsQueue, 1, &submitInfo, device.fences[fenceIndex] ) );
 
 	SubmitResult res = {
 		.signalSemaphore = signalSemaphores[0],
@@ -2627,8 +2656,21 @@ bool BeginFrame(GraphicsDevice &device)
 {
 	const u32 frameIndex = device.currentFrame;
 
-	// Swapchain sync
-	VK_CALL( vkWaitForFences( device.handle, 1, &device.inFlightFences[frameIndex], VK_TRUE, UINT64_MAX ) );
+	// Catch-up frame fences if needed
+	VkFence fences[MAX_FENCES] = {};
+	GraphicsDevice::FrameData &frameData = device.frameData[frameIndex];
+
+	if ( frameData.usedFenceCount > 0 )
+	{
+		for (u32 i = 0; i < frameData.usedFenceCount; ++i)
+		{
+			const u32 fenceIndex = ( frameData.firstFenceIndex + i ) % MAX_FENCES;
+			fences[i] = device.fences[fenceIndex];
+		}
+
+		// Swapchain sync
+		VK_CALL( vkWaitForFences( device.handle, frameData.usedFenceCount, fences, VK_TRUE, UINT64_MAX ) );
+	}
 
 	u32 imageIndex;
 	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
@@ -2645,7 +2687,20 @@ bool BeginFrame(GraphicsDevice &device)
 		return false;
 	}
 
-	VK_CALL( vkResetFences( device.handle, 1, &device.inFlightFences[frameIndex] ) );
+	if ( frameData.usedFenceCount > 0 )
+	{
+		// Reset this frame fences
+		VK_CALL( vkResetFences( device.handle, frameData.usedFenceCount, fences ) );
+
+		// Update global fence ring status
+		device.firstFenceIndex = ( device.firstFenceIndex + frameData.usedFenceCount ) % MAX_FENCES;
+		device.usedFenceCount -= frameData.usedFenceCount;
+	}
+
+	// Reset this frame fence ring status
+	frameData.firstFenceIndex = ( device.firstFenceIndex + device.usedFenceCount ) % MAX_FENCES;
+	frameData.usedFenceCount = 0;
+
 	device.swapchain.currentImageIndex = imageIndex;
 
 	// Reset commands for this frame
