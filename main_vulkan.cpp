@@ -257,16 +257,16 @@ const BufferView &GetBufferView(const Graphics &gfx, BufferViewH bufferViewHandl
 	return bufferView;
 }
 
-VkCommandBuffer BeginTransientCommandBuffer(const Graphics &gfx)
+VkCommandBuffer BeginTransientCommandBuffer(const GraphicsDevice &device)
 {
 	VkCommandBufferAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocInfo.commandPool = gfx.device.transientCommandPool;
+	allocInfo.commandPool = device.transientCommandPool;
 	allocInfo.commandBufferCount = 1;
 
 	VkCommandBuffer commandBuffer;
-	vkAllocateCommandBuffers(gfx.device.handle, &allocInfo, &commandBuffer);
+	vkAllocateCommandBuffers(device.handle, &allocInfo, &commandBuffer);
 
 	VkCommandBufferBeginInfo beginInfo = {};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -277,7 +277,7 @@ VkCommandBuffer BeginTransientCommandBuffer(const Graphics &gfx)
 	return commandBuffer;
 }
 
-void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
+void EndTransientCommandBuffer(GraphicsDevice &device, VkCommandBuffer commandBuffer)
 {
 	vkEndCommandBuffer(commandBuffer);
 
@@ -285,17 +285,15 @@ void EndTransientCommandBuffer(Graphics &gfx, VkCommandBuffer commandBuffer)
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &commandBuffer;
-	vkQueueSubmit(gfx.device.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(gfx.device.graphicsQueue);
+	vkQueueSubmit(device.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(device.graphicsQueue);
 
-	vkFreeCommandBuffers(gfx.device.handle, gfx.device.transientCommandPool, 1, &commandBuffer);
-
-	gfx.stagingBufferOffset = 0;
+	vkFreeCommandBuffers(device.handle, device.transientCommandPool, 1, &commandBuffer);
 }
 
 void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, u32 dstOffset, VkDeviceSize size)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = srcOffset;
@@ -303,7 +301,7 @@ void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuff
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
-	EndTransientCommandBuffer(gfx, commandBuffer);
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 struct StagedData
@@ -549,16 +547,16 @@ void TransitionImageLayout(CommandList &commandList, VkImage image, VkFormat for
 
 void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 	TransitionImageLayout(commandBuffer, image, format, oldLayout, newLayout, mipLevels);
 
-	EndTransientCommandBuffer(gfx, commandBuffer);
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage image, u32 width, u32 height)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 	VkBufferImageCopy region{};
 	region.bufferOffset = bufferOffset;
@@ -582,7 +580,7 @@ void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage
 			&region
 			);
 
-	EndTransientCommandBuffer(gfx, commandBuffer);
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i32 height, u32 mipLevels)
@@ -595,7 +593,7 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 		QUIT_ABNORMALLY();
 	}
 
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx);
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -674,7 +672,7 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 			0, nullptr,
 			1, &barrier);
 
-	EndTransientCommandBuffer(gfx, commandBuffer);
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
