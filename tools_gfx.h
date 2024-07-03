@@ -27,6 +27,7 @@
  *
  * Command lists and commands:
  * - (Begin/End)CommandList
+ * - (Begin/End)TransientCommandList
  * - (Begin/End)RenderPass
  * - SetViewportAndScissor
  * - SetPipeline
@@ -40,6 +41,7 @@
  * - Submit
  * - Present
  * - (Begin/End)Frame
+ * - WaitQueueIdle
  * - WaitDeviceIdle
  */
 
@@ -1026,6 +1028,21 @@ static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, 
 ////////////////////////////////////////////////////////////////////////
 // Public API
 ////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////
+// WaitIdle
+//////////////////////////////
+
+void WaitQueueIdle(const GraphicsDevice &device)
+{
+	vkQueueWaitIdle(device.graphicsQueue);
+}
+
+void WaitDeviceIdle(const GraphicsDevice &device)
+{
+	vkDeviceWaitIdle( device.handle );
+}
+
 
 //////////////////////////////
 // Device
@@ -2471,6 +2488,47 @@ void EndCommandList(const CommandList &commandList)
 	VK_CALL( vkEndCommandBuffer( commandList.handle ) );
 }
 
+CommandList BeginTransientCommandList(const GraphicsDevice &device)
+{
+	VkCommandBufferAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = device.transientCommandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device.handle, &allocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	const CommandList commandList {
+		.handle = commandBuffer,
+	};
+	return commandList;
+}
+
+void EndTransientCommandList(GraphicsDevice &device, const CommandList &commandList)
+{
+	VkCommandBuffer commandBuffer = commandList.handle;
+
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+	vkQueueSubmit(device.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+	WaitQueueIdle(device);
+
+	vkFreeCommandBuffers(device.handle, device.transientCommandPool, 1, &commandBuffer);
+}
+
+
 
 //////////////////////////////
 // Commands
@@ -2714,12 +2772,6 @@ void EndFrame(GraphicsDevice &device)
 {
 	device.currentFrame = ( device.currentFrame + 1 ) % MAX_FRAMES_IN_FLIGHT;
 }
-
-void WaitDeviceIdle(const GraphicsDevice &device)
-{
-	vkDeviceWaitIdle( device.handle );
-}
-
 
 #endif // #ifndef TOOLS_GFX_H
 
