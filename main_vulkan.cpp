@@ -291,17 +291,13 @@ void EndTransientCommandBuffer(GraphicsDevice &device, VkCommandBuffer commandBu
 	vkFreeCommandBuffers(device.handle, device.transientCommandPool, 1, &commandBuffer);
 }
 
-void CopyBufferToBuffer(Graphics &gfx, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, u32 dstOffset, VkDeviceSize size)
+void CopyBufferToBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, u32 dstOffset, VkDeviceSize size)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
-
 	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = srcOffset;
 	copyRegion.dstOffset = dstOffset;
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-
-	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 struct StagedData
@@ -366,14 +362,14 @@ BufferArena MakeBufferArena(Graphics &gfx, BufferH bufferHandle)
 	return arena;
 }
 
-BufferChunk PushData(Graphics &gfx, BufferArena &arena, const void *data, u32 size)
+BufferChunk PushData(Graphics &gfx, VkCommandBuffer commandBuffer, BufferArena &arena, const void *data, u32 size)
 {
 	StagedData staged = StageData(gfx, data, size);
 
 	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(gfx, staged.buffer, staged.offset, finalBuffer.handle, arena.used, size);
+	CopyBufferToBuffer(commandBuffer, staged.buffer, staged.offset, finalBuffer.handle, arena.used, size);
 
 	BufferChunk chunk = {};
 	chunk.buffer = arena.buffer;
@@ -545,19 +541,8 @@ void TransitionImageLayout(CommandList &commandList, VkImage image, VkFormat for
 	TransitionImageLayout(commandList.handle, image, format, oldLayout, newLayout, mipLevels);
 }
 
-void TransitionImageLayout(Graphics &gfx, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
+void CopyBufferToImage(Graphics &gfx, VkCommandBuffer commandBuffer, VkBuffer buffer, u32 bufferOffset, VkImage image, u32 width, u32 height)
 {
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
-
-	TransitionImageLayout(commandBuffer, image, format, oldLayout, newLayout, mipLevels);
-
-	EndTransientCommandBuffer(gfx.device, commandBuffer);
-}
-
-void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage image, u32 width, u32 height)
-{
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
-
 	VkBufferImageCopy region{};
 	region.bufferOffset = bufferOffset;
 	region.bufferRowLength = 0;
@@ -579,11 +564,9 @@ void CopyBufferToImage(Graphics &gfx, VkBuffer buffer, u32 bufferOffset, VkImage
 			1,
 			&region
 			);
-
-	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
-void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i32 height, u32 mipLevels)
+void GenerateMipmaps(Graphics &gfx, VkCommandBuffer commandBuffer, VkImage image, VkFormat format, i32 width, i32 height, u32 mipLevels)
 {
 	VkFormatProperties formatProperties;
 	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, format, &formatProperties);
@@ -592,8 +575,6 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 		LOG(Error, "GenerateMipmaps() - Linera filtering not supported for the given format.\n");
 		QUIT_ABNORMALLY();
 	}
-
-	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -671,8 +652,6 @@ void GenerateMipmaps(Graphics &gfx, VkImage image, VkFormat format, i32 width, i
 			0, nullptr,
 			0, nullptr,
 			1, &barrier);
-
-	EndTransientCommandBuffer(gfx.device, commandBuffer);
 }
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
@@ -709,13 +688,18 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
 			HeapType_General);
 
-	TransitionImageLayout(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
-	CopyBufferToImage(gfx, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
+
+	TransitionImageLayout(commandBuffer, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
+
+	CopyBufferToImage(gfx, commandBuffer, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
 
 	// GenerateMipmaps takes care of this transition after generating the mip levels
-	//TransitionImageLayout(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
+	//TransitionImageLayout(commandBuffer, image.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
 
-	GenerateMipmaps(gfx, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+	GenerateMipmaps(gfx, commandBuffer, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
@@ -820,8 +804,12 @@ void CreateEntity(Graphics &gfx, const EntityDesc &desc)
 	}
 }
 
-bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
+RenderTargets CreateRenderTargets(Graphics &gfx)
 {
+	RenderTargets renderTargets = {};
+
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
+
 	// Depth buffer
 	VkFormat depthFormat = FindDepthFormat(gfx.device);
 	renderTargets.depthImage = CreateImage(gfx.device,
@@ -831,7 +819,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	TransitionImageLayout(gfx, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+	TransitionImageLayout(commandBuffer, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -863,7 +851,7 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-		TransitionImageLayout(gfx, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+		TransitionImageLayout(commandBuffer, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -882,7 +870,9 @@ bool CreateRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 		VK_CALL( vkCreateFramebuffer( gfx.device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.shadowmapFramebuffer ) );
 	}
 
-	return true;
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
+
+	return renderTargets;
 }
 
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
@@ -945,7 +935,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	}
 
 	// Render targets
-	CreateRenderTargets( gfx, gfx.renderTargets );
+	gfx.renderTargets = CreateRenderTargets(gfx);
 
 	// Create staging buffer
 	gfx.stagingBuffer = CreateStagingBuffer(gfx);
@@ -954,11 +944,15 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	gfx.globalVertexArena = MakeBufferArena( gfx, CreateVertexBuffer(gfx, MB(4)) );
 	gfx.globalIndexArena = MakeBufferArena( gfx, CreateIndexBuffer(gfx, MB(4)) );
 
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
+
 	// Create vertex/index buffers
-	gfx.cubeVertices = PushData(gfx, gfx.globalVertexArena, cubeVertices, sizeof(cubeVertices));
-	gfx.cubeIndices = PushData(gfx, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
-	gfx.planeVertices = PushData(gfx, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
-	gfx.planeIndices = PushData(gfx, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
+	gfx.cubeVertices = PushData(gfx, commandBuffer, gfx.globalVertexArena, cubeVertices, sizeof(cubeVertices));
+	gfx.cubeIndices = PushData(gfx, commandBuffer, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
+	gfx.planeVertices = PushData(gfx, commandBuffer, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
+	gfx.planeIndices = PushData(gfx, commandBuffer, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
+
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 
 	// Create globals buffer
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -1244,14 +1238,19 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
+	VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
+
 	// Copy material info to buffer
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		const Material &material = GetMaterial(gfx, i);
 		SMaterial shaderMaterial = { material.uvScale };
 		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
-		CopyBufferToBuffer(gfx, staged.buffer, staged.offset, materialBuffer.handle, material.bufferOffset, sizeof(shaderMaterial));
+
+		CopyBufferToBuffer(commandBuffer, staged.buffer, staged.offset, materialBuffer.handle, material.bufferOffset, sizeof(shaderMaterial));
 	}
+
+	EndTransientCommandBuffer(gfx.device, commandBuffer);
 
 	// DescriptorSets for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
@@ -1755,26 +1754,11 @@ void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
 
 	// Upload Fonts
 	{
-		// Use any command buffer
-		VkCommandPool commandPool = gfx.device.commandPools[0];
-		VK_CALL( vkResetCommandPool(gfx.device.handle, commandPool, 0) );
-		VkCommandBuffer commandBuffer = gfx.device.commandBuffers[0];
-
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		VK_CALL( vkBeginCommandBuffer(commandBuffer, &beginInfo) );
+		VkCommandBuffer commandBuffer = BeginTransientCommandBuffer(gfx.device);
 
 		ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
 
-		VkSubmitInfo endInfo = {};
-		endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		endInfo.commandBufferCount = 1;
-		endInfo.pCommandBuffers = &commandBuffer;
-		VK_CALL( vkEndCommandBuffer(commandBuffer) );
-		VK_CALL( vkQueueSubmit(gfx.device.graphicsQueue, 1, &endInfo, VK_NULL_HANDLE) );
-
-		WaitDeviceIdle(gfx);
+		EndTransientCommandBuffer(gfx.device, commandBuffer);
 
 		ImGui_ImplVulkan_DestroyFontUploadObjects();
 	}
@@ -1981,7 +1965,7 @@ void EngineUpdate(Platform &platform)
 		DestroyRenderTargets(gfx, gfx.renderTargets);
 		DestroySwapchain(gfx.device, gfx.device.swapchain);
 		gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
-		CreateRenderTargets(gfx, gfx.renderTargets);
+		gfx.renderTargets = CreateRenderTargets(gfx);
 		gfx.device.swapchain.outdated = false;
 	}
 
