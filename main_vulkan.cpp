@@ -241,7 +241,7 @@ const Buffer &GetBuffer(const Graphics &gfx, BufferH bufferHandle)
 	return buffer;
 }
 
-BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, VkFormat format, u32 offset = 0, u32 size = 0)
+BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, Format format, u32 offset = 0, u32 size = 0)
 {
 	const Buffer &buffer = GetBuffer(gfx, bufferHandle);
 
@@ -649,9 +649,11 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const u32 mipLevels = static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1;
 
+	const Format texFormat = FormatRGB8_SRGB;
+
 	Image image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
-			VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+			texFormat, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // for mipmap blits
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // for intitial copy from buffer and blits
 			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
@@ -779,16 +781,18 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
+	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
+	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
+
 	// Depth buffer
-	VkFormat depthFormat = FindDepthFormat(gfx.device);
 	renderTargets.depthImage = CreateImage(gfx.device,
 			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
 			depthFormat,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 			HeapType_RTs);
-	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	TransitionImageLayout(commandList, renderTargets.depthImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	TransitionImageLayout(commandList, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -812,15 +816,14 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 	// Shadowmap
 	{
-		VkFormat depthFormat = FindDepthFormat(gfx.device);
 		renderTargets.shadowmapImage = CreateImage(gfx.device,
 				1024, 1024, 1,
 				depthFormat,
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				HeapType_RTs);
-		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-		TransitionImageLayout(commandList, renderTargets.shadowmapImage.handle, depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		TransitionImageLayout(commandList, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -952,7 +955,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	// Create buffer for computes
 	const u32 computeBufferSize = sizeof(float);
 	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT, HeapType_General);
-	gfx.computeBufferViewH = CreateBufferView(gfx, gfx.computeBufferH, VK_FORMAT_R32_SFLOAT);
+	gfx.computeBufferViewH = CreateBufferView(gfx, gfx.computeBufferH, FormatFloat);
 
 
 	// Create Global Descriptor Pool
@@ -1605,7 +1608,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	VkFormat depthFormat = FindDepthFormat(gfx.device);
+	VkFormat depthFormat = FindDepthVkFormat(gfx.device);
 	VkImage shadowmapImage = gfx.renderTargets.shadowmapImage.handle;
 	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
 

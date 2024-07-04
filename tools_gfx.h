@@ -566,12 +566,32 @@ static VkFormat FormatToVulkan(Format format)
 {
 	ASSERT(format < FormatCount);
 	static VkFormat vkFormats[] = {
+		VK_FORMAT_R32_SFLOAT,
 		VK_FORMAT_R32G32_SFLOAT,
 		VK_FORMAT_R32G32B32_SFLOAT,
+		VK_FORMAT_R8G8B8A8_SRGB,
+		VK_FORMAT_D32_SFLOAT,
+		VK_FORMAT_D32_SFLOAT_S8_UINT,
+		VK_FORMAT_D24_UNORM_S8_UINT,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkFormats) == FormatCount);
 	const VkFormat vkFormat = vkFormats[format];
 	return vkFormat;
+}
+
+static Format FormatFromVulkan(VkFormat format)
+{
+	switch (format) {
+		case VK_FORMAT_R32_SFLOAT: return FormatFloat;
+		case VK_FORMAT_R32G32_SFLOAT: return FormatFloat2;
+		case VK_FORMAT_R32G32B32_SFLOAT: return FormatFloat3;
+		case VK_FORMAT_R8G8B8A8_SRGB: return FormatRGB8_SRGB;
+		case VK_FORMAT_D32_SFLOAT: return FormatD32;
+		case VK_FORMAT_D32_SFLOAT_S8_UINT: return FormatD32S1;
+		case VK_FORMAT_D24_UNORM_S8_UINT: return FormatD24S1;
+	};
+	INVALID_CODE_PATH();
+	return FormatCount;
 }
 
 static VkBorderColor BorderColorToVulkan(BorderColor color)
@@ -910,7 +930,7 @@ static VkFormat FindSupportedFormat(const GraphicsDevice &device, const VkFormat
 	return VK_FORMAT_MAX_ENUM;
 }
 
-static VkFormat FindDepthFormat(const GraphicsDevice &device)
+static VkFormat FindDepthVkFormat(const GraphicsDevice &device)
 {
 	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
 	return FindSupportedFormat(device, candidates, ARRAY_COUNT(candidates),
@@ -1975,13 +1995,12 @@ void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer)
 // BufferView
 //////////////////////////////
 
-// TODO: Make the format parameter not be Vulkan specific
-BufferView CreateBufferView(const GraphicsDevice &device, const Buffer &buffer, VkFormat format, u32 offset = 0, u32 size = 0)
+BufferView CreateBufferView(const GraphicsDevice &device, const Buffer &buffer, Format format, u32 offset = 0, u32 size = 0)
 {
 	VkBufferViewCreateInfo bufferViewCreateInfo = {};
 	bufferViewCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
 	bufferViewCreateInfo.buffer = buffer.handle;
-	bufferViewCreateInfo.format = format;
+	bufferViewCreateInfo.format = FormatToVulkan(format);
 	bufferViewCreateInfo.offset = offset;
 	bufferViewCreateInfo.range = size > 0 ? size : buffer.size;
 
@@ -2004,9 +2023,9 @@ void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferVie
 // Image
 //////////////////////////////
 
-// TODO: Make the format and usage parameters not be Vulkan specific
-Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, HeapType heapType)
+Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, VkImageTiling tiling, VkImageUsageFlags usage, HeapType heapType)
 {
+	const VkFormat vkFormat = FormatToVulkan(format);
 	// Image
 	VkImageCreateInfo imageCreateInfo = {};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2016,7 +2035,7 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 	imageCreateInfo.extent.depth = 1;
 	imageCreateInfo.mipLevels = mipLevels;
 	imageCreateInfo.arrayLayers = 1;
-	imageCreateInfo.format = format;
+	imageCreateInfo.format = vkFormat;
 	imageCreateInfo.tiling = tiling;
 	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageCreateInfo.usage = usage;
@@ -2040,7 +2059,7 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 
 	const Image image = {
 		.handle = imageHandle,
-		.format = format,
+		.format = vkFormat,
 		.alloc = {
 			.heap = memoryHeap.type,
 			.offset = offset,
@@ -2410,7 +2429,7 @@ RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc 
 	{
 		const u8 depthAttachmentIndex = desc.colorAttachmentCount;
 		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
-		depthAttachmentDesc.format = FindDepthFormat(device);
+		depthAttachmentDesc.format = FindDepthVkFormat(device);
 		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthAttachmentDesc.loadOp = LoadOpToVulkan(desc.depthAttachment.loadOp);
 		depthAttachmentDesc.storeOp = StoreOpToVulkan(desc.depthAttachment.storeOp);

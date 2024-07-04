@@ -43,8 +43,13 @@ struct RenderpassDesc
 
 enum Format
 {
+	FormatFloat,
 	FormatFloat2,
 	FormatFloat3,
+	FormatRGB8_SRGB,
+	FormatD32,
+	FormatD32S1,
+	FormatD24S1,
 	FormatCount,
 };
 
