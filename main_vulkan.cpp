@@ -221,7 +221,7 @@ static const u16 planeIndices[] = {
 };
 
 
-BufferH CreateBuffer(Graphics &gfx, u32 size, VkBufferUsageFlags bufferUsageFlags, HeapType heapType)
+BufferH CreateBuffer(Graphics &gfx, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType)
 {
 	ASSERT( gfx.bufferCount < ARRAY_COUNT(gfx.buffers) );
 	BufferH bufferHandle = gfx.bufferCount++;
@@ -294,7 +294,7 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size)
 BufferH CreateStagingBuffer(Graphics &gfx)
 {
 	const Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
-	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, HeapType_Staging);
+	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, BufferUsageTransferSrc, HeapType_Staging);
 	return stagingBufferHandle;
 }
 
@@ -303,7 +303,7 @@ BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 	BufferH vertexBufferHandle = CreateBuffer(
 			gfx,
 			size,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			BufferUsageVertexBuffer | BufferUsageTransferDst,
 			HeapType_General);
 
 	return vertexBufferHandle;
@@ -314,7 +314,7 @@ BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
 	BufferH indexBufferHandle = CreateBuffer(
 			gfx,
 			size,
-			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			BufferUsageIndexBuffer | BufferUsageTransferDst,
 			HeapType_General);
 
 	return indexBufferHandle;
@@ -654,9 +654,9 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	Image image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
 			texFormat,
-			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // for mipmap blits
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // for intitial copy from buffer and blits
-			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
+			ImageUsageTransferSrc | // for mipmap blits
+			ImageUsageTransferDst | // for intitial copy from buffer and blits
+			ImageUsageSampled, // to be sampled in shaders
 			HeapType_General);
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
@@ -788,7 +788,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 	renderTargets.depthImage = CreateImage(gfx.device,
 			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
 			depthFormat,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 	TransitionImageLayout(commandList, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
@@ -818,7 +818,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		renderTargets.shadowmapImage = CreateImage(gfx.device,
 				1024, 1024, 1,
 				depthFormat,
-				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
@@ -931,7 +931,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		gfx.globalsBuffer[i] = CreateBuffer(
 			gfx,
 			globalsBufferSize,
-			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			BufferUsageUniformBuffer,
 			HeapType_Dynamic);
 	}
 
@@ -942,17 +942,17 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		gfx.entityBuffer[i] = CreateBuffer(
 			gfx,
 			entityBufferSize,
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			BufferUsageStorageBuffer,
 			HeapType_Dynamic);
 	}
 
 	// Create material buffer
 	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset );
-	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, HeapType_General);
+	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, BufferUsageUniformBuffer | BufferUsageTransferDst, HeapType_General);
 
 	// Create buffer for computes
 	const u32 computeBufferSize = sizeof(float);
-	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT, HeapType_General);
+	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, BufferUsageStorageTexelBuffer, HeapType_General);
 	gfx.computeBufferViewH = CreateBufferView(gfx, gfx.computeBufferH, FormatFloat);
 
 

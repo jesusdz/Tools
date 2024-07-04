@@ -154,6 +154,34 @@ enum CompareOp
 	CompareOpCount,
 };
 
+enum BufferUsageFlagBits
+{
+	BufferUsageTransferSrc = 1<<0,
+	BufferUsageTransferDst = 1<<1,
+	BufferUsageUniformBuffer = 1<<2,
+	BufferUsageUniformTexelBuffer = 1<<3,
+	BufferUsageStorageBuffer = 1<<4,
+	BufferUsageStorageTexelBuffer = 1<<5,
+	BufferUsageVertexBuffer = 1<<6,
+	BufferUsageIndexBuffer = 1<<7,
+};
+
+typedef u32 BufferUsageFlags;
+
+enum ImageUsageFlagBits
+{
+  ImageUsageTransferSrc = 1<<0,
+  ImageUsageTransferDst = 1<<1,
+  ImageUsageSampled = 1<<2,
+  ImageUsageStorage = 1<<3,
+  ImageUsageColorAttachment = 1<<4,
+  ImageUsageDepthStencilAttachment = 1<<5,
+  ImageUsageTransient = 1<<6,
+  ImageUsageInputAttachment = 1<<7,
+};
+
+typedef u32 ImageUsageFlags;
+
 struct Heap
 {
 	HeapType type;
@@ -631,6 +659,34 @@ static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
 	ASSERT(compareOp < CompareOpCount);
 	const VkCompareOp vkCompareOp = vkCompareOps[compareOp];
 	return vkCompareOp;
+}
+
+static VkBufferUsageFlags BufferUsageFlagsToVulkan(BufferUsageFlags flags)
+{
+	VkBufferUsageFlags vkFlags = 0;
+	vkFlags |= ( flags & BufferUsageTransferSrc ) ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0;
+	vkFlags |= ( flags & BufferUsageTransferDst ) ? VK_BUFFER_USAGE_TRANSFER_DST_BIT : 0;
+	vkFlags |= ( flags & BufferUsageUniformBuffer ) ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : 0;
+	vkFlags |= ( flags & BufferUsageUniformTexelBuffer ) ? VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT : 0;
+	vkFlags |= ( flags & BufferUsageStorageBuffer ) ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT : 0;
+	vkFlags |= ( flags & BufferUsageStorageTexelBuffer ) ? VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT : 0;
+	vkFlags |= ( flags & BufferUsageVertexBuffer ) ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT : 0;
+	vkFlags |= ( flags & BufferUsageIndexBuffer ) ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT : 0;
+	return vkFlags;
+}
+
+static VkImageUsageFlags ImageUsageFlagsToVulkan(ImageUsageFlags flags)
+{
+	VkImageUsageFlags vkFlags = 0;
+	vkFlags |= ( flags & ImageUsageTransferSrc ) ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0;
+	vkFlags |= ( flags & ImageUsageTransferDst ) ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : 0;
+	vkFlags |= ( flags & ImageUsageSampled ) ? VK_IMAGE_USAGE_SAMPLED_BIT : 0;
+	vkFlags |= ( flags & ImageUsageStorage ) ? VK_IMAGE_USAGE_STORAGE_BIT : 0;
+	vkFlags |= ( flags & ImageUsageColorAttachment ) ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0;
+	vkFlags |= ( flags & ImageUsageDepthStencilAttachment ) ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : 0;
+	vkFlags |= ( flags & ImageUsageTransient ) ? VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT : 0;
+	vkFlags |= ( flags & ImageUsageInputAttachment ) ? VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT : 0;
+	return vkFlags;
 }
 
 static bool IsDepthFormat(VkFormat format)
@@ -1945,14 +2001,13 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 // Buffer
 //////////////////////////////
 
-// TODO: Make the bufferUsage parameter not be Vulkan specific
-Buffer CreateBuffer(GraphicsDevice &device, u32 size, VkBufferUsageFlags bufferUsageFlags, HeapType heapType)
+Buffer CreateBuffer(GraphicsDevice &device, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType)
 {
 	// Buffer
 	VkBufferCreateInfo bufferCreateInfo = {};
 	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferCreateInfo.size = size;
-	bufferCreateInfo.usage = bufferUsageFlags;
+	bufferCreateInfo.usage = BufferUsageFlagsToVulkan(bufferUsageFlags);
 	bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 	VkBuffer bufferHandle;
@@ -2023,8 +2078,7 @@ void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferVie
 // Image
 //////////////////////////////
 
-// TODO: Image usage flags should not be exposed in the public api
-Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, VkImageUsageFlags usage, HeapType heapType)
+Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, ImageUsageFlags usage, HeapType heapType)
 {
 	const VkFormat vkFormat = FormatToVulkan(format);
 	// Image
@@ -2039,7 +2093,7 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 	imageCreateInfo.format = vkFormat;
 	imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	imageCreateInfo.usage = usage;
+	imageCreateInfo.usage = ImageUsageFlagsToVulkan(usage);
 	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageCreateInfo.flags = 0;
