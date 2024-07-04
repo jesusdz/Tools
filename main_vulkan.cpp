@@ -653,7 +653,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	Image image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
-			texFormat, VK_IMAGE_TILING_OPTIMAL,
+			texFormat,
 			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // for mipmap blits
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | // for intitial copy from buffer and blits
 			VK_IMAGE_USAGE_SAMPLED_BIT, // to be sampled in shaders
@@ -788,7 +788,6 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 	renderTargets.depthImage = CreateImage(gfx.device,
 			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
 			depthFormat,
-			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
@@ -819,7 +818,6 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		renderTargets.shadowmapImage = CreateImage(gfx.device,
 				1024, 1024, 1,
 				depthFormat,
-				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);

@@ -2023,7 +2023,8 @@ void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferVie
 // Image
 //////////////////////////////
 
-Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, VkImageTiling tiling, VkImageUsageFlags usage, HeapType heapType)
+// TODO: Image usage flags should not be exposed in the public api
+Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, VkImageUsageFlags usage, HeapType heapType)
 {
 	const VkFormat vkFormat = FormatToVulkan(format);
 	// Image
@@ -2036,7 +2037,7 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 	imageCreateInfo.mipLevels = mipLevels;
 	imageCreateInfo.arrayLayers = 1;
 	imageCreateInfo.format = vkFormat;
-	imageCreateInfo.tiling = tiling;
+	imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageCreateInfo.usage = usage;
 	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
