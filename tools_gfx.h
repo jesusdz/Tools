@@ -340,7 +340,7 @@ typedef u32 BufferViewH;
 struct Image
 {
 	VkImage handle;
-	VkFormat format;
+	Format format;
 	Alloc alloc;
 };
 
@@ -1293,8 +1293,8 @@ Swapchain CreateSwapchain(const GraphicsDevice &device, Window &window, const Sw
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
 		const VkImage image = swapchain.images[i];
-		const VkFormat format = swapchainInfo.format;
-		swapchain.imageViews[i] = CreateImageView(device, image, format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		const VkFormat vkFormat = swapchainInfo.format;
+		swapchain.imageViews[i] = CreateImageView(device, image, vkFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
 	}
 
 
@@ -2138,7 +2138,7 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 
 	const Image image = {
 		.handle = imageHandle,
-		.format = vkFormat,
+		.format = format,
 		.alloc = {
 			.heap = memoryHeap.type,
 			.offset = offset,

@@ -434,7 +434,7 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 	return sampler;
 }
 
-void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, Format format, ImageState oldState, ImageState newState, u32 mipLevels)
+void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 mipLevels)
 {
 	VkImageAspectFlags aspectMask = 0;
 	VkAccessFlags srcAccess = 0;
@@ -444,8 +444,8 @@ void TransitionImageLayout(const CommandList &commandBuffer, const Image &image,
 	VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	VkImageLayout newLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-	aspectMask |= IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
-	aspectMask |= HasStencilComponent(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
+	aspectMask |= IsDepthFormat(image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
+	aspectMask |= HasStencilComponent(image.format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
 	aspectMask = aspectMask ? aspectMask : VK_IMAGE_ASPECT_COLOR_BIT;
 
 	switch (oldState)
@@ -699,22 +699,24 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
-	TransitionImageLayout(commandList, image, FormatRGB8_SRGB, ImageStateInitial, ImageStateTransferDst, mipLevels);
+	TransitionImageLayout(commandList, image, ImageStateInitial, ImageStateTransferDst, mipLevels);
 
 	CopyBufferToImage(gfx, commandList, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
 
 	// GenerateMipmaps takes care of this transition after generating the mip levels
-	//TransitionImageLayout(commandList, image, FormatRGB8_SRGB, ImageStateTransferDst, ImageStateShaderInput, mipLevels);
+	//TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, mipLevels);
 
 	GenerateMipmaps(gfx, commandList, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 
 	EndTransientCommandList(gfx.device, commandList);
 
+	const VkFormat vkFormat = FormatToVulkan(image.format);
+
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = image;
-	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image.handle, image.format, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image.handle, vkFormat, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
 	gfx.textures[textureHandle].mipLevels = mipLevels;
 
 	return textureHandle;
@@ -829,7 +831,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	TransitionImageLayout(commandList, renderTargets.depthImage, depthFormat, ImageStateInitial, ImageStateRenderTarget, 1);
+	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -859,7 +861,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-		TransitionImageLayout(commandList, renderTargets.shadowmapImage, depthFormat, ImageStateInitial, ImageStateRenderTarget, 1);
+		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -1647,7 +1649,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
 	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
 	const Image &shadowmapImage = gfx.renderTargets.shadowmapImage;
-	TransitionImageLayout(commandList, shadowmapImage, depthFormat, ImageStateRenderTarget, ImageStateShaderInput, 1);
+	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 1);
 
 	// Scene and UI
 	{
@@ -1698,7 +1700,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	TransitionImageLayout(commandList, shadowmapImage, depthFormat, ImageStateShaderInput, ImageStateRenderTarget, 1);
+	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 1);
 
 	EndCommandList(commandList);
 
