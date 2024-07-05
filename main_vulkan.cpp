@@ -432,7 +432,7 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image 
 	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, vkFormat, &formatProperties);
 
 	if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-		LOG(Error, "GenerateMipmaps() - Linera filtering not supported for the given format.\n");
+		LOG(Error, "GenerateMipmaps() - Linear filtering not supported for the given format.\n");
 		QUIT_ABNORMALLY();
 	}
 
@@ -468,25 +468,10 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image 
 		const i32 dstMipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
 		const i32 dstMipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
 
-		VkImageBlit blit = {};
-		blit.srcOffsets[0] = { 0, 0, 0 };
-		blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
-		blit.srcSubresource.aspectMask = aspectMask;
-		blit.srcSubresource.mipLevel = i - 1;
-		blit.srcSubresource.baseArrayLayer = 0;
-		blit.srcSubresource.layerCount = 1;
-		blit.dstOffsets[0] = { 0, 0, 0 };
-		blit.dstOffsets[1] = { dstMipWidth, dstMipHeight, 1 };
-		blit.dstSubresource.aspectMask = aspectMask;
-		blit.dstSubresource.mipLevel = i;
-		blit.dstSubresource.baseArrayLayer = 0;
-		blit.dstSubresource.layerCount = 1;
+		const BlitRegion srcRegion = { .x = 0, .y = 0, .width = mipWidth, .height = mipHeight, .mipLevel = i - 1 };
+		const BlitRegion dstRegion = { .x = 0, .y = 0, .width = dstMipWidth, .height = dstMipHeight, .mipLevel = i };
 
-		vkCmdBlitImage(commandBuffer,
-				image.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				1, &blit,
-				VK_FILTER_LINEAR);
+		Blit(commandList, image, srcRegion, image, dstRegion);
 
 		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

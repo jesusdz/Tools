@@ -32,6 +32,7 @@
  * Commands:
  * - CopyBufferToBuffer
  * - CopyBufferToImage
+ * - Blit
  * - TransitionImageLayout
  * - (Begin/End)RenderPass
  * - SetViewportAndScissor
@@ -194,6 +195,15 @@ enum ImageState
 	ImageStateTransferDst,
 	ImageStateShaderInput,
 	ImageStateRenderTarget,
+};
+
+struct BlitRegion
+{
+	i32 x;
+	i32 y;
+	i32 width;
+	i32 height;
+	u32 mipLevel;
 };
 
 struct Heap
@@ -2735,6 +2745,40 @@ void CopyBufferToImage(const CommandList &commandBuffer, const Buffer &buffer, u
 			1,
 			&region
 			);
+}
+
+void Blit(const CommandList &commandBuffer, const Image &srcImage, const BlitRegion &srcRegion, const Image &dstImage, const BlitRegion &dstRegion)
+{
+	const VkImageAspectFlags aspectMask = FormatToVulkanAspect(srcImage.format);
+
+	const VkImageBlit blit = {
+		.srcSubresource = {
+			.aspectMask = aspectMask,
+			.mipLevel = srcRegion.mipLevel,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.srcOffsets = {
+			{ srcRegion.x, srcRegion.y, 0u }, // lower bound
+			{ srcRegion.x + srcRegion.width, srcRegion.y + srcRegion.height, 1u }, // upper bound
+		},
+		.dstSubresource = {
+			.aspectMask = aspectMask,
+			.mipLevel = dstRegion.mipLevel,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.dstOffsets = {
+			{ dstRegion.x, dstRegion.y, 0 }, // lower bound
+			{ dstRegion.x + dstRegion.width, dstRegion.y + dstRegion.height, 1 }, // upper bound
+		},
+	};
+
+	vkCmdBlitImage(commandBuffer.handle,
+			srcImage.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, // Assuming the proper layout
+			dstImage.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, // Assuming the proper layout
+			1, &blit,
+			VK_FILTER_LINEAR); // Assuming linear filtering
 }
 
 void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 mipLevels)
