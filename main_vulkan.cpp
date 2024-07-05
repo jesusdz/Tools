@@ -436,69 +436,23 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image 
 		QUIT_ABNORMALLY();
 	}
 
-	VkImageMemoryBarrier barrier = {};
-	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrier.image = image.handle;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.subresourceRange.aspectMask = aspectMask;
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;
-	barrier.subresourceRange.levelCount = 1;
-
-	i32 mipWidth = image.width;
-	i32 mipHeight = image.height;
-
-	VkCommandBuffer commandBuffer = commandList.handle;
-
 	for (u32 i = 1; i < image.mipLevels; ++i)
 	{
-		barrier.subresourceRange.baseMipLevel = i - 1;
-		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateTransferSrc, i - 1, 1);
 
-		vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-				0, NULL,
-				0, NULL,
-				1, &barrier);
-
-		const i32 dstMipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
-		const i32 dstMipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
-
-		const BlitRegion srcRegion = { .x = 0, .y = 0, .width = mipWidth, .height = mipHeight, .mipLevel = i - 1 };
-		const BlitRegion dstRegion = { .x = 0, .y = 0, .width = dstMipWidth, .height = dstMipHeight, .mipLevel = i };
+		const i32 srcWidth = image.width > 1 ? image.width >> (i-1): 1;
+		const i32 srcHeight = image.height > 1 ? image.height >> (i-1) : 1;
+		const i32 dstWidth = image.width > 1 ? image.width >> i : 1;
+		const i32 dstHeight = image.height > 1 ? image.height >> i : 1;
+		const BlitRegion srcRegion = { .x = 0, .y = 0, .width = srcWidth, .height = srcHeight, .mipLevel = i - 1 };
+		const BlitRegion dstRegion = { .x = 0, .y = 0, .width = dstWidth, .height = dstHeight, .mipLevel = i };
 
 		Blit(commandList, image, srcRegion, image, dstRegion);
 
-		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-		vkCmdPipelineBarrier(commandBuffer,
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-				0, nullptr,
-				0, nullptr,
-				1, &barrier);
-
-		mipWidth = dstMipWidth;
-		mipHeight = dstMipHeight;
+		TransitionImageLayout(commandList, image, ImageStateTransferSrc, ImageStateShaderInput, i - 1, 1);
 	}
 
-	barrier.subresourceRange.baseMipLevel = image.mipLevels - 1;
-	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-	vkCmdPipelineBarrier(commandBuffer,
-			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-			0, nullptr,
-			0, nullptr,
-			1, &barrier);
+	TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, image.mipLevels - 1, 1);
 }
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
@@ -539,7 +493,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
-	TransitionImageLayout(commandList, image, ImageStateInitial, ImageStateTransferDst, mipLevels);
+	TransitionImageLayout(commandList, image, ImageStateInitial, ImageStateTransferDst, 0, mipLevels);
 
 	CopyBufferToImage(commandList, staged.buffer, staged.offset, image);
 
@@ -668,7 +622,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage);
-	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 1);
+	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -699,7 +653,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage);
-		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 1);
+		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -1488,7 +1442,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
 	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
 	const Image &shadowmapImage = gfx.renderTargets.shadowmapImage;
-	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 1);
+	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
 
 	// Scene and UI
 	{
@@ -1539,7 +1493,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 1);
+	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
 
 	EndCommandList(commandList);
 

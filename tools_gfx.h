@@ -2781,7 +2781,7 @@ void Blit(const CommandList &commandBuffer, const Image &srcImage, const BlitReg
 			VK_FILTER_LINEAR); // Assuming linear filtering
 }
 
-void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 mipLevels)
+void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 baseMipLevel, u32 levelCount)
 {
 	VkAccessFlags srcAccess = 0;
 	VkAccessFlags dstAccess = 0;
@@ -2869,8 +2869,8 @@ void TransitionImageLayout(const CommandList &commandBuffer, const Image &image,
 		.image = image.handle,
 		.subresourceRange = {
 			.aspectMask = FormatToVulkanAspect(image.format),
-			.baseMipLevel = 0,
-			.levelCount = mipLevels,
+			.baseMipLevel = baseMipLevel,
+			.levelCount = levelCount,
 			.baseArrayLayer = 0,
 			.layerCount = 1,
 		},
