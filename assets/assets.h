@@ -62,6 +62,14 @@ struct VertexAttributeDesc
 	Format format;
 };
 
+enum CompareOp
+{
+	CompareOpNone,
+	CompareOpLess,
+	CompareOpGreater,
+	CompareOpCount,
+};
+
 struct PipelineDesc
 {
 	const char *name;
@@ -72,6 +80,7 @@ struct PipelineDesc
 	const char *renderPass;
 	unsigned int vertexAttributeCount;
 	VertexAttributeDesc vertexAttributes[4];
+	CompareOp depthCompareOp;
 };
 
 struct ComputeDesc
@@ -150,7 +159,8 @@ static const PipelineDesc pipelines[] =
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
 			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
 			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
-		}
+		},
+		.depthCompareOp = CompareOpGreater,
 	},
 	{
 		.name = "pipeline_shadowmap",
@@ -162,7 +172,8 @@ static const PipelineDesc pipelines[] =
 		.vertexAttributeCount = 1,
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-		}
+		},
+		.depthCompareOp = CompareOpGreater,
 	},
 };
 

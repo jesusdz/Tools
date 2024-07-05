@@ -1027,8 +1027,8 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	gfx.samplerH = CreateSampler(gfx, samplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
-		.borderColor = USE_REVERSE_Z ? BorderColorBlackFloat : BorderColorWhiteFloat,
-		.compareOp = USE_REVERSE_Z ? CompareOpGreater : CompareOpLess,
+		.borderColor = BorderColorBlackFloat,
+		.compareOp = CompareOpGreater,
 	};
 	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
 
@@ -1311,14 +1311,15 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -5.0f, 5.0f, -5.0f, 5.0f);
 
 	// Update globals struct
-	Globals globals;
-	globals.cameraView = viewMatrix;
-	globals.cameraProj = projectionMatrix;
-	globals.sunView = sunViewMatrix;
-	globals.sunProj = sunProjMatrix;
-	globals.sunDir = Float4(Normalize(FromTo(sunVrp, sunPos)), 0.0f);
-	globals.eyePosition = Float4(gfx.camera.position, 1.0f);
-	globals.shadowmapDepthBias = USE_REVERSE_Z ? 0.005 : -0.005;
+	const Globals globals = {
+		.cameraView = viewMatrix,
+		.cameraProj = projectionMatrix,
+		.sunView = sunViewMatrix,
+		.sunProj = sunProjMatrix,
+		.sunDir = Float4(Normalize(FromTo(sunVrp, sunPos)), 0.0f),
+		.eyePosition = Float4(gfx.camera.position, 1.0f),
+		.shadowmapDepthBias = 0.005,
+	};
 
 	// Update globals buffer
 	Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
@@ -1371,7 +1372,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Shadow map
 	{
-		SetClearDepth(commandList, 0, USE_REVERSE_Z ? 0.0f : 1.0f);
+		SetClearDepth(commandList, 0, 0.0f);
 
 		const Framebuffer shadowmapFramebuffer = GetShadowmapFramebuffer(gfx);
 		BeginRenderPass(commandList, shadowmapFramebuffer);
@@ -1428,7 +1429,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Scene and UI
 	{
 		SetClearColor(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
-		SetClearDepth(commandList, 1, USE_REVERSE_Z ? 0.0f : 1.0f);
+		SetClearDepth(commandList, 1, 0.0f);
 
 		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
 		BeginRenderPass(commandList, displayFramebuffer);

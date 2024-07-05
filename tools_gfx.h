@@ -155,14 +155,6 @@ enum AddressMode
 	AddressModeCount,
 };
 
-enum CompareOp
-{
-	CompareOpNone,
-	CompareOpLess,
-	CompareOpGreater,
-	CompareOpCount,
-};
-
 enum BufferUsageFlagBits
 {
 	BufferUsageTransferSrc = 1<<0,
@@ -2384,7 +2376,7 @@ Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, cons
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
 		.depthTestEnable = VK_TRUE,
 		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = USE_REVERSE_Z ? VK_COMPARE_OP_GREATER : VK_COMPARE_OP_LESS,
+		.depthCompareOp = CompareOpToVulkan(desc.depthCompareOp),
 		.depthBoundsTestEnable = VK_FALSE,
 		.stencilTestEnable = VK_FALSE,
 		.front = {}, // Optional
