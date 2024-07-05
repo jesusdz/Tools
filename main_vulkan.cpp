@@ -426,7 +426,6 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image &image)
 {
 	const VkFormat vkFormat = FormatToVulkan(image.format);
-	const VkImageAspectFlags aspectMask = FormatToVulkanAspect(image.format);
 
 	VkFormatProperties formatProperties;
 	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, vkFormat, &formatProperties);
@@ -674,7 +673,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
 	DestroyImageView(gfx.device, renderTargets.depthImageView);
-	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.handle, VULKAN_ALLOCATORS);
+	DestroyImage(gfx.device, renderTargets.depthImage);
 
 	// Reset the heap used for render targets
 	Heap &rtHeap = gfx.device.heaps[HeapType_RTs];
@@ -686,7 +685,7 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	}
 
 	DestroyImageView(gfx.device, renderTargets.shadowmapImageView);
-	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.handle, VULKAN_ALLOCATORS);
+	DestroyImage(gfx.device, renderTargets.shadowmapImage);
 	DestroyFramebuffer( gfx.device, renderTargets.shadowmapFramebuffer );
 
 	renderTargets = {};
@@ -1846,6 +1845,7 @@ int main(int argc, char **argv)
 // - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
 // - [ ] Avoid duplicated global descriptor sets.
+// - [ ] Have a single descripor set for global info that only changes once per frame
 //
 // DONE:
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
