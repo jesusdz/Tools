@@ -565,8 +565,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	EndTransientCommandList(gfx.device, commandList);
 
-	const VkFormat vkFormat = FormatToVulkan(image.format);
-
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].name = desc.name;
@@ -695,14 +693,15 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 	{
 		VkImageView attachments[] = { gfx.device.swapchain.imageViews[i], renderTargets.depthImageView };
 
-		VkFramebufferCreateInfo framebufferCreateInfo = {};
-		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebufferCreateInfo.renderPass = renderPass.handle;
-		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
-		framebufferCreateInfo.pAttachments = attachments;
-		framebufferCreateInfo.width = gfx.device.swapchain.extent.width;
-		framebufferCreateInfo.height = gfx.device.swapchain.extent.height;
-		framebufferCreateInfo.layers = 1;
+		const VkFramebufferCreateInfo framebufferCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+			.renderPass = renderPass.handle,
+			.attachmentCount = ARRAY_COUNT(attachments),
+			.pAttachments = attachments,
+			.width = gfx.device.swapchain.extent.width,
+			.height = gfx.device.swapchain.extent.height,
+			.layers = 1,
+		};
 
 		VK_CALL( vkCreateFramebuffer( gfx.device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.framebuffers[i]) );
 	}
@@ -722,14 +721,15 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 		VkImageView attachments[] = { renderTargets.shadowmapImageView };
 
-		VkFramebufferCreateInfo framebufferCreateInfo = {};
-		framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebufferCreateInfo.renderPass = renderPass.handle;
-		framebufferCreateInfo.attachmentCount = ARRAY_COUNT(attachments);
-		framebufferCreateInfo.pAttachments = attachments;
-		framebufferCreateInfo.width = 1024;
-		framebufferCreateInfo.height = 1024;
-		framebufferCreateInfo.layers = 1;
+		const VkFramebufferCreateInfo framebufferCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+			.renderPass = renderPass.handle,
+			.attachmentCount = ARRAY_COUNT(attachments),
+			.pAttachments = attachments,
+			.width = 1024,
+			.height = 1024,
+			.layers = 1,
+		};
 
 		VK_CALL( vkCreateFramebuffer( gfx.device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.shadowmapFramebuffer ) );
 	}
