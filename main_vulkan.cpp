@@ -64,11 +64,11 @@ struct RenderTargets
 {
 	Image depthImage;
 	VkImageView depthImageView;
-	VkFramebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
+	Framebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
 	Image shadowmapImage;
 	VkImageView shadowmapImageView;
-	VkFramebuffer shadowmapFramebuffer;
+	Framebuffer shadowmapFramebuffer;
 };
 
 struct Camera
@@ -621,28 +621,26 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			depthFormat,
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
-	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage);
+	renderTargets.depthImageView = CreateImageView(gfx.device, renderTargets.depthImage);
 	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
-	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
 
 	// Framebuffer
 	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
 	{
-		VkImageView attachments[] = { gfx.device.swapchain.imageViews[i], renderTargets.depthImageView };
-
-		const VkFramebufferCreateInfo framebufferCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-			.renderPass = renderPass.handle,
-			.attachmentCount = ARRAY_COUNT(attachments),
-			.pAttachments = attachments,
+		const FramebufferDesc desc = {
+			.renderPass = renderPass,
+			.attachments = {
+				gfx.device.swapchain.imageViews[i],
+				renderTargets.depthImageView,
+			},
+			.attachmentCount = 2,
 			.width = gfx.device.swapchain.extent.width,
 			.height = gfx.device.swapchain.extent.height,
-			.layers = 1,
 		};
 
-		VK_CALL( vkCreateFramebuffer( gfx.device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.framebuffers[i]) );
+		renderTargets.framebuffers[i] = CreateFramebuffer(gfx.device, desc);
 	}
 
 	// Shadowmap
@@ -652,25 +650,20 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				depthFormat,
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
-		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage);
+		renderTargets.shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
-		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
 
-		VkImageView attachments[] = { renderTargets.shadowmapImageView };
-
-		const VkFramebufferCreateInfo framebufferCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-			.renderPass = renderPass.handle,
-			.attachmentCount = ARRAY_COUNT(attachments),
-			.pAttachments = attachments,
-			.width = 1024,
-			.height = 1024,
-			.layers = 1,
+		const FramebufferDesc desc = {
+			.renderPass = renderPass,
+			.attachments = { renderTargets.shadowmapImageView },
+			.attachmentCount = 1,
+			.width = renderTargets.shadowmapImage.width,
+			.height = renderTargets.shadowmapImage.height,
 		};
 
-		VK_CALL( vkCreateFramebuffer( gfx.device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &renderTargets.shadowmapFramebuffer ) );
+		renderTargets.shadowmapFramebuffer = CreateFramebuffer( gfx.device, desc );
 	}
 
 	EndTransientCommandList(gfx.device, commandList);
@@ -680,7 +673,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
-	vkDestroyImageView(gfx.device.handle, renderTargets.depthImageView, VULKAN_ALLOCATORS);
+	DestroyImageView(gfx.device, renderTargets.depthImageView);
 	vkDestroyImage(gfx.device.handle, renderTargets.depthImage.handle, VULKAN_ALLOCATORS);
 
 	// Reset the heap used for render targets
@@ -689,12 +682,12 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
 	{
-		vkDestroyFramebuffer( gfx.device.handle, renderTargets.framebuffers[i], VULKAN_ALLOCATORS );
+		DestroyFramebuffer( gfx.device, renderTargets.framebuffers[i] );
 	}
 
-	vkDestroyImageView(gfx.device.handle, renderTargets.shadowmapImageView, VULKAN_ALLOCATORS);
+	DestroyImageView(gfx.device, renderTargets.shadowmapImageView);
 	vkDestroyImage(gfx.device.handle, renderTargets.shadowmapImage.handle, VULKAN_ALLOCATORS);
-	vkDestroyFramebuffer( gfx.device.handle, renderTargets.shadowmapFramebuffer, VULKAN_ALLOCATORS );
+	DestroyFramebuffer( gfx.device, renderTargets.shadowmapFramebuffer );
 
 	renderTargets = {};
 }
@@ -1106,7 +1099,7 @@ void CleanupGraphics(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
-		vkDestroyImageView( gfx.device.handle, gfx.textures[i].imageView, VULKAN_ALLOCATORS );
+		DestroyImageView( gfx.device, gfx.textures[i].imageView );
 		DestroyImage( gfx.device, gfx.textures[i].image );
 	}
 
@@ -1277,27 +1270,13 @@ uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 Framebuffer GetDisplayFramebuffer(const Graphics &gfx)
 {
 	const u32 imageIndex = gfx.device.swapchain.currentImageIndex;
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
-
-	const Framebuffer framebuffer = {
-		.handle = gfx.renderTargets.framebuffers[imageIndex],
-		.renderPassHandle = renderPass.handle,
-		.extent = gfx.device.swapchain.extent,
-		.isDisplay = true,
-	};
+	const Framebuffer framebuffer = gfx.renderTargets.framebuffers[imageIndex];
 	return framebuffer;
 }
 
 Framebuffer GetShadowmapFramebuffer(const Graphics &gfx)
 {
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
-
-	const Framebuffer framebuffer = {
-		.handle = gfx.renderTargets.shadowmapFramebuffer,
-		.renderPassHandle = renderPass.handle,
-		.extent = { 1024, 1024 },
-		.isShadowmap = true,
-	};
+	const Framebuffer &framebuffer = gfx.renderTargets.shadowmapFramebuffer;
 	return framebuffer;
 }
 
@@ -1392,6 +1371,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Shadow map
 	{
+		SetClearDepth(commandList, 0, USE_REVERSE_Z ? 0.0f : 1.0f);
+
 		const Framebuffer shadowmapFramebuffer = GetShadowmapFramebuffer(gfx);
 		BeginRenderPass(commandList, shadowmapFramebuffer);
 
@@ -1446,6 +1427,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Scene and UI
 	{
+		SetClearColor(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
+		SetClearDepth(commandList, 1, USE_REVERSE_Z ? 0.0f : 1.0f);
+
 		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
 		BeginRenderPass(commandList, displayFramebuffer);
 

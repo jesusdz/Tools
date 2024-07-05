@@ -24,6 +24,7 @@
  * - CreateComputePipeline
  * - DestroyPipeline
  * - (Create/Destroy)RenderPass
+ * - (Create/Destroy)Framebuffer
  *
  * Command lists
  * - (Begin/End)CommandList
@@ -36,6 +37,7 @@
  * - TransitionImageLayout
  * - (Begin/End)RenderPass
  * - SetViewportAndScissor
+ * - SetClear(Color/Depth/Stencil)
  * - SetPipeline
  * - SetBindGroup
  * - SetVertexBuffer
@@ -116,6 +118,7 @@
 #endif
 #define MAX_FRAMES_IN_FLIGHT 2
 #define MAX_FENCES 128
+#define MAX_RENDER_TARGETS 4
 
 #define VULKAN_ALLOCATORS NULL
 
@@ -390,13 +393,21 @@ struct RenderPass
 
 typedef u32 RenderPassH;
 
+struct FramebufferDesc
+{
+	RenderPass renderPass;
+	VkImageView attachments[4];
+	u32 attachmentCount;
+	u32 width;
+	u32 height;
+};
+
 struct Framebuffer
 {
 	VkFramebuffer handle;
 	VkRenderPass renderPassHandle;
 	VkExtent2D extent;
-	bool isDisplay : 1;
-	bool isShadowmap : 1;
+	u32 attachmentCount;
 };
 
 struct SamplerDesc
@@ -445,7 +456,7 @@ struct CommandList
 {
 	VkCommandBuffer handle;
 
-	VkDescriptorSet descriptorSetHandles[4];
+	VkDescriptorSet descriptorSetHandles[MAX_DESCRIPTOR_SETS];
 	u8 descriptorSetDirtyMask;
 
 	const Pipeline *pipeline;
@@ -455,6 +466,7 @@ struct CommandList
 	{
 		struct // For gfx pipelines
 		{
+			VkClearValue clearValues[MAX_RENDER_TARGETS];
 			VkBuffer vertexBufferHandle;
 			VkBuffer indexBufferHandle;
 		};
@@ -1098,8 +1110,8 @@ static void BindDescriptorSets(CommandList &commandList)
 		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
 
 		u32 descriptorSetCount = 0;
-		VkDescriptorSet descriptorSets[4] = {};
-		for (u32 i = descriptorSetFirst; i < 4; ++i )
+		VkDescriptorSet descriptorSets[MAX_DESCRIPTOR_SETS] = {};
+		for (u32 i = descriptorSetFirst; i < MAX_DESCRIPTOR_SETS; ++i )
 		{
 			if ( commandList.descriptorSetDirtyMask & (1 << i) )
 			{
@@ -1152,6 +1164,11 @@ static VkImageView CreateImageView(const GraphicsDevice &device, const Image &im
 	VkImageView imageView;
 	VK_CALL( vkCreateImageView(device.handle, &viewInfo, VULKAN_ALLOCATORS, &imageView) );
 	return imageView;
+}
+
+static void DestroyImageView(const GraphicsDevice &device, VkImageView imageView)
+{
+	vkDestroyImageView(device.handle, imageView, VULKAN_ALLOCATORS);
 }
 
 
@@ -2556,8 +2573,9 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 
 RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc &desc )
 {
-	const u8 MAX_COLOR_ATTACHMENTS = 4;
+	const u8 MAX_COLOR_ATTACHMENTS = 3;
 	const u8 MAX_DEPTH_ATTACHMENTS = 1;
+	CT_ASSERT(MAX_COLOR_ATTACHMENTS + MAX_DEPTH_ATTACHMENTS == MAX_RENDER_TARGETS);
 	ASSERT(desc.colorAttachmentCount <= MAX_COLOR_ATTACHMENTS);
 
 	VkAttachmentDescription attachmentDescs[MAX_COLOR_ATTACHMENTS + MAX_DEPTH_ATTACHMENTS] = {};
@@ -2637,6 +2655,40 @@ RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc 
 void DestroyRenderPass(const GraphicsDevice &device, const RenderPass &renderPass)
 {
 	vkDestroyRenderPass( device.handle, renderPass.handle, VULKAN_ALLOCATORS );
+}
+
+
+//////////////////////////////
+// Framebuffer
+//////////////////////////////
+
+Framebuffer CreateFramebuffer(const GraphicsDevice &device, const FramebufferDesc &desc)
+{
+	const VkFramebufferCreateInfo framebufferCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		.renderPass = desc.renderPass.handle,
+		.attachmentCount = desc.attachmentCount,
+		.pAttachments = desc.attachments,
+		.width = desc.width,
+		.height = desc.height,
+		.layers = 1,
+	};
+
+	VkFramebuffer handle;
+	VK_CALL( vkCreateFramebuffer( device.handle, &framebufferCreateInfo, VULKAN_ALLOCATORS, &handle) );
+
+	const Framebuffer framebuffer = {
+		.handle = handle,
+		.renderPassHandle = desc.renderPass.handle,
+		.extent = { desc.width, desc.height },
+		.attachmentCount = desc.attachmentCount,
+	};
+	return framebuffer;
+}
+
+void DestroyFramebuffer( const GraphicsDevice &device, const Framebuffer &framebuffer )
+{
+	vkDestroyFramebuffer( device.handle, framebuffer.handle, VULKAN_ALLOCATORS );
 }
 
 
@@ -2888,48 +2940,59 @@ void TransitionImageLayout(const CommandList &commandBuffer, const Image &image,
 
 void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
 {
-	VkClearValue clearValues[2] = {};
-	u32 clearValueCount = 0;
-	const float depthClearValue = USE_REVERSE_Z ? 0.0f : 1.0f;
-	if (framebuffer.isDisplay)
-	{
-		clearValueCount = 2;
-		clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-		clearValues[1].depthStencil = {depthClearValue, 0};
-	}
-	if (framebuffer.isShadowmap)
-	{
-		clearValueCount = 1;
-		clearValues[0].depthStencil = {depthClearValue, 0};
-	}
-
-	VkRenderPassBeginInfo renderPassBeginInfo = {};
-	renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassBeginInfo.renderPass = framebuffer.renderPassHandle;
-	renderPassBeginInfo.framebuffer = framebuffer.handle;
-	renderPassBeginInfo.renderArea.offset = { 0, 0 };
-	renderPassBeginInfo.renderArea.extent = framebuffer.extent;
-	renderPassBeginInfo.clearValueCount = clearValueCount;
-	renderPassBeginInfo.pClearValues = clearValues;
+	const VkRenderPassBeginInfo renderPassBeginInfo = {
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.renderPass = framebuffer.renderPassHandle,
+		.framebuffer = framebuffer.handle,
+		.renderArea = {
+			.offset = { 0, 0 },
+			.extent = framebuffer.extent
+		},
+		.clearValueCount = framebuffer.attachmentCount,
+		.pClearValues = commandList.clearValues,
+	};
 
 	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 }
 
 void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 {
-	VkViewport viewport = {};
-	viewport.x = 0.0f;
-	viewport.y = static_cast<float>(size.y);
-	viewport.width = static_cast<float>(size.x);
-	viewport.height = -static_cast<float>(size.y);
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
+	const VkViewport viewport = {
+		.x = 0.0f,
+		.y = static_cast<float>(size.y),
+		.width = static_cast<float>(size.x),
+		.height = -static_cast<float>(size.y),
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
 	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
 
-	VkRect2D scissor = {};
-	scissor.offset = {0, 0};
-	scissor.extent = {size.x, size.y};
+	const VkRect2D scissor = {
+		.offset = {0, 0},
+		.extent = {size.x, size.y},
+	};
 	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
+}
+
+void SetClearColor(CommandList &commandList, u32 renderTargetIndex, float4 color)
+{
+	ASSERT(renderTargetIndex < MAX_RENDER_TARGETS);
+	commandList.clearValues[renderTargetIndex].color.float32[0] = color.r;
+	commandList.clearValues[renderTargetIndex].color.float32[1] = color.g;
+	commandList.clearValues[renderTargetIndex].color.float32[2] = color.b;
+	commandList.clearValues[renderTargetIndex].color.float32[3] = color.a;
+}
+
+void SetClearDepth(CommandList &commandList, u32 renderTargetIndex, float depth)
+{
+	ASSERT(renderTargetIndex < MAX_RENDER_TARGETS);
+	commandList.clearValues[renderTargetIndex].depthStencil.depth = depth;
+}
+
+void SetClearStencil(CommandList &commandList, u32 renderTargetIndex, u32 stencil)
+{
+	ASSERT(renderTargetIndex < MAX_RENDER_TARGETS);
+	commandList.clearValues[renderTargetIndex].depthStencil.stencil = stencil;
 }
 
 void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
@@ -3002,15 +3065,17 @@ SubmitResult Submit(GraphicsDevice &device, const CommandList &commandList)
 	VkSemaphore waitSemaphores[] = { device.imageAvailableSemaphores[frameIndex] };
 	VkSemaphore signalSemaphores[] = { device.renderFinishedSemaphores[frameIndex] };
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores);
-	submitInfo.pWaitSemaphores = waitSemaphores;
-	submitInfo.pWaitDstStageMask = waitStages;
-	submitInfo.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	submitInfo.pSignalSemaphores = signalSemaphores;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandList.handle;
+
+	const VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.waitSemaphoreCount = ARRAY_COUNT(waitSemaphores),
+		.pWaitSemaphores = waitSemaphores,
+		.pWaitDstStageMask = waitStages,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &commandList.handle,
+		.signalSemaphoreCount = ARRAY_COUNT(signalSemaphores),
+		.pSignalSemaphores = signalSemaphores,
+	};
 
 	ASSERT(device.usedFenceCount < MAX_FENCES);
 	device.usedFenceCount++;
@@ -3031,14 +3096,15 @@ bool Present(GraphicsDevice &device, SubmitResult submitResult)
 {
 	const VkSemaphore signalSemaphores[] = { submitResult.signalSemaphore };
 
-	VkPresentInfoKHR presentInfo = {};
-	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores);
-	presentInfo.pWaitSemaphores = signalSemaphores;
-	presentInfo.swapchainCount = 1;
-	presentInfo.pSwapchains = &device.swapchain.handle;
-	presentInfo.pImageIndices = &device.swapchain.currentImageIndex;
-	presentInfo.pResults = NULL; // Optional
+	const VkPresentInfoKHR presentInfo = {
+		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+		.waitSemaphoreCount = ARRAY_COUNT(signalSemaphores),
+		.pWaitSemaphores = signalSemaphores,
+		.swapchainCount = 1,
+		.pSwapchains = &device.swapchain.handle,
+		.pImageIndices = &device.swapchain.currentImageIndex,
+		.pResults = NULL, // Optional
+	};
 
 	VkResult presentResult = vkQueuePresentKHR( device.presentQueue, &presentInfo );
 
