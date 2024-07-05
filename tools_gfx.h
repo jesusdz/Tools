@@ -182,6 +182,15 @@ enum ImageUsageFlagBits
 
 typedef u32 ImageUsageFlags;
 
+enum ImageState
+{
+	ImageStateInitial,
+	ImageStateTransferSrc,
+	ImageStateTransferDst,
+	ImageStateShaderInput,
+	ImageStateRenderTarget,
+};
+
 struct Heap
 {
 	HeapType type;
@@ -689,23 +698,38 @@ static VkImageUsageFlags ImageUsageFlagsToVulkan(ImageUsageFlags flags)
 	return vkFlags;
 }
 
-static bool IsDepthFormat(VkFormat format)
+//static bool IsDepthFormat(VkFormat format)
+//{
+//	const bool isDepthFormat =
+//		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+//		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+//		format == VK_FORMAT_D32_SFLOAT ||
+//		format == VK_FORMAT_D16_UNORM_S8_UINT ||
+//		format == VK_FORMAT_D16_UNORM;
+//	return isDepthFormat;
+//}
+static bool IsDepthFormat(Format format)
 {
 	const bool isDepthFormat =
-		format == VK_FORMAT_D24_UNORM_S8_UINT ||
-		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-		format == VK_FORMAT_D32_SFLOAT ||
-		format == VK_FORMAT_D16_UNORM_S8_UINT ||
-		format == VK_FORMAT_D16_UNORM;
+		format == FormatD32S1 ||
+		format == FormatD24S1 ||
+		format == FormatD32;
 	return isDepthFormat;
 }
 
-static bool HasStencilComponent(VkFormat format)
+//static bool HasStencilComponent(VkFormat format)
+//{
+//	const bool hasStencil =
+//		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+//		format == VK_FORMAT_D24_UNORM_S8_UINT ||
+//		format == VK_FORMAT_D16_UNORM_S8_UINT;
+//	return hasStencil;
+//}
+static bool HasStencilComponent(Format format)
 {
 	const bool hasStencil =
-		format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-		format == VK_FORMAT_D24_UNORM_S8_UINT ||
-		format == VK_FORMAT_D16_UNORM_S8_UINT;
+		format == FormatD32S1 ||
+		format == FormatD24S1;
 	return hasStencil;
 }
 

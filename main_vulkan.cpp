@@ -434,17 +434,39 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 	return sampler;
 }
 
-void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, u32 mipLevels)
+void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, Format format, ImageState oldState, ImageState newState, u32 mipLevels)
 {
 	VkImageAspectFlags aspectMask = 0;
 	VkAccessFlags srcAccess = 0;
 	VkAccessFlags dstAccess = 0;
 	VkPipelineStageFlags srcStage = 0;
 	VkPipelineStageFlags dstStage = 0;
+	VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImageLayout newLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	aspectMask |= IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
 	aspectMask |= HasStencilComponent(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
 	aspectMask = aspectMask ? aspectMask : VK_IMAGE_ASPECT_COLOR_BIT;
+
+	switch (oldState)
+	{
+		case ImageStateInitial: oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
+		case ImageStateTransferSrc: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
+		case ImageStateTransferDst: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
+		case ImageStateShaderInput: oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ImageStateRenderTarget: oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		default: INVALID_CODE_PATH();
+	}
+
+	switch (newState)
+	{
+		case ImageStateInitial: newLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
+		case ImageStateTransferSrc: newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
+		case ImageStateTransferDst: newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
+		case ImageStateShaderInput: newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ImageStateRenderTarget: newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		default: INVALID_CODE_PATH();
+	}
 
 	switch (oldLayout)
 	{
@@ -677,12 +699,12 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
-	TransitionImageLayout(commandList, image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
+	TransitionImageLayout(commandList, image, FormatRGB8_SRGB, ImageStateInitial, ImageStateTransferDst, mipLevels);
 
 	CopyBufferToImage(gfx, commandList, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
 
 	// GenerateMipmaps takes care of this transition after generating the mip levels
-	//TransitionImageLayout(commandList, image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels);
+	//TransitionImageLayout(commandList, image, FormatRGB8_SRGB, ImageStateTransferDst, ImageStateShaderInput, mipLevels);
 
 	GenerateMipmaps(gfx, commandList, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 
@@ -807,7 +829,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
 	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	TransitionImageLayout(commandList, renderTargets.depthImage, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+	TransitionImageLayout(commandList, renderTargets.depthImage, depthFormat, ImageStateInitial, ImageStateRenderTarget, 1);
 	renderTargets.depthImageView = depthImageView;
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -837,7 +859,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
 		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-		TransitionImageLayout(commandList, renderTargets.shadowmapImage, vkDepthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+		TransitionImageLayout(commandList, renderTargets.shadowmapImage, depthFormat, ImageStateInitial, ImageStateRenderTarget, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
@@ -1622,9 +1644,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	VkFormat depthFormat = FindDepthVkFormat(gfx.device);
+	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
+	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
 	const Image &shadowmapImage = gfx.renderTargets.shadowmapImage;
-	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+	TransitionImageLayout(commandList, shadowmapImage, depthFormat, ImageStateRenderTarget, ImageStateShaderInput, 1);
 
 	// Scene and UI
 	{
@@ -1675,7 +1698,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	TransitionImageLayout(commandList, shadowmapImage, depthFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
+	TransitionImageLayout(commandList, shadowmapImage, depthFormat, ImageStateShaderInput, ImageStateRenderTarget, 1);
 
 	EndCommandList(commandList);
 
