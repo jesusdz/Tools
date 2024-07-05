@@ -25,9 +25,14 @@
  * - DestroyPipeline
  * - (Create/Destroy)RenderPass
  *
- * Command lists and commands:
+ * Command lists
  * - (Begin/End)CommandList
  * - (Begin/End)TransientCommandList
+ *
+ * Commands:
+ * - CopyBufferToBuffer
+ * - CopyBufferToImage
+ * - TransitionImageLayout
  * - (Begin/End)RenderPass
  * - SetViewportAndScissor
  * - SetPipeline
@@ -341,6 +346,9 @@ struct Image
 {
 	VkImage handle;
 	Format format;
+	u32 width;
+	u32 height;
+	u32 mipLevels;
 	Alloc alloc;
 };
 
@@ -348,7 +356,6 @@ struct Texture
 {
 	const char *name;
 	Image image;
-	u32 mipLevels;
 	VkImageView imageView;
 };
 
@@ -607,6 +614,7 @@ static VkFormat FormatToVulkan(Format format)
 		VK_FORMAT_R32G32_SFLOAT,
 		VK_FORMAT_R32G32B32_SFLOAT,
 		VK_FORMAT_R8G8B8A8_SRGB,
+		VK_FORMAT_B8G8R8A8_SRGB,
 		VK_FORMAT_D32_SFLOAT,
 		VK_FORMAT_D32_SFLOAT_S8_UINT,
 		VK_FORMAT_D24_UNORM_S8_UINT,
@@ -622,7 +630,8 @@ static Format FormatFromVulkan(VkFormat format)
 		case VK_FORMAT_R32_SFLOAT: return FormatFloat;
 		case VK_FORMAT_R32G32_SFLOAT: return FormatFloat2;
 		case VK_FORMAT_R32G32B32_SFLOAT: return FormatFloat3;
-		case VK_FORMAT_R8G8B8A8_SRGB: return FormatRGB8_SRGB;
+		case VK_FORMAT_R8G8B8A8_SRGB: return FormatRGBA8_SRGB;
+		case VK_FORMAT_B8G8R8A8_SRGB: return FormatBGRA8_SRGB;
 		case VK_FORMAT_D32_SFLOAT: return FormatD32;
 		case VK_FORMAT_D32_SFLOAT_S8_UINT: return FormatD32S1;
 		case VK_FORMAT_D24_UNORM_S8_UINT: return FormatD24S1;
@@ -1097,22 +1106,36 @@ static void BindDescriptorSets(CommandList &commandList)
 	}
 }
 
-static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, u32 mipLevels)
+static VkImageAspectFlags FormatToVulkanAspect(Format format)
 {
-	VkImageViewCreateInfo viewInfo = {};
-	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	viewInfo.image = image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format = format;
-	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.subresourceRange.aspectMask = aspectFlags;
-	viewInfo.subresourceRange.baseMipLevel = 0;
-	viewInfo.subresourceRange.levelCount = mipLevels;
-	viewInfo.subresourceRange.baseArrayLayer = 0;
-	viewInfo.subresourceRange.layerCount = 1;
+	VkImageAspectFlags aspectMask = 0;
+	aspectMask |= IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
+	aspectMask |= HasStencilComponent(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
+	aspectMask = aspectMask ? aspectMask : VK_IMAGE_ASPECT_COLOR_BIT;
+	return aspectMask;
+}
+
+static VkImageView CreateImageView(const GraphicsDevice &device, const Image &image)
+{
+	const VkImageViewCreateInfo viewInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = image.handle,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = FormatToVulkan(image.format),
+		.components = {
+			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+		},
+		.subresourceRange = {
+			.aspectMask = FormatToVulkanAspect(image.format),
+			.baseMipLevel = 0,
+			.levelCount = image.mipLevels,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+	};
 
 	VkImageView imageView;
 	VK_CALL( vkCreateImageView(device.handle, &viewInfo, VULKAN_ALLOCATORS, &imageView) );
@@ -1292,9 +1315,12 @@ Swapchain CreateSwapchain(const GraphicsDevice &device, Window &window, const Sw
 	// Create image views
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
-		const VkImage image = swapchain.images[i];
-		const VkFormat vkFormat = swapchainInfo.format;
-		swapchain.imageViews[i] = CreateImageView(device, image, vkFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		const Image image = {
+			.handle = swapchain.images[i],
+			.format = FormatFromVulkan(swapchainInfo.format),
+			.mipLevels = 1,
+		};
+		swapchain.imageViews[i] = CreateImageView(device, image);
 	}
 
 
@@ -2139,6 +2165,9 @@ Image CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, 
 	const Image image = {
 		.handle = imageHandle,
 		.format = format,
+		.width = width,
+		.height = height,
+		.mipLevels = mipLevels,
 		.alloc = {
 			.heap = memoryHeap.type,
 			.offset = offset,
@@ -2631,6 +2660,147 @@ void EndTransientCommandList(GraphicsDevice &device, const CommandList &commandL
 //////////////////////////////
 // Commands
 //////////////////////////////
+
+void CopyBufferToBuffer(const CommandList &commandBuffer, const Buffer &srcBuffer, u32 srcOffset, const Buffer &dstBuffer, u32 dstOffset, u64 size)
+{
+	const VkBufferCopy copyRegion = {
+		srcOffset = srcOffset,
+		dstOffset = dstOffset,
+		size = size,
+	};
+	vkCmdCopyBuffer(commandBuffer.handle, srcBuffer.handle, dstBuffer.handle, 1, &copyRegion);
+}
+
+void CopyBufferToImage(const CommandList &commandBuffer, const Buffer &buffer, u32 bufferOffset, const Image &image)
+{
+	const VkBufferImageCopy region = {
+		.bufferOffset = bufferOffset,
+		.bufferRowLength = 0,
+		.bufferImageHeight = 0,
+		.imageSubresource = {
+			.aspectMask = FormatToVulkanAspect(image.format),
+			.mipLevel = 0,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.imageOffset = {0, 0, 0},
+		.imageExtent = { image.width, image.height, 1 },
+	};
+
+	vkCmdCopyBufferToImage(
+			commandBuffer.handle,
+			buffer.handle,
+			image.handle,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, // Assuming the right layout
+			1,
+			&region
+			);
+}
+
+void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 mipLevels)
+{
+	VkAccessFlags srcAccess = 0;
+	VkAccessFlags dstAccess = 0;
+	VkPipelineStageFlags srcStage = 0;
+	VkPipelineStageFlags dstStage = 0;
+	VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImageLayout newLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	switch (oldState)
+	{
+		case ImageStateInitial: oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
+		case ImageStateTransferSrc: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
+		case ImageStateTransferDst: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
+		case ImageStateShaderInput: oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ImageStateRenderTarget: oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		default: INVALID_CODE_PATH();
+	}
+
+	switch (newState)
+	{
+		case ImageStateInitial: newLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
+		case ImageStateTransferSrc: newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
+		case ImageStateTransferDst: newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
+		case ImageStateShaderInput: newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
+		case ImageStateRenderTarget: newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		default: INVALID_CODE_PATH();
+	}
+
+	switch (oldLayout)
+	{
+		case VK_IMAGE_LAYOUT_UNDEFINED:
+			srcAccess = 0;
+			srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+			srcAccess = VK_ACCESS_TRANSFER_READ_BIT;
+			srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+			srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
+			srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+			srcAccess = VK_ACCESS_SHADER_READ_BIT;
+			srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+			srcAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			srcStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			break;
+		default:
+			INVALID_CODE_PATH();
+	}
+
+	switch (newLayout)
+	{
+		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+			dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
+			dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+			dstAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
+			dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+			dstAccess = VK_ACCESS_SHADER_READ_BIT;
+			dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+			dstAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			break;
+		default:
+			INVALID_CODE_PATH();
+	}
+
+	const VkImageMemoryBarrier barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = srcAccess,
+		.dstAccessMask = dstAccess,
+		.oldLayout = oldLayout,
+		.newLayout = newLayout,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image.handle,
+		.subresourceRange = {
+			.aspectMask = FormatToVulkanAspect(image.format),
+			.baseMipLevel = 0,
+			.levelCount = mipLevels,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+	};
+
+	vkCmdPipelineBarrier(commandBuffer.handle,
+		srcStage,
+		dstStage,
+		0,          // 0 or VK_DEPENDENCY_BY_REGION_BIT
+		0, NULL,    // Memory barriers
+		0, NULL,    // Buffer barriers
+		1, &barrier // Image barriers
+		);
+}
 
 void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer)
 {

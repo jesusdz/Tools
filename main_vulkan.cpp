@@ -257,20 +257,9 @@ const BufferView &GetBufferView(const Graphics &gfx, BufferViewH bufferViewHandl
 	return bufferView;
 }
 
-void CopyBufferToBuffer(const CommandList &commandList, VkBuffer srcBuffer, u32 srcOffset, VkBuffer dstBuffer, u32 dstOffset, VkDeviceSize size)
-{
-	VkCommandBuffer commandBuffer = commandList.handle;
-
-	VkBufferCopy copyRegion = {};
-	copyRegion.srcOffset = srcOffset;
-	copyRegion.dstOffset = dstOffset;
-	copyRegion.size = size;
-	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-}
-
 struct StagedData
 {
-	VkBuffer buffer;
+	Buffer buffer;
 	u32 offset;
 };
 
@@ -279,7 +268,7 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size)
 	Buffer &stagingBuffer = GetBuffer(gfx, gfx.stagingBuffer);
 
 	StagedData staging = {};
-	staging.buffer = stagingBuffer.handle;
+	staging.buffer = stagingBuffer;
 	staging.offset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
 
 	Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
@@ -337,7 +326,7 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, finalBuffer.handle, arena.used, size);
+	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, finalBuffer, arena.used, size);
 
 	BufferChunk chunk = {};
 	chunk.buffer = arena.buffer;
@@ -434,147 +423,13 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 	return sampler;
 }
 
-void TransitionImageLayout(const CommandList &commandBuffer, const Image &image, ImageState oldState, ImageState newState, u32 mipLevels)
+void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image &image)
 {
-	VkImageAspectFlags aspectMask = 0;
-	VkAccessFlags srcAccess = 0;
-	VkAccessFlags dstAccess = 0;
-	VkPipelineStageFlags srcStage = 0;
-	VkPipelineStageFlags dstStage = 0;
-	VkImageLayout oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	VkImageLayout newLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	const VkFormat vkFormat = FormatToVulkan(image.format);
+	const VkImageAspectFlags aspectMask = FormatToVulkanAspect(image.format);
 
-	aspectMask |= IsDepthFormat(image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
-	aspectMask |= HasStencilComponent(image.format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
-	aspectMask = aspectMask ? aspectMask : VK_IMAGE_ASPECT_COLOR_BIT;
-
-	switch (oldState)
-	{
-		case ImageStateInitial: oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
-		case ImageStateTransferSrc: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
-		case ImageStateTransferDst: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
-		case ImageStateShaderInput: oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
-		case ImageStateRenderTarget: oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
-		default: INVALID_CODE_PATH();
-	}
-
-	switch (newState)
-	{
-		case ImageStateInitial: newLayout = VK_IMAGE_LAYOUT_UNDEFINED; break;
-		case ImageStateTransferSrc: newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
-		case ImageStateTransferDst: newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
-		case ImageStateShaderInput: newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
-		case ImageStateRenderTarget: newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
-		default: INVALID_CODE_PATH();
-	}
-
-	switch (oldLayout)
-	{
-		case VK_IMAGE_LAYOUT_UNDEFINED:
-			srcAccess = 0;
-			srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-			srcAccess = VK_ACCESS_TRANSFER_READ_BIT;
-			srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-			srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-			srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-			srcAccess = VK_ACCESS_SHADER_READ_BIT;
-			srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-			srcAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			srcStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-			break;
-		default:
-			INVALID_CODE_PATH();
-	}
-
-	switch (newLayout)
-	{
-		case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-			dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
-			dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-			dstAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-			dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-			dstAccess = VK_ACCESS_SHADER_READ_BIT;
-			dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-			break;
-		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-			dstAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-			break;
-		default:
-			INVALID_CODE_PATH();
-	}
-
-	const VkImageMemoryBarrier barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.srcAccessMask = srcAccess,
-		.dstAccessMask = dstAccess,
-		.oldLayout = oldLayout,
-		.newLayout = newLayout,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = image.handle,
-		.subresourceRange = {
-			.aspectMask = aspectMask,
-			.baseMipLevel = 0,
-			.levelCount = mipLevels,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-	};
-
-	vkCmdPipelineBarrier(commandBuffer.handle,
-		srcStage,
-		dstStage,
-		0,          // 0 or VK_DEPENDENCY_BY_REGION_BIT
-		0, NULL,    // Memory barriers
-		0, NULL,    // Buffer barriers
-		1, &barrier // Image barriers
-		);
-}
-
-void CopyBufferToImage(Graphics &gfx, const CommandList &commandList, VkBuffer buffer, u32 bufferOffset, VkImage image, u32 width, u32 height)
-{
-	VkBufferImageCopy region{};
-	region.bufferOffset = bufferOffset;
-	region.bufferRowLength = 0;
-	region.bufferImageHeight = 0;
-
-	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel = 0;
-	region.imageSubresource.baseArrayLayer = 0;
-	region.imageSubresource.layerCount = 1;
-
-	region.imageOffset = {0, 0, 0};
-	region.imageExtent = { width, height, 1 };
-
-	VkCommandBuffer commandBuffer = commandList.handle;
-
-	vkCmdCopyBufferToImage(
-			commandBuffer,
-			buffer,
-			image,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1,
-			&region
-			);
-}
-
-void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, VkImage image, VkFormat format, i32 width, i32 height, u32 mipLevels)
-{
 	VkFormatProperties formatProperties;
-	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, format, &formatProperties);
+	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, vkFormat, &formatProperties);
 
 	if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
 		LOG(Error, "GenerateMipmaps() - Linera filtering not supported for the given format.\n");
@@ -583,20 +438,20 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, VkImage imag
 
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrier.image = image;
+	barrier.image = image.handle;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.aspectMask = aspectMask;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
 	barrier.subresourceRange.levelCount = 1;
 
-	i32 mipWidth = width;
-	i32 mipHeight = height;
+	i32 mipWidth = image.width;
+	i32 mipHeight = image.height;
 
 	VkCommandBuffer commandBuffer = commandList.handle;
 
-	for (u32 i = 1; i < mipLevels; ++i)
+	for (u32 i = 1; i < image.mipLevels; ++i)
 	{
 		barrier.subresourceRange.baseMipLevel = i - 1;
 		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -616,20 +471,20 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, VkImage imag
 		VkImageBlit blit = {};
 		blit.srcOffsets[0] = { 0, 0, 0 };
 		blit.srcOffsets[1] = { mipWidth, mipHeight, 1 };
-		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.aspectMask = aspectMask;
 		blit.srcSubresource.mipLevel = i - 1;
 		blit.srcSubresource.baseArrayLayer = 0;
 		blit.srcSubresource.layerCount = 1;
 		blit.dstOffsets[0] = { 0, 0, 0 };
 		blit.dstOffsets[1] = { dstMipWidth, dstMipHeight, 1 };
-		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.aspectMask = aspectMask;
 		blit.dstSubresource.mipLevel = i;
 		blit.dstSubresource.baseArrayLayer = 0;
 		blit.dstSubresource.layerCount = 1;
 
 		vkCmdBlitImage(commandBuffer,
-				image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				image.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				1, &blit,
 				VK_FILTER_LINEAR);
 
@@ -648,7 +503,7 @@ void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, VkImage imag
 		mipHeight = dstMipHeight;
 	}
 
-	barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+	barrier.subresourceRange.baseMipLevel = image.mipLevels - 1;
 	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -687,7 +542,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const u32 mipLevels = static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1;
 
-	const Format texFormat = FormatRGB8_SRGB;
+	const Format texFormat = FormatRGBA8_SRGB;
 
 	Image image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
@@ -701,12 +556,12 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	TransitionImageLayout(commandList, image, ImageStateInitial, ImageStateTransferDst, mipLevels);
 
-	CopyBufferToImage(gfx, commandList, staged.buffer, staged.offset, image.handle, texWidth, texHeight);
+	CopyBufferToImage(commandList, staged.buffer, staged.offset, image);
 
 	// GenerateMipmaps takes care of this transition after generating the mip levels
 	//TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, mipLevels);
 
-	GenerateMipmaps(gfx, commandList, image.handle, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+	GenerateMipmaps(gfx, commandList, image);
 
 	EndTransientCommandList(gfx.device, commandList);
 
@@ -716,8 +571,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = image;
-	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image.handle, vkFormat, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
-	gfx.textures[textureHandle].mipLevels = mipLevels;
+	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image);
 
 	return textureHandle;
 }
@@ -830,7 +684,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			depthFormat,
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
-	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	VkImageView depthImageView = CreateImageView(gfx.device, renderTargets.depthImage);
 	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 1);
 	renderTargets.depthImageView = depthImageView;
 
@@ -860,7 +714,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				depthFormat,
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
-		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage.handle, vkDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		VkImageView shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 1);
 		renderTargets.shadowmapImageView = shadowmapImageView;
 
@@ -1257,7 +1111,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		SMaterial shaderMaterial = { material.uvScale };
 		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
 
-		CopyBufferToBuffer(commandList, staged.buffer, staged.offset, materialBuffer.handle, material.bufferOffset, sizeof(shaderMaterial));
+		CopyBufferToBuffer(commandList, staged.buffer, staged.offset, materialBuffer, material.bufferOffset, sizeof(shaderMaterial));
 	}
 
 	EndTransientCommandList(gfx.device, commandList);
