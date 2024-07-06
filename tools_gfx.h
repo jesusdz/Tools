@@ -1097,17 +1097,25 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, const ShaderSource &
 
 static void BindDescriptorSets(CommandList &commandList)
 {
-	if ( commandList.descriptorSetDirtyMask )
+	while ( commandList.descriptorSetDirtyMask )
 	{
 		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
 
 		u32 descriptorSetCount = 0;
 		VkDescriptorSet descriptorSets[MAX_DESCRIPTOR_SETS] = {};
+
 		for (u32 i = descriptorSetFirst; i < MAX_DESCRIPTOR_SETS; ++i )
 		{
+			const VkDescriptorSet descriptorSet = commandList.descriptorSetHandles[i];
+
 			if ( commandList.descriptorSetDirtyMask & (1 << i) )
 			{
-				descriptorSets[descriptorSetCount++] = commandList.descriptorSetHandles[i];
+				commandList.descriptorSetDirtyMask &= ~(1 << i);
+
+				if ( descriptorSet )
+				{
+					descriptorSets[descriptorSetCount++] = commandList.descriptorSetHandles[i];
+				}
 			}
 			else
 			{
@@ -1115,10 +1123,12 @@ static void BindDescriptorSets(CommandList &commandList)
 			}
 		}
 
-		VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
-		VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
-		vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
-		commandList.descriptorSetDirtyMask = 0;
+		if ( descriptorSetCount > 0 )
+		{
+			VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
+			VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
+			vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
+		}
 	}
 }
 
