@@ -938,6 +938,20 @@ struct float4
 	};
 };
 
+struct float3x3
+{
+	union
+	{
+		f32 mat[3][3];
+		struct
+		{
+			f32 m00, m01, m02,
+				m10, m11, m12,
+				m20, m21, m22;
+		};
+	};
+};
+
 struct float4x4
 {
 	union
@@ -963,9 +977,36 @@ float3 Float3(float value)
 	return res;
 }
 
+float3 Float3(float x, float y, float z)
+{
+	const float3 res = {x, y, z};
+	return res;
+}
+
 float4 Float4(float3 xyz, f32 w)
 {
 	const float4 res = { xyz.x, xyz.y, xyz.z, w };
+	return res;
+}
+
+float3x3 Float3x3(const float4x4 &m)
+{
+	const float3x3 res = {
+		m.m00, m.m01, m.m02,
+		m.m10, m.m11, m.m12,
+		m.m20, m.m21, m.m22,
+	};
+	return res;
+}
+
+float4x4 Float4x4(const float3x3 &m)
+{
+	const float4x4 res = {
+		m.m00, m.m01, m.m02, 0.0f,
+		m.m10, m.m11, m.m12, 0.0f,
+		m.m20, m.m21, m.m22, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f,
+	};
 	return res;
 }
 
@@ -1277,6 +1318,16 @@ float4x4 Orthogonal(f32 l, f32 r, f32 b, f32 t, f32 n, f32 f)
 	mat.m33 = 1.0f;
 
 	return mat;
+}
+
+float3x3 Transpose(const float3x3 &m)
+{
+	const float3x3 res = {
+		m.m00, m.m10, m.m20,
+		m.m01, m.m11, m.m21,
+		m.m02, m.m12, m.m22,
+	};
+	return res;
 }
 
 float4x4 Transpose(const float4x4 &m)
