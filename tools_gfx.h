@@ -509,6 +509,8 @@ struct GraphicsDevice
 
 	VkPipelineCache pipelineCache;
 
+	VkDescriptorSetLayout nullDescriptorSetLayout;
+
 	Heap heaps[HeapType_COUNT];
 
 	u32 currentFrame;
@@ -1894,11 +1896,22 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	};
 	VK_CALL( vkCreatePipelineCache( device.handle, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &device.pipelineCache ) );
 
+	// Null descriptor set layout
+	const VkDescriptorSetLayoutCreateInfo nullDescriptorSetLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 0,
+		.pBindings =  NULL,
+	};
+
+	VK_CALL( vkCreateDescriptorSetLayout(device.handle, &nullDescriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &device.nullDescriptorSetLayout) );
+
 	return true;
 }
 
 void CleanupGraphicsDevice(const GraphicsDevice &device)
 {
+	vkDestroyDescriptorSetLayout( device.handle, device.nullDescriptorSetLayout, VULKAN_ALLOCATORS );
+
 	vkDestroyPipelineCache( device.handle, device.pipelineCache, VULKAN_ALLOCATORS );
 
 	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
@@ -2031,13 +2044,24 @@ BindGroupLayout CreateBindGroupLayout(const GraphicsDevice &device, const Shader
 		layout.bindingCount = bindingCount;
 		layout.bindings = GetBindGroupBindingPointer(shaderBindings, bindGroupIndex);
 	}
+	else
+	{
+		layout.handle = device.nullDescriptorSetLayout;
+		layout.bindingCount = 0;
+		layout.bindings = NULL;
+	}
 
 	return layout;
 }
 
 void DestroyBindGroupLayout(const GraphicsDevice &device, const BindGroupLayout &bindGroupLayout)
 {
-	vkDestroyDescriptorSetLayout( device.handle, bindGroupLayout.handle, VULKAN_ALLOCATORS );
+	if ( bindGroupLayout.bindingCount > 0 )
+	{
+		vkDestroyDescriptorSetLayout( device.handle, bindGroupLayout.handle, VULKAN_ALLOCATORS );
+	}
+	// Otherwise, if bindingCount == 0, we are using the shared device.nullDescriptorSetLayout
+	// which will be destroyed only once in CleanupGraphicsDevice().
 }
 
 BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator)
@@ -2424,24 +2448,26 @@ Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, cons
 		.blendConstants = { 0.0f, 0.0f, 0.0f, 0.0f }, // Optional
 	};
 
-	// DescriptorSet/BindGroup layouts
-	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
-	u32 descriptorSetLayoutCount = 0;
+	// BindGroup layouts
+	const BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {
+		CreateBindGroupLayout(device, shaderBindings, 0),
+		CreateBindGroupLayout(device, shaderBindings, 1),
+		CreateBindGroupLayout(device, shaderBindings, 2),
+		CreateBindGroupLayout(device, shaderBindings, 3),
+	};
 
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
-	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
-	{
-		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(device, shaderBindings, bindGroup);
-
-		if (bindGroupLayouts[bindGroup].handle) {
-			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
-		}
-	}
+	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
+	const VkDescriptorSetLayout descriptorSetLayouts[MAX_DESCRIPTOR_SETS] = {
+		bindGroupLayouts[0].handle,
+		bindGroupLayouts[1].handle,
+		bindGroupLayouts[2].handle,
+		bindGroupLayouts[3].handle,
+	};
 
 	// Pipeline layout
 	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = descriptorSetLayoutCount,
+		.setLayoutCount = ARRAY_COUNT(descriptorSetLayouts),
 		.pSetLayouts = descriptorSetLayouts,
 	};
 
@@ -2506,24 +2532,26 @@ Pipeline CreateComputePipeline(const GraphicsDevice &device, Arena &arena, const
 		.pName = desc.function ? desc.function : "main",
 	};
 
-	// DescriptorSet/BindGroup layouts
-	VkDescriptorSetLayout descriptorSetLayouts[SPV_MAX_DESCRIPTOR_SETS] = {};
-	u32 descriptorSetLayoutCount = 0;
+	// BindGroup layouts
+	const BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {
+		CreateBindGroupLayout(device, shaderBindings, 0),
+		CreateBindGroupLayout(device, shaderBindings, 1),
+		CreateBindGroupLayout(device, shaderBindings, 2),
+		CreateBindGroupLayout(device, shaderBindings, 3),
+	};
 
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {};
-	for (u32 bindGroup = 0; bindGroup < ARRAY_COUNT(bindGroupLayouts); ++bindGroup)
-	{
-		bindGroupLayouts[bindGroup] = CreateBindGroupLayout(device, shaderBindings, bindGroup);
-
-		if (bindGroupLayouts[bindGroup].handle) {
-			descriptorSetLayouts[descriptorSetLayoutCount++] = bindGroupLayouts[bindGroup].handle;
-		}
-	}
+	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
+	const VkDescriptorSetLayout descriptorSetLayouts[MAX_DESCRIPTOR_SETS] = {
+		bindGroupLayouts[0].handle,
+		bindGroupLayouts[1].handle,
+		bindGroupLayouts[2].handle,
+		bindGroupLayouts[3].handle,
+	};
 
 	// Pipeline layout
 	const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = descriptorSetLayoutCount,
+		.setLayoutCount = ARRAY_COUNT(descriptorSetLayouts),
 		.pSetLayouts = descriptorSetLayouts,
 	};
 
