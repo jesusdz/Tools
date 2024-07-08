@@ -935,6 +935,7 @@ struct float4
 			union { float z, b; };
 			union { float w, a; };
 		};
+		float3 xyz;
 	};
 };
 
@@ -1055,6 +1056,34 @@ float3 Sub(const float3 &a, const float3 &b)
 float3 Mul(const float3 &a, f32 b)
 {
 	const float3 res = { a.x * b, a.y * b, a.z * b };
+	return res;
+}
+
+float4 Mul(const float4x4 &a, const float4 &b)
+{
+#define USE_ROWS_TIMES_COLUMNS_MATRIX_MULTIPLICATION 1
+#if USE_ROWS_TIMES_COLUMNS_MATRIX_MULTIPLICATION
+	const float4 res = {
+		a.m00*b.x + a.m10*b.y + a.m20*b.z + a.m30*b.w,
+		a.m01*b.x + a.m11*b.y + a.m21*b.z + a.m31*b.w,
+		a.m02*b.x + a.m12*b.y + a.m22*b.z + a.m32*b.w,
+		a.m03*b.x + a.m13*b.y + a.m23*b.z + a.m33*b.w,
+	};
+	return res;
+#else
+#	error "Missing implementation"
+#endif
+}
+
+float3 MulVector(const float4x4 &a, const float3 &b)
+{
+	const float3 res = Mul(a, Float4(b, 0.0)).xyz;
+	return res;
+}
+
+float3 MulPoint(const float4x4 &a, const float3 &b)
+{
+	const float3 res = Mul(a, Float4(b, 1.0)).xyz;
 	return res;
 }
 
