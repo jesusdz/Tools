@@ -76,6 +76,8 @@
 #define CastStrEq StrEq
 #endif // #if CAST_USE_TOOLS
 
+#include <stdarg.h>
+
 
 ////////////////////////////////////////////////////////////////////////
 // Cast API
@@ -394,9 +396,13 @@ enum CTokenId
 	TOKEN_DOT,
 	TOKEN_MINUS,
 	TOKEN_PLUS,
+	TOKEN_COLON,
 	TOKEN_SEMICOLON,
+	TOKEN_TERNARY,
+	TOKEN_MODULO,
 	TOKEN_SLASH,
 	TOKEN_STAR,
+	TOKEN_TILDE,
 	// One or two-character tokens
 	TOKEN_NOT,
 	TOKEN_NOT_EQUAL,
@@ -413,6 +419,7 @@ enum CTokenId
 	// Literals
 	TOKEN_IDENTIFIER,
 	TOKEN_STRING,
+	TOKEN_CHARACTER,
 	TOKEN_NUMBER,
 	// Keywords
 	TOKEN_STRUCT,
@@ -457,9 +464,13 @@ static const char *CTokenIdNames[] =
 	"TOKEN_DOT",
 	"TOKEN_MINUS",
 	"TOKEN_PLUS",
+	"TOKEN_COLON",
 	"TOKEN_SEMICOLON",
+	"TOKEN_TERNARY",
+	"TOKEN_MODULO",
 	"TOKEN_SLASH",
 	"TOKEN_STAR",
+	"TOKEN_TILDE",
 	// One or two-character tokens
 	"TOKEN_NOT",
 	"TOKEN_NOT_EQUAL",
@@ -476,6 +487,7 @@ static const char *CTokenIdNames[] =
 	// Literals
 	"TOKEN_IDENTIFIER",
 	"TOKEN_STRING",
+	"TOKEN_CHARACTER",
 	"TOKEN_NUMBER",
 	// Keywords
 	"TOKEN_STRUCT",
@@ -514,6 +526,7 @@ enum ValueType
 	//VALUE_TYPE_INT,
 	VALUE_TYPE_FLOAT,
 	VALUE_TYPE_STRING,
+	VALUE_TYPE_CHAR,
 	VALUE_TYPE_NULL,
 };
 
@@ -523,6 +536,7 @@ struct CValue
 	union
 	{
 		bool b;
+		char c;
 		cast_i32 i;
 		cast_f32 f;
 		CastString s;
@@ -685,6 +699,12 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 		literal.s.str += 1; // start after the first " char
 		literal.s.size -= 2; // remove both " characters
 	}
+	if ( tokenId == TOKEN_CHARACTER )
+	{
+		literal.type = VALUE_TYPE_CHAR;
+		String lexeme = CScanner_ScannedString(scanner);
+		literal.c = *(lexeme.str+1); // start after the ' char
+	}
 	else if ( tokenId == TOKEN_NUMBER )
 	{
 		literal.type = VALUE_TYPE_FLOAT;
@@ -703,9 +723,14 @@ static void CScanner_AddToken(const CScanner &scanner, CTokenList &tokenList, CT
 	CScanner_AddToken(scanner, tokenList, tokenId, literal);
 }
 
-static void CScanner_SetError(CScanner &scanner, const char *message)
+static void CScanner_SetError(CScanner &scanner, const char *format, ...)
 {
-	printf("ERROR: %d:%d: %s\n", scanner.line, scanner.currentInLine, message);
+	va_list vaList;
+	va_start(vaList, format);
+	printf("ERROR: %d:%d: ", scanner.line, scanner.currentInLine);
+	vprintf(format, vaList);
+	printf("\n");
+	va_end(vaList);
 	scanner.hasErrors = true;
 }
 
@@ -728,11 +753,17 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 		case '-': CScanner_AddToken(scanner, tokenList, TOKEN_MINUS); break;
 		case '+': CScanner_AddToken(scanner, tokenList, TOKEN_PLUS); break;
 		case '*': CScanner_AddToken(scanner, tokenList, TOKEN_STAR); break;
+		case '~': CScanner_AddToken(scanner, tokenList, TOKEN_TILDE); break;
+		case ':': CScanner_AddToken(scanner, tokenList, TOKEN_COLON); break;
 		case ';': CScanner_AddToken(scanner, tokenList, TOKEN_SEMICOLON); break;
+		case '?': CScanner_AddToken(scanner, tokenList, TOKEN_TERNARY); break;
+		case '%': CScanner_AddToken(scanner, tokenList, TOKEN_MODULO); break;
 		case '!': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '=') ? TOKEN_NOT_EQUAL : TOKEN_NOT); break;
 		case '=': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL); break;
 		case '<': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS); break;
 		case '>': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER); break;
+		case '&': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '&') ? TOKEN_ANDAND : TOKEN_AND); break;
+		case '|': CScanner_AddToken(scanner, tokenList, CScanner_Consume(scanner, '|') ? TOKEN_OROR : TOKEN_OR); break;
 		case '/':
 			if ( CScanner_Consume(scanner, '/') )
 			{
@@ -744,7 +775,7 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 			}
 			else if ( CScanner_Consume(scanner, '*') )
 			{
-				while( CScanner_Peek(scanner) != '*' && CScanner_PeekNext(scanner) != '/' &&  !CScanner_IsAtEnd(scanner) )
+				while( !(CScanner_Consume(scanner, '*') && CScanner_Consume(scanner, '/')) || CScanner_IsAtEnd(scanner) )
 				{
 					if ( Char_IsEOL( CScanner_Peek(scanner) ) ) {
 						scanner.line++;
@@ -797,6 +828,23 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 			CScanner_AddToken(scanner, tokenList, TOKEN_STRING);
 			break;
 
+		case '\'':
+			{
+				if ( CScanner_IsAtEnd(scanner) )
+				{
+					CScanner_SetError( scanner, "Unterminated character" );
+					return;
+				}
+				char character = CScanner_Advance(scanner);
+				if ( CScanner_Advance(scanner) != '\'' )
+				{
+					CScanner_SetError( scanner, "Invalid char literal '%c'", character);
+					return;
+				}
+				CScanner_AddToken(scanner, tokenList, TOKEN_CHARACTER);
+			}
+			break;
+
 		default:
 			if ( Char_IsDigit(c) )
 			{
@@ -847,7 +895,7 @@ static void CScanner_ScanToken(CScanner &scanner, CTokenList &tokenList)
 			}
 			else
 			{
-				CScanner_SetError( scanner, "Unexpected character." );
+				CScanner_SetError( scanner, "Unexpected character '%c'.", c );
 			}
 	}
 }
@@ -1035,8 +1083,6 @@ static bool CParser_FindIdentifier( const CParser &parser, CastString identifier
 
 ////////////////////////////////////////////////////////////////////////
 // Cast helpers
-
-#include <stdarg.h>
 
 static char gCastError[4096] = {};
 
