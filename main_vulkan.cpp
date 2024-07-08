@@ -1937,6 +1937,9 @@ int main(int argc, char **argv)
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
 // - [ ] Avoid duplicated global descriptor sets.
 // - [ ] Have a single descripor set for global info that only changes once per frame
+// - [ ] GPU time queries
+// - [ ] Text rendering
+// - [ ] Include directive in the C AST parsing code.
 //
 // DONE:
 // - [X] Avoid using push constants and put transformation matrices in buffers instead.
