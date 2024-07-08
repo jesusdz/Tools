@@ -652,6 +652,7 @@ static Format FormatFromVulkan(VkFormat format)
 		case VK_FORMAT_D32_SFLOAT: return FormatD32;
 		case VK_FORMAT_D32_SFLOAT_S8_UINT: return FormatD32S1;
 		case VK_FORMAT_D24_UNORM_S8_UINT: return FormatD24S1;
+		default:;
 	};
 	INVALID_CODE_PATH();
 	return FormatCount;

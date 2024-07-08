@@ -113,6 +113,8 @@ struct Graphics
 	BufferChunk cubeIndices;
 	BufferChunk planeVertices;
 	BufferChunk planeIndices;
+	BufferChunk screenTriangleVertices;
+	BufferChunk screenTriangleIndices;
 
 	BufferH globalsBuffer[MAX_FRAMES_IN_FLIGHT];
 	BufferH entityBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -122,6 +124,7 @@ struct Graphics
 
 	SamplerH samplerH;
 	SamplerH shadowmapSamplerH;
+	SamplerH skySamplerH;
 
 	RenderPassH litRenderPassH;
 	RenderPassH shadowmapRenderPassH;
@@ -157,7 +160,10 @@ struct Graphics
 	Entity entities[MAX_ENTITIES];
 	u32 entityCount;
 
+	TextureH skyTextureH;
+
 	PipelineH shadowmapPipelineH;
+	PipelineH skyPipelineH;
 
 	PipelineH computeClearH;
 	PipelineH computeUpdateH;
@@ -220,6 +226,16 @@ static const u16 planeIndices[] = {
 	0, 1, 2, 2, 3, 0,
 };
 
+static const Vertex screenTriangleVertices[] = {
+	{{-1.0f,  1.0f, 0.0f}, {0.0f, 0.0f}},
+	{{-1.0f, -3.0f, 0.0f}, {0.0f, 2.0f}},
+	{{ 3.0f,  1.0f, 0.0f}, {2.0f, 0.0f}},
+};
+
+static const u16 screenTriangleIndices[] = {
+	0, 1, 2,
+};
+
 
 BufferH CreateBuffer(Graphics &gfx, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType)
 {
@@ -263,19 +279,23 @@ struct StagedData
 	u32 offset;
 };
 
-StagedData StageData(Graphics &gfx, const void *data, u32 size)
+StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 alignment = 0)
 {
 	Buffer &stagingBuffer = GetBuffer(gfx, gfx.stagingBuffer);
 
+	const u32 finalAlignment = Max(alignment, gfx.device.alignment.optimalBufferCopyOffset);
+	const u32 unalignedOffset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
+	const u32 alignedOffset = AlignUp(unalignedOffset, finalAlignment);
+
 	StagedData staging = {};
 	staging.buffer = stagingBuffer;
-	staging.offset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
+	staging.offset = alignedOffset;
 
 	Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
 	void* stagingData = stagingHeap.data + staging.offset;
 	MemCopy(stagingData, data, (size_t) size);
 
-	gfx.stagingBufferOffset = AlignUp(gfx.stagingBufferOffset + size, gfx.device.alignment.optimalBufferCopyOffset);
+	gfx.stagingBufferOffset = staging.offset + size;
 
 	return staging;
 }
@@ -319,9 +339,9 @@ BufferArena MakeBufferArena(Graphics &gfx, BufferH bufferHandle)
 	return arena;
 }
 
-BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena &arena, const void *data, u32 size)
+BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena &arena, const void *data, u32 size, u32 alignment = 0)
 {
-	StagedData staged = StageData(gfx, data, size);
+	StagedData staged = StageData(gfx, data, size, alignment);
 
 	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
 
@@ -469,16 +489,19 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 		texChannels = 4;
 	}
 
-	const u32 size = texWidth * texHeight * 4;
+	const u32 pixelSize = 4 * sizeof(byte);
+	const u32 size = texWidth * texHeight * pixelSize;
 
-	StagedData staged = StageData(gfx, pixels, size);
+	StagedData staged = StageData(gfx, pixels, size, pixelSize);
 
 	if ( originalPixels )
 	{
 		stbi_image_free(originalPixels);
 	}
 
-	const u32 mipLevels = static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1;
+	const u32 mipLevels = desc.mipmap ?
+		static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1 :
+		1;
 
 	const Format texFormat = FormatRGBA8_SRGB;
 
@@ -496,10 +519,15 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	CopyBufferToImage(commandList, staged.buffer, staged.offset, image);
 
-	// GenerateMipmaps takes care of this transition after generating the mip levels
-	//TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, mipLevels);
-
-	GenerateMipmaps(gfx, commandList, image);
+	if ( mipLevels > 1 )
+	{
+		// GenerateMipmaps takes care of transitions after creating the image
+		GenerateMipmaps(gfx, commandList, image);
+	}
+	else
+	{
+		TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, 0, 1);
+	}
 
 	EndTransientCommandList(gfx.device, commandList);
 
@@ -568,8 +596,10 @@ BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
 {
 	if ( geometryType == GeometryTypeCube) {
 		return gfx.cubeVertices;
-	} else {
+	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeVertices;
+	} else {
+		return gfx.screenTriangleVertices;
 	}
 }
 
@@ -577,8 +607,10 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 {
 	if ( geometryType == GeometryTypeCube) {
 		return gfx.cubeIndices;
-	} else {
+	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeIndices;
+	} else {
+		return gfx.screenTriangleIndices;
 	}
 }
 
@@ -746,6 +778,8 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	gfx.cubeIndices = PushData(gfx, commandList, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
 	gfx.planeVertices = PushData(gfx, commandList, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
 	gfx.planeIndices = PushData(gfx, commandList, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
+	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
+	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
 
 	EndTransientCommandList(gfx.device, commandList);
 
@@ -1012,8 +1046,12 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		}
 	}
 
+	// Textures
+	gfx.skyTextureH = TextureHandle(gfx, "tex_sky");
+
 	// Pipelines
 	gfx.shadowmapPipelineH = PipelineHandle(gfx, "pipeline_shadowmap");
+	gfx.skyPipelineH = PipelineHandle(gfx, "pipeline_sky");
 
 	// Computes
 	gfx.computeClearH = PipelineHandle(gfx, "compute_clear");
@@ -1030,6 +1068,10 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		.compareOp = CompareOpGreater,
 	};
 	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
+	const SamplerDesc skySamplerDesc = {
+		.addressMode = AddressModeClampToEdge,
+	};
+	gfx.skySamplerH = CreateSampler(gfx, skySamplerDesc);
 
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
@@ -1290,32 +1332,52 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	// Calculate camera matrices
-	const f32 ar = static_cast<f32>(gfx.device.swapchain.extent.width) / static_cast<f32>(gfx.device.swapchain.extent.height);
-	const float orthox = ar > 1.0f ? ar : 1.0f;
-	const float orthoy = ar > 1.0f ? 1.0f : 1.0f/ar;
-	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
-	//const float4x4 = Orthogonal(-orthox, orthox, -orthoy, orthoy, -10, 10);
 	const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
-	const float fovy = (preRotationDegrees == 0 || preRotationDegrees == 180) ? 60.0f : 90.0f;
-	const float4x4 preTransformMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
-	const float4x4 perspectiveMatrix = Perspective(fovy, ar, 0.1f, 1000.0f);
-	const float4x4 projectionMatrix = Mul(perspectiveMatrix, preTransformMatrix);
+	const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
+	const f32 ar = isLandscapeRotation ?
+		static_cast<f32>(gfx.device.swapchain.extent.width) / static_cast<f32>(gfx.device.swapchain.extent.height) :
+		static_cast<f32>(gfx.device.swapchain.extent.height) / static_cast<f32>(gfx.device.swapchain.extent.width);
+	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
+	const float fovy = 60.0f;
+	const float znear = 0.1f;
+	const float zfar = 1000.0f;
+	const float4x4 viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
+	//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
+	const float4x4 perspectiveMatrix = Perspective(fovy, ar, znear, zfar);
+	const float4x4 projectionMatrix = Mul(viewportRotationMatrix, perspectiveMatrix);
+
+	// Frustum vectors
+	const float hypotenuse  = znear / Cos( 0.5f * fovy * ToRadians );
+	const float top = hypotenuse * Sin( 0.5f * fovy * ToRadians );
+	const float bottom = -top;
+	const float right = top * ar;
+	const float left = -right;
+	const float4 frustumTopLeft = Float4( Float3(left, top, -znear), 0.0f );
+	const float4 frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
+
+	const float4x4 sunRotationMatrix = Rotate(float3{0.0, 1.0, 0.0}, 180.0f);
 
 	// Sun matrices
-	const float3 sunPos = float3{0.0f, 0.0f, 0.0f};
-	const float3 sunVrp = float3{-2.0f, -6.0f, -4.0f};
-	const float3 sunUp = float3{0.0f, 1.0f, 0.0f};
+	const float3 sunDirUnnormalized = Float3(-2.0f, 2.0f, 0.0f);
+	const float3 sunDir = Normalize(MulVector(sunRotationMatrix, sunDirUnnormalized));
+	const float3 sunPos = Float3(0.0f, 0.0f, 0.0f);
+	const float3 sunVrp = Sub(sunPos, sunDir);
+	const float3 sunUp = Float3(0.0f, 1.0f, 0.0f);
 	const float4x4 sunViewMatrix = LookAt(sunVrp, sunPos, sunUp);
-	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -5.0f, 5.0f, -5.0f, 5.0f);
+	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -10.0f, 5.0f, -5.0f, 10.0f);
 
 	// Update globals struct
 	const Globals globals = {
 		.cameraView = viewMatrix,
+		.cameraViewInv = Float4x4(Transpose(Float3x3(viewMatrix))),
 		.cameraProj = projectionMatrix,
+		.viewportRotationMatrix = viewportRotationMatrix,
+		.cameraFrustumTopLeft = frustumTopLeft,
+		.cameraFrustumBottomRight = frustumBottomRight,
 		.sunView = sunViewMatrix,
 		.sunProj = sunProjMatrix,
-		.sunDir = Float4(Normalize(FromTo(sunVrp, sunPos)), 0.0f),
+		.sunDir = Float4(sunDir, 0.0f),
 		.eyePosition = Float4(gfx.camera.position, 1.0f),
 		.shadowmapDepthBias = 0.005,
 	};
@@ -1466,6 +1528,35 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+		}
+
+		{ // Sky
+			const Sampler &sampler = GetSampler(gfx, gfx.skySamplerH);
+			const Texture &texture = GetTexture(gfx, gfx.skyTextureH);
+			const Pipeline &pipeline = GetPipeline(gfx, gfx.skyPipelineH);
+			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
+			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
+			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
+			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
+			const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+			const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+
+			const BindGroupDesc bindGroupDesc = {
+				.layout = pipeline.layout.bindGroupLayouts[3],
+				.bindings = {
+					{ .sampler = Binding(sampler) },
+					{ .texture = Binding(texture) },
+					{ .buffer = Binding(globalsBuffer) },
+				},
+			};
+			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+
+			SetPipeline(commandList, pipeline);
+			SetBindGroup(commandList, 3, bindGroup);
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
 		}
 
 #if USE_IMGUI

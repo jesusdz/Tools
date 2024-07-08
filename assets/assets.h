@@ -11,6 +11,7 @@ struct TextureDesc
 {
 	const char *name;
 	const char *filename;
+	int mipmap;
 };
 
 enum LoadOp
@@ -103,6 +104,7 @@ enum GeometryType
 {
 	GeometryTypeCube,
 	GeometryTypePlane,
+	GeometryTypeScreen,
 };
 
 struct EntityDesc
@@ -141,9 +143,10 @@ struct Assets
 
 static const TextureDesc textures[] =
 {
-	{ .name = "tex_diamond", .filename = "assets/diamond.png" },
-	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg" },
-	{ .name = "tex_grass",   .filename = "assets/grass.jpg" },
+	{ .name = "tex_diamond", .filename = "assets/diamond.png", .mipmap = 1 },
+	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg",    .mipmap = 1 },
+	{ .name = "tex_grass",   .filename = "assets/grass.jpg",   .mipmap = 1 },
+	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
 };
 
 static const PipelineDesc pipelines[] =
@@ -175,6 +178,20 @@ static const PipelineDesc pipelines[] =
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
 		},
 		.depthCompareOp = CompareOpGreater,
+	},
+	{
+		.name = "pipeline_sky",
+		.vsFilename = "shaders/vs_sky.spv",
+		.fsFilename = "shaders/fs_sky.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "main_renderpass",
+		.vertexAttributeCount = 2,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+		},
+		.depthCompareOp = CompareOpGreaterOrEqual,
 	},
 };
 
