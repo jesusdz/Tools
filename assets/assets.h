@@ -67,6 +67,7 @@ enum CompareOp
 	CompareOpNone,
 	CompareOpLess,
 	CompareOpGreater,
+	CompareOpGreaterOrEqual,
 	CompareOpCount,
 };
 

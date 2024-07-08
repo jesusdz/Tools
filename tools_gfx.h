@@ -152,6 +152,7 @@ enum AddressMode
 {
 	AddressModeRepeat,
 	AddressModeClampToBorder,
+	AddressModeClampToEdge,
 	AddressModeCount,
 };
 
@@ -675,6 +676,7 @@ static VkSamplerAddressMode AddressModeToVulkan(AddressMode mode)
 	static const VkSamplerAddressMode vkAddressModes[] = {
 		VK_SAMPLER_ADDRESS_MODE_REPEAT,
 		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkAddressModes) == AddressModeCount);
 	ASSERT(mode < AddressModeCount);
@@ -688,6 +690,7 @@ static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
 		VK_COMPARE_OP_NEVER,
 		VK_COMPARE_OP_LESS,
 		VK_COMPARE_OP_GREATER,
+		VK_COMPARE_OP_GREATER_OR_EQUAL,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
 	ASSERT(compareOp < CompareOpCount);
