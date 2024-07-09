@@ -478,6 +478,8 @@ struct GraphicsDevice
 	VkPhysicalDevice physicalDevice;
 	VkDevice handle;
 
+	Format defaultDepthFormat;
+
 	Alignment alignment;
 
 	u32 graphicsQueueFamilyIndex;
@@ -1039,13 +1041,6 @@ static VkFormat FindSupportedFormat(const GraphicsDevice &device, const VkFormat
 
 	INVALID_CODE_PATH();
 	return VK_FORMAT_MAX_ENUM;
-}
-
-static VkFormat FindDepthVkFormat(const GraphicsDevice &device)
-{
-	const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
-	return FindSupportedFormat(device, candidates, ARRAY_COUNT(candidates),
-			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
@@ -1814,6 +1809,18 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	//LOG(Info, "- \n"); // VkPhysicalDeviceLimits			  limits;
 	//LOG(Info, "- \n"); // VkPhysicalDeviceSparseProperties	sparseProperties;
 
+
+	// Format support
+	const VkFormat depthFormatCandidates[] = {
+		VK_FORMAT_D32_SFLOAT,
+		VK_FORMAT_D32_SFLOAT_S8_UINT,
+		VK_FORMAT_D24_UNORM_S8_UINT
+	};
+	const VkFormat defaultVkDepthFormat = FindSupportedFormat(device,
+			depthFormatCandidates, ARRAY_COUNT(depthFormatCandidates),
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+	device.defaultDepthFormat = FormatFromVulkan(defaultVkDepthFormat);
 
 	// Get alignments
 	device.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
@@ -2635,7 +2642,7 @@ RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc 
 	{
 		const u8 depthAttachmentIndex = desc.colorAttachmentCount;
 		VkAttachmentDescription &depthAttachmentDesc = attachmentDescs[depthAttachmentIndex];
-		depthAttachmentDesc.format = FindDepthVkFormat(device);
+		depthAttachmentDesc.format = FormatToVulkan(device.defaultDepthFormat);
 		depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthAttachmentDesc.loadOp = LoadOpToVulkan(desc.depthAttachment.loadOp);
 		depthAttachmentDesc.storeOp = StoreOpToVulkan(desc.depthAttachment.storeOp);

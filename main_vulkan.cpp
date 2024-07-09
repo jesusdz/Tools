@@ -443,7 +443,7 @@ const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
 	return sampler;
 }
 
-void GenerateMipmaps(Graphics &gfx, const CommandList &commandList, const Image &image)
+void GenerateMipmaps(const Graphics &gfx, const CommandList &commandList, const Image &image)
 {
 	const VkFormat vkFormat = FormatToVulkan(image.format);
 
@@ -643,8 +643,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
-	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
-	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
+	const Format depthFormat = gfx.device.defaultDepthFormat;
 
 	// Depth buffer
 	renderTargets.depthImage = CreateImage(gfx.device,
@@ -1482,8 +1481,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		EndRenderPass(commandList);
 	}
 
-	const VkFormat vkDepthFormat = FindDepthVkFormat(gfx.device);
-	const Format depthFormat = FormatFromVulkan(vkDepthFormat);
+	const Format depthFormat = gfx.device.defaultDepthFormat;
 	const Image &shadowmapImage = gfx.renderTargets.shadowmapImage;
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
 
