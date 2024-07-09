@@ -9,7 +9,7 @@ default: main_vulkan
 main_interpreter:
 	${CXX} ${CXXFLAGS} -o main_interpreter main_interpreter.cpp
 
-main_vulkan:
+main_vulkan: reflex
 	./reflex assets/assets.h > assets.reflex.h
 	${CXX} ${CXXFLAGS} -o main_vulkan  main_vulkan.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
 
