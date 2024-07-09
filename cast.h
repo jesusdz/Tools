@@ -1457,6 +1457,15 @@ static CastEnumerator *Cast_ParseEnumerator( CParser &parser, CTokenList &tokenL
 		const CToken &identifier = CParser_GetPreviousToken(parser);
 		enumerator = CAST_NODE( CastEnumerator );
 		enumerator->name = identifier.lexeme;
+
+		// Ignore expressions after the assignment token
+		if ( CParser_TryConsume(parser, TOKEN_EQUAL) ) {
+			while ( !CParser_IsNextToken(parser, TOKEN_COMMA) &&
+				!CParser_IsNextToken(parser, TOKEN_RIGHT_BRACE) &&
+				!CParser_HasFinished(parser) ) {
+				CParser_Consume(parser);
+			}
+		}
 	}
 	return enumerator;
 }
