@@ -864,59 +864,67 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	return true;
 }
 
-BufferBinding Binding(const Buffer &buffer, u32 offset = 0, u32 range = 0)
+ResourceGeneric Resource(const Buffer &buffer, u32 offset = 0, u32 range = 0)
 {
-	const BufferBinding binding = {
-		.handle = buffer.handle,
-		.offset = offset,
-		.range = range > 0 ? range : buffer.size,
+	const ResourceGeneric resource = {
+		.buffer = {
+			.handle = buffer.handle,
+			.offset = offset,
+			.range = range > 0 ? range : buffer.size,
+		}
 	};
+	return resource;
+}
+
+ResourceGeneric Resource(const BufferView &bufferView)
+{
+	const ResourceGeneric resource = {
+		.bufferView = { .handle = bufferView.handle }
+	};
+	return resource;
+}
+
+ResourceGeneric Resource(const Texture &texture)
+{
+	const ResourceGeneric resource = {
+		.texture = { .handle = texture.imageView }
+	};
+	return resource;
+}
+
+ResourceGeneric Resource(const Sampler &sampler)
+{
+	const ResourceGeneric resource = {
+		.sampler = { .handle = sampler.handle }
+	};
+	return resource;
+}
+
+ResourceBinding MakeBinding(u8 index, const Buffer &buffer, u32 offset = 0, u32 range = 0)
+{
+	const ResourceBinding binding = { .index = index, .resource = Resource(buffer, offset, range) };
 	return binding;
 }
 
-BufferViewBinding Binding(const BufferView &bufferView)
+ResourceBinding MakeBinding(u8 index, const BufferView &bufferView)
 {
-	const BufferViewBinding binding = { .handle = bufferView.handle };
+	const ResourceBinding binding = { .index = index, .resource = Resource(bufferView) };
 	return binding;
 }
 
-TextureBinding Binding(const Texture &texture)
+ResourceBinding MakeBinding(u8 index, const Texture &texture)
 {
-	const TextureBinding binding = { .handle = texture.imageView };
+	const ResourceBinding binding = { .index = index, .resource = Resource(texture) };
 	return binding;
 }
 
-SamplerBinding Binding(const Sampler &sampler)
+ResourceBinding MakeBinding(u8 index, const Sampler &sampler)
 {
-	const SamplerBinding binding = { .handle = sampler.handle };
+	const ResourceBinding binding = { .index = index, .resource = Resource(sampler) };
 	return binding;
 }
 
-void BindResource(ResourceBinding *bindingTable, u32 binding, const Buffer &buffer, u32 offset = 0, u32 range = 0)
-{
-	bindingTable[binding].index = binding;
-	bindingTable[binding].buffer = Binding(buffer, offset, range);
-}
-
-void BindResource(ResourceBinding *bindingTable, u32 binding, const BufferView &bufferView)
-{
-	bindingTable[binding].index = binding;
-	bindingTable[binding].bufferView = Binding(bufferView);
-}
-
-void BindResource(ResourceBinding *bindingTable, u32 binding, const Texture &texture)
-{
-	bindingTable[binding].index = binding;
-	bindingTable[binding].texture = Binding(texture);
-}
-
-void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sampler)
-{
-	bindingTable[binding].index = binding;
-	bindingTable[binding].sampler = Binding(sampler);;
-}
-
-void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
+BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
 {
 	const u32 frameIndex = gfx.device.currentFrame;
 	const Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
@@ -927,20 +935,30 @@ void BindGlobalResources(const Graphics &gfx, ResourceBinding bindingTable[])
 	const Texture shadowmap = { .imageView = gfx.renderTargets.shadowmapImageView };
 	const Sampler &shadowmapSampler = GetSampler(gfx, gfx.shadowmapSamplerH);
 
-	BindResource(bindingTable, BINDING_GLOBALS, globalsBuffer);
-	BindResource(bindingTable, BINDING_ENTITIES, entityBuffer);
-	BindResource(bindingTable, BINDING_SAMPLER, sampler);
-	BindResource(bindingTable, BINDING_SHADOWMAP, shadowmap);
-	BindResource(bindingTable, BINDING_SHADOWMAP_SAMPLER, shadowmapSampler);
+	const BindGroupDesc bindGroupDesc = {
+		.bindings = {
+			MakeBinding(BINDING_GLOBALS, globalsBuffer),
+			MakeBinding(BINDING_SAMPLER, sampler),
+			MakeBinding(BINDING_ENTITIES, entityBuffer),
+			MakeBinding(BINDING_SHADOWMAP, shadowmap),
+			MakeBinding(BINDING_SHADOWMAP_SAMPLER, shadowmapSampler),
+		},
+	};
+	return bindGroupDesc;
 }
 
-void BindMaterialResources(const Graphics &gfx, const Material &material, ResourceBinding bindingTable[])
+BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &material)
 {
 	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
 	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
-	BindResource(bindingTable, BINDING_MATERIAL, materialBuffer, material.bufferOffset, sizeof(SMaterial));
-	BindResource(bindingTable, BINDING_ALBEDO, albedoTexture);
+	const BindGroupDesc bindGroupDesc = {
+		.bindings = {
+			MakeBinding(BINDING_MATERIAL, materialBuffer, material.bufferOffset, sizeof(SMaterial)),
+			MakeBinding(BINDING_ALBEDO, albedoTexture),
+		},
+	};
+	return bindGroupDesc;
 }
 
 void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
@@ -949,13 +967,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	u32 descriptorWriteCount = 0;
 
-	ResourceBinding globalBindingTable[MAX_GLOBAL_BINDINGS];
-	ResourceBinding materialBindingTable[MAX_MATERIAL_BINDINGS];
-	ResourceBinding *bindingTables[MAX_DESCRIPTOR_SETS];
-	bindingTables[BIND_GROUP_GLOBAL] = globalBindingTable;
-	bindingTables[BIND_GROUP_MATERIAL] = materialBindingTable;
-
-	BindGlobalResources(gfx, bindingTables[BIND_GROUP_GLOBAL]);
+	const BindGroupDesc globalBindGroupDesc = GlobalBindGroupDesc(gfx);
 
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
@@ -963,7 +975,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
 		const ShaderBindings &shaderBindings = pipeline.layout.shaderBindings;
 
-		BindMaterialResources(gfx, material, bindingTables[BIND_GROUP_MATERIAL]);
+		const BindGroupDesc materialBindGroupDesc = MaterialBindGroupDesc(gfx, material);
 
 		for ( u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex )
 		{
@@ -971,17 +983,17 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 
 			if ( binding.set != bindGroupIndex ) continue;
 
-			ResourceBinding *bindingTable = 0;
+			const ResourceBinding *bindingTable = 0;
 			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 
 			if ( binding.set == BIND_GROUP_GLOBAL )
 			{
-				bindingTable = bindingTables[BIND_GROUP_GLOBAL];
+				bindingTable = globalBindGroupDesc.bindings;
 				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.device.currentFrame].handle;
 			}
 			else if ( binding.set == BIND_GROUP_MATERIAL )
 			{
-				bindingTable = bindingTables[BIND_GROUP_MATERIAL];
+				bindingTable = materialBindGroupDesc.bindings;
 				descriptorSet = gfx.materialBindGroups[materialIndex].handle;
 			}
 			else
@@ -1423,7 +1435,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
-				{ .index = 0, .bufferView = Binding(computeBufferView) },
+				{ .index = 0, .resource = Resource(computeBufferView) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
@@ -1453,9 +1465,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
-				{ .index = 0, .buffer = Binding(globalsBuffer) },
-				{ .index = 1, .sampler = Binding(sampler) },
-				{ .index = 2, .buffer = Binding(entityBuffer) },
+				{ .index = 0, .resource = Resource(globalsBuffer) },
+				{ .index = 1, .resource = Resource(sampler) },
+				{ .index = 2, .resource = Resource(entityBuffer) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
@@ -1547,9 +1559,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const BindGroupDesc bindGroupDesc = {
 				.layout = pipeline.layout.bindGroupLayouts[3],
 				.bindings = {
-					{ .index = 0, .sampler = Binding(sampler) },
-					{ .index = 1, .texture = Binding(texture) },
-					{ .index = 2, .buffer = Binding(globalsBuffer) },
+					{ .index = 0, .resource = Resource(sampler) },
+					{ .index = 1, .resource = Resource(texture) },
+					{ .index = 2, .resource = Resource(globalsBuffer) },
 				},
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);

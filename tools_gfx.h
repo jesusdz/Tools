@@ -219,40 +219,6 @@ struct Alloc
 	u64 size;
 };
 
-struct BufferBinding
-{
-	VkBuffer handle;
-	u32 offset;
-	u32 range;
-};
-
-struct BufferViewBinding
-{
-	VkBufferView handle;
-};
-
-struct TextureBinding
-{
-	VkImageView handle;
-};
-
-struct SamplerBinding
-{
-	VkSampler handle;
-};
-
-struct ResourceBinding
-{
-	u8 index;
-	union
-	{
-		BufferBinding buffer;
-		BufferViewBinding bufferView;
-		TextureBinding texture;
-		SamplerBinding sampler;
-	};
-};
-
 struct ShaderBinding
 {
 	u8 set;
@@ -294,6 +260,49 @@ struct BindGroupLayout
 	u8 bindingCount;
 };
 
+struct PipelineLayout
+{
+	VkPipelineLayout handle;
+	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
+	ShaderBindings shaderBindings;
+};
+
+struct ResourceBuffer
+{
+	VkBuffer handle;
+	u32 offset;
+	u32 range;
+};
+
+struct ResourceBufferView
+{
+	VkBufferView handle;
+};
+
+struct ResourceTexture
+{
+	VkImageView handle;
+};
+
+struct ResourceSampler
+{
+	VkSampler handle;
+};
+
+union ResourceGeneric
+{
+	ResourceBuffer buffer;
+	ResourceBufferView bufferView;
+	ResourceTexture texture;
+	ResourceSampler sampler;
+};
+
+struct ResourceBinding
+{
+	u8 index;
+	ResourceGeneric resource;
+};
+
 struct BindGroupDesc
 {
 	BindGroupLayout layout;
@@ -303,13 +312,6 @@ struct BindGroupDesc
 struct BindGroup
 {
 	VkDescriptorSet handle;
-};
-
-struct PipelineLayout
-{
-	VkPipelineLayout handle;
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
-	ShaderBindings shaderBindings;
 };
 
 struct Pipeline
@@ -985,26 +987,26 @@ static bool AddDescriptorWrite(const ResourceBinding resourceBindings[MAX_SHADER
 		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		imageInfo->imageView = VK_NULL_HANDLE;
-		imageInfo->sampler = resourceBinding.sampler.handle;
+		imageInfo->sampler = resourceBinding.resource.sampler.handle;
 	}
 	else if ( binding.type == SpvTypeImage )
 	{
 		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo->imageView = resourceBinding.texture.handle;
+		imageInfo->imageView = resourceBinding.resource.texture.handle;
 		imageInfo->sampler = VK_NULL_HANDLE;
 	}
 	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
 	{
 		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
-		bufferInfo->buffer = resourceBinding.buffer.handle;
-		bufferInfo->offset = resourceBinding.buffer.offset;
-		bufferInfo->range = resourceBinding.buffer.range;
+		bufferInfo->buffer = resourceBinding.resource.buffer.handle;
+		bufferInfo->offset = resourceBinding.resource.buffer.offset;
+		bufferInfo->range = resourceBinding.resource.buffer.range;
 	}
 	else if ( binding.type == SpvTypeStorageTexelBuffer )
 	{
 		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
-		*bufferView = resourceBinding.bufferView.handle;
+		*bufferView = resourceBinding.resource.bufferView.handle;
 	}
 	else
 	{
