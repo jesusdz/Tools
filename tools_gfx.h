@@ -241,12 +241,16 @@ struct SamplerBinding
 	VkSampler handle;
 };
 
-union ResourceBinding
+struct ResourceBinding
 {
-	BufferBinding buffer;
-	BufferViewBinding bufferView;
-	TextureBinding texture;
-	SamplerBinding sampler;
+	u8 index;
+	union
+	{
+		BufferBinding buffer;
+		BufferViewBinding bufferView;
+		TextureBinding texture;
+		SamplerBinding sampler;
+	};
 };
 
 struct ShaderBinding
@@ -956,9 +960,21 @@ union VkDescriptorGenericInfo
 	VkBufferView bufferView;
 };
 
-static bool AddDescriptorWrite(const ResourceBinding *bindingTable, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
+static const ResourceBinding &GetResourceBinding(const ResourceBinding resourceBindings[MAX_SHADER_BINDINGS], u8 bindingIndex)
 {
-	const ResourceBinding &resourceBinding = bindingTable[binding.binding];
+	ASSERT(bindingIndex < MAX_SHADER_BINDINGS);
+	const ResourceBinding &resourceBinding = resourceBindings[bindingIndex];
+	if ( resourceBinding.index == bindingIndex ) {
+		return resourceBinding;
+	}
+	INVALID_CODE_PATH();
+	static ResourceBinding nullResourceBinding = {};
+	return nullResourceBinding;
+}
+
+static bool AddDescriptorWrite(const ResourceBinding resourceBindings[MAX_SHADER_BINDINGS], const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
+{
+	const ResourceBinding &resourceBinding = GetResourceBinding(resourceBindings, binding.binding);
 
 	VkDescriptorImageInfo *imageInfo = 0;
 	VkDescriptorBufferInfo *bufferInfo = 0;

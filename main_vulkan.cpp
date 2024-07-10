@@ -894,21 +894,25 @@ SamplerBinding Binding(const Sampler &sampler)
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Buffer &buffer, u32 offset = 0, u32 range = 0)
 {
+	bindingTable[binding].index = binding;
 	bindingTable[binding].buffer = Binding(buffer, offset, range);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const BufferView &bufferView)
 {
+	bindingTable[binding].index = binding;
 	bindingTable[binding].bufferView = Binding(bufferView);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Texture &texture)
 {
+	bindingTable[binding].index = binding;
 	bindingTable[binding].texture = Binding(texture);
 }
 
 void BindResource(ResourceBinding *bindingTable, u32 binding, const Sampler &sampler)
 {
+	bindingTable[binding].index = binding;
 	bindingTable[binding].sampler = Binding(sampler);;
 }
 
@@ -1419,7 +1423,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
-				{ .bufferView = Binding(computeBufferView) },
+				{ .index = 0, .bufferView = Binding(computeBufferView) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
@@ -1449,9 +1453,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
-				{ .buffer = Binding(globalsBuffer) },
-				{ .sampler = Binding(sampler) },
-				{ .buffer = Binding(entityBuffer) },
+				{ .index = 0, .buffer = Binding(globalsBuffer) },
+				{ .index = 1, .sampler = Binding(sampler) },
+				{ .index = 2, .buffer = Binding(entityBuffer) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
@@ -1543,9 +1547,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const BindGroupDesc bindGroupDesc = {
 				.layout = pipeline.layout.bindGroupLayouts[3],
 				.bindings = {
-					{ .sampler = Binding(sampler) },
-					{ .texture = Binding(texture) },
-					{ .buffer = Binding(globalsBuffer) },
+					{ .index = 0, .sampler = Binding(sampler) },
+					{ .index = 1, .texture = Binding(texture) },
+					{ .index = 2, .buffer = Binding(globalsBuffer) },
 				},
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
