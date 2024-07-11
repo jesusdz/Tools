@@ -5,60 +5,64 @@
 Download and unzip the following files:
 
 * [Java Development Kit 17 - JDK](https://www.oracle.com/java/technologies/downloads/)
-  - On Linux, downloaded from [OpenLogic](https://www.openlogic.com/openjdk-downloads)
-* [Commandline tools](https://developer.android.com/studio) (at the bottom of the page)
+  - On both Windows and Linux, downloaded from [OpenLogic](https://www.openlogic.com/openjdk-downloads)
+* [Commandline tools](https://developer.android.com/studio)
+  - Search for "Commandline tools" at the bottom of the linked page
 
-## Some reference links links
+## Download and install Java JDK 17
 
-* [Android NDK](https://developer.android.com/ndk/downloads)
-* [Android SDK Platform tools](https://developer.android.com/studio/releases/platform-tools)
-* [System.loadLibrary() couldn't find native librery](https://stackoverflow.com/questions/27421134/system-loadlibrary-couldnt-find-native-library-in-my-case)
-* [AAPT2](https://developer.android.com/studio/command-line/aapt2)
-* [AAPT Issue](https://stackoverflow.com/questions/23522153/manually-aapt-add-native-library-so-to-apk)
-* [Debugging C++ of an APK using lldb from the console](https://stackoverflow.com/questions/53448796/debugging-c-code-of-an-android-app-using-lldb-from-the-console)
-* [Debugging C++ of an APK using lldb from the console 2](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
-* [lldb-server manual page](https://lldb.llvm.org/man/lldb-server.html)
-* [lldb manual page](https://lldb.llvm.org/man/lldb.html)
-* [Debugging Android Native with LLDB](https://www.lili.kim/2019/01/28/android/Debug%20Android%20Native%20with%20LLDB/)
-* [Useful thread where the last question is key](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
+Download [Java Development Kit 17 - JDK](https://www.openlogic.com/openjdk-downloads) from the linked page. **NOTE:** It's important to have version 17 as I could not complete the APK build process with other (older and newer) versions.
 
-## Java
-
-Unzip java in a directory and set the `JAVA_HOME` environment var. Adding the `bin` directory to the `PATH` can also come in handy.
+Unzip java in a directory. Setting the `JAVA_HOME` environment var and adding the `bin` subdirectory to the `PATH` can come in handy, but it's not required for the process (plus you might not want to pollute the environment variables).
 
 ## Android SDK
 
-Create an empty directory for the Android SDK. It will be our `ANDROID_SDK_ROOT`.
+### Bootstrap ANDROID_HOME
 
-Unzip the **Commandline tools** in any random directory (there's no need for it to be within the Android SDK root, this is just a bootstrap step and we will remove these downloaded commandline tools afterwards).
+First of all, download the [Android commandline tools](https://developer.android.com/studio) from the linked page (look for the "commandline tools" section).
 
-Go to `cmdline-tools\bin` and execute:
+Unzip the **Commandline tools** in a temporary directory.
+
+Open a command terminal and navigate to the the temporary directory. Go to subdirectory `cmdline-tools\bin`:
+
 ```
-sdkmanager.bat --sdk_root=%ANDROID_SDK_ROOT% --install
-sdkmanager.bat --sdk_root=%ANDROID_SDK_ROOT% --list
-sdkmanager.bat --sdk_root=%ANDROID_SDK_ROOT% --install "cmdline-tools;latest"
-```
+REM This is where we installed java
+set JAVA_HOME=C:\Users\jesus\Soft\jdk-17.0.11
 
-Now we have retrieved the latest **Commandline tools** and the old ones (the downloaded ones) can be removed.
-Also, because the new commandline tools are part of the directory structure managed by the sdk manager, there is no need to specify the `--sdk_root` to execute the `sdkmanager` anymore.
+REM This is where we will install the Android SDK
+set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
 
-We can add the `%ANDROID_SDK_ROOT\cmdline-tools\latest\bin%` to our `PATH` environment var.
-
-Now, let's install the latest build tools (that include `aapt`, `aapt2`, `zipalign`...):
-```
-sdkmanager --install "build-tools;33.0.2"
-```
-
-Now, the platform tools (which contains `adb`):
-```
-sdkmanager --install platform-tools
+sdkmanager --sdk_root=%ANDROID_HOME% --install
+sdkmanager --sdk_root=%ANDROID_HOME% --list
+sdkmanager --sdk_root=%ANDROID_HOME% --install "cmdline-tools;latest"
 ```
 
-And finally, install the latest NDK and an SDK:
+The boothstrap at `ANDROID_HOME` is ready. You can safely remove the temporary directory containing the commandline tools.
+
+### Populate ANDROID_HOME
+
+Open a command terminal and navigate to the `ANDROID_HOME` directory. Go to subdirectory `cmdline-tools\bin`:
+
 ```
+set JAVA_HOME=C:\Users\jesus\Soft\jdk-17.0.11
+
+# Install build tools: aapt, aapt2, zipalign...
+sdkmanager --install "build-tools;33.0.1"
+
+# Install platform tools: adb...
+sdkmanager --install "platform-tools"
+
+# NDK and SDK development kits
 sdkmanager --install "ndk;25.2.9519653"
 sdkmanager --install "platforms;android-33"
 ```
+
+**NOTE 1:** 33.0.1 is the last version I have been able to build the APK with. 33.0.2 was already giving me java-related problems.
+
+**NOTE 2:** Because the new commandline tools are part of the directory structure managed by the sdk manager, there is no need to specify the `--sdk_root` to execute the `sdkmanager` anymore.
+
+Close the command line. We have everything we need to compile and deploy the Android app.
+
 
 ## Prepare your phone for debugging
 
@@ -138,3 +142,17 @@ jdb -attach localhost:12345
 (lldb) continue
 // Then the application crashes
 ```
+
+## Some reference links links
+
+* [Android NDK](https://developer.android.com/ndk/downloads)
+* [Android SDK Platform tools](https://developer.android.com/studio/releases/platform-tools)
+* [System.loadLibrary() couldn't find native librery](https://stackoverflow.com/questions/27421134/system-loadlibrary-couldnt-find-native-library-in-my-case)
+* [AAPT2](https://developer.android.com/studio/command-line/aapt2)
+* [AAPT Issue](https://stackoverflow.com/questions/23522153/manually-aapt-add-native-library-so-to-apk)
+* [Debugging C++ of an APK using lldb from the console](https://stackoverflow.com/questions/53448796/debugging-c-code-of-an-android-app-using-lldb-from-the-console)
+* [Debugging C++ of an APK using lldb from the console 2](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)
+* [lldb-server manual page](https://lldb.llvm.org/man/lldb-server.html)
+* [lldb manual page](https://lldb.llvm.org/man/lldb.html)
+* [Debugging Android Native with LLDB](https://www.lili.kim/2019/01/28/android/Debug%20Android%20Native%20with%20LLDB/)
+* [Useful thread where the last question is key](https://stackoverflow.com/questions/53733781/how-do-i-use-lldb-to-debug-c-code-on-android-on-command-line)

@@ -1,16 +1,29 @@
 @echo off
 
+REM Configure environment variables
+call environment.bat
+
+if %errorlevel% neq 0 (
+	echo Could not prepare the environment.
+	exit /b 1
+)
 
 REM ######################################################
 REM Environment variables
 REM ######################################################
 
-set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
+REM JAVA
+set JAVAC="%JAVA_HOME%\bin\javac"
+set KEYTOOL="%JAVA_HOME%\bin\keytool"
+
+REM set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
 set BUILD_TOOLS= %ANDROID_HOME%\build-tools\33.0.1
 set PLATFORM_TOOLS=%ANDROID_HOME%\platform-tools
 set ANDROID_PLATFORM_DIR=%ANDROID_HOME%\platforms\android-33
 set APPLICATION_REL_PATH=com\tools\game
 set HOST=windows-x86_64
+
+set D8=%BUILD_TOOLS%\d8
 
 REM clang.exe --print-targets to see a full list of targets
 REM set TARGET=arm64-linux-android33
@@ -118,18 +131,17 @@ REM ------------------------------------------------------
 REM Compile java code from 'src' to 'obj' directory
 REM  -source 1.7 -target 1.7
 REM  -source 1.7 -target 1.7
-call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
-call %JAVA_HOME%\bin\javac -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
+call %JAVAC% -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
+call %JAVAC% -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
 
 
 REM ------------------------------------------------------
 REM Compile java bytecode to dex bytecode. Reference:
 REM https://developer.android.com/studio/command-line/d8
 
-set JAVA_HOME_OLD=%JAVA_HOME%
-set JAVA_HOME=C:\Users\jesus\Soft\jdk-1.8
-call %BUILD_TOOLS%\d8 obj\%APPLICATION_REL_PATH%\* --classpath %ANDROID_PLATFORM_DIR%\android.jar --output bin\
-set JAVA_HOME=%JAVA_HOME_OLD%
+copy %BUILD_TOOLS%\lib\d8.jar %BUILD_TOOLS%\d8.jar
+call %D8% obj\%APPLICATION_REL_PATH%\* --classpath %ANDROID_PLATFORM_DIR%\android.jar --output bin\
+del %BUILD_TOOLS%\d8.jar
 
 
 REM ------------------------------------------------------
@@ -156,7 +168,7 @@ call %BUILD_TOOLS%\zipalign -v -f 4 bin\NativeActivity.unaligned.apk bin\NativeA
 REM ------------------------------------------------------
 REM Create a key and sign the APK with it
 
-if not exist "Tools.keystore" call %JAVA_HOME%\bin\keytool -genkeypair -validity 1000 -dname "CN=tools,O=jesusdz,C=ES" -keystore Tools.keystore -storepass pass4tools -keypass pass4tools -alias ToolsKey -keyalg RSA
+if not exist "Tools.keystore" call %KEYTOOL% -genkeypair -validity 1000 -dname "CN=tools,O=jesusdz,C=ES" -keystore Tools.keystore -storepass pass4tools -keypass pass4tools -alias ToolsKey -keyalg RSA
 call %BUILD_TOOLS%\apksigner sign --ks Tools.keystore --ks-key-alias ToolsKey --ks-pass pass:"pass4tools" bin\NativeActivity.apk
 
 exit /b 0
@@ -169,9 +181,11 @@ REM Install APK into the device
 REM ######################################################
 : install
 REM -k argument would keep the data and cache directories
+call %PLATFORM_TOOLS%\adb uninstall com.tools.game
 call %PLATFORM_TOOLS%\adb install -r bin\NativeActivity.apk
 call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/Android/data/com.tools.game/files/
 call %PLATFORM_TOOLS%\adb push ..\shaders\ /sdcard/Android/data/com.tools.game/files/
+call %PLATFORM_TOOLS%\adb push ..\assets\ /sdcard/Android/data/com.tools.game/files/
 exit /b 0
 
 

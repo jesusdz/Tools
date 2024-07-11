@@ -192,7 +192,7 @@ void LinuxReportError(const char *context)
 u32 CTZ(u32 bitMask)
 {
 	ASSERT(bitMask != 0);
-	u32 firstBitSetIndex;
+	unsigned long firstBitSetIndex;
 	_BitScanForward(&firstBitSetIndex, bitMask);
 	return firstBitSetIndex;
 }
@@ -201,7 +201,7 @@ u32 CTZ(u32 bitMask)
 u32 CLZ(u32 bitMask)
 {
 	ASSERT(bitMask != 0);
-	u32 lastBitSetIndex;
+	unsigned long lastBitSetIndex;
 	_BitScanReverse(&lastBitSetIndex, bitMask);
 	return 31 - lastBitSetIndex;
 }

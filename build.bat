@@ -38,7 +38,7 @@ if "%target%" == "main_interpreter.cpp" (
 
 ) else if "%target%" == "main_vulkan.cpp" (
 
-	set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
+	set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include /std:c++20
 	set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 
 ) else if "%target%" == "main_d3d12.cpp" (
@@ -83,16 +83,21 @@ cl %CommonCompilerFlags% ..\%target% /link %CommonLinkerFlags%
 popd
 
 REM Build shaders
-pushd shaders
 
 del /Q *.spv *.dxil *.pdb *.cso 2>nul
 
 if "%target%"=="main_vulkan.cpp" (
-	%DXC% -spirv -T vs_6_7 -Fo vertex.spv -Fc vertex.dis vertex.hlsl
-	%DXC% -spirv -T ps_6_7 -Fo fragment.spv -Fc fragment.dis fragment.hlsl
-	REM glslc -fshader-stage=vertex vertex.glsl -o vertex.spv
-	REM glslc -fshader-stage=fragment fragment.glsl -o fragment.spv
+	%DXC% -spirv -T vs_6_7 -Fo shaders\vs_shading.spv -Fc shaders\vs_shading.dis shaders\shading.hlsl -E VSMain
+	%DXC% -spirv -T ps_6_7 -Fo shaders\fs_shading.spv -Fc shaders\fs_shading.dis shaders\shading.hlsl -E PSMain
+	%DXC% -spirv -T vs_6_7 -Fo shaders\vs_sky.spv -Fc shaders\vs_sky.dis shaders\sky.hlsl -E VSMain
+	%DXC% -spirv -T ps_6_7 -Fo shaders\fs_sky.spv -Fc shaders\fs_sky.dis shaders\sky.hlsl -E PSMain
+	%DXC% -spirv -T vs_6_7 -Fo shaders\vs_shadowmap.spv -Fc shaders\vs_shadowmap.dis shaders\shadowmap.hlsl -E VSMain
+	%DXC% -spirv -T ps_6_7 -Fo shaders\fs_shadowmap.spv -Fc shaders\fs_shadowmap.dis shaders\shadowmap.hlsl -E PSMain
+	%DXC% -spirv -T cs_6_7 -Fo shaders\compute_clear.spv -Fc shaders\compute_clear.dis shaders\compute.hlsl -E main_clear
+	%DXC% -spirv -T cs_6_7 -Fo shaders\compute_update.spv -Fc shaders\compute_update.dis shaders\compute.hlsl -E main_update
 )
+
+pushd shaders
 
 if "%target%"=="main_d3d12.cpp" (
 	%DXC% -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hlsl
