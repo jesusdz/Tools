@@ -1,35 +1,28 @@
 # Android APKs with the commandline
 
-## Downloads
+## Install Java JDK 17
 
-Download and unzip the following files:
+Download [Java Development Kit 17 - JDK](https://www.openlogic.com/openjdk-downloads) from the linked page.
 
-* [Java Development Kit 17 - JDK](https://www.oracle.com/java/technologies/downloads/)
-  - On both Windows and Linux, downloaded from [OpenLogic](https://www.openlogic.com/openjdk-downloads)
-* [Commandline tools](https://developer.android.com/studio)
-  - Search for "Commandline tools" at the bottom of the linked page
+**NOTE:** It's important to have version 17. I could not complete the APK build process with other (older and newer) versions.
 
-## Download and install Java JDK 17
+Unzip java in a directory of your preference. Setting the `JAVA_HOME` environment var and adding the `bin` subdirectory to the `PATH` environment variable can come in handy, but it's not required for the process (plus you might not want to pollute the environment variables).
 
-Download [Java Development Kit 17 - JDK](https://www.openlogic.com/openjdk-downloads) from the linked page. **NOTE:** It's important to have version 17 as I could not complete the APK build process with other (older and newer) versions.
-
-Unzip java in a directory. Setting the `JAVA_HOME` environment var and adding the `bin` subdirectory to the `PATH` can come in handy, but it's not required for the process (plus you might not want to pollute the environment variables).
-
-## Android SDK
+## Install Android SDK
 
 ### Bootstrap ANDROID_HOME
 
-First of all, download the [Android commandline tools](https://developer.android.com/studio) from the linked page (look for the "commandline tools" section).
+Download the [Android commandline tools](https://developer.android.com/studio) from the linked page (look for the "commandline tools" section).
 
-Unzip the **Commandline tools** in a temporary directory.
+Unzip the **Commandline tools** in a temporary directory (we will remove this directory later).
 
 Open a command terminal and navigate to the the temporary directory. Go to subdirectory `cmdline-tools\bin`:
 
 ```
-REM This is where we installed java
+# This is where we installed java
 set JAVA_HOME=C:\Users\jesus\Soft\jdk-17.0.11
 
-REM This is where we will install the Android SDK
+# This is where we will install the Android SDK
 set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
 
 sdkmanager --sdk_root=%ANDROID_HOME% --install
@@ -37,13 +30,14 @@ sdkmanager --sdk_root=%ANDROID_HOME% --list
 sdkmanager --sdk_root=%ANDROID_HOME% --install "cmdline-tools;latest"
 ```
 
-The boothstrap at `ANDROID_HOME` is ready. You can safely remove the temporary directory containing the commandline tools.
+The bootstrap at `ANDROID_HOME` is ready. You can safely remove the temporary directory containing the commandline tools.
 
 ### Populate ANDROID_HOME
 
 Open a command terminal and navigate to the `ANDROID_HOME` directory. Go to subdirectory `cmdline-tools\bin`:
 
 ```
+# This is where we installed java
 set JAVA_HOME=C:\Users\jesus\Soft\jdk-17.0.11
 
 # Install build tools: aapt, aapt2, zipalign...
@@ -57,7 +51,7 @@ sdkmanager --install "ndk;25.2.9519653"
 sdkmanager --install "platforms;android-33"
 ```
 
-**NOTE 1:** 33.0.1 is the last version I have been able to build the APK with. 33.0.2 was already giving me java-related problems.
+**NOTE 1:** **33.0.1** is the last version I have been able to build the APK with. Version **33.0.2** was already giving me some java-related problems.
 
 **NOTE 2:** Because the new commandline tools are part of the directory structure managed by the sdk manager, there is no need to specify the `--sdk_root` to execute the `sdkmanager` anymore.
 
