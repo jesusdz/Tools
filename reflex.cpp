@@ -226,7 +226,7 @@ void GenerateReflex(const Cast *cast)
 				memberName = declarator->directDeclarator->name;
 			}
 
-			uint pointerCount = 0;
+			u32 pointerCount = 0;
 			CastPointer *pointer = declarator->pointer;
 			while (pointer) {
 				pointerCount++;
