@@ -1,54 +1,16 @@
 @echo off
 
+REM ######################################################
 REM Configure environment variables
+REM ######################################################
+
 call environment.bat
 
 if %errorlevel% neq 0 (
-	echo Could not prepare the environment.
+	echo Environment not ready.
 	exit /b 1
 )
 
-REM ######################################################
-REM Environment variables
-REM ######################################################
-
-REM JAVA
-set JAVAC="%JAVA_HOME%\bin\javac"
-set KEYTOOL="%JAVA_HOME%\bin\keytool"
-
-REM set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
-set BUILD_TOOLS= %ANDROID_HOME%\build-tools\35.0.0
-set PLATFORM_TOOLS=%ANDROID_HOME%\platform-tools
-set ANDROID_PLATFORM_DIR=%ANDROID_HOME%\platforms\android-33
-set APPLICATION_REL_PATH=com\tools\game
-set HOST=windows-x86_64
-
-set D8=%BUILD_TOOLS%\d8
-
-REM clang.exe --print-targets to see a full list of targets
-REM set TARGET=arm64-linux-android33
-set TARGET=aarch64-linux-android33
-
-REM NDK
-set NDK=%ANDROID_HOME%\ndk\25.2.9519653
-set TOOLCHAIN=%NDK%\toolchains\llvm\prebuilt\%HOST%
-REM set GCC=%TOOLCHAIN%\bin\%TARGET%-clang
-REM set GXX=%TOOLCHAIN%\bin\%TARGET%-clang++
-set GCC=%TOOLCHAIN%\bin\clang --target=%TARGET% -march=armv8-a
-set GXX=%TOOLCHAIN%\bin\clang++ --target=%TARGET% -march=armv8-a
-set AR=%TOOLCHAIN%\bin\llvm-ar
-set TOOLCHAIN_LIB_DIR=%TOOLCHAIN%\sysroot\usr\lib\aarch64-linux-android
-
-REM Include dir for native_app_glue sources .h/.cpp
-set NATIVE_APP_GLUE_DIR=%NDK%\sources\android\native_app_glue
-
-set OUT_LIB_DIR=lib\arm64-v8a
-REM set OUT_LIB_DIR=lib\armeabi-v7a
-REM set OUT_LIB_DIR=lib\x86
-REM set OUT_LIB_DIR=lib\x86_64
-
-REM We avoid backslashes for the AAPT command
-set AAPT_LIB_DIR=%OUT_LIB_DIR:\=/%
 
 
 
@@ -66,6 +28,7 @@ if "%target%" == "cleanall" goto cleanall
 
 echo Invalid target
 exit /b 0
+
 
 
 
@@ -124,13 +87,12 @@ mkdir bin 2> nul
 REM ------------------------------------------------------
 REM Generate the R.java file into the src directory
 
-call %BUILD_TOOLS%\aapt package -v -f -m  -S res -J src -M AndroidManifest.xml -I %ANDROID_PLATFORM_DIR%\android.jar
+call %AAPT% package -v -f -m  -S res -J src -M AndroidManifest.xml -I %ANDROID_PLATFORM_DIR%\android.jar
 
 
 REM ------------------------------------------------------
 REM Compile java code from 'src' to 'obj' directory
-REM  -source 1.7 -target 1.7
-REM  -source 1.7 -target 1.7
+
 call %JAVAC% -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\R.java
 call %JAVAC% -source 1.7 -target 1.7 -d obj -classpath %ANDROID_PLATFORM_DIR%\android.jar -sourcepath src src\%APPLICATION_REL_PATH%\MainActivity.java
 
@@ -146,29 +108,29 @@ if %errorlevel% neq 0 exit /b 1
 REM ------------------------------------------------------
 REM Generate the first unsigned version of the APK
 
-call %BUILD_TOOLS%\aapt package -v -f -M AndroidManifest.xml -S res -I %ANDROID_PLATFORM_DIR%\android.jar -F bin\NativeActivity.unaligned.apk bin\
+call %AAPT% package -v -f -M AndroidManifest.xml -S res -I %ANDROID_PLATFORM_DIR%\android.jar -F bin\NativeActivity.unaligned.apk bin\
 
 
 REM ------------------------------------------------------
 REM Add the native activity and other libs to the APK
 
-call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libgame.so"
+call %AAPT% add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libgame.so"
 
 copy "%TOOLCHAIN_LIB_DIR%\libc++_shared.so" %OUT_LIB_DIR%\
-call %BUILD_TOOLS%\aapt add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libc++_shared.so"
+call %AAPT% add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libc++_shared.so"
 
 
 REM ------------------------------------------------------
 REM Align the resources of the final APK to 4 bytes
 
-call %BUILD_TOOLS%\zipalign -v -f 4 bin\NativeActivity.unaligned.apk bin\NativeActivity.apk || goto ERROR
+call %ZIPALIGN% -v -f 4 bin\NativeActivity.unaligned.apk bin\NativeActivity.apk || goto ERROR
 
 
 REM ------------------------------------------------------
 REM Create a key and sign the APK with it
 
 if not exist "Tools.keystore" call %KEYTOOL% -genkeypair -validity 1000 -dname "CN=tools,O=jesusdz,C=ES" -keystore Tools.keystore -storepass pass4tools -keypass pass4tools -alias ToolsKey -keyalg RSA
-call %BUILD_TOOLS%\apksigner sign --ks Tools.keystore --ks-key-alias ToolsKey --ks-pass pass:"pass4tools" bin\NativeActivity.apk
+call %APKSIGNER% sign --ks Tools.keystore --ks-key-alias ToolsKey --ks-pass pass:"pass4tools" bin\NativeActivity.apk
 
 exit /b 0
 
@@ -180,15 +142,15 @@ REM Install APK into the device
 REM ######################################################
 : install
 REM -k argument would keep the data and cache directories
-call %PLATFORM_TOOLS%\adb uninstall com.tools.game
-call %PLATFORM_TOOLS%\adb install -r bin\NativeActivity.apk
-call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/Android/data/com.tools.game/files/
-call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/tmp
-call %PLATFORM_TOOLS%\adb push ..\shaders\ /sdcard/tmp
-call %PLATFORM_TOOLS%\adb shell mv /sdcard/tmp/shaders /sdcard/Android/data/com.tools.game/files/
-call %PLATFORM_TOOLS%\adb push ..\assets\ /sdcard/tmp
-call %PLATFORM_TOOLS%\adb shell mv /sdcard/tmp/assets /sdcard/Android/data/com.tools.game/files/
-call %PLATFORM_TOOLS%\adb shell chmod -R 777 /sdcard/Android/data/com.tools.game/files/*
+call %ADB% uninstall com.tools.game
+call %ADB% install -r bin\NativeActivity.apk
+call %ADB% shell mkdir -p /sdcard/Android/data/com.tools.game/files/
+call %ADB% shell mkdir -p /sdcard/tmp
+call %ADB% push ..\shaders\ /sdcard/tmp
+call %ADB% shell mv /sdcard/tmp/shaders /sdcard/Android/data/com.tools.game/files/
+call %ADB% push ..\assets\ /sdcard/tmp
+call %ADB% shell mv /sdcard/tmp/assets /sdcard/Android/data/com.tools.game/files/
+call %ADB% shell chmod -R 777 /sdcard/Android/data/com.tools.game/files/*
 exit /b 0
 
 
