@@ -1,3 +1,4 @@
+setlocal
 @echo off
 
 REM ######################################################
@@ -37,6 +38,22 @@ REM Compile the C native library
 REM ######################################################
 : build
 
+REM ------------------------------------------------------
+REM Compile dependencies
+
+pushd ..
+echo:
+echo Compiling reflex tool...
+call build.bat reflex
+call build\reflex.exe assets\assets.h > assets.reflex.h
+echo:
+echo Compiling shaders...
+call build.bat shaders
+popd
+
+REM ------------------------------------------------------
+REM Compile native Android code
+
 rmdir /S /Q obj lib 2> nul
 mkdir obj lib 2> nul
 mkdir %OUT_LIB_DIR% 2> nul
@@ -51,6 +68,9 @@ set GXX_FLAGS=%GCC_FLAGS% -std=gnu++11
 
 REM Have a look at this compile arguments
 REM /Users/thomas/Documents/android-ndk-r5b/toolchains/arm-eabi-4.4.0/prebuilt/darwin-x86/bin/arm-eabi-g++ --sysroot=/Users/thomas/Documents/android-ndk-r5b/platforms/android-8/arch-arm -march=armv7-a -mfloat-abi=softfp -mfpu=neon -Wl,--fix-cortex-a8 -fno-exceptions -fno-rtti -nostdlib -fpic -shared -o GLmove.so -O3
+
+echo:
+echo Compiling native Android code...
 
 echo %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
 call %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o android_native_app_glue.o
@@ -179,4 +199,4 @@ exit /b 0
 echo The last command finished with error
 
 
-
+endlocal
