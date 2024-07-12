@@ -17,7 +17,7 @@ set JAVAC="%JAVA_HOME%\bin\javac"
 set KEYTOOL="%JAVA_HOME%\bin\keytool"
 
 REM set ANDROID_HOME=C:\Users\jesus\Soft\android-sdk
-set BUILD_TOOLS= %ANDROID_HOME%\build-tools\33.0.1
+set BUILD_TOOLS= %ANDROID_HOME%\build-tools\35.0.0
 set PLATFORM_TOOLS=%ANDROID_HOME%\platform-tools
 set ANDROID_PLATFORM_DIR=%ANDROID_HOME%\platforms\android-33
 set APPLICATION_REL_PATH=com\tools\game
@@ -139,9 +139,8 @@ REM ------------------------------------------------------
 REM Compile java bytecode to dex bytecode. Reference:
 REM https://developer.android.com/studio/command-line/d8
 
-copy %BUILD_TOOLS%\lib\d8.jar %BUILD_TOOLS%\d8.jar
 call %D8% obj\%APPLICATION_REL_PATH%\* --classpath %ANDROID_PLATFORM_DIR%\android.jar --output bin\
-del %BUILD_TOOLS%\d8.jar
+if %errorlevel% neq 0 exit /b 1
 
 
 REM ------------------------------------------------------
@@ -184,8 +183,12 @@ REM -k argument would keep the data and cache directories
 call %PLATFORM_TOOLS%\adb uninstall com.tools.game
 call %PLATFORM_TOOLS%\adb install -r bin\NativeActivity.apk
 call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/Android/data/com.tools.game/files/
-call %PLATFORM_TOOLS%\adb push ..\shaders\ /sdcard/Android/data/com.tools.game/files/
-call %PLATFORM_TOOLS%\adb push ..\assets\ /sdcard/Android/data/com.tools.game/files/
+call %PLATFORM_TOOLS%\adb shell mkdir -p /sdcard/tmp
+call %PLATFORM_TOOLS%\adb push ..\shaders\ /sdcard/tmp
+call %PLATFORM_TOOLS%\adb shell mv /sdcard/tmp/shaders /sdcard/Android/data/com.tools.game/files/
+call %PLATFORM_TOOLS%\adb push ..\assets\ /sdcard/tmp
+call %PLATFORM_TOOLS%\adb shell mv /sdcard/tmp/assets /sdcard/Android/data/com.tools.game/files/
+call %PLATFORM_TOOLS%\adb shell chmod -R 777 /sdcard/Android/data/com.tools.game/files/*
 exit /b 0
 
 

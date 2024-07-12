@@ -34,14 +34,14 @@ The bootstrap at `ANDROID_HOME` is ready. You can safely remove the temporary di
 
 ### Populate ANDROID_HOME
 
-Open a command terminal and navigate to the `ANDROID_HOME` directory. Go to subdirectory `cmdline-tools\bin`:
+Open a command terminal and navigate to the `ANDROID_HOME` directory. Go to subdirectory `cmdline-tools\latest\bin`:
 
 ```
 # This is where we installed java
 set JAVA_HOME=C:\Users\jesus\Soft\jdk-17.0.11
 
 # Install build tools: aapt, aapt2, zipalign...
-sdkmanager --install "build-tools;33.0.1"
+sdkmanager --install "build-tools;35.0.0"
 
 # Install platform tools: adb...
 sdkmanager --install "platform-tools"
@@ -51,7 +51,7 @@ sdkmanager --install "ndk;25.2.9519653"
 sdkmanager --install "platforms;android-33"
 ```
 
-**NOTE 1:** **33.0.1** is the last version I have been able to build the APK with. Version **33.0.2** was already giving me some java-related problems.
+**NOTE 1:** With **build-tools** version **35.0.0** APKs are generated correctly. Not sure when exactly, but previous versions of the **build-tools** had an issue in their **d8** script, which was passing the deprecated argument `-Djava.ext.dirs` to java (only accepted by previous versions of the JDK). Simply removing this argument was enough to have **d8** working, but better not to have to modify the Android build tools.
 
 **NOTE 2:** Because the new commandline tools are part of the directory structure managed by the sdk manager, there is no need to specify the `--sdk_root` to execute the `sdkmanager` anymore.
 
