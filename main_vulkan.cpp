@@ -1060,6 +1060,10 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 			CreateEntity(gfx, gAssets->entities[i]);
 		}
 	}
+	else
+	{
+		LOG(Error, "Could not get the global 'gAssets' from Clon object.\n");
+	}
 
 	// Textures
 	gfx.skyTextureH = TextureHandle(gfx, "tex_sky");
