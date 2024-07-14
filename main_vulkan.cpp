@@ -155,6 +155,8 @@ struct Graphics
 	// For computes
 	// Compute bind groups are created on-the-fly every frame
 
+	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
+
 	Camera camera;
 
 	Entity entities[MAX_ENTITIES];
@@ -1124,6 +1126,12 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	// Update material descriptor sets
 	UpdateMaterialBindGroup(gfx, BIND_GROUP_MATERIAL);
 
+	// Timestamp queries
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
+	{
+		gfx.timestampPools[i] = CreateTimestampPool(gfx.device, 128);
+	}
+
 	// Camera
 	gfx.camera.position = {0, 1, 2};
 	gfx.camera.orientation = {0, -0.45f};
@@ -1141,6 +1149,11 @@ void WaitDeviceIdle(Graphics &gfx)
 void CleanupGraphics(Graphics &gfx)
 {
 	WaitDeviceIdle( gfx );
+
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
+	{
+		DestroyTimestampPool(gfx.device, gfx.timestampPools[i]);
+	}
 
 	DestroyBindGroupAllocator( gfx.device, gfx.globalBindGroupAllocator );
 	DestroyBindGroupAllocator( gfx.device, gfx.materialBindGroupAllocator );
@@ -1427,6 +1440,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx.device);
 
+	// Timestamp
+	ResetTimestampPool(commandList, gfx.timestampPools[frameIndex]);
+	WriteTimestamp(commandList, gfx.timestampPools[frameIndex], PipelineStageTop);
+
 	#define COMPUTE_TEST 0
 	#if COMPUTE_TEST
 	{
@@ -1587,6 +1604,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
+
+	WriteTimestamp(commandList, gfx.timestampPools[frameIndex], PipelineStageBottom);
 
 	EndCommandList(commandList);
 
@@ -1768,6 +1787,11 @@ void UpdateImGui(Graphics &gfx)
 
 	const ImGuiIO& io = ImGui::GetIO();
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+	const TimestampPool &timestampPool = gfx.timestampPools[gfx.device.currentFrame];
+	const Timestamp t0 = ReadTimestamp(timestampPool, 0);
+	const Timestamp t1 = ReadTimestamp(timestampPool, 1);
+	ImGui::Text("Application graphics frame time (ms): %f", t1.millis - t0.millis);
 
 	ImGui::End();
 	ImGui::Render(); // Generate the draw data
@@ -1955,7 +1979,6 @@ int main(int argc, char **argv)
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
 // - [ ] Avoid duplicated global descriptor sets.
 // - [ ] Have a single descripor set for global info that only changes once per frame
-// - [ ] GPU time queries
 // - [ ] Text rendering
 // - [ ] Include directive in the C AST parsing code.
 //
@@ -1964,4 +1987,5 @@ int main(int argc, char **argv)
 // - [X] Investigate how to write descriptors in a more elegant manner (avoid hardcoding).
 // - [X] Put all the geometry in the same buffer.
 // - [X] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
+// - [X] GPU time queries
 

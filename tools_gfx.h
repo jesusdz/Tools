@@ -45,6 +45,13 @@
  * - DrawIndexed
  * - Dispatch
  *
+ * Timestamp queries:
+ * - CreateTimestampPool
+ * - DestroyTimestampPool
+ * - ResetTimestampPool
+ * - WriteTimestamp
+ * - ReadTimestamp
+ *
  * Work submission and synchronization:
  * - Submit
  * - Present
@@ -191,6 +198,15 @@ enum ImageState
 	ImageStateTransferDst,
 	ImageStateShaderInput,
 	ImageStateRenderTarget,
+};
+
+enum PipelineStage
+{
+	PipelineStageTop,
+	PipelineStageVertex,
+	PipelineStageFragment,
+	PipelineStageCompute,
+	PipelineStageBottom,
 };
 
 struct BlitRegion
@@ -527,7 +543,12 @@ struct GraphicsDevice
 	struct
 	{
 		bool debugReportCallbacks;
+		bool timestampQueries;
 	} support;
+	struct
+	{
+		float timestampPeriod;
+	} limits;
 
 	VkDebugReportCallbackEXT debugReportCallback;
 };
@@ -792,6 +813,20 @@ static VkAttachmentStoreOp StoreOpToVulkan( StoreOp storeOp )
 	const VkAttachmentStoreOp vkStoreOp = vkStoreOps[storeOp];
 	return vkStoreOp;
 }
+
+static VkPipelineStageFlagBits PipelineStageToVulkan( PipelineStage stage )
+{
+	ASSERT(stage <= PipelineStageBottom);
+	static VkPipelineStageFlagBits vkStages[] = {
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+	};
+	const VkPipelineStageFlagBits vkStageFlags = vkStages[stage];
+	return vkStageFlags;
+};
 
 
 
@@ -1840,10 +1875,16 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 	device.defaultDepthFormat = FormatFromVulkan(defaultVkDepthFormat);
 
+
 	// Get alignments
 	device.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
 	device.alignment.optimalBufferCopyOffset = properties.limits.optimalBufferCopyOffsetAlignment;
 	device.alignment.optimalBufferCopyRowPitch = properties.limits.optimalBufferCopyRowPitchAlignment;
+
+
+	// Timestamp queries support
+	device.support.timestampQueries = properties.limits.timestampComputeAndGraphics;
+	device.limits.timestampPeriod = properties.limits.timestampPeriod;
 
 
 	// Create heaps
@@ -3111,6 +3152,99 @@ void EndRenderPass(const CommandList &commandList)
 {
 	vkCmdEndRenderPass(commandList.handle);
 }
+
+
+
+//////////////////////////////
+// Timestamp queries
+//////////////////////////////
+
+struct TimestampPool
+{
+	VkQueryPool handle;
+	u32 queryCount;
+	u32 maxQueries;
+	VkDevice deviceHandle;
+	float nanosPerTick;
+};
+
+struct Timestamp
+{
+	float millis;
+};
+
+TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries)
+{
+	const VkQueryPoolCreateInfo createInfo = {
+		.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+		.queryType = VK_QUERY_TYPE_TIMESTAMP,
+		.queryCount = maxQueries,
+	};
+
+	VkQueryPool poolHandle;
+	VK_CALL( vkCreateQueryPool(device.handle, &createInfo, VULKAN_ALLOCATORS, &poolHandle) );
+
+	const TimestampPool pool = {
+		.handle = poolHandle,
+		.queryCount = 0,
+		.maxQueries = maxQueries,
+		.deviceHandle = device.handle,
+		.nanosPerTick = device.limits.timestampPeriod,
+	};
+	return pool;
+}
+
+void DestroyTimestampPool(const GraphicsDevice &device, const TimestampPool &pool)
+{
+	vkDestroyQueryPool(device.handle, pool.handle, VULKAN_ALLOCATORS);
+}
+
+void ResetTimestampPool(const CommandList &commandBuffer, TimestampPool &pool)
+{
+	vkCmdResetQueryPool(commandBuffer.handle, pool.handle, 0, pool.maxQueries);
+	pool.queryCount = 0;
+}
+
+u32 WriteTimestamp(const CommandList &commandBuffer, TimestampPool &pool, PipelineStage stage)
+{
+	ASSERT(pool.queryCount < pool.maxQueries);
+	const VkPipelineStageFlagBits vkState = PipelineStageToVulkan(stage);
+	const VkQueryPool queryPool = pool.handle;
+	const u32 queryIndex = pool.queryCount++;
+	vkCmdWriteTimestamp(commandBuffer.handle, vkState, queryPool, queryIndex);
+	return queryIndex;
+}
+
+Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex)
+{
+	float millis = 0.0f;
+
+	if ( queryIndex < pool.queryCount )
+	{
+		u32 data[2];
+		const VkDevice device = pool.deviceHandle;
+		const VkQueryPool queryPool = pool.handle;
+		const VkQueryResultFlags flags = VK_QUERY_RESULT_WITH_AVAILABILITY_BIT;
+		VkResult result = vkGetQueryPoolResults(device, queryPool, queryIndex, 1, sizeof(data), data, sizeof(data), flags);
+
+		// Exit with error
+		if (result < VK_SUCCESS) {
+			CheckVulkanResult(result, "vkGetQueryPoolResults");
+		}
+
+		// result could be VK_NOT_READY
+		const bool isAvailable = result == VK_SUCCESS && data[1] != 0;
+		const u32 ticks = isAvailable ? data[0] : 0;
+		const double nanos = (double)ticks * pool.nanosPerTick;
+		millis = (float)(nanos / 1000000.0);
+	}
+
+	const Timestamp timestamp = {
+		.millis = millis,
+	};
+	return timestamp;
+}
+
 
 
 //////////////////////////////
