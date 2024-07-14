@@ -598,13 +598,16 @@ struct CParser
 	CIdentifierList *identifiers;
 };
 
-// Trick so CAST_CHILD ends up using the appropriate CAST_CHILDX macro depending on its number of arguments
 #define CAST_CHILD1(parent, child) ( parent ? parent->child : 0 )
 #define CAST_CHILD2(p, c1, c2) CAST_CHILD1(CAST_CHILD1(p, c1), c2)
 #define CAST_CHILD3(p, c1, c2, c3) CAST_CHILD1(CAST_CHILD2(p, c1, c2), c3)
 #define CAST_CHILD4(p, c1, c2, c3, c4) CAST_CHILD1(CAST_CHILD3(p, c1, c2, c3), c4)
-#define CAST_CHILD_SELECT(parent, _1, _2, _3, _4,CAST_CHILDX,...) CAST_CHILDX
-#define CAST_CHILD(parent, ...) CAST_CHILD_SELECT(parent, __VA_ARGS__, CAST_CHILD4, CAST_CHILD3, CAST_CHILD2, CAST_CHILD1)(parent, __VA_ARGS__)
+#define CAST_CHILD(parent, child) CAST_CHILD1(parent, child)
+
+// Trick so CAST_CHILD ends up using the appropriate CAST_CHILDX macro depending on its number of arguments
+// NOTE: Removed until fixed. It seems to generate wrong code by the Visual Studio C preprocessor.
+//#define CAST_CHILD_SELECT(parent, _1, _2, _3, _4,CAST_CHILDX,...) CAST_CHILDX
+//#define CAST_CHILD(parent, ...) CAST_CHILD_SELECT(parent, __VA_ARGS__, CAST_CHILD4, CAST_CHILD3, CAST_CHILD2, CAST_CHILD1)(parent, __VA_ARGS__)
 
 
 

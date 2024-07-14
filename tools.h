@@ -2034,17 +2034,29 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	bool processMouseEvents = true;
+	bool processKeyboardEvents = true;
 #if USE_IMGUI
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
+	{
 		return true;
+	}
+	if (ImGui::GetCurrentContext() != nullptr)
+	{
+		const ImGuiIO& io = ImGui::GetIO();
+		processKeyboardEvents = !io.WantCaptureKeyboard;
+		processMouseEvents = !io.WantCaptureMouse;
+	}
 #endif
 
 	Window *window = (Window*)GetPropA(hWnd, "WindowPtr");
+
 
 	switch (uMsg)
 	{
 		case WM_KEYDOWN:
 		case WM_KEYUP:
+			if ( processKeyboardEvents )
 			{
 				ASSERT(window);
 				WPARAM keyCode = wParam;
@@ -2053,8 +2065,8 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				ASSERT( mapping < KEY_COUNT );
 				KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
 				window->keyboard.keys[ mapping ] = state;
-				break;
 			}
+			break;
 
 		case WM_SYSCHAR:
 			// If this message is not handled the default window procedure will
@@ -2062,33 +2074,52 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 			break;
 
 		case WM_LBUTTONDOWN:
-			//int xPos = GET_X_LPARAM(lParam);
-			//int yPos = GET_Y_LPARAM(lParam);
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
+			if ( processMouseEvents )
+			{
+				//int xPos = GET_X_LPARAM(lParam);
+				//int yPos = GET_Y_LPARAM(lParam);
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
+			}
 			break;
 		case WM_LBUTTONUP:
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
+			}
 			break;
 		case WM_RBUTTONDOWN:
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
+			}
 			break;
 		case WM_RBUTTONUP:
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
+			}
 			break;
 		case WM_MBUTTONDOWN:
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
+			}
 			break;
 		case WM_MBUTTONUP:
-			ASSERT(window);
-			window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
+			}
 			break;
 
 		case WM_MOUSEMOVE:
+			if ( processMouseEvents )
 			{
 				ASSERT(window);
 				i32 xPos = GET_X_LPARAM(lParam);
@@ -2098,8 +2129,8 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				window->mouse.x = xPos;
 				window->mouse.y = yPos;
 				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
-				break;
 			}
+			break;
 
 		case WM_MOUSEHOVER:
 		case WM_MOUSELEAVE:
@@ -2477,7 +2508,7 @@ bool PlatformRun(Platform &platform)
 
 	Clock lastFrameClock = GetClock();
 
-	bool windowCreated = false;
+	bool windowInitialized = false;
 
 	while ( 1 )
 	{
@@ -2496,16 +2527,16 @@ bool PlatformRun(Platform &platform)
 		if ( platform.window.flags & WindowFlags_WasCreated )
 		{
 			platform.WindowInitCallback(platform);
-			windowCreated = true;
+			windowInitialized = true;
 		}
 		if ( platform.window.flags & WindowFlags_WillDestroy )
 		{
 			platform.WindowCleanupCallback(platform);
 			CleanupWindow(platform.window);
-			windowCreated = false;
+			windowInitialized = false;
 		}
 
-		if ( windowCreated )
+		if ( windowInitialized )
 		{
 			platform.UpdateCallback(platform);
 		}

@@ -1611,7 +1611,7 @@ void InitializeImGuiContext()
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
-	io.FontGlobalScale = 1.5f;
+	io.FontGlobalScale = 1.0f;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;	 // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	  // Enable Gamepad Controls
 

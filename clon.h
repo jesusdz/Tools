@@ -206,7 +206,7 @@ void ClonFillStruct(const Clon *clon, Arena *arena, void *structData, const Refl
 	{
 		const ReflexMember *member = rstruct->members + i;
 
-		const CastDesignator *designator = CAST_CHILD(memberInitializerList, designation, designatorList, designator);
+		const CastDesignator *designator = CAST_CHILD3(memberInitializerList, designation, designatorList, designator);
 
 		const CastInitializer *memberInitializer = NULL;
 		if (designator)
@@ -218,7 +218,7 @@ void ClonFillStruct(const Clon *clon, Arena *arena, void *structData, const Refl
 				// Search for another designator that matches the current member name
 				memberInitializerList = baseMemberInitializerList;
 				while (memberInitializerList) {
-					designator = CAST_CHILD(memberInitializerList, designation, designatorList, designator);
+					designator = CAST_CHILD3(memberInitializerList, designation, designatorList, designator);
 					if (designator && StrEqN(member->name, designator->identifier.str, designator->identifier.size)) {
 						memberInitializer = CAST_CHILD(memberInitializerList, initializer);
 						break;
@@ -321,8 +321,8 @@ bool ClonParse(Clon *clon, Arena *arena, const char *data, u32 dataSize)
 
 		while (translationUnit)
 		{
-			const CastDeclaration *declaration = CAST_CHILD(translationUnit, externalDeclaration, declaration);
-			const CastInitDeclarator *initDeclarator = CAST_CHILD(declaration, initDeclaratorList, initDeclarator);
+			const CastDeclaration *declaration = CAST_CHILD2(translationUnit, externalDeclaration, declaration);
+			const CastInitDeclarator *initDeclarator = CAST_CHILD2(declaration, initDeclaratorList, initDeclarator);
 			const CastDeclarator *declarator = CAST_CHILD(initDeclarator, declarator);
 			const CastDirectDeclarator *directDeclarator = CAST_CHILD(declarator, directDeclarator);
 			const CastInitializer *initializer = CAST_CHILD(initDeclarator, initializer);
