@@ -1966,10 +1966,18 @@ const Cast *Cast_Create( CastArena &arena, const char *text, cast_u64 textSize)
 		if ( ast->type == CAST_EXPR_NUMBER ) { \
 			res = StrToType(ast->constant); \
 		} \
-		return ast->negative ? -res : res; \
+		res = CAST_EVALUATE_SIGN(ast, res); \
+		return res; \
 	}
 
+#undef CAST_EVALUATE_SIGN
+#define CAST_EVALUATE_SIGN( ast, value ) res
+
 CAST_DEFINE_EVALUATE_FUNCTION(bool, Bool, CastStrToBool);
+
+#undef CAST_EVALUATE_SIGN
+#define CAST_EVALUATE_SIGN( ast, value ) ast->negative ? -res : res
+
 CAST_DEFINE_EVALUATE_FUNCTION(char, Char, CastStrToChar);
 CAST_DEFINE_EVALUATE_FUNCTION(unsigned char, UnsignedChar, CastStrToUnsignedInt);
 CAST_DEFINE_EVALUATE_FUNCTION(int, Int, CastStrToInt);
@@ -1982,6 +1990,8 @@ CAST_DEFINE_EVALUATE_FUNCTION(long unsigned int, UnsignedLongInt, CastStrToUnsig
 CAST_DEFINE_EVALUATE_FUNCTION(long long unsigned int, UnsignedLongLongInt, CastStrToUnsignedInt);
 CAST_DEFINE_EVALUATE_FUNCTION(float, Float, CastStrToFloat);
 CAST_DEFINE_EVALUATE_FUNCTION(double, Double, CastStrToFloat);
+
+#undef CAST_EVALUATE_SIGN
 
 
 ////////////////////////////////////////////////////////////////////////
