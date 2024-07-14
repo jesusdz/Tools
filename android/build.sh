@@ -88,9 +88,7 @@ if [[ ${target} = "apk" ]]; then
 	# Compile java bytecode to dex bytecode. Reference
 	# https://developer.android.com/studio/command-line/d8
 
-	cp ${BUILD_TOOLS}/lib/d8.jar ${BUILD_TOOLS}/d8.jar
 	${D8} obj/${APPLICATION_REL_PATH}/* --classpath ${ANDROID_PLATFORM_DIR}/android.jar --output bin/
-	rm ${BUILD_TOOLS}/d8.jar
 
 	# ----------------------------------------------------
 	# Generate the first unsigned version of the APK
