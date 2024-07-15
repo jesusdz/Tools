@@ -116,8 +116,9 @@
 #define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
-#define MAX_DESCRIPTOR_SETS 4
+#define MAX_BIND_GROUPS 4
 #define MAX_SHADER_BINDINGS 16
+#define MAX_BIND_GROUP_LAYOUTS 256
 #if PLATFORM_ANDROID
 #define MAX_SWAPCHAIN_IMAGE_COUNT 5
 #else
@@ -272,6 +273,7 @@ struct BindGroupAllocator
 struct BindGroupLayout
 {
 	VkDescriptorSetLayout handle;
+	u32 crc;
 	const ShaderBinding *bindings;
 	u8 bindingCount;
 };
@@ -279,7 +281,7 @@ struct BindGroupLayout
 struct PipelineLayout
 {
 	VkPipelineLayout handle;
-	BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS];
+	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS];
 	ShaderBindings shaderBindings;
 };
 
@@ -471,7 +473,7 @@ struct CommandList
 {
 	VkCommandBuffer handle;
 
-	VkDescriptorSet descriptorSetHandles[MAX_DESCRIPTOR_SETS];
+	VkDescriptorSet descriptorSetHandles[MAX_BIND_GROUPS];
 	u8 descriptorSetDirtyMask;
 
 	const Pipeline *pipeline;
@@ -534,8 +536,6 @@ struct GraphicsDevice
 
 	VkPipelineCache pipelineCache;
 
-	VkDescriptorSetLayout nullDescriptorSetLayout;
-
 	Heap heaps[HeapType_COUNT];
 
 	u32 currentFrame;
@@ -551,6 +551,12 @@ struct GraphicsDevice
 	} limits;
 
 	VkDebugReportCallbackEXT debugReportCallback;
+
+	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUP_LAYOUTS];
+	u32 bindGroupLayoutCount;
+
+	ShaderBinding shaderBindings[MAX_BIND_GROUP_LAYOUTS * MAX_SHADER_BINDINGS];
+	u32 shaderBindingCount;
 };
 
 
@@ -980,16 +986,6 @@ static void UpdateDescriptorSets(const GraphicsDevice &device, VkWriteDescriptor
 	}
 }
 
-static const ShaderBinding *GetBindGroupBindingPointer(const ShaderBindings &shaderBindings, u8 bindGroupIndex)
-{
-	for (u32 i = 0; i < shaderBindings.bindingCount; ++i) {
-		if ( shaderBindings.bindings[i].set == bindGroupIndex ) {
-			return &shaderBindings.bindings[i];
-		}
-	}
-	return NULL;
-}
-
 union VkDescriptorGenericInfo
 {
 	VkDescriptorImageInfo imageInfo;
@@ -1156,9 +1152,9 @@ static void BindDescriptorSets(CommandList &commandList)
 		const u32 descriptorSetFirst = CTZ(commandList.descriptorSetDirtyMask);
 
 		u32 descriptorSetCount = 0;
-		VkDescriptorSet descriptorSets[MAX_DESCRIPTOR_SETS] = {};
+		VkDescriptorSet descriptorSets[MAX_BIND_GROUPS] = {};
 
-		for (u32 i = descriptorSetFirst; i < MAX_DESCRIPTOR_SETS; ++i )
+		for (u32 i = descriptorSetFirst; i < MAX_BIND_GROUPS; ++i )
 		{
 			const VkDescriptorSet descriptorSet = commandList.descriptorSetHandles[i];
 
@@ -1966,21 +1962,17 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	};
 	VK_CALL( vkCreatePipelineCache( device.handle, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &device.pipelineCache ) );
 
-	// Null descriptor set layout
-	const VkDescriptorSetLayoutCreateInfo nullDescriptorSetLayoutCreateInfo = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 0,
-		.pBindings =  NULL,
-	};
-
-	VK_CALL( vkCreateDescriptorSetLayout(device.handle, &nullDescriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &device.nullDescriptorSetLayout) );
-
 	return true;
 }
 
+void DestroyBindGroupLayout(const GraphicsDevice &device, const BindGroupLayout &bindGroupLayout);
+
 void CleanupGraphicsDevice(const GraphicsDevice &device)
 {
-	vkDestroyDescriptorSetLayout( device.handle, device.nullDescriptorSetLayout, VULKAN_ALLOCATORS );
+	for ( u32 i = 0; i < device.bindGroupLayoutCount; ++i )
+	{
+		DestroyBindGroupLayout(device, device.bindGroupLayouts[i]);
+	}
 
 	vkDestroyPipelineCache( device.handle, device.pipelineCache, VULKAN_ALLOCATORS );
 
@@ -2077,61 +2069,81 @@ void ResetBindGroupAllocator(const GraphicsDevice &device, BindGroupAllocator &b
 // BindGroup
 //////////////////////////////
 
-BindGroupLayout CreateBindGroupLayout(const GraphicsDevice &device, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
+BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
 {
-	BindGroupLayout layout = {};
-
-	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-	u32 bindingCount = 0;
-
-	for (u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex)
+	// Fill only bindings of the desired bindGroup
+	ShaderBindings groupBindings = {};
+	for (u32 i = 0; i < shaderBindings.bindingCount; ++i)
 	{
-		const ShaderBinding &shaderBinding = shaderBindings.bindings[bindingIndex];
-
-		if ( shaderBinding.set == bindGroupIndex )
+		const ShaderBinding &shaderBinding = shaderBindings.bindings[i];
+		if (shaderBinding.set == bindGroupIndex)
 		{
-			VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
-			binding.binding = shaderBinding.binding;
-			binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
-			binding.descriptorCount = 1;
-			binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
-			binding.pImmutableSamplers = NULL;
+			groupBindings.bindings[groupBindings.bindingCount++] = shaderBinding;
 		}
 	}
 
-	if (bindingCount > 0)
-	{
-		const VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = bindingCount,
-			.pBindings = vkBindings,
-		};
+	// Try finding if an equal layout was already created
+	const u32 crc = HashFNV(groupBindings.bindings, groupBindings.bindingCount);
 
-		VkDescriptorSetLayout layoutHandle;
-		VK_CALL( vkCreateDescriptorSetLayout(device.handle, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &layoutHandle) );
-
-		layout.handle = layoutHandle;
-		layout.bindingCount = bindingCount;
-		layout.bindings = GetBindGroupBindingPointer(shaderBindings, bindGroupIndex);
-	}
-	else
+	for (u32 i = 0; i < device.bindGroupLayoutCount; ++i)
 	{
-		layout.handle = device.nullDescriptorSetLayout;
-		layout.bindingCount = 0;
-		layout.bindings = NULL;
+		const BindGroupLayout &layout = device.bindGroupLayouts[i];
+		if ( layout.crc == crc && layout.bindingCount == groupBindings.bindingCount )
+		{
+			const int res = MemCompare(layout.bindings, groupBindings.bindings, layout.bindingCount * sizeof(ShaderBinding));
+			if ( res == 0 )
+			{
+				return layout;
+			}
+		}
 	}
+
+	// Create a new bind group layout
+	ASSERT(device.bindGroupLayoutCount < ARRAY_COUNT(device.bindGroupLayouts));
+	ASSERT(device.shaderBindingCount + groupBindings.bindingCount <= ARRAY_COUNT(device.shaderBindings));
+
+	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
+	u8 bindingCount = 0;
+
+	const ShaderBinding *bindings = &device.shaderBindings[device.shaderBindingCount];
+
+	for (u32 bindingIndex = 0; bindingIndex < groupBindings.bindingCount; ++bindingIndex)
+	{
+		const ShaderBinding &shaderBinding = groupBindings.bindings[bindingIndex];
+		device.shaderBindings[device.shaderBindingCount++] = shaderBinding;
+
+		VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
+		binding.binding = shaderBinding.binding;
+		binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
+		binding.descriptorCount = 1;
+		binding.stageFlags = SpvStageFlagsToVulkan(shaderBinding.stageFlags);
+		binding.pImmutableSamplers = NULL;
+	}
+
+	const VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = bindingCount,
+		.pBindings = bindingCount > 0 ? vkBindings : NULL,
+	};
+
+	VkDescriptorSetLayout layoutHandle;
+	VK_CALL( vkCreateDescriptorSetLayout(device.handle, &descriptorSetLayoutCreateInfo, VULKAN_ALLOCATORS, &layoutHandle) );
+
+	const BindGroupLayout layout = {
+		.handle = layoutHandle,
+		.crc = crc,
+		.bindings = bindings,
+		.bindingCount = bindingCount,
+	};
+
+	device.bindGroupLayouts[device.bindGroupLayoutCount++] = layout;
 
 	return layout;
 }
 
 void DestroyBindGroupLayout(const GraphicsDevice &device, const BindGroupLayout &bindGroupLayout)
 {
-	if ( bindGroupLayout.bindingCount > 0 )
-	{
-		vkDestroyDescriptorSetLayout( device.handle, bindGroupLayout.handle, VULKAN_ALLOCATORS );
-	}
-	// Otherwise, if bindingCount == 0, we are using the shared device.nullDescriptorSetLayout
-	// which will be destroyed only once in CleanupGraphicsDevice().
+	vkDestroyDescriptorSetLayout( device.handle, bindGroupLayout.handle, VULKAN_ALLOCATORS );
 }
 
 BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator)
@@ -2379,7 +2391,7 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 //////////////////////////////
 
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
-Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass)
+Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -2519,7 +2531,7 @@ Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, cons
 	};
 
 	// BindGroup layouts
-	const BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {
+	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
 		CreateBindGroupLayout(device, shaderBindings, 0),
 		CreateBindGroupLayout(device, shaderBindings, 1),
 		CreateBindGroupLayout(device, shaderBindings, 2),
@@ -2527,7 +2539,7 @@ Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, cons
 	};
 
 	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
-	const VkDescriptorSetLayout descriptorSetLayouts[MAX_DESCRIPTOR_SETS] = {
+	const VkDescriptorSetLayout descriptorSetLayouts[MAX_BIND_GROUPS] = {
 		bindGroupLayouts[0].handle,
 		bindGroupLayouts[1].handle,
 		bindGroupLayouts[2].handle,
@@ -2579,15 +2591,14 @@ Pipeline CreateGraphicsPipeline(const GraphicsDevice &device, Arena &arena, cons
 		.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 	};
 
-	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
+	for (u32 bindGroup = 0; bindGroup < MAX_BIND_GROUPS; ++bindGroup) {
 		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
-		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
 	}
 
 	return pipeline;
 }
 
-Pipeline CreateComputePipeline(const GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
+Pipeline CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
 {
 	Arena scratch = arena;
 
@@ -2603,7 +2614,7 @@ Pipeline CreateComputePipeline(const GraphicsDevice &device, Arena &arena, const
 	};
 
 	// BindGroup layouts
-	const BindGroupLayout bindGroupLayouts[MAX_DESCRIPTOR_SETS] = {
+	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
 		CreateBindGroupLayout(device, shaderBindings, 0),
 		CreateBindGroupLayout(device, shaderBindings, 1),
 		CreateBindGroupLayout(device, shaderBindings, 2),
@@ -2611,7 +2622,7 @@ Pipeline CreateComputePipeline(const GraphicsDevice &device, Arena &arena, const
 	};
 
 	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
-	const VkDescriptorSetLayout descriptorSetLayouts[MAX_DESCRIPTOR_SETS] = {
+	const VkDescriptorSetLayout descriptorSetLayouts[MAX_BIND_GROUPS] = {
 		bindGroupLayouts[0].handle,
 		bindGroupLayouts[1].handle,
 		bindGroupLayouts[2].handle,
@@ -2649,9 +2660,8 @@ Pipeline CreateComputePipeline(const GraphicsDevice &device, Arena &arena, const
 		.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE,
 	};
 
-	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
+	for (u32 bindGroup = 0; bindGroup < MAX_BIND_GROUPS; ++bindGroup) {
 		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
-		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
 	}
 
 	return pipeline;
@@ -2661,9 +2671,6 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 {
 	vkDestroyPipeline( device.handle, pipeline.handle, VULKAN_ALLOCATORS );
 	vkDestroyPipelineLayout( device.handle, pipeline.layout.handle, VULKAN_ALLOCATORS );
-	for (u32 i = 0; i < ARRAY_COUNT(pipeline.layout.bindGroupLayouts); ++i) {
-		DestroyBindGroupLayout(device, pipeline.layout.bindGroupLayouts[i]);
-	}
 }
 
 

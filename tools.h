@@ -560,6 +560,21 @@ void MemCopy(void *dst, const void *src, u32 size)
 	while (pSrc != pEnd) *pDst++ = *pSrc++;
 }
 
+i32 MemCompare(const void *a, const void *b, u32 size)
+{
+	const byte *pA = (const byte*) a;
+	const byte *pB = (const byte*) b;
+	const byte *pEnd = pA + size;
+	while (pA != pEnd) {
+		const byte valueA = *pA++;
+		const byte valueB = *pB++;
+		if (valueA != valueB) {
+			return valueA - valueB;
+		}
+	}
+	return 0;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

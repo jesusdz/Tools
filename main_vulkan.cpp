@@ -395,9 +395,6 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
 	pipeline = CreateGraphicsPipeline(gfx.device, arena, desc, renderPass);
-	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
-		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
-	}
 	return pipelineHandle;
 }
 
@@ -407,9 +404,6 @@ PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
 	pipeline = CreateComputePipeline(gfx.device, arena, desc);
-	for (u32 bindGroup = 0; bindGroup < MAX_DESCRIPTOR_SETS; ++bindGroup) {
-		pipeline.layout.bindGroupLayouts[bindGroup].bindings = GetBindGroupBindingPointer(pipeline.layout.shaderBindings, bindGroup);
-	}
 	return pipelineHandle;
 }
 
