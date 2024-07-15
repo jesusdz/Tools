@@ -1382,10 +1382,16 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4 frustumTopLeft = Float4( Float3(left, top, -znear), 0.0f );
 	const float4 frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
 
-	const float4x4 sunRotationMatrix = Rotate(float3{0.0, 1.0, 0.0}, 180.0f);
+	// CPU Frustum culling
+	for (u32 i = 0; i < gfx.entityCount; ++i)
+	{
+		const Entity &entity = gfx.entities[i];
+		// TODO
+	}
 
 	// Sun matrices
 	const float3 sunDirUnnormalized = Float3(-2.0f, 2.0f, 0.0f);
+	const float4x4 sunRotationMatrix = Rotate(float3{0.0, 1.0, 0.0}, 180.0f);
 	const float3 sunDir = Normalize(MulVector(sunRotationMatrix, sunDirUnnormalized));
 	const float3 sunPos = Float3(0.0f, 0.0f, 0.0f);
 	const float3 sunVrp = Sub(sunPos, sunDir);
