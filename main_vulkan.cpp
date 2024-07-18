@@ -83,6 +83,7 @@ struct Entity
 	float3 position;
 	float scale;
 	bool visible;
+	bool culled;
 	BufferChunk vertices;
 	BufferChunk indices;
 	u16 materialIndex;
@@ -1348,6 +1349,110 @@ Framebuffer GetShadowmapFramebuffer(const Graphics &gfx)
 }
 
 
+struct Plane
+{
+	float3 normal; // Orientation of the plane
+	float3 point; // Point in the plane
+	//float distance; // Distance from the origin to the nearest point in the plane
+};
+
+struct FrustumPlanes
+{
+	Plane planes[6];
+};
+
+FrustumPlanes FrustumPlanesFromCamera(float3 cameraPosition, float3 cameraForward, float zNear, float zFar, float fovy, float aspect)
+{
+	const float3 up = Float3(0.0f, 1.0f, 0.0f);
+	const float3 cameraRight = Normalize(Cross(cameraForward, up));
+	const float3 cameraUp = Normalize(Cross(cameraRight, cameraForward));
+
+    const float farHalfY = zFar * Tan(0.5f * fovy * ToRadians);
+    const float farHalfX = farHalfY * aspect;
+	const float3 farRight = Mul(cameraRight, farHalfX);
+	const float3 farLeft = Negate(farRight);
+	const float3 farTop = Mul(cameraUp, farHalfY);
+	const float3 farBot = Negate(farTop);
+	const float3 farForward = Mul(cameraForward, zFar);
+
+	const float3 topLeft = Add(Add(farForward, farLeft), farTop);
+	const float3 topRight = Add(Add(farForward, farRight), farTop);
+	const float3 botLeft = Add(Add(farForward, farLeft), farBot);
+	const float3 botRight = Add(Add(farForward, farRight), farBot);
+
+	const float3 topFaceNormal = Normalize(Cross(topLeft, topRight));
+	const float3 botFaceNormal = Normalize(Cross(botRight, botLeft));
+	const float3 rightFaceNormal = Normalize(Cross(topRight, botRight));
+	const float3 leftFaceNormal = Normalize(Cross(botLeft, topLeft));
+	const float3 farFaceNormal = Negate(cameraForward);
+	const float3 nearFaceNormal = cameraForward;
+
+	const float3 topFacePoint = cameraPosition;
+	const float3 botFacePoint = cameraPosition;
+	const float3 rightFacePoint = cameraPosition;
+	const float3 leftFacePoint = cameraPosition;
+	const float3 farFacePoint = Add(cameraPosition, Mul(cameraForward, zFar));
+	const float3 nearFacePoint = Add(cameraPosition, Mul(cameraForward, zNear));
+
+	const FrustumPlanes frustumPlanes = {
+		.planes = {
+			{ .normal = rightFaceNormal, .point = rightFacePoint },
+			{ .normal = leftFaceNormal, .point = leftFacePoint },
+			{ .normal = topFaceNormal, .point = topFacePoint },
+			{ .normal = botFaceNormal, .point = botFacePoint },
+			{ .normal = nearFaceNormal, .point = nearFacePoint },
+			{ .normal = farFaceNormal, .point = farFacePoint },
+		},
+	};
+    return frustumPlanes;
+}
+
+
+bool PointIsInFrontOfPlane(float3 point, const Plane &plane)
+{
+	const float3 dir = FromTo(plane.point, point);
+	const float dotResult = Dot(plane.normal, dir);
+	return dotResult >= 0.0f;
+}
+
+bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
+{
+	// TODO: Calculate entity size properly
+	const float x = 0.5f * entity.scale;
+	const float y = 0.5f * entity.scale;
+	const float z = 0.5f * entity.scale;
+
+	const float3 bounds[] = {
+		Add(entity.position, Float3(-x,-y,-z)),
+		Add(entity.position, Float3( x,-y,-z)),
+		Add(entity.position, Float3(-x, y,-z)),
+		Add(entity.position, Float3( x, y,-z)),
+		Add(entity.position, Float3(-x,-y, z)),
+		Add(entity.position, Float3( x,-y, z)),
+		Add(entity.position, Float3(-x, y, z)),
+		Add(entity.position, Float3( x, y, z)),
+	};
+	bool entityIsBehindPlane = false;
+	for (u32 j = 0; j < ARRAY_COUNT(frustum.planes); ++j)
+	{
+		entityIsBehindPlane = true;
+		for (u32 i = 0; i < ARRAY_COUNT(bounds); ++i)
+		{
+			if (PointIsInFrontOfPlane(bounds[i], frustum.planes[j]))
+			{
+				entityIsBehindPlane = false;
+				break;
+			}
+		}
+		if (entityIsBehindPlane)
+		{
+			break;
+		}
+	}
+	return !entityIsBehindPlane;
+}
+
+
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
 	u32 frameIndex = gfx.device.currentFrame;
@@ -1383,10 +1488,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4 frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
 
 	// CPU Frustum culling
+	const float3 cameraPosition = gfx.camera.position;
+	const float3 cameraForward = ForwardDirectionFromAngles(gfx.camera.orientation);
+	const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
 	for (u32 i = 0; i < gfx.entityCount; ++i)
 	{
-		const Entity &entity = gfx.entities[i];
-		// TODO
+		Entity &entity = gfx.entities[i];
+		entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
 	}
 
 	// Sun matrices
@@ -1537,7 +1645,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		{
 			const Entity &entity = gfx.entities[entityIndex];
 
-			if ( !entity.visible ) continue;
+			if ( !entity.visible || entity.culled ) continue;
 
 			const u32 materialIndex = entity.materialIndex;
 			const Material &material = gfx.materials[materialIndex];
@@ -1975,7 +2083,6 @@ int main(int argc, char **argv)
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
-// - [ ] GPU culling: As a first step, perform frustum culling in the CPU.
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
 // - [ ] Avoid duplicated global descriptor sets.
 // - [ ] Have a single descripor set for global info that only changes once per frame
@@ -1988,4 +2095,5 @@ int main(int argc, char **argv)
 // - [X] Put all the geometry in the same buffer.
 // - [X] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
 // - [X] GPU time queries
+// - [X] GPU culling: As a first step, perform frustum culling in the CPU.
 
