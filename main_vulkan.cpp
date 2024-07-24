@@ -47,6 +47,15 @@ struct Vertex
 
 
 
+
+struct Texture
+{
+	const char *name;
+	ImageH image;
+};
+
+typedef u32 TextureH;
+
 struct Material
 {
 	const char *name;
@@ -60,10 +69,10 @@ typedef u32 MaterialH;
 
 struct RenderTargets
 {
-	Image depthImage;
+	ImageH depthImage;
 	Framebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
-	Image shadowmapImage;
+	ImageH shadowmapImage;
 	Framebuffer shadowmapFramebuffer;
 };
 
@@ -374,12 +383,14 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
-void GenerateMipmaps(const Graphics &gfx, const CommandList &commandList, const Image &image)
+void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandList, ImageH imageH)
 {
+	const Image &image = GetImage(device, imageH);
+
 	const VkFormat vkFormat = FormatToVulkan(image.format);
 
 	VkFormatProperties formatProperties;
-	vkGetPhysicalDeviceFormatProperties(gfx.device.physicalDevice, vkFormat, &formatProperties);
+	vkGetPhysicalDeviceFormatProperties(device.physicalDevice, vkFormat, &formatProperties);
 
 	if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
 		LOG(Error, "GenerateMipmaps() - Linear filtering not supported for the given format.\n");
@@ -388,7 +399,7 @@ void GenerateMipmaps(const Graphics &gfx, const CommandList &commandList, const 
 
 	for (u32 i = 1; i < image.mipLevels; ++i)
 	{
-		TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateTransferSrc, i - 1, 1);
+		TransitionImageLayout(commandList, imageH, ImageStateTransferDst, ImageStateTransferSrc, i - 1, 1);
 
 		const i32 srcWidth = image.width > 1 ? image.width >> (i-1): 1;
 		const i32 srcHeight = image.height > 1 ? image.height >> (i-1) : 1;
@@ -399,10 +410,10 @@ void GenerateMipmaps(const Graphics &gfx, const CommandList &commandList, const 
 
 		Blit(commandList, image, srcRegion, image, dstRegion);
 
-		TransitionImageLayout(commandList, image, ImageStateTransferSrc, ImageStateShaderInput, i - 1, 1);
+		TransitionImageLayout(commandList, imageH, ImageStateTransferSrc, ImageStateShaderInput, i - 1, 1);
 	}
 
-	TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, image.mipLevels - 1, 1);
+	TransitionImageLayout(commandList, imageH, ImageStateTransferDst, ImageStateShaderInput, image.mipLevels - 1, 1);
 }
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
@@ -436,7 +447,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const Format texFormat = FormatRGBA8_SRGB;
 
-	Image image = CreateImage(gfx.device,
+	ImageH image = CreateImage(gfx.device,
 			texWidth, texHeight, mipLevels,
 			texFormat,
 			ImageUsageTransferSrc | // for mipmap blits
@@ -453,7 +464,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	if ( mipLevels > 1 )
 	{
 		// GenerateMipmaps takes care of transitions after creating the image
-		GenerateMipmaps(gfx, commandList, image);
+		GenerateMipmaps(gfx.device, commandList, image);
 	}
 	else
 	{
@@ -591,12 +602,10 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		const FramebufferDesc desc = {
 			.renderPass = renderPass,
 			.attachments = {
-				gfx.device.swapchain.images[i].imageViewHandle,
-				renderTargets.depthImage.imageViewHandle,
+				gfx.device.swapchain.images[i],
+				renderTargets.depthImage,
 			},
 			.attachmentCount = 2,
-			.width = gfx.device.swapchain.extent.width,
-			.height = gfx.device.swapchain.extent.height,
 		};
 
 		renderTargets.framebuffers[i] = CreateFramebuffer(gfx.device, desc);
@@ -615,10 +624,8 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 		const FramebufferDesc desc = {
 			.renderPass = renderPass,
-			.attachments = { renderTargets.shadowmapImage.imageViewHandle },
+			.attachments = { renderTargets.shadowmapImage },
 			.attachmentCount = 1,
-			.width = renderTargets.shadowmapImage.width,
-			.height = renderTargets.shadowmapImage.height,
 		};
 
 		renderTargets.shadowmapFramebuffer = CreateFramebuffer( gfx.device, desc );
@@ -813,7 +820,7 @@ ResourceGeneric Resource(const BufferView &bufferView)
 ResourceGeneric Resource(const Texture &texture)
 {
 	const ResourceGeneric resource = {
-		.texture = { .handle = texture.image.imageViewHandle }
+		.image = { .handle = texture.image }
 	};
 	return resource;
 }
@@ -1529,7 +1536,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 	const Format depthFormat = gfx.device.defaultDepthFormat;
-	const Image &shadowmapImage = gfx.renderTargets.shadowmapImage;
+	const ImageH shadowmapImage = gfx.renderTargets.shadowmapImage;
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
 
 	// Scene and UI
