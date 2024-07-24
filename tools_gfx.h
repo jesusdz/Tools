@@ -216,6 +216,13 @@ enum PipelineStage
 	PipelineStageBottom,
 };
 
+struct BufferH { u32 index; };
+struct BufferViewH { u32 index; };
+struct ImageH { u32 index; };
+struct SamplerH { u32 index; };
+typedef u32 PipelineH; // TODO: Bring pipeline handling to this file
+typedef u32 RenderPassH; // TODO: Bring render pass handling to this file
+
 struct BlitRegion
 {
 	i32 x;
@@ -291,10 +298,6 @@ struct PipelineLayout
 	ShaderBindings shaderBindings;
 };
 
-struct BufferH { u32 index; };
-struct ImageH { u32 index; };
-struct SamplerH { u32 index; };
-
 struct ResourceBuffer
 {
 	BufferH handle;
@@ -350,8 +353,6 @@ struct Pipeline
 	VkPipelineBindPoint bindPoint;
 };
 
-typedef u32 PipelineH;
-
 struct Buffer
 {
 	VkBuffer handle;
@@ -376,8 +377,6 @@ struct BufferView
 {
 	VkBufferView handle;
 };
-
-typedef u32 BufferViewH;
 
 struct Image
 {
@@ -406,8 +405,6 @@ struct RenderPass
 	const char *name;
 	VkRenderPass handle;
 };
-
-typedef u32 RenderPassH;
 
 struct FramebufferDesc
 {
@@ -2299,15 +2296,15 @@ BufferViewH CreateBufferView(GraphicsDevice &device, BufferH bufferHandle, Forma
 	const Buffer &buffer = GetBuffer(device, bufferHandle);
 
 	ASSERT( device.bufferViewCount < ARRAY_COUNT(device.bufferViews) );
-	BufferViewH bufferViewHandle = device.bufferViewCount++;
-	device.bufferViews[bufferViewHandle] = CreateBufferViewInternal(device, buffer, format, offset, size);
-	return bufferViewHandle;
+	const BufferViewH bufferViewH = { .index = device.bufferViewCount++ };
+	device.bufferViews[bufferViewH.index] = CreateBufferViewInternal(device, buffer, format, offset, size);
+	return bufferViewH;
 }
 
-const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH bufferViewHandle)
+const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH bufferViewH)
 {
-	ASSERT(bufferViewHandle < ARRAY_COUNT(device.bufferViews));
-	const BufferView &bufferView = device.bufferViews[bufferViewHandle];
+	ASSERT(bufferViewH.index < ARRAY_COUNT(device.bufferViews));
+	const BufferView &bufferView = device.bufferViews[bufferViewH.index];
 	return bufferView;
 }
 
