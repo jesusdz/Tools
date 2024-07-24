@@ -33,9 +33,7 @@ struct Vertex
 
 
 
-#define MAX_BUFFERS 64
 #define MAX_TEXTURES 4
-#define MAX_SAMPLERS 4
 #define MAX_PIPELINES 8
 #define MAX_COMPUTES 8
 #define MAX_RENDERPASSES 4
@@ -63,11 +61,9 @@ typedef u32 MaterialH;
 struct RenderTargets
 {
 	Image depthImage;
-	VkImageView depthImageView;
 	Framebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
 	Image shadowmapImage;
-	VkImageView shadowmapImageView;
 	Framebuffer shadowmapFramebuffer;
 };
 
@@ -98,12 +94,6 @@ struct Graphics
 	RenderPass renderPasses[MAX_RENDERPASSES];
 	u32 renderPassCount;
 
-	Buffer buffers[MAX_BUFFERS];
-	u32 bufferCount;
-
-	BufferView bufferViews[MAX_BUFFERS];
-	u32 bufferViewCount;
-
 	BufferH stagingBuffer;
 	u32 stagingBufferOffset;
 
@@ -129,9 +119,6 @@ struct Graphics
 
 	RenderPassH litRenderPassH;
 	RenderPassH shadowmapRenderPassH;
-
-	Sampler samplers[MAX_SAMPLERS];
-	u32 samplerCount;
 
 	Texture textures[MAX_TEXTURES];
 	u32 textureCount;
@@ -240,58 +227,22 @@ static const u16 screenTriangleIndices[] = {
 };
 
 
-BufferH CreateBuffer(Graphics &gfx, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType)
-{
-	ASSERT( gfx.bufferCount < ARRAY_COUNT(gfx.buffers) );
-	BufferH bufferHandle = gfx.bufferCount++;
-	gfx.buffers[bufferHandle] = CreateBuffer(gfx.device, size, bufferUsageFlags, heapType);
-	return bufferHandle;
-}
-
-Buffer &GetBuffer(Graphics &gfx, BufferH bufferHandle)
-{
-	Buffer &buffer = gfx.buffers[bufferHandle];
-	return buffer;
-}
-
-const Buffer &GetBuffer(const Graphics &gfx, BufferH bufferHandle)
-{
-	const Buffer &buffer = gfx.buffers[bufferHandle];
-	return buffer;
-}
-
-BufferViewH CreateBufferView(Graphics &gfx, BufferH bufferHandle, Format format, u32 offset = 0, u32 size = 0)
-{
-	const Buffer &buffer = GetBuffer(gfx, bufferHandle);
-
-	ASSERT( gfx.bufferViewCount < ARRAY_COUNT(gfx.bufferViews) );
-	BufferViewH bufferViewHandle = gfx.bufferViewCount++;
-	gfx.bufferViews[bufferViewHandle] = CreateBufferView(gfx.device, buffer, format, offset, size);
-	return bufferViewHandle;
-}
-
-const BufferView &GetBufferView(const Graphics &gfx, BufferViewH bufferViewHandle)
-{
-	const BufferView &bufferView = gfx.bufferViews[bufferViewHandle];
-	return bufferView;
-}
-
 struct StagedData
 {
-	Buffer buffer;
+	BufferH buffer;
 	u32 offset;
 };
 
 StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 alignment = 0)
 {
-	Buffer &stagingBuffer = GetBuffer(gfx, gfx.stagingBuffer);
+	const Buffer &stagingBuffer = GetBuffer(gfx.device, gfx.stagingBuffer);
 
 	const u32 finalAlignment = Max(alignment, gfx.device.alignment.optimalBufferCopyOffset);
 	const u32 unalignedOffset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
 	const u32 alignedOffset = AlignUp(unalignedOffset, finalAlignment);
 
 	StagedData staging = {};
-	staging.buffer = stagingBuffer;
+	staging.buffer = gfx.stagingBuffer;
 	staging.offset = alignedOffset;
 
 	Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
@@ -306,14 +257,14 @@ StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 alignment = 
 BufferH CreateStagingBuffer(Graphics &gfx)
 {
 	const Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
-	BufferH stagingBufferHandle = CreateBuffer(gfx, stagingHeap.size, BufferUsageTransferSrc, HeapType_Staging);
+	BufferH stagingBufferHandle = CreateBuffer(gfx.device, stagingHeap.size, BufferUsageTransferSrc, HeapType_Staging);
 	return stagingBufferHandle;
 }
 
 BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 {
 	BufferH vertexBufferHandle = CreateBuffer(
-			gfx,
+			gfx.device,
 			size,
 			BufferUsageVertexBuffer | BufferUsageTransferDst,
 			HeapType_General);
@@ -324,7 +275,7 @@ BufferH CreateVertexBuffer(Graphics &gfx, u32 size)
 BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
 {
 	BufferH indexBufferHandle = CreateBuffer(
-			gfx,
+			gfx.device,
 			size,
 			BufferUsageIndexBuffer | BufferUsageTransferDst,
 			HeapType_General);
@@ -334,11 +285,10 @@ BufferH CreateIndexBuffer(Graphics &gfx, u32 size)
 
 BufferArena MakeBufferArena(Graphics &gfx, BufferH bufferHandle)
 {
-	Buffer &buffer = GetBuffer(gfx, bufferHandle);
-
-	BufferArena arena = {};
-	arena.buffer = bufferHandle;
-	arena.size = buffer.size;
+	const BufferArena arena = {
+		.buffer = bufferHandle,
+		.used = 0,
+	};
 	return arena;
 }
 
@@ -346,10 +296,8 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 {
 	StagedData staged = StageData(gfx, data, size, alignment);
 
-	Buffer &finalBuffer = GetBuffer(gfx, arena.buffer);
-
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, finalBuffer, arena.used, size);
+	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, arena.buffer, arena.used, size);
 
 	BufferChunk chunk = {};
 	chunk.buffer = arena.buffer;
@@ -424,20 +372,6 @@ PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
 	INVALID_CODE_PATH();
 	return INVALID_HANDLE;
-}
-
-SamplerH CreateSampler(Graphics &gfx, const SamplerDesc &desc)
-{
-	ASSERT( gfx.samplerCount < ARRAY_COUNT( gfx.samplers ) );
-	SamplerH samplerHandle = gfx.samplerCount++;
-	gfx.samplers[samplerHandle] = CreateSampler(gfx.device, desc);
-	return samplerHandle;
-}
-
-const Sampler &GetSampler(const Graphics &gfx, SamplerH handle)
-{
-	const Sampler &sampler = gfx.samplers[handle];
-	return sampler;
 }
 
 void GenerateMipmaps(const Graphics &gfx, const CommandList &commandList, const Image &image)
@@ -532,7 +466,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	TextureH textureHandle = gfx.textureCount++;
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = image;
-	gfx.textures[textureHandle].imageView = CreateImageView(gfx.device, image);
 
 	return textureHandle;
 }
@@ -648,7 +581,6 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			depthFormat,
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
-	renderTargets.depthImageView = CreateImageView(gfx.device, renderTargets.depthImage);
 	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 
 	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
@@ -659,8 +591,8 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		const FramebufferDesc desc = {
 			.renderPass = renderPass,
 			.attachments = {
-				gfx.device.swapchain.imageViews[i],
-				renderTargets.depthImageView,
+				gfx.device.swapchain.images[i].imageViewHandle,
+				renderTargets.depthImage.imageViewHandle,
 			},
 			.attachmentCount = 2,
 			.width = gfx.device.swapchain.extent.width,
@@ -677,14 +609,13 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				depthFormat,
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
-		renderTargets.shadowmapImageView = CreateImageView(gfx.device, renderTargets.shadowmapImage);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 
 		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
 
 		const FramebufferDesc desc = {
 			.renderPass = renderPass,
-			.attachments = { renderTargets.shadowmapImageView },
+			.attachments = { renderTargets.shadowmapImage.imageViewHandle },
 			.attachmentCount = 1,
 			.width = renderTargets.shadowmapImage.width,
 			.height = renderTargets.shadowmapImage.height,
@@ -700,7 +631,6 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
-	DestroyImageView(gfx.device, renderTargets.depthImageView);
 	DestroyImage(gfx.device, renderTargets.depthImage);
 
 	// Reset the heap used for render targets
@@ -712,7 +642,6 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 		DestroyFramebuffer( gfx.device, renderTargets.framebuffers[i] );
 	}
 
-	DestroyImageView(gfx.device, renderTargets.shadowmapImageView);
 	DestroyImage(gfx.device, renderTargets.shadowmapImage);
 	DestroyFramebuffer( gfx.device, renderTargets.shadowmapFramebuffer );
 
@@ -784,7 +713,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	{
 		const u32 globalsBufferSize = sizeof(Globals);
 		gfx.globalsBuffer[i] = CreateBuffer(
-			gfx,
+			gfx.device,
 			globalsBufferSize,
 			BufferUsageUniformBuffer,
 			HeapType_Dynamic);
@@ -795,7 +724,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	{
 		const u32 entityBufferSize = MAX_ENTITIES * AlignUp( sizeof(SEntity), gfx.device.alignment.uniformBufferOffset );
 		gfx.entityBuffer[i] = CreateBuffer(
-			gfx,
+			gfx.device,
 			entityBufferSize,
 			BufferUsageStorageBuffer,
 			HeapType_Dynamic);
@@ -803,12 +732,12 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 
 	// Create material buffer
 	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset );
-	gfx.materialBuffer = CreateBuffer(gfx, materialBufferSize, BufferUsageUniformBuffer | BufferUsageTransferDst, HeapType_General);
+	gfx.materialBuffer = CreateBuffer(gfx.device, materialBufferSize, BufferUsageUniformBuffer | BufferUsageTransferDst, HeapType_General);
 
 	// Create buffer for computes
 	const u32 computeBufferSize = sizeof(float);
-	gfx.computeBufferH = CreateBuffer(gfx, computeBufferSize, BufferUsageStorageTexelBuffer, HeapType_General);
-	gfx.computeBufferViewH = CreateBufferView(gfx, gfx.computeBufferH, FormatFloat);
+	gfx.computeBufferH = CreateBuffer(gfx.device, computeBufferSize, BufferUsageStorageTexelBuffer, HeapType_General);
+	gfx.computeBufferViewH = CreateBufferView(gfx.device, gfx.computeBufferH, FormatFloat);
 
 
 	// Create Global Descriptor Pool
@@ -861,13 +790,13 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	return true;
 }
 
-ResourceGeneric Resource(const Buffer &buffer, u32 offset = 0, u32 range = 0)
+ResourceGeneric Resource(const BufferH buffer, u32 offset = 0, u32 range = 0)
 {
 	const ResourceGeneric resource = {
 		.buffer = {
-			.handle = buffer.handle,
+			.handle = buffer,
 			.offset = offset,
-			.range = range > 0 ? range : buffer.size,
+			.range = range,
 		}
 	};
 	return resource;
@@ -884,20 +813,20 @@ ResourceGeneric Resource(const BufferView &bufferView)
 ResourceGeneric Resource(const Texture &texture)
 {
 	const ResourceGeneric resource = {
-		.texture = { .handle = texture.imageView }
+		.texture = { .handle = texture.image.imageViewHandle }
 	};
 	return resource;
 }
 
-ResourceGeneric Resource(const Sampler &sampler)
+ResourceGeneric Resource(const SamplerH sampler)
 {
 	const ResourceGeneric resource = {
-		.sampler = { .handle = sampler.handle }
+		.sampler = { .handle = sampler }
 	};
 	return resource;
 }
 
-ResourceBinding MakeBinding(u8 index, const Buffer &buffer, u32 offset = 0, u32 range = 0)
+ResourceBinding MakeBinding(u8 index, const BufferH buffer, u32 offset = 0, u32 range = 0)
 {
 	const ResourceBinding binding = { .index = index, .resource = Resource(buffer, offset, range) };
 	return binding;
@@ -915,7 +844,7 @@ ResourceBinding MakeBinding(u8 index, const Texture &texture)
 	return binding;
 }
 
-ResourceBinding MakeBinding(u8 index, const Sampler &sampler)
+ResourceBinding MakeBinding(u8 index, const SamplerH sampler)
 {
 	const ResourceBinding binding = { .index = index, .resource = Resource(sampler) };
 	return binding;
@@ -924,21 +853,17 @@ ResourceBinding MakeBinding(u8 index, const Sampler &sampler)
 BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
 {
 	const u32 frameIndex = gfx.device.currentFrame;
-	const Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
-	const Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
-	const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
 
 	// TODO: Make this better, the shadowmap should also figure as a texture somewhere
-	const Texture shadowmap = { .imageView = gfx.renderTargets.shadowmapImageView };
-	const Sampler &shadowmapSampler = GetSampler(gfx, gfx.shadowmapSamplerH);
+	const Texture shadowmap = { .image = gfx.renderTargets.shadowmapImage };
 
 	const BindGroupDesc bindGroupDesc = {
 		.bindings = {
-			MakeBinding(BINDING_GLOBALS, globalsBuffer),
-			MakeBinding(BINDING_SAMPLER, sampler),
-			MakeBinding(BINDING_ENTITIES, entityBuffer),
+			MakeBinding(BINDING_GLOBALS, gfx.globalsBuffer[frameIndex]),
+			MakeBinding(BINDING_SAMPLER, gfx.samplerH),
+			MakeBinding(BINDING_ENTITIES, gfx.entityBuffer[frameIndex]),
 			MakeBinding(BINDING_SHADOWMAP, shadowmap),
-			MakeBinding(BINDING_SHADOWMAP_SAMPLER, shadowmapSampler),
+			MakeBinding(BINDING_SHADOWMAP_SAMPLER, gfx.shadowmapSamplerH),
 		},
 	};
 	return bindGroupDesc;
@@ -947,11 +872,10 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
 BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &material)
 {
 	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
-	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
 
 	const BindGroupDesc bindGroupDesc = {
 		.bindings = {
-			MakeBinding(BINDING_MATERIAL, materialBuffer, material.bufferOffset, sizeof(SMaterial)),
+			MakeBinding(BINDING_MATERIAL, gfx.materialBuffer, material.bufferOffset, sizeof(SMaterial)),
 			MakeBinding(BINDING_ALBEDO, albedoTexture),
 		},
 	};
@@ -999,7 +923,7 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 				continue;
 			}
 
-			if ( !AddDescriptorWrite(bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
+			if ( !AddDescriptorWrite(gfx.device, bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
 				LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", binding.name, material.name);
 			}
 		}
@@ -1077,19 +1001,17 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	const SamplerDesc samplerDesc = {
 		.addressMode = AddressModeRepeat,
 	};
-	gfx.samplerH = CreateSampler(gfx, samplerDesc);
+	gfx.samplerH = CreateSampler(gfx.device, samplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
 		.borderColor = BorderColorBlackFloat,
 		.compareOp = CompareOpGreater,
 	};
-	gfx.shadowmapSamplerH = CreateSampler(gfx, shadowmapSamplerDesc);
+	gfx.shadowmapSamplerH = CreateSampler(gfx.device, shadowmapSamplerDesc);
 	const SamplerDesc skySamplerDesc = {
 		.addressMode = AddressModeClampToEdge,
 	};
-	gfx.skySamplerH = CreateSampler(gfx, skySamplerDesc);
-
-	const Buffer &materialBuffer = GetBuffer(gfx, gfx.materialBuffer);
+	gfx.skySamplerH = CreateSampler(gfx.device, skySamplerDesc);
 
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
@@ -1100,7 +1022,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		SMaterial shaderMaterial = { material.uvScale };
 		StagedData staged = StageData(gfx, &shaderMaterial, sizeof(shaderMaterial));
 
-		CopyBufferToBuffer(commandList, staged.buffer, staged.offset, materialBuffer, material.bufferOffset, sizeof(shaderMaterial));
+		CopyBufferToBuffer(commandList, staged.buffer, staged.offset, gfx.materialBuffer, material.bufferOffset, sizeof(shaderMaterial));
 	}
 
 	EndTransientCommandList(gfx.device, commandList);
@@ -1160,25 +1082,9 @@ void CleanupGraphics(Graphics &gfx)
 	DestroyBindGroupAllocator( gfx.device, gfx.imGuiBindGroupAllocator );
 #endif
 
-	for (u32 i = 0; i < gfx.samplerCount; ++i)
-	{
-		DestroySampler( gfx.device, gfx.samplers[i] );
-	}
-
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
-		DestroyImageView( gfx.device, gfx.textures[i].imageView );
 		DestroyImage( gfx.device, gfx.textures[i].image );
-	}
-
-	for (u32 i = 0; i < gfx.bufferCount; ++i)
-	{
-		DestroyBuffer( gfx.device, gfx.buffers[i] );
-	}
-
-	for (u32 i = 0; i < gfx.bufferViewCount; ++i)
-	{
-		DestroyBufferView( gfx.device, gfx.bufferViews[i] );
 	}
 
 	for (u32 i = 0; i < gfx.pipelineCount; ++i )
@@ -1523,15 +1429,11 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	};
 
 	// Update globals buffer
-	Buffer &globalsBuffer = GetBuffer(gfx, gfx.globalsBuffer[frameIndex]);
-	Heap &globalsBufferHeap = gfx.device.heaps[globalsBuffer.alloc.heap];
-	void *ptr = globalsBufferHeap.data + globalsBuffer.alloc.offset;
-	MemCopy( ptr, &globals, sizeof(globals) );
+	Globals *globalsBufferPtr = (Globals*)GetBufferPtr(gfx.device, gfx.globalsBuffer[frameIndex]);
+	*globalsBufferPtr = globals;
 
 	// Update entity data
-	Buffer &entityBuffer = GetBuffer(gfx, gfx.entityBuffer[frameIndex]);
-	Heap &entityBufferHeap = gfx.device.heaps[entityBuffer.alloc.heap];
-	SEntity *entities = (SEntity*)(entityBufferHeap.data + entityBuffer.alloc.offset);
+	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
 	for (u32 i = 0; i < gfx.entityCount; ++i)
 	{
 		const Entity &entity = gfx.entities[i];
@@ -1575,6 +1477,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 	#endif // COMPUTE_TEST
 
+	const BufferH globalsBuffer = gfx.globalsBuffer[frameIndex];
+	const BufferH entityBuffer = gfx.entityBuffer[frameIndex];
+	const BufferH vertexBuffer = gfx.globalVertexArena.buffer;
+	const BufferH indexBuffer = gfx.globalIndexArena.buffer;
+	const SamplerH sampler = gfx.samplerH;
+
 	// Shadow map
 	{
 		SetClearDepth(commandList, 0, 0.0f);
@@ -1588,8 +1496,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		// Pipeline
 		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
 		SetPipeline(commandList, pipeline);
-
-		const Sampler &sampler = GetSampler(gfx, gfx.samplerH);
 
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
@@ -1608,12 +1514,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 			if ( !entity.visible ) continue;
 
-			// Vertex buffer
-			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+			// Geometry
 			SetVertexBuffer(commandList, vertexBuffer);
-
-			// Index buffer
-			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
 			// Draw!!!
@@ -1658,12 +1560,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[materialIndex][frameIndex]);
 			SetBindGroup(commandList, 1, gfx.materialBindGroups[materialIndex]);
 
-			// Vertex buffer
-			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
+			// Geometry
 			SetVertexBuffer(commandList, vertexBuffer);
-
-			// Index buffer
-			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
 			// Draw!!!
@@ -1674,11 +1572,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		}
 
 		{ // Sky
-			const Sampler &sampler = GetSampler(gfx, gfx.skySamplerH);
 			const Texture &texture = GetTexture(gfx, gfx.skyTextureH);
 			const Pipeline &pipeline = GetPipeline(gfx, gfx.skyPipelineH);
-			const Buffer &vertexBuffer = GetBuffer(gfx, gfx.globalVertexArena.buffer);
-			const Buffer &indexBuffer = GetBuffer(gfx, gfx.globalIndexArena.buffer);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
 			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
@@ -1688,7 +1583,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const BindGroupDesc bindGroupDesc = {
 				.layout = pipeline.layout.bindGroupLayouts[3],
 				.bindings = {
-					{ .index = 0, .resource = Resource(sampler) },
+					{ .index = 0, .resource = Resource(gfx.skySamplerH) },
 					{ .index = 1, .resource = Resource(texture) },
 					{ .index = 2, .resource = Resource(globalsBuffer) },
 				},
