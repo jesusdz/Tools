@@ -809,10 +809,10 @@ ResourceGeneric Resource(const BufferH buffer, u32 offset = 0, u32 range = 0)
 	return resource;
 }
 
-ResourceGeneric Resource(const BufferView &bufferView)
+ResourceGeneric Resource(const BufferViewH bufferView)
 {
 	const ResourceGeneric resource = {
-		.bufferView = { .handle = bufferView.handle }
+		.bufferView = { .handle = bufferView }
 	};
 	return resource;
 }
@@ -839,7 +839,7 @@ ResourceBinding MakeBinding(u8 index, const BufferH buffer, u32 offset = 0, u32 
 	return binding;
 }
 
-ResourceBinding MakeBinding(u8 index, const BufferView &bufferView)
+ResourceBinding MakeBinding(u8 index, const BufferViewH bufferView)
 {
 	const ResourceBinding binding = { .index = index, .resource = Resource(bufferView) };
 	return binding;
@@ -1468,12 +1468,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		SetPipeline(commandList, pipeline);
 
-		const BufferView &computeBufferView = GetBufferView(gfx, gfx.computeBufferViewH);
-
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
 			.bindings = {
-				{ .index = 0, .resource = Resource(computeBufferView) },
+				{ .index = 0, .resource = Resource(gfx.computeBufferViewH) },
 			},
 		};
 		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);

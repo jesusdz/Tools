@@ -307,7 +307,7 @@ struct ResourceBuffer
 
 struct ResourceBufferView
 {
-	VkBufferView handle;
+	BufferViewH handle;
 };
 
 struct ResourceImage
@@ -571,9 +571,10 @@ struct GraphicsDevice
 // Prototypes
 ////////////////////////////////////////////////////////////////////////
 
-Buffer &GetBuffer(GraphicsDevice &device, BufferH bufferHandle);
-const Buffer &GetBuffer(const GraphicsDevice &device, BufferH bufferHandle);
-const Image &GetImage(const GraphicsDevice &device, ImageH imageH);
+Buffer &GetBuffer(GraphicsDevice &device, BufferH handle);
+const Buffer &GetBuffer(const GraphicsDevice &device, BufferH handle);
+const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle);
+const Image &GetImage(const GraphicsDevice &device, ImageH handle);
 const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
 
 
@@ -1029,7 +1030,7 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 
 	VkDescriptorImageInfo *imageInfo = 0;
 	VkDescriptorBufferInfo *bufferInfo = 0;
-	VkBufferView *bufferView = 0;
+	VkBufferView *bufferViewPtr = 0;
 
 	if ( binding.type == SpvTypeSampler )
 	{
@@ -1062,8 +1063,10 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	}
 	else if ( binding.type == SpvTypeStorageTexelBuffer )
 	{
-		bufferView = &descriptorInfos[descriptorWriteCount].bufferView;
-		*bufferView = resourceBinding.resource.bufferView.handle;
+		const BufferView &bufferView = GetBufferView(device, resourceBinding.resource.bufferView.handle);
+
+		bufferViewPtr = &descriptorInfos[descriptorWriteCount].bufferView;
+		*bufferViewPtr = bufferView.handle;
 	}
 	else
 	{
@@ -1080,7 +1083,7 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	descriptorWrite->descriptorCount = 1;
 	descriptorWrite->pBufferInfo = bufferInfo;
 	descriptorWrite->pImageInfo = imageInfo;
-	descriptorWrite->pTexelBufferView = bufferView;
+	descriptorWrite->pTexelBufferView = bufferViewPtr;
 	return true;
 }
 
