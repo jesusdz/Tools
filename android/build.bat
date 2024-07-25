@@ -139,6 +139,9 @@ call %AAPT% add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libgame.so"
 copy "%TOOLCHAIN_LIB_DIR%\libc++_shared.so" %OUT_LIB_DIR%\
 call %AAPT% add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libc++_shared.so"
 
+REM copy "..\vulkan\lib\arm64_v8a\libVkLayer_khronos_validation.so" %OUT_LIB_DIR%\
+REM call %AAPT% add bin\NativeActivity.unaligned.apk "%AAPT_LIB_DIR%/libVkLayer_khronos_validation.so"
+
 
 REM ------------------------------------------------------
 REM Align the resources of the final APK to 4 bytes
