@@ -513,8 +513,8 @@ struct GraphicsDevice
 	SwapchainInfo swapchainInfo;
 	Swapchain swapchain;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
+	VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
+	VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
 
 	VkFence fences[MAX_FENCES];
 	u32 firstFenceIndex;
@@ -1968,8 +1968,11 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	// Synchronization objects
 	const VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
-	VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.imageAvailableSemaphore ) );
-	VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.renderFinishedSemaphore ) );
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.imageAvailableSemaphores[i] ) );
+		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &device.renderFinishedSemaphores[i] ) );
+	}
 
 	const VkFenceCreateInfo fenceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -3388,8 +3391,8 @@ SubmitResult Submit(GraphicsDevice &device, const CommandList &commandList)
 {
 	const u32 frameIndex = device.currentFrame;
 
-	VkSemaphore waitSemaphores[] = { device.imageAvailableSemaphore };
-	VkSemaphore signalSemaphores[] = { device.renderFinishedSemaphore };
+	VkSemaphore waitSemaphores[] = { device.imageAvailableSemaphores[frameIndex] };
+	VkSemaphore signalSemaphores[] = { device.renderFinishedSemaphores[frameIndex] };
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
 	const VkSubmitInfo submitInfo = {
@@ -3475,7 +3478,7 @@ bool BeginFrame(GraphicsDevice &device)
 	}
 
 	u32 imageIndex;
-	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
 
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
@@ -3547,8 +3550,11 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 
 	vkDestroyPipelineCache( device.handle, device.pipelineCache, VULKAN_ALLOCATORS );
 
-	vkDestroySemaphore( device.handle, device.imageAvailableSemaphore, VULKAN_ALLOCATORS );
-	vkDestroySemaphore( device.handle, device.renderFinishedSemaphore, VULKAN_ALLOCATORS );
+	for ( u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i )
+	{
+		vkDestroySemaphore( device.handle, device.imageAvailableSemaphores[i], VULKAN_ALLOCATORS );
+		vkDestroySemaphore( device.handle, device.renderFinishedSemaphores[i], VULKAN_ALLOCATORS );
+	}
 
 	for ( u32 i = 0; i < MAX_FENCES; ++i )
 	{
