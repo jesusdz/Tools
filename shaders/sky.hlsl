@@ -4,7 +4,6 @@
 
 SamplerState skySampler : REGISTER_S(3, 0);
 Texture2D<float4> skyTexture : REGISTER_T(3, 1);
-ConstantBuffer<Globals> globals2 : REGISTER_B(3, 2);
 
 struct VertexInput
 {
@@ -26,7 +25,7 @@ VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 	float2 texCoord = IN.texCoord.xy;
 #if USE_VIEWPORT_ROTATION
 	float4 centeredTexCoord = float4(texCoord - 0.5.xx, 0.0, 1.0);
-	float4 rotatedTexCoord = mul(globals2.viewportRotationMatrix, centeredTexCoord);
+	float4 rotatedTexCoord = mul(globals.viewportRotationMatrix, centeredTexCoord);
 	texCoord = rotatedTexCoord.xy + 0.5.xx;
 #endif
 
@@ -40,11 +39,11 @@ VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 
 float4 PSMain(PixelInput IN) : SV_Target
 {
-	float3 frustumCornerA = globals2.cameraFrustumTopLeft.xyz;
-	float3 frustumCornerB = globals2.cameraFrustumBottomRight.xyz;
+	float3 frustumCornerA = globals.cameraFrustumTopLeft.xyz;
+	float3 frustumCornerB = globals.cameraFrustumBottomRight.xyz;
 	float3 lerpFactor = float3(IN.texCoord, 0.0); // Z is constant in the near plane
 	float4 pixelDirView = float4(lerp(frustumCornerA, frustumCornerB, lerpFactor), 0.0);
-	float3 pixelDirWorld = normalize(mul(globals2.cameraViewInv, pixelDirView).xyz);
+	float3 pixelDirWorld = normalize(mul(globals.cameraViewInv, pixelDirView).xyz);
 
 	float yaw = atan2(pixelDirWorld.z, pixelDirWorld.x); // [-PI, PI]
 	float pitch = asin(pixelDirWorld.y); // [-PI/2, PI/2]

@@ -122,7 +122,7 @@ struct Graphics
 	BufferH computeBufferH;
 	BufferViewH computeBufferViewH;
 
-	SamplerH samplerH;
+	SamplerH materialSamplerH;
 	SamplerH shadowmapSamplerH;
 	SamplerH skySamplerH;
 
@@ -140,17 +140,18 @@ struct Graphics
 
 	BindGroupAllocator globalBindGroupAllocator;
 	BindGroupAllocator materialBindGroupAllocator;
-	BindGroupAllocator computeBindGroupAllocator[MAX_FRAMES_IN_FLIGHT];
+	BindGroupAllocator dynamicBindGroupAllocator[MAX_FRAMES_IN_FLIGHT];
 #if USE_IMGUI
 	BindGroupAllocator imGuiBindGroupAllocator;
 #endif
 
+	BindGroupLayout globalBindGroupLayout;
+
 	// Updated each frame so we need MAX_FRAMES_IN_FLIGHT elements
-	BindGroup globalBindGroups[MAX_MATERIALS][MAX_FRAMES_IN_FLIGHT];
+	BindGroup globalBindGroups[MAX_FRAMES_IN_FLIGHT];
+
 	// Updated once at the beginning for each material
 	BindGroup materialBindGroups[MAX_MATERIALS];
-	// For computes
-	// Compute bind groups are created on-the-fly every frame
 
 	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
 
@@ -344,7 +345,7 @@ RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
-PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc)
+PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	RenderPassH renderPassH = RenderPassHandle(gfx, desc.renderPass);
 	const RenderPass &renderPass = GetRenderPass(gfx, renderPassH);
@@ -352,7 +353,7 @@ PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc
 	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
 	PipelineH pipelineHandle = gfx.pipelineCount++;
 	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
-	pipeline = CreateGraphicsPipeline(gfx.device, arena, desc, renderPass);
+	pipeline = CreateGraphicsPipeline(gfx.device, arena, desc, renderPass, globalBindGroupLayout);
 	return pipelineHandle;
 }
 
@@ -747,18 +748,18 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	gfx.computeBufferViewH = CreateBufferView(gfx.device, gfx.computeBufferH, FormatFloat);
 
 
-	// Create Global Descriptor Pool
+	// Create Global BindGroup allocator
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
-			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
-			.storageBufferCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT,
+			.storageBufferCount = MAX_FRAMES_IN_FLIGHT,
 			.textureCount = 1000,
-			.samplerCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS * 2,
-			.groupCount = MAX_FRAMES_IN_FLIGHT * MAX_MATERIALS,
+			.samplerCount = MAX_FRAMES_IN_FLIGHT * 2,
+			.groupCount = MAX_FRAMES_IN_FLIGHT,
 		};
 		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
-	// Create Material Descriptor Pool
+	// Create Material BindGroup allocator
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
 			.uniformBufferCount = MAX_MATERIALS,
@@ -767,8 +768,8 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		};
 		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
-	// Create Compute Descriptor Pool
-	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
+	// Create dynamic per-frame BindGroup allocator
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.dynamicBindGroupAllocator); ++i)
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
 			.uniformBufferCount = 1000,
@@ -776,9 +777,9 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			.storageTexelBufferCount = 1000,
 			.textureCount = 1000,
 			.samplerCount = 1000,
-			.groupCount = MAX_COMPUTES,
+			.groupCount = 100,
 		};
-		gfx.computeBindGroupAllocator[i] = CreateBindGroupAllocator(gfx.device, allocatorCounts);
+		gfx.dynamicBindGroupAllocator[i] = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 
 
@@ -801,15 +802,13 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
 {
 	const u32 frameIndex = gfx.device.currentFrame;
 
-	// TODO: Make this better, the shadowmap should also figure as a texture somewhere
-	const Texture shadowmap = { .image = gfx.renderTargets.shadowmapImage };
-
 	const BindGroupDesc bindGroupDesc = {
+		.layout = gfx.globalBindGroupLayout,
 		.bindings = {
 			{ .index = BINDING_GLOBALS, .buffer = gfx.globalsBuffer[frameIndex] },
-			{ .index = BINDING_SAMPLER, .sampler = gfx.samplerH },
+			{ .index = BINDING_SAMPLER, .sampler = gfx.materialSamplerH },
 			{ .index = BINDING_ENTITIES, .buffer = gfx.entityBuffer[frameIndex] },
-			{ .index = BINDING_SHADOWMAP, .image = shadowmap.image },
+			{ .index = BINDING_SHADOWMAP, .image = gfx.renderTargets.shadowmapImage },
 			{ .index = BINDING_SHADOWMAP_SAMPLER, .sampler = gfx.shadowmapSamplerH },
 		},
 	};
@@ -829,13 +828,11 @@ BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &materia
 	return bindGroupDesc;
 }
 
-void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
+void UpdateMaterialBindGroup(Graphics &gfx)
 {
 	VkDescriptorGenericInfo descriptorInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
 	u32 descriptorWriteCount = 0;
-
-	const BindGroupDesc globalBindGroupDesc = GlobalBindGroupDesc(gfx);
 
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
@@ -849,29 +846,17 @@ void UpdateMaterialBindGroup(Graphics &gfx, u8 bindGroupIndex)
 		{
 			const ShaderBinding &binding = shaderBindings.bindings[bindingIndex];
 
-			if ( binding.set != bindGroupIndex ) continue;
-
 			const ResourceBinding *bindingTable = 0;
 			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 
-			if ( binding.set == BIND_GROUP_GLOBAL )
-			{
-				bindingTable = globalBindGroupDesc.bindings;
-				descriptorSet = gfx.globalBindGroups[materialIndex][gfx.device.currentFrame].handle;
-			}
-			else if ( binding.set == BIND_GROUP_MATERIAL )
+			if ( binding.set == BIND_GROUP_MATERIAL )
 			{
 				bindingTable = materialBindGroupDesc.bindings;
 				descriptorSet = gfx.materialBindGroups[materialIndex].handle;
-			}
-			else
-			{
-				LOG(Warning, "Unhandled descriptor set (%u) in UpdateMaterialBindGroup.\n", binding.set);
-				continue;
-			}
 
-			if ( !AddDescriptorWrite(gfx.device, bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
-				LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", binding.name, material.name);
+				if ( !AddDescriptorWrite(gfx.device, bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
+					LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", binding.name, material.name);
+				}
 			}
 		}
 	}
@@ -889,6 +874,18 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		return;
 	}
 
+	const ShaderBindings globalShaderBindings = {
+		.bindings = {
+			{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
+			{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		},
+		.bindingCount = 5,
+	};
+	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, 0);
+
 	Clon clon = {};
 	const bool clonOk = ClonParse(&clon, &scratch, chunk->chars, chunk->size);
 	if (!clonOk)
@@ -905,7 +902,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 		for (u32 i = 0; i < gAssets->pipelinesCount; ++i)
 		{
-			CreateGraphicsPipeline(gfx, scratch, gAssets->pipelines[i]);
+			CreateGraphicsPipeline(gfx, scratch, gAssets->pipelines[i], gfx.globalBindGroupLayout);
 		}
 
 		for (u32 i = 0; i < gAssets->computesCount; ++i)
@@ -945,10 +942,10 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	gfx.computeUpdateH = PipelineHandle(gfx, "compute_update");
 
 	// Samplers
-	const SamplerDesc samplerDesc = {
+	const SamplerDesc materialSamplerDesc = {
 		.addressMode = AddressModeRepeat,
 	};
-	gfx.samplerH = CreateSampler(gfx.device, samplerDesc);
+	gfx.materialSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
 		.borderColor = BorderColorBlackFloat,
@@ -974,21 +971,22 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 	EndTransientCommandList(gfx.device, commandList);
 
-	// DescriptorSets for materials
+	// BindGroups for globals
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.globalBindGroups); ++i)
+	{
+		gfx.globalBindGroups[i] = CreateBindGroup(gfx.device, gfx.globalBindGroupLayout, gfx.globalBindGroupAllocator);
+	}
+
+	// BindGroups for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		const Material &material = GetMaterial(gfx, i);
 		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
-		const u32 globalBindGroupCount = ARRAY_COUNT(gfx.globalBindGroups[i]);
-		for (u32 j = 0; j < globalBindGroupCount; ++j)
-		{
-			gfx.globalBindGroups[i][j] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[0], gfx.globalBindGroupAllocator);
-		}
 		gfx.materialBindGroups[i] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
-	// Update material descriptor sets
-	UpdateMaterialBindGroup(gfx, BIND_GROUP_MATERIAL);
+	// Update material bind groups
+	UpdateMaterialBindGroup(gfx);
 
 	// Timestamp queries
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
@@ -1021,9 +1019,9 @@ void CleanupGraphics(Graphics &gfx)
 
 	DestroyBindGroupAllocator( gfx.device, gfx.globalBindGroupAllocator );
 	DestroyBindGroupAllocator( gfx.device, gfx.materialBindGroupAllocator );
-	for (u32 i = 0; i < ARRAY_COUNT(gfx.computeBindGroupAllocator); ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.dynamicBindGroupAllocator); ++i)
 	{
-		DestroyBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[i] );
+		DestroyBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[i] );
 	}
 #if USE_IMGUI
 	DestroyBindGroupAllocator( gfx.device, gfx.imGuiBindGroupAllocator );
@@ -1388,11 +1386,12 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		entities[i].world = worldMatrix;
 	}
 
-	// Reset descriptor pools for this frame
-	ResetBindGroupAllocator( gfx.device, gfx.computeBindGroupAllocator[frameIndex] );
+	// Reset per-frame bind group allocators
+	ResetBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[frameIndex] );
 
-	// Update global descriptor sets
-	UpdateMaterialBindGroup(gfx, BIND_GROUP_GLOBAL);
+	// Update global bind groups
+	const BindGroupDesc globalBindGroupDesc = GlobalBindGroupDesc(gfx);
+	UpdateBindGroup(gfx.device, globalBindGroupDesc, gfx.globalBindGroups[frameIndex]);
 
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx.device);
@@ -1414,7 +1413,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 				{ .index = 0, .bufferView = gfx.computeBufferViewH },
 			},
 		};
-		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
 		SetBindGroup(commandList, 0, bindGroup);
 
@@ -1426,7 +1425,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const BufferH entityBuffer = gfx.entityBuffer[frameIndex];
 	const BufferH vertexBuffer = gfx.globalVertexArena.buffer;
 	const BufferH indexBuffer = gfx.globalIndexArena.buffer;
-	const SamplerH sampler = gfx.samplerH;
+	const SamplerH sampler = gfx.materialSamplerH;
 
 	// Shadow map
 	{
@@ -1438,20 +1437,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const uint2 shadowmapSize = GetFramebufferSize(shadowmapFramebuffer);
 		SetViewportAndScissor(commandList, shadowmapSize);
 
-		// Pipeline
 		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
 		SetPipeline(commandList, pipeline);
 
-		const BindGroupDesc bindGroupDesc = {
-			.layout = pipeline.layout.bindGroupLayouts[0],
-			.bindings = {
-				{ .index = 0, .buffer = globalsBuffer },
-				{ .index = 1, .sampler = sampler },
-				{ .index = 2, .buffer = entityBuffer },
-			},
-		};
-		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
-		SetBindGroup(commandList, 0, bindGroup);
+		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
 		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
 		{
@@ -1502,7 +1491,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			SetPipeline(commandList, pipeline);
 
 			// Bind groups
-			SetBindGroup(commandList, 0, gfx.globalBindGroups[materialIndex][frameIndex]);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetBindGroup(commandList, 1, gfx.materialBindGroups[materialIndex]);
 
 			// Geometry
@@ -1533,9 +1522,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 					{ .index = 2, .buffer = globalsBuffer },
 				},
 			};
-			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.computeBindGroupAllocator[frameIndex]);
+			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
 			SetPipeline(commandList, pipeline);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
@@ -1924,8 +1914,6 @@ int main(int argc, char **argv)
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
 // - [ ] GPU culling: Modify the compute to perform frustum culling and save the result in the buffer.
-// - [ ] Avoid duplicated global descriptor sets.
-// - [ ] Have a single descripor set for global info that only changes once per frame
 // - [ ] Text rendering
 // - [ ] Include directive in the C AST parsing code.
 //
@@ -1936,4 +1924,6 @@ int main(int argc, char **argv)
 // - [X] GPU culling: Add a "hello world" compute shader that writes some numbers into a buffer.
 // - [X] GPU time queries
 // - [X] GPU culling: As a first step, perform frustum culling in the CPU.
+// - [X] Avoid duplicated global descriptor sets.
+// - [X] Have a single descripor set for global info that only changes once per frame
 

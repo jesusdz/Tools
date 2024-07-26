@@ -15,7 +15,7 @@
  * Resource management:
  * - (Create/Destroy/Reset)BindGroupAllocator
  * - (Create/Destroy)BindGroupLayout
- * - CreateBindGroup
+ * - (Create/Update)BindGroup
  * - (Create/Destroy)Buffer
  * - (Create/Destroy)BufferView
  * - (Create/Destroy)Image
@@ -1000,7 +1000,7 @@ static const ResourceBinding &GetResourceBinding(const ResourceBinding resourceB
 	if ( resourceBinding.index == bindingIndex ) {
 		return resourceBinding;
 	}
-	INVALID_CODE_PATH();
+	INVALID_CODE_PATH_MSG("Missing resource binding for BindGroupLayout");
 	static ResourceBinding nullResourceBinding = {};
 	return nullResourceBinding;
 }
@@ -2155,11 +2155,9 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &l
 	return bindGroup;
 }
 
-BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &desc, BindGroupAllocator &allocator)
+void UpdateBindGroup(const GraphicsDevice &device, const BindGroupDesc &bindGroupDesc, BindGroup &bindGroup)
 {
-	BindGroup bindGroup = CreateBindGroup(device, desc.layout, allocator);
-
-	const BindGroupLayout &layout = desc.layout;
+	const BindGroupLayout &layout = bindGroupDesc.layout;
 
 	VkDescriptorGenericInfo descriptorInfos[MAX_SHADER_BINDINGS] = {};
 	VkWriteDescriptorSet descriptorWrites[MAX_SHADER_BINDINGS] = {};
@@ -2168,13 +2166,20 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 	for (u32 i = 0; i < layout.bindingCount; ++i)
 	{
 		const ShaderBinding &binding = layout.bindings[i];
-		if ( !AddDescriptorWrite(device, desc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
+		if ( !AddDescriptorWrite(device, bindGroupDesc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
 		{
 			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", binding.name, "<pipeline>");
 		}
 	}
 
 	UpdateDescriptorSets(device, descriptorWrites, descriptorWriteCount);
+}
+
+BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &desc, BindGroupAllocator &allocator)
+{
+	BindGroup bindGroup = CreateBindGroup(device, desc.layout, allocator);
+
+	UpdateBindGroup(device, desc, bindGroup);
 
 	return bindGroup;
 }
@@ -2449,7 +2454,7 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 //////////////////////////////
 
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
-Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass)
+Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -2590,7 +2595,7 @@ Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pipe
 
 	// BindGroup layouts
 	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
-		CreateBindGroupLayout(device, shaderBindings, 0),
+		globalBindGroupLayout,
 		CreateBindGroupLayout(device, shaderBindings, 1),
 		CreateBindGroupLayout(device, shaderBindings, 2),
 		CreateBindGroupLayout(device, shaderBindings, 3),
