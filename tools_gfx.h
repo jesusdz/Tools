@@ -298,40 +298,21 @@ struct PipelineLayout
 	ShaderBindings shaderBindings;
 };
 
-struct ResourceBuffer
-{
-	BufferH handle;
-	u32 offset;
-	u32 range;
-};
-
-struct ResourceBufferView
-{
-	BufferViewH handle;
-};
-
-struct ResourceImage
-{
-	ImageH handle;
-};
-
-struct ResourceSampler
-{
-	SamplerH handle;
-};
-
-union ResourceGeneric
-{
-	ResourceBuffer buffer;
-	ResourceBufferView bufferView;
-	ResourceImage image;
-	ResourceSampler sampler;
-};
-
 struct ResourceBinding
 {
 	u8 index;
-	ResourceGeneric resource;
+	union
+	{
+		struct
+		{
+			BufferH buffer;
+			u32 offset;
+			u32 range;
+		};
+		BufferViewH bufferView;
+		ImageH image;
+		SamplerH sampler;
+	};
 };
 
 struct BindGroupDesc
@@ -1034,7 +1015,7 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 
 	if ( binding.type == SpvTypeSampler )
 	{
-		const Sampler &sampler = GetSampler(device, resourceBinding.resource.sampler.handle);
+		const Sampler &sampler = GetSampler(device, resourceBinding.sampler);
 
 		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1043,7 +1024,7 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	}
 	else if ( binding.type == SpvTypeImage )
 	{
-		const Image &image = GetImage(device, resourceBinding.resource.image.handle);
+		const Image &image = GetImage(device, resourceBinding.image);
 
 		imageInfo = &descriptorInfos[descriptorWriteCount].imageInfo;
 		imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1052,9 +1033,9 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	}
 	else if ( binding.type == SpvTypeUniformBuffer || binding.type == SpvTypeStorageBuffer )
 	{
-		const Buffer &buffer = GetBuffer(device, resourceBinding.resource.buffer.handle);
-		const u32 offset = resourceBinding.resource.buffer.offset;
-		const u32 range = resourceBinding.resource.buffer.range;
+		const Buffer &buffer = GetBuffer(device, resourceBinding.buffer);
+		const u32 offset = resourceBinding.offset;
+		const u32 range = resourceBinding.range;
 
 		bufferInfo = &descriptorInfos[descriptorWriteCount].bufferInfo;
 		bufferInfo->buffer = buffer.handle;
@@ -1063,7 +1044,7 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	}
 	else if ( binding.type == SpvTypeStorageTexelBuffer )
 	{
-		const BufferView &bufferView = GetBufferView(device, resourceBinding.resource.bufferView.handle);
+		const BufferView &bufferView = GetBufferView(device, resourceBinding.bufferView);
 
 		bufferViewPtr = &descriptorInfos[descriptorWriteCount].bufferView;
 		*bufferViewPtr = bufferView.handle;
