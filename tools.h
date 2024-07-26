@@ -101,6 +101,7 @@
 		QUIT_ABNORMALLY(); \
 	}
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
+#define INVALID_CODE_PATH_MSG(message) ASSERT(0 && message)
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 
 #define CT_ASSERT3(expression, number) static int ct_assert_##number[(expression) ? 1 : 0]
