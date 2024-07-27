@@ -12,15 +12,6 @@
 #define InternString(str) MakeStringIntern(gStringInterning, str)
 static StringInterning *gStringInterning;
 
-// TODO: Add VertexBinding/stride information to PipelineDesc so
-// this struct doesn't need to be before `tools_gfx.h`
-struct Vertex
-{
-	float3 pos;
-	float3 normal;
-	float2 texCoord;
-};
-
 #include "tools_gfx.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -47,6 +38,13 @@ struct Vertex
 
 
 
+
+struct Vertex
+{
+	float3 pos;
+	float3 normal;
+	float2 texCoord;
+};
 
 struct Texture
 {
@@ -1523,7 +1521,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 				.bindings = {
 					{ .index = 0, .sampler = gfx.skySamplerH },
 					{ .index = 1, .image = texture.image },
-					{ .index = 2, .buffer = globalsBuffer },
 				},
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);

@@ -55,6 +55,11 @@ enum Format
 	FormatCount,
 };
 
+struct VertexBufferDesc
+{
+	unsigned int stride;
+};
+
 struct VertexAttributeDesc
 {
 	unsigned int bufferIndex;
@@ -80,6 +85,8 @@ struct PipelineDesc
 	const char *vsFunction;
 	const char *fsFunction;
 	const char *renderPass;
+	unsigned int vertexBufferCount;
+	VertexBufferDesc vertexBuffers[4];
 	unsigned int vertexAttributeCount;
 	VertexAttributeDesc vertexAttributes[4];
 	CompareOp depthCompareOp;
@@ -158,6 +165,8 @@ static const PipelineDesc pipelines[] =
 		.vsFunction = "VSMain",
 		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
 		.vertexAttributeCount = 3,
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
@@ -173,6 +182,8 @@ static const PipelineDesc pipelines[] =
 		.vsFunction = "VSMain",
 		.fsFunction = "PSMain",
 		.renderPass = "shadowmap_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
 		.vertexAttributeCount = 1,
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
@@ -186,6 +197,8 @@ static const PipelineDesc pipelines[] =
 		.vsFunction = "VSMain",
 		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
 		.vertexAttributeCount = 2,
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },

@@ -2481,10 +2481,13 @@ Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pipe
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageCreateInfo, fragmentShaderStageCreateInfo};
 
-	VkVertexInputBindingDescription bindingDescriptions[1] = {};
-	bindingDescriptions[0].binding = 0;
-	bindingDescriptions[0].stride = sizeof(Vertex);
-	bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputBindingDescription bindingDescriptions[4] = {};
+	for (u32 i = 0; i < desc.vertexBufferCount; ++i)
+	{
+		bindingDescriptions[i].binding = i;
+		bindingDescriptions[i].stride = desc.vertexBuffers[i].stride,
+		bindingDescriptions[i].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	}
 
 	VkVertexInputAttributeDescription attributeDescriptions[4] = {};
 	for (u32 i = 0; i < desc.vertexAttributeCount; ++i)
@@ -2497,7 +2500,7 @@ Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pipe
 
 	const VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.vertexBindingDescriptionCount = 1,
+		.vertexBindingDescriptionCount = desc.vertexBufferCount,
 		.pVertexBindingDescriptions = bindingDescriptions, // Optional
 		.vertexAttributeDescriptionCount = desc.vertexAttributeCount,
 		.pVertexAttributeDescriptions = attributeDescriptions, // Optional
