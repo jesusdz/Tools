@@ -798,10 +798,8 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	return true;
 }
 
-BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
+BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx, u32 frameIndex)
 {
-	const u32 frameIndex = gfx.device.currentFrame;
-
 	const BindGroupDesc bindGroupDesc = {
 		.layout = gfx.globalBindGroupLayout,
 		.bindings = {
@@ -813,6 +811,15 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx)
 		},
 	};
 	return bindGroupDesc;
+}
+
+void UpdateGlobalBindGroups(Graphics &gfx)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.globalBindGroups); ++i)
+	{
+		const BindGroupDesc globalBindGroupDesc = GlobalBindGroupDesc(gfx, i);
+		UpdateBindGroup(gfx.device, globalBindGroupDesc, gfx.globalBindGroups[i]);
+	}
 }
 
 BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &material)
@@ -985,7 +992,8 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		gfx.materialBindGroups[i] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
-	// Update material bind groups
+	// Update bind groups
+	UpdateGlobalBindGroups(gfx);
 	UpdateMaterialBindGroup(gfx);
 
 	// Timestamp queries
@@ -1388,10 +1396,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Reset per-frame bind group allocators
 	ResetBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[frameIndex] );
-
-	// Update global bind groups
-	const BindGroupDesc globalBindGroupDesc = GlobalBindGroupDesc(gfx);
-	UpdateBindGroup(gfx.device, globalBindGroupDesc, gfx.globalBindGroups[frameIndex]);
 
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx.device);
@@ -1826,6 +1830,7 @@ void EngineUpdate(Platform &platform)
 		gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
 		gfx.renderTargets = CreateRenderTargets(gfx);
 		gfx.device.swapchain.outdated = false;
+		UpdateGlobalBindGroups(gfx);
 	}
 
 	if ( gfx.deviceInitialized && gfx.device.swapchain.handle != VK_NULL_HANDLE )
