@@ -23,7 +23,6 @@ static StringInterning *gStringInterning;
 
 
 #define MAX_TEXTURES 4
-#define MAX_RENDERPASSES 4
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
 #define MAX_GLOBAL_BINDINGS 8
@@ -93,9 +92,6 @@ struct Graphics
 	GraphicsDevice device;
 
 	RenderTargets renderTargets;
-
-	RenderPass renderPasses[MAX_RENDERPASSES];
-	u32 renderPassCount;
 
 	BufferH stagingBuffer;
 	u32 stagingBufferOffset;
@@ -368,30 +364,16 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 	return chunk;
 }
 
-RenderPassH CreateRenderPass( Graphics &gfx, const RenderpassDesc &desc )
-{
-	ASSERT( gfx.renderPassCount < ARRAY_COUNT( gfx.renderPasses ) );
-	RenderPassH renderPassH = gfx.renderPassCount++;
-	gfx.renderPasses[renderPassH] = CreateRenderPass(gfx.device, desc);
-	return renderPassH;
-}
-
-const RenderPass &GetRenderPass(const Graphics &gfx, RenderPassH handle)
-{
-	const RenderPass &renderPass = gfx.renderPasses[handle];
-	return renderPass;
-}
-
 RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
 {
-	for (u32 i = 0; i < gfx.renderPassCount; ++i) {
-		if ( StrEq(gfx.renderPasses[i].name, name) ) {
-			return i;
+	for (u32 i = 0; i < gfx.device.renderPassCount; ++i) {
+		if ( StrEq(gfx.device.renderPasses[i].name, name) ) {
+			return { .index = i };
 		}
 	}
 	LOG(Warning, "Could not find render <%s> handle.\n", name);
 	INVALID_CODE_PATH();
-	return INVALID_HANDLE;
+	return { .index = (u32)INVALID_HANDLE };
 }
 
 PipelineH PipelineHandle(const Graphics &gfx, const char *name)
@@ -617,13 +599,11 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 			HeapType_RTs);
 	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
-
 	// Framebuffer
 	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
 	{
 		const FramebufferDesc desc = {
-			.renderPass = renderPass,
+			.renderPass = gfx.litRenderPassH,
 			.attachments = {
 				gfx.device.swapchain.images[i],
 				renderTargets.depthImage,
@@ -643,10 +623,8 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				HeapType_RTs);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
 
-		const RenderPass &renderPass = GetRenderPass(gfx, gfx.shadowmapRenderPassH);
-
 		const FramebufferDesc desc = {
-			.renderPass = renderPass,
+			.renderPass = gfx.shadowmapRenderPassH,
 			.attachments = { renderTargets.shadowmapImage },
 			.attachmentCount = 1,
 		};
@@ -700,7 +678,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 				.loadOp = LoadOpClear, .storeOp = StoreOpDontCare
 			}
 		};
-		gfx.litRenderPassH = CreateRenderPass( gfx, renderpassDesc );
+		gfx.litRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
 	}
 
 	// Shadowmap render pass
@@ -713,7 +691,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 				.loadOp = LoadOpClear, .storeOp = StoreOpStore
 			}
 		};
-		gfx.shadowmapRenderPassH = CreateRenderPass( gfx, renderpassDesc );
+		gfx.shadowmapRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
 	}
 
 	// Render targets
@@ -835,8 +813,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
 		const RenderPassH renderPassH = RenderPassHandle(gfx, pipelineDescs[i].renderPass);
-		const RenderPass &renderPass = GetRenderPass(gfx, renderPassH);
-		CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPass, gfx.globalBindGroupLayout);
+		CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
 	}
 
 	// Compute pipelines
@@ -1065,12 +1042,7 @@ void CleanupGraphics(Graphics &gfx)
 
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
-		DestroyImage( gfx.device, gfx.textures[i].image );
-	}
-
-	for (u32 i = 0; i < gfx.renderPassCount; ++i)
-	{
-		DestroyRenderPass(gfx.device, gfx.renderPasses[i]);
+		DestroyImage(gfx.device, gfx.textures[i].image);
 	}
 
 	CleanupGraphicsDevice( gfx.device );
@@ -1611,7 +1583,7 @@ void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
 #error "Missing codepath"
 #endif
 
-	const RenderPass &renderPass = GetRenderPass(gfx, gfx.litRenderPassH);
+	const RenderPass &renderPass = GetRenderPass(gfx.device, gfx.litRenderPassH);
 
 	ImGui_ImplVulkan_InitInfo init_info = {};
 	init_info.Instance = gfx.device.instance;

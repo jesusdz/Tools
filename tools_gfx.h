@@ -125,6 +125,7 @@
 #define MAX_IMAGES 64
 #define MAX_SAMPLERS 4
 #define MAX_PIPELINES 8
+#define MAX_RENDERPASSES 4
 #define MAX_COLOR_ATTACHMENTS 3
 #define MAX_DEPTH_ATTACHMENTS 1
 #if PLATFORM_ANDROID
@@ -257,7 +258,7 @@ struct BufferViewH { u32 index; };
 struct ImageH { u32 index; };
 struct SamplerH { u32 index; };
 struct PipelineH { u32 index; };
-typedef u32 RenderPassH; // TODO: Bring render pass handling to this file
+struct RenderPassH { u32 index; };
 
 struct BlitRegion
 {
@@ -475,7 +476,7 @@ struct RenderPass
 
 struct FramebufferDesc
 {
-	RenderPass renderPass;
+	RenderPassH renderPass;
 	ImageH attachments[4];
 	u32 attachmentCount;
 };
@@ -627,12 +628,16 @@ struct GraphicsDevice
 
 	Image images[MAX_IMAGES + MAX_SWAPCHAIN_IMAGE_COUNT];
 	u32 imageCount;
+	u32 freeImages[MAX_IMAGES];
 
 	Sampler samplers[MAX_SAMPLERS];
 	u32 samplerCount;
 
 	Pipeline pipelines[MAX_PIPELINES];
 	u32 pipelineCount;
+
+	RenderPass renderPasses[MAX_RENDERPASSES];
+	u32 renderPassCount;
 };
 
 
@@ -647,6 +652,7 @@ const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle
 const Image &GetImage(const GraphicsDevice &device, ImageH handle);
 const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
 const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle);
+const RenderPass &GetRenderPass(const GraphicsDevice &device, RenderPassH handle);
 
 
 
@@ -2033,6 +2039,11 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	VK_CALL( vkCreateCommandPool(device.handle, &transientCommandPoolCreateInfo, VULKAN_ALLOCATORS, &device.transientCommandPool) );
 
 
+	// Initialize image list
+	for ( u32 i = 0; i < MAX_IMAGES; ++i ) {
+		device.freeImages[i] = i;
+	}
+
 	// Create swapchain
 	device.swapchain = CreateSwapchain( device, window, device.swapchainInfo );
 
@@ -2453,7 +2464,7 @@ Image CreateImageInternal(GraphicsDevice &device, u32 width, u32 height, u32 mip
 ImageH CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, ImageUsageFlags usage, HeapType heapType)
 {
 	ASSERT( device.imageCount < MAX_IMAGES );
-	ImageH imageH = { .index = device.imageCount++ };
+	ImageH imageH = { .index = device.freeImages[device.imageCount++] };
 	device.images[imageH.index] = CreateImageInternal(device, width, height, mipLevels, format, usage, heapType);
 	return imageH;
 }
@@ -2470,14 +2481,15 @@ void DestroyImageInternal(const GraphicsDevice &device, const Image &image)
 	vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
 	DestroyImageView( device, image.imageViewHandle );
 
-	// TODO: We should somehow deallocate memory when destroying buffers at runtime
+	// TODO: We should somehow deallocate memory when destroying images at runtime
 }
 
-void DestroyImage(const GraphicsDevice &device, ImageH imageH)
+void DestroyImage(GraphicsDevice &device, ImageH imageH)
 {
-	ASSERT(imageH.index < ARRAY_COUNT(device.images));
-	const Image &image = device.images[imageH.index];
+	ASSERT(device.imageCount > 0);
+	const Image &image = GetImage(device, imageH);
 	DestroyImageInternal(device, image);
+	device.freeImages[--device.imageCount] = imageH.index;
 }
 
 
@@ -2824,9 +2836,10 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 	return pipeline;
 }
 
-PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
+PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, RenderPassH renderPassH, const BindGroupLayout &globalBindGroupLayout)
 {
 	ASSERT( device.pipelineCount < ARRAY_COUNT(device.pipelines) );
+	const RenderPass &renderPass = GetRenderPass(device, renderPassH);
 	const PipelineH pipelineHandle = { .index = device.pipelineCount++ };
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
 	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, renderPass, globalBindGroupLayout);
@@ -2866,7 +2879,7 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 // RenderPass
 //////////////////////////////
 
-RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc &desc )
+RenderPass CreateRenderPassInternal( const GraphicsDevice &device, const RenderpassDesc &desc )
 {
 	CT_ASSERT(MAX_COLOR_ATTACHMENTS + MAX_DEPTH_ATTACHMENTS == MAX_RENDER_TARGETS);
 	ASSERT(desc.colorAttachmentCount <= MAX_COLOR_ATTACHMENTS);
@@ -2945,6 +2958,20 @@ RenderPass CreateRenderPass( const GraphicsDevice &device, const RenderpassDesc 
 	return renderPass;
 }
 
+RenderPassH CreateRenderPass( GraphicsDevice &device, const RenderpassDesc &desc )
+{
+	ASSERT( device.renderPassCount < ARRAY_COUNT( device.renderPasses ) );
+	const RenderPassH renderPassH = { .index = device.renderPassCount++ };
+	device.renderPasses[renderPassH.index] = CreateRenderPassInternal(device, desc);
+	return renderPassH;
+}
+
+const RenderPass &GetRenderPass(const GraphicsDevice &device, RenderPassH handle)
+{
+	const RenderPass &renderPass = device.renderPasses[handle.index];
+	return renderPass;
+}
+
 void DestroyRenderPass(const GraphicsDevice &device, const RenderPass &renderPass)
 {
 	vkDestroyRenderPass( device.handle, renderPass.handle, VULKAN_ALLOCATORS );
@@ -2979,9 +3006,11 @@ Framebuffer CreateFramebuffer(const GraphicsDevice &device, const FramebufferDes
 		}
 	}
 
+	const RenderPass &renderPass = GetRenderPass(device, desc.renderPass);
+
 	const VkFramebufferCreateInfo framebufferCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		.renderPass = desc.renderPass.handle,
+		.renderPass = renderPass.handle,
 		.attachmentCount = desc.attachmentCount,
 		.pAttachments = attachments,
 		.width = width,
@@ -2994,7 +3023,7 @@ Framebuffer CreateFramebuffer(const GraphicsDevice &device, const FramebufferDes
 
 	const Framebuffer framebuffer = {
 		.handle = handle,
-		.renderPassHandle = desc.renderPass.handle,
+		.renderPassHandle = renderPass.handle,
 		.extent = { width, height },
 		.attachmentCount = desc.attachmentCount,
 	};
@@ -3640,6 +3669,11 @@ void EndFrame(GraphicsDevice &device)
 
 void CleanupGraphicsDevice(const GraphicsDevice &device)
 {
+	for (u32 i = 0; i < device.renderPassCount; ++i)
+	{
+		DestroyRenderPass( device, device.renderPasses[i] );
+	}
+
 	for (u32 i = 0; i < device.pipelineCount; ++i)
 	{
 		DestroyPipeline( device, device.pipelines[i] );
