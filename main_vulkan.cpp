@@ -1818,10 +1818,13 @@ void EngineUpdate(Platform &platform)
 		WaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
 		DestroySwapchain(gfx.device, gfx.device.swapchain);
-		gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
-		gfx.renderTargets = CreateRenderTargets(gfx);
+		if ( platform.window.width != 0 && platform.window.height != 0 )
+		{
+			gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
+			gfx.renderTargets = CreateRenderTargets(gfx);
+			UpdateGlobalBindGroups(gfx);
+		}
 		gfx.device.swapchain.outdated = false;
-		UpdateGlobalBindGroups(gfx);
 	}
 
 	if ( gfx.deviceInitialized && gfx.device.swapchain.handle != VK_NULL_HANDLE )

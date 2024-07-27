@@ -2164,8 +2164,8 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				i32 height = HIWORD(lParam);
 				if ( window->width != width || window->height != height )
 				{
-					window->width = Max(width, 1);
-					window->height = Max(height, 1);
+					window->width = Max(width, 0);
+					window->height = Max(height, 0);
 					window->flags |= WindowFlags_WasResized;
 				}
 				break;

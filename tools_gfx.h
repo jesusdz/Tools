@@ -649,6 +649,7 @@ struct GraphicsDevice
 Buffer &GetBuffer(GraphicsDevice &device, BufferH handle);
 const Buffer &GetBuffer(const GraphicsDevice &device, BufferH handle);
 const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle);
+Image &GetImage(GraphicsDevice &device, ImageH handle);
 const Image &GetImage(const GraphicsDevice &device, ImageH handle);
 const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
 const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle);
@@ -1332,9 +1333,10 @@ static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, 
 	return imageView;
 }
 
-static void DestroyImageView(const GraphicsDevice &device, VkImageView imageView)
+static void DestroyImageView(const GraphicsDevice &device, VkImageView &imageView)
 {
 	vkDestroyImageView(device.handle, imageView, VULKAN_ALLOCATORS);
+	imageView = VK_NULL_HANDLE;
 }
 
 
@@ -1533,7 +1535,7 @@ Swapchain CreateSwapchain(GraphicsDevice &device, Window &window, const Swapchai
 	return swapchain;
 }
 
-void DestroySwapchain(const GraphicsDevice &device, Swapchain &swapchain)
+void DestroySwapchain(GraphicsDevice &device, Swapchain &swapchain)
 {
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
@@ -2469,6 +2471,13 @@ ImageH CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels,
 	return imageH;
 }
 
+Image &GetImage(GraphicsDevice &device, ImageH imageH)
+{
+	ASSERT(imageH.index < ARRAY_COUNT(device.images));
+	Image &image = device.images[imageH.index];
+	return image;
+}
+
 const Image &GetImage(const GraphicsDevice &device, ImageH imageH)
 {
 	ASSERT(imageH.index < ARRAY_COUNT(device.images));
@@ -2476,9 +2485,17 @@ const Image &GetImage(const GraphicsDevice &device, ImageH imageH)
 	return image;
 }
 
-void DestroyImageInternal(const GraphicsDevice &device, const Image &image)
+bool IsSwapchainImage(ImageH image)
+{
+	const bool isSwapchainImage = image.index < MAX_IMAGES;
+	return isSwapchainImage;
+}
+
+void DestroyImageInternal(GraphicsDevice &device, Image &image)
 {
 	vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
+	image.handle = VK_NULL_HANDLE;
+
 	DestroyImageView( device, image.imageViewHandle );
 
 	// TODO: We should somehow deallocate memory when destroying images at runtime
@@ -2486,10 +2503,14 @@ void DestroyImageInternal(const GraphicsDevice &device, const Image &image)
 
 void DestroyImage(GraphicsDevice &device, ImageH imageH)
 {
-	ASSERT(device.imageCount > 0);
-	const Image &image = GetImage(device, imageH);
+	Image &image = GetImage(device, imageH);
 	DestroyImageInternal(device, image);
-	device.freeImages[--device.imageCount] = imageH.index;
+
+	if ( !IsSwapchainImage(imageH) )
+	{
+		ASSERT(device.imageCount > 0);
+		device.freeImages[--device.imageCount] = imageH.index;
+	}
 }
 
 
