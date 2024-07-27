@@ -23,8 +23,6 @@ static StringInterning *gStringInterning;
 
 
 #define MAX_TEXTURES 4
-#define MAX_PIPELINES 8
-#define MAX_COMPUTES 8
 #define MAX_RENDERPASSES 4
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
@@ -128,9 +126,6 @@ struct Graphics
 	Texture textures[MAX_TEXTURES];
 	u32 textureCount;
 
-	Pipeline pipelines[MAX_PIPELINES];
-	u32 pipelineCount;
-
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
 
@@ -232,7 +227,7 @@ static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
-static const PipelineDesc pipelines[] =
+static const PipelineDesc pipelineDescs[] =
 {
 	{
 		.name = "pipeline_shading",
@@ -284,7 +279,7 @@ static const PipelineDesc pipelines[] =
 	},
 };
 
-static const ComputeDesc computes[] =
+static const ComputeDesc computeDescs[] =
 {
 	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
 	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
@@ -399,43 +394,16 @@ RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
-PipelineH CreateGraphicsPipeline(Graphics &gfx, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
-{
-	RenderPassH renderPassH = RenderPassHandle(gfx, desc.renderPass);
-	const RenderPass &renderPass = GetRenderPass(gfx, renderPassH);
-
-	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
-	PipelineH pipelineHandle = gfx.pipelineCount++;
-	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
-	pipeline = CreateGraphicsPipeline(gfx.device, arena, desc, renderPass, globalBindGroupLayout);
-	return pipelineHandle;
-}
-
-PipelineH CreateComputePipeline(Graphics &gfx, Arena &arena, const ComputeDesc &desc)
-{
-	ASSERT( gfx.pipelineCount < ARRAY_COUNT(gfx.pipelines) );
-	PipelineH pipelineHandle = gfx.pipelineCount++;
-	Pipeline &pipeline = gfx.pipelines[pipelineHandle];
-	pipeline = CreateComputePipeline(gfx.device, arena, desc);
-	return pipelineHandle;
-}
-
-const Pipeline &GetPipeline(const Graphics &gfx, PipelineH handle)
-{
-	const Pipeline &pipeline = gfx.pipelines[handle];
-	return pipeline;
-}
-
 PipelineH PipelineHandle(const Graphics &gfx, const char *name)
 {
-	for (u32 i = 0; i < gfx.pipelineCount; ++i) {
-		if ( StrEq(gfx.pipelines[i].name, name) ) {
-			return i;
+	for (u32 i = 0; i < gfx.device.pipelineCount; ++i) {
+		if ( StrEq(gfx.device.pipelines[i].name, name) ) {
+			return PipelineH{ .index = i };
 		}
 	}
 	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
 	INVALID_CODE_PATH();
-	return INVALID_HANDLE;
+	return { .index = (u32)INVALID_HANDLE };
 }
 
 void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandList, ImageH imageH)
@@ -864,15 +832,17 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, 0);
 
 	// Graphics pipelines
-	for (u32 i = 0; i < ARRAY_COUNT(pipelines); ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
-		CreateGraphicsPipeline(gfx, scratch, pipelines[i], gfx.globalBindGroupLayout);
+		const RenderPassH renderPassH = RenderPassHandle(gfx, pipelineDescs[i].renderPass);
+		const RenderPass &renderPass = GetRenderPass(gfx, renderPassH);
+		CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPass, gfx.globalBindGroupLayout);
 	}
 
 	// Compute pipelines
-	for (u32 i = 0; i < ARRAY_COUNT(computes); ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
-		CreateComputePipeline(gfx, scratch, computes[i]);
+		CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
 	}
 
 	return true;
@@ -924,7 +894,7 @@ void UpdateMaterialBindGroup(Graphics &gfx)
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
-		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
+		const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
 		const ShaderBindings &shaderBindings = pipeline.layout.shaderBindings;
 
 		const BindGroupDesc materialBindGroupDesc = MaterialBindGroupDesc(gfx, material);
@@ -1046,7 +1016,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		const Material &material = GetMaterial(gfx, i);
-		const Pipeline &pipeline = GetPipeline(gfx, material.pipelineH);
+		const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
 		gfx.materialBindGroups[i] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
@@ -1096,12 +1066,6 @@ void CleanupGraphics(Graphics &gfx)
 	for (u32 i = 0; i < gfx.textureCount; ++i)
 	{
 		DestroyImage( gfx.device, gfx.textures[i].image );
-	}
-
-	for (u32 i = 0; i < gfx.pipelineCount; ++i )
-	{
-		const Pipeline &pipeline = GetPipeline(gfx, i);
-		DestroyPipeline( gfx.device, pipeline );
 	}
 
 	for (u32 i = 0; i < gfx.renderPassCount; ++i)
@@ -1465,9 +1429,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	#define COMPUTE_TEST 0
 	#if COMPUTE_TEST
 	{
-		const Pipeline &pipeline = GetPipeline(gfx, gfx.computeClearH);
+		const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeClearH);
 
-		SetPipeline(commandList, pipeline);
+		SetPipeline(commandList, gfx.computeClearH);
 
 		const BindGroupDesc bindGroupDesc = {
 			.layout = pipeline.layout.bindGroupLayouts[0],
@@ -1499,8 +1463,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const uint2 shadowmapSize = GetFramebufferSize(shadowmapFramebuffer);
 		SetViewportAndScissor(commandList, shadowmapSize);
 
-		const Pipeline &pipeline = gfx.pipelines[gfx.shadowmapPipelineH];
-		SetPipeline(commandList, pipeline);
+		SetPipeline(commandList, gfx.shadowmapPipelineH);
 
 		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
@@ -1547,10 +1510,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 			const u32 materialIndex = entity.materialIndex;
 			const Material &material = gfx.materials[materialIndex];
-			const Pipeline &pipeline = gfx.pipelines[material.pipelineH];
 
 			// Pipeline
-			SetPipeline(commandList, pipeline);
+			SetPipeline(commandList, material.pipelineH);
 
 			// Bind groups
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -1569,7 +1531,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		{ // Sky
 			const Texture &texture = GetTexture(gfx, gfx.skyTextureH);
-			const Pipeline &pipeline = GetPipeline(gfx, gfx.skyPipelineH);
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
 			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
@@ -1585,7 +1547,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
-			SetPipeline(commandList, pipeline);
+			SetPipeline(commandList, gfx.skyPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, vertexBuffer);

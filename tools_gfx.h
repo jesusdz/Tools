@@ -124,6 +124,7 @@
 #define MAX_BUFFERS 64
 #define MAX_IMAGES 64
 #define MAX_SAMPLERS 4
+#define MAX_PIPELINES 8
 #define MAX_COLOR_ATTACHMENTS 3
 #define MAX_DEPTH_ATTACHMENTS 1
 #if PLATFORM_ANDROID
@@ -255,7 +256,7 @@ struct BufferH { u32 index; };
 struct BufferViewH { u32 index; };
 struct ImageH { u32 index; };
 struct SamplerH { u32 index; };
-typedef u32 PipelineH; // TODO: Bring pipeline handling to this file
+struct PipelineH { u32 index; };
 typedef u32 RenderPassH; // TODO: Bring render pass handling to this file
 
 struct BlitRegion
@@ -536,7 +537,7 @@ struct CommandList
 	u8 descriptorSetDirtyMask;
 
 	const GraphicsDevice *device;
-	const Pipeline *pipeline;
+	PipelineH pipeline;
 
 	// State
 	union
@@ -629,6 +630,9 @@ struct GraphicsDevice
 
 	Sampler samplers[MAX_SAMPLERS];
 	u32 samplerCount;
+
+	Pipeline pipelines[MAX_PIPELINES];
+	u32 pipelineCount;
 };
 
 
@@ -642,6 +646,7 @@ const Buffer &GetBuffer(const GraphicsDevice &device, BufferH handle);
 const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle);
 const Image &GetImage(const GraphicsDevice &device, ImageH handle);
 const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
+const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle);
 
 
 
@@ -1240,6 +1245,13 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, const ShaderSource &
 	return shaderBindings;
 }
 
+static const GraphicsDevice &GetDevice(const CommandList &commandList)
+{
+	ASSERT(commandList.device);
+	const GraphicsDevice &device = *commandList.device;
+	return device;
+}
+
 static void BindDescriptorSets(CommandList &commandList)
 {
 	while ( commandList.descriptorSetDirtyMask )
@@ -1270,8 +1282,9 @@ static void BindDescriptorSets(CommandList &commandList)
 
 		if ( descriptorSetCount > 0 )
 		{
-			VkPipelineBindPoint bindPoint = commandList.pipeline->bindPoint;
-			VkPipelineLayout pipelineLayout = commandList.pipeline->layout.handle;
+			const Pipeline &pipeline = GetPipeline(GetDevice(commandList), commandList.pipeline);
+			VkPipelineBindPoint bindPoint = pipeline.bindPoint;
+			VkPipelineLayout pipelineLayout = pipeline.layout.handle;
 			vkCmdBindDescriptorSets(commandList.handle, bindPoint, pipelineLayout, descriptorSetFirst, descriptorSetCount, descriptorSets, 0, NULL);
 		}
 	}
@@ -1316,13 +1329,6 @@ static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, 
 static void DestroyImageView(const GraphicsDevice &device, VkImageView imageView)
 {
 	vkDestroyImageView(device.handle, imageView, VULKAN_ALLOCATORS);
-}
-
-static const GraphicsDevice &GetDevice(const CommandList &commandList)
-{
-	ASSERT(commandList.device);
-	const GraphicsDevice &device = *commandList.device;
-	return device;
 }
 
 
@@ -2539,7 +2545,7 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 //////////////////////////////
 
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
-Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
+Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
 {
 	Arena scratch = MakeSubArena(arena);
 
@@ -2749,7 +2755,7 @@ Pipeline CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pipe
 	return pipeline;
 }
 
-Pipeline CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
+Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
 {
 	Arena scratch = arena;
 
@@ -2816,6 +2822,37 @@ Pipeline CreateComputePipeline(GraphicsDevice &device, Arena &arena, const Compu
 	}
 
 	return pipeline;
+}
+
+PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
+{
+	ASSERT( device.pipelineCount < ARRAY_COUNT(device.pipelines) );
+	const PipelineH pipelineHandle = { .index = device.pipelineCount++ };
+	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
+	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, renderPass, globalBindGroupLayout);
+	return pipelineHandle;
+}
+
+PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
+{
+	ASSERT( device.pipelineCount < ARRAY_COUNT(device.pipelines) );
+	const PipelineH pipelineHandle = { .index = device.pipelineCount++ };
+	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
+	pipeline = CreateComputePipelineInternal(device, arena, desc);
+	return pipelineHandle;
+}
+
+const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle)
+{
+	ASSERT(handle.index < ARRAY_COUNT(device.pipelines));
+	const Pipeline &pipeline = device.pipelines[handle.index];
+	return pipeline;
+}
+
+bool IsSamePipeline(PipelineH a, PipelineH b)
+{
+	const bool isSame = a.index == b.index;
+	return isSame;
 }
 
 void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
@@ -3301,11 +3338,12 @@ void SetClearStencil(CommandList &commandList, u32 renderTargetIndex, u32 stenci
 	commandList.clearValues[renderTargetIndex].depthStencil.stencil = stencil;
 }
 
-void SetPipeline(CommandList &commandList, const Pipeline &pipeline)
+void SetPipeline(CommandList &commandList, PipelineH pipelineH)
 {
-	if ( commandList.pipeline != &pipeline )
+	if ( !IsSamePipeline(commandList.pipeline, pipelineH) )
 	{
-		commandList.pipeline = &pipeline;
+		commandList.pipeline = pipelineH;
+		const Pipeline &pipeline = GetPipeline(GetDevice(commandList), pipelineH);
 		vkCmdBindPipeline( commandList.handle, pipeline.bindPoint, pipeline.handle );
 	}
 }
@@ -3602,6 +3640,11 @@ void EndFrame(GraphicsDevice &device)
 
 void CleanupGraphicsDevice(const GraphicsDevice &device)
 {
+	for (u32 i = 0; i < device.pipelineCount; ++i)
+	{
+		DestroyPipeline( device, device.pipelines[i] );
+	}
+
 	for (u32 i = 0; i < device.bufferCount; ++i)
 	{
 		DestroyBuffer( device, device.buffers[i] );
