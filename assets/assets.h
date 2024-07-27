@@ -14,34 +14,6 @@ struct TextureDesc
 	int mipmap;
 };
 
-enum LoadOp
-{
-	LoadOpLoad,
-	LoadOpClear,
-	LoadOpDontCare,
-};
-
-enum StoreOp
-{
-	StoreOpStore,
-	StoreOpDontCare,
-};
-
-struct AttachmentDesc
-{
-	LoadOp loadOp;
-	StoreOp storeOp;
-};
-
-struct RenderpassDesc
-{
-	const char *name;
-	unsigned char colorAttachmentCount;
-	AttachmentDesc colorAttachments[4];
-	bool hasDepthAttachment;
-	AttachmentDesc depthAttachment;
-};
-
 enum Format
 {
 	FormatFloat,

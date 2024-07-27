@@ -216,6 +216,19 @@ enum PipelineStage
 	PipelineStageBottom,
 };
 
+enum LoadOp
+{
+	LoadOpLoad,
+	LoadOpClear,
+	LoadOpDontCare,
+};
+
+enum StoreOp
+{
+	StoreOpStore,
+	StoreOpDontCare,
+};
+
 struct BufferH { u32 index; };
 struct BufferViewH { u32 index; };
 struct ImageH { u32 index; };
@@ -379,6 +392,21 @@ struct ShaderSource
 struct ShaderModule
 {
 	VkShaderModule handle;
+};
+
+struct AttachmentDesc
+{
+	LoadOp loadOp;
+	StoreOp storeOp;
+};
+
+struct RenderpassDesc
+{
+	const char *name;
+	unsigned char colorAttachmentCount;
+	AttachmentDesc colorAttachments[4];
+	bool hasDepthAttachment;
+	AttachmentDesc depthAttachment;
 };
 
 struct RenderPass
