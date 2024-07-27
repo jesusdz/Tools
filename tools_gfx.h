@@ -229,6 +229,28 @@ enum StoreOp
 	StoreOpDontCare,
 };
 
+enum CompareOp
+{
+	CompareOpNone,
+	CompareOpLess,
+	CompareOpGreater,
+	CompareOpGreaterOrEqual,
+	CompareOpCount,
+};
+
+enum Format
+{
+	FormatFloat,
+	FormatFloat2,
+	FormatFloat3,
+	FormatRGBA8_SRGB,
+	FormatBGRA8_SRGB,
+	FormatD32,
+	FormatD32S1,
+	FormatD24S1,
+	FormatCount,
+};
+
 struct BufferH { u32 index; };
 struct BufferViewH { u32 index; };
 struct ImageH { u32 index; };
@@ -304,13 +326,6 @@ struct BindGroupLayout
 	u8 bindingCount;
 };
 
-struct PipelineLayout
-{
-	VkPipelineLayout handle;
-	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS];
-	ShaderBindings shaderBindings;
-};
-
 struct ResourceBinding
 {
 	u8 index;
@@ -337,6 +352,13 @@ struct BindGroupDesc
 struct BindGroup
 {
 	VkDescriptorSet handle;
+};
+
+struct PipelineLayout
+{
+	VkPipelineLayout handle;
+	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS];
+	ShaderBindings shaderBindings;
 };
 
 struct Pipeline
@@ -392,6 +414,41 @@ struct ShaderSource
 struct ShaderModule
 {
 	VkShaderModule handle;
+};
+
+struct VertexBufferDesc
+{
+	unsigned int stride;
+};
+
+struct VertexAttributeDesc
+{
+	unsigned int bufferIndex;
+	unsigned int location;
+	unsigned int offset;
+	Format format;
+};
+
+struct PipelineDesc
+{
+	const char *name;
+	const char *vsFilename;
+	const char *fsFilename;
+	const char *vsFunction;
+	const char *fsFunction;
+	const char *renderPass;
+	unsigned int vertexBufferCount;
+	VertexBufferDesc vertexBuffers[4];
+	unsigned int vertexAttributeCount;
+	VertexAttributeDesc vertexAttributes[4];
+	CompareOp depthCompareOp;
+};
+
+struct ComputeDesc
+{
+	const char *name;
+	const char *filename;
+	const char *function;
 };
 
 struct AttachmentDesc

@@ -14,63 +14,6 @@ struct TextureDesc
 	int mipmap;
 };
 
-enum Format
-{
-	FormatFloat,
-	FormatFloat2,
-	FormatFloat3,
-	FormatRGBA8_SRGB,
-	FormatBGRA8_SRGB,
-	FormatD32,
-	FormatD32S1,
-	FormatD24S1,
-	FormatCount,
-};
-
-struct VertexBufferDesc
-{
-	unsigned int stride;
-};
-
-struct VertexAttributeDesc
-{
-	unsigned int bufferIndex;
-	unsigned int location;
-	unsigned int offset;
-	Format format;
-};
-
-enum CompareOp
-{
-	CompareOpNone,
-	CompareOpLess,
-	CompareOpGreater,
-	CompareOpGreaterOrEqual,
-	CompareOpCount,
-};
-
-struct PipelineDesc
-{
-	const char *name;
-	const char *vsFilename;
-	const char *fsFilename;
-	const char *vsFunction;
-	const char *fsFunction;
-	const char *renderPass;
-	unsigned int vertexBufferCount;
-	VertexBufferDesc vertexBuffers[4];
-	unsigned int vertexAttributeCount;
-	VertexAttributeDesc vertexAttributes[4];
-	CompareOp depthCompareOp;
-};
-
-struct ComputeDesc
-{
-	const char *name;
-	const char *filename;
-	const char *function;
-};
-
 struct MaterialDesc
 {
 	const char *name;
@@ -100,12 +43,6 @@ struct Assets
 	const TextureDesc *textures;
 	unsigned int texturesCount;
 
-	const PipelineDesc *pipelines;
-	unsigned int pipelinesCount;
-
-	const ComputeDesc *computes;
-	unsigned int computesCount;
-
 	const MaterialDesc *materials;
 	unsigned int materialsCount;
 
@@ -128,64 +65,6 @@ static const TextureDesc textures[] =
 	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
 };
 
-static const PipelineDesc pipelines[] =
-{
-	{
-		.name = "pipeline_shading",
-		.vsFilename = "shaders/vs_shading.spv",
-		.fsFilename = "shaders/fs_shading.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
-		.renderPass = "main_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 3,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
-		},
-		.depthCompareOp = CompareOpGreater,
-	},
-	{
-		.name = "pipeline_shadowmap",
-		.vsFilename = "shaders/vs_shadowmap.spv",
-		.fsFilename = "shaders/fs_shadowmap.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
-		.renderPass = "shadowmap_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 1,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-		},
-		.depthCompareOp = CompareOpGreater,
-	},
-	{
-		.name = "pipeline_sky",
-		.vsFilename = "shaders/vs_sky.spv",
-		.fsFilename = "shaders/fs_sky.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
-		.renderPass = "main_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 2,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
-		},
-		.depthCompareOp = CompareOpGreaterOrEqual,
-	},
-};
-
-static const ComputeDesc computes[] =
-{
-	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
-	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
-};
-
 static const MaterialDesc materials[] =
 {
 	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
@@ -206,12 +85,6 @@ static const Assets gAssets =
 {
 	.textures = textures,
 	.texturesCount = ARRAY_COUNT(textures),
-
-	.pipelines = pipelines,
-	.pipelinesCount = ARRAY_COUNT(pipelines),
-
-	.computes = computes,
-	.computesCount = ARRAY_COUNT(computes),
 
 	.materials = materials,
 	.materialsCount = ARRAY_COUNT(materials),

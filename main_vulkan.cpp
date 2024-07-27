@@ -1,12 +1,6 @@
 #define TOOLS_WINDOW
 #include "tools.h"
 
-// TODO: For now `assets.h` needs to be included before `tools_gfx.h
-// as it defines types used by some functions there. We should make
-// possible for assets.h to use types defined externally.
-#include "assets/assets.h"
-#include "clon.h"
-
 // TODO: This StringInterning also needs to be declared before we
 // include `tools_gfx.h` as it still makes use of it.
 #define InternString(str) MakeStringIntern(gStringInterning, str)
@@ -20,6 +14,10 @@ static StringInterning *gStringInterning;
 // C/HLSL shared types and bindings
 #include "shaders/types.hlsl"
 #include "shaders/bindings.hlsl"
+
+// Assets
+#include "assets/assets.h"
+#include "clon.h"
 
 
 
@@ -232,6 +230,64 @@ static const Vertex screenTriangleVertices[] = {
 
 static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
+};
+
+static const PipelineDesc pipelines[] =
+{
+	{
+		.name = "pipeline_shading",
+		.vsFilename = "shaders/vs_shading.spv",
+		.fsFilename = "shaders/fs_shading.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "main_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
+		.vertexAttributeCount = 3,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+		},
+		.depthCompareOp = CompareOpGreater,
+	},
+	{
+		.name = "pipeline_shadowmap",
+		.vsFilename = "shaders/vs_shadowmap.spv",
+		.fsFilename = "shaders/fs_shadowmap.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "shadowmap_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
+		.vertexAttributeCount = 1,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+		},
+		.depthCompareOp = CompareOpGreater,
+	},
+	{
+		.name = "pipeline_sky",
+		.vsFilename = "shaders/vs_sky.spv",
+		.fsFilename = "shaders/fs_sky.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "main_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
+		.vertexAttributeCount = 2,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+		},
+		.depthCompareOp = CompareOpGreaterOrEqual,
+	},
+};
+
+static const ComputeDesc computes[] =
+{
+	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
+	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 };
 
 
@@ -757,6 +813,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		};
 		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
+
 	// Create Material BindGroup allocator
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
@@ -766,6 +823,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		};
 		gfx.materialBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
+
 	// Create dynamic per-frame BindGroup allocator
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.dynamicBindGroupAllocator); ++i)
 	{
@@ -780,9 +838,8 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		gfx.dynamicBindGroupAllocator[i] = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 
-
 #if USE_IMGUI
-	// Create Imgui Descriptor Pool
+	// Create Imgui BindGroup allocator
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
 			.combinedImageSamplerCount = 1,
@@ -792,6 +849,31 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		gfx.imGuiBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 #endif
+
+	// Create global BindGroup layout
+	const ShaderBindings globalShaderBindings = {
+		.bindings = {
+			{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
+			{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
+			{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		},
+		.bindingCount = 5,
+	};
+	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, 0);
+
+	// Graphics pipelines
+	for (u32 i = 0; i < ARRAY_COUNT(pipelines); ++i)
+	{
+		CreateGraphicsPipeline(gfx, scratch, pipelines[i], gfx.globalBindGroupLayout);
+	}
+
+	// Compute pipelines
+	for (u32 i = 0; i < ARRAY_COUNT(computes); ++i)
+	{
+		CreateComputePipeline(gfx, scratch, computes[i]);
+	}
 
 	return true;
 }
@@ -879,18 +961,6 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 		return;
 	}
 
-	const ShaderBindings globalShaderBindings = {
-		.bindings = {
-			{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
-			{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
-		},
-		.bindingCount = 5,
-	};
-	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, 0);
-
 	Clon clon = {};
 	const bool clonOk = ClonParse(&clon, &scratch, chunk->chars, chunk->size);
 	if (!clonOk)
@@ -904,16 +974,6 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	if (clonGlobal)
 	{
 		const Assets *gAssets = (const Assets *)clonGlobal->data;
-
-		for (u32 i = 0; i < gAssets->pipelinesCount; ++i)
-		{
-			CreateGraphicsPipeline(gfx, scratch, gAssets->pipelines[i], gfx.globalBindGroupLayout);
-		}
-
-		for (u32 i = 0; i < gAssets->computesCount; ++i)
-		{
-			CreateComputePipeline(gfx, scratch, gAssets->computes[i]);
-		}
 
 		for (u32 i = 0; i < gAssets->texturesCount; ++i)
 		{
