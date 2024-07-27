@@ -797,17 +797,14 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 #endif
 
 	// Create global BindGroup layout
-	const ShaderBindings globalShaderBindings = {
-		.bindings = {
-			{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
-			{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
-			{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
-		},
-		.bindingCount = 5,
+	const ShaderBinding globalShaderBindings[] = {
+		{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
+		{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
 	};
-	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, 0);
+	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
@@ -872,25 +869,19 @@ void UpdateMaterialBindGroup(Graphics &gfx)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
 		const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
-		const ShaderBindings &shaderBindings = pipeline.layout.shaderBindings;
+		const ShaderBinding *shaderBindings = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL].bindings;
+		const u32 shaderBindingCount = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL].bindingCount;
 
 		const BindGroupDesc materialBindGroupDesc = MaterialBindGroupDesc(gfx, material);
 
-		for ( u32 bindingIndex = 0; bindingIndex < shaderBindings.bindingCount; ++bindingIndex )
+		for ( u32 bindingIndex = 0; bindingIndex < shaderBindingCount; ++bindingIndex )
 		{
-			const ShaderBinding &binding = shaderBindings.bindings[bindingIndex];
+			const ShaderBinding &shaderBinding = shaderBindings[bindingIndex];
+			const ResourceBinding &resourceBinding = materialBindGroupDesc.bindings[bindingIndex];
+			const VkDescriptorSet descriptorSet = gfx.materialBindGroups[materialIndex].handle;
 
-			const ResourceBinding *bindingTable = 0;
-			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-
-			if ( binding.set == BIND_GROUP_MATERIAL )
-			{
-				bindingTable = materialBindGroupDesc.bindings;
-				descriptorSet = gfx.materialBindGroups[materialIndex].handle;
-
-				if ( !AddDescriptorWrite(gfx.device, bindingTable, binding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
-					LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", binding.name, material.name);
-				}
+			if ( !AddDescriptorWrite(gfx.device, resourceBinding, shaderBinding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
+				LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", shaderBinding.name, material.name);
 			}
 		}
 	}

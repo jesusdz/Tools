@@ -295,12 +295,6 @@ struct ShaderBinding
 	const char *name;
 };
 
-struct ShaderBindings
-{
-	ShaderBinding bindings[MAX_SHADER_BINDINGS];
-	u8 bindingCount;
-};
-
 struct BindGroupAllocatorCounts
 {
 	u32 uniformBufferCount;
@@ -324,7 +318,7 @@ struct BindGroupLayout
 {
 	VkDescriptorSetLayout handle;
 	u32 crc;
-	const ShaderBinding *bindings;
+	const ShaderBinding *bindings; // Point to persistent bindings stored in the struct GraphicsDevice
 	u8 bindingCount;
 };
 
@@ -360,7 +354,6 @@ struct PipelineLayout
 {
 	VkPipelineLayout handle;
 	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS];
-	ShaderBindings shaderBindings;
 };
 
 struct Pipeline
@@ -1102,10 +1095,8 @@ static const ResourceBinding &GetResourceBinding(const ResourceBinding resourceB
 	return nullResourceBinding;
 }
 
-static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBinding resourceBindings[MAX_SHADER_BINDINGS], const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
+static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBinding &resourceBinding, const ShaderBinding &binding, VkDescriptorSet descriptorSet, VkDescriptorGenericInfo *descriptorInfos, VkWriteDescriptorSet *descriptorWrites, u32 &descriptorWriteCount)
 {
-	const ResourceBinding &resourceBinding = GetResourceBinding(resourceBindings, binding.binding);
-
 	VkDescriptorImageInfo *imageInfo = 0;
 	VkDescriptorBufferInfo *bufferInfo = 0;
 	VkBufferView *bufferViewPtr = 0;
@@ -1199,7 +1190,14 @@ static VkFormat FindSupportedFormat(const GraphicsDevice &device, const VkFormat
 	return VK_FORMAT_MAX_ENUM;
 }
 
-static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount)
+struct ShaderBindings
+{
+	ShaderBinding bindings[MAX_SHADER_BINDINGS];
+	u32 bindGroupBindingBase[MAX_BIND_GROUPS];
+	u32 bindGroupBindingCount[MAX_BIND_GROUPS];
+};
+
+static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[], const u64 microcodeSize[], u32 microcodeCount )
 {
 	void *tempMem = scratch.base + scratch.used;
 	const u32 tempMemSize = scratch.size - scratch.used;
@@ -1212,17 +1210,20 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[
 	}
 
 	ShaderBindings shaderBindings = {};
+	u32 baseBindingCount = 0;
 
 	for (u32 setIndex = 0; setIndex < SPV_MAX_DESCRIPTOR_SETS; ++setIndex)
 	{
+		u32 setBindingCount = 0;
+
 		for (u32 bindingIndex = 0; bindingIndex < SPV_MAX_DESCRIPTORS_PER_SET; ++bindingIndex)
 		{
 			SpvDescriptor &descriptor = spvDescriptorList.sets[setIndex].bindings[bindingIndex];
 
 			if ( descriptor.type != SpvTypeNone )
 			{
-				ASSERT( shaderBindings.bindingCount < ARRAY_COUNT(shaderBindings.bindings) );
-				ShaderBinding &shaderBinding = shaderBindings.bindings[shaderBindings.bindingCount++];
+				ASSERT( baseBindingCount + setBindingCount < ARRAY_COUNT(shaderBindings.bindings) );
+				ShaderBinding &shaderBinding = shaderBindings.bindings[baseBindingCount + setBindingCount++];
 				shaderBinding.binding = descriptor.binding;
 				shaderBinding.set = setIndex;
 				shaderBinding.type = (SpvType)descriptor.type;
@@ -1231,6 +1232,10 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[
 				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
+
+		shaderBindings.bindGroupBindingBase[setIndex] = baseBindingCount;
+		shaderBindings.bindGroupBindingCount[setIndex] = setBindingCount;
+		baseBindingCount += setBindingCount;
 	}
 
 	return shaderBindings;
@@ -2149,28 +2154,17 @@ void ResetBindGroupAllocator(const GraphicsDevice &device, BindGroupAllocator &b
 // BindGroup
 //////////////////////////////
 
-BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBindings &shaderBindings, u32 bindGroupIndex)
+BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBinding bindings[], u8 bindingCount)
 {
-	// Fill only bindings of the desired bindGroup
-	ShaderBindings groupBindings = {};
-	for (u32 i = 0; i < shaderBindings.bindingCount; ++i)
-	{
-		const ShaderBinding &shaderBinding = shaderBindings.bindings[i];
-		if (shaderBinding.set == bindGroupIndex)
-		{
-			groupBindings.bindings[groupBindings.bindingCount++] = shaderBinding;
-		}
-	}
-
 	// Try finding if an equal layout was already created
-	const u32 crc = HashFNV(groupBindings.bindings, groupBindings.bindingCount);
+	const u32 crc = HashFNV(bindings, bindingCount);
 
 	for (u32 i = 0; i < device.bindGroupLayoutCount; ++i)
 	{
 		const BindGroupLayout &layout = device.bindGroupLayouts[i];
-		if ( layout.crc == crc && layout.bindingCount == groupBindings.bindingCount )
+		if ( layout.crc == crc && layout.bindingCount == bindingCount )
 		{
-			const int res = MemCompare(layout.bindings, groupBindings.bindings, layout.bindingCount * sizeof(ShaderBinding));
+			const int res = MemCompare(layout.bindings, bindings, layout.bindingCount * sizeof(ShaderBinding));
 			if ( res == 0 )
 			{
 				return layout;
@@ -2180,19 +2174,20 @@ BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBindin
 
 	// Create a new bind group layout
 	ASSERT(device.bindGroupLayoutCount < ARRAY_COUNT(device.bindGroupLayouts));
-	ASSERT(device.shaderBindingCount + groupBindings.bindingCount <= ARRAY_COUNT(device.shaderBindings));
+	ASSERT(device.shaderBindingCount + bindingCount <= ARRAY_COUNT(device.shaderBindings));
+
+	ShaderBinding *persistentBindings = &device.shaderBindings[device.shaderBindingCount];
+	device.shaderBindingCount += bindingCount;
 
 	VkDescriptorSetLayoutBinding vkBindings[SPV_MAX_DESCRIPTORS_PER_SET] = {};
-	u8 bindingCount = 0;
 
-	const ShaderBinding *bindings = &device.shaderBindings[device.shaderBindingCount];
-
-	for (u32 bindingIndex = 0; bindingIndex < groupBindings.bindingCount; ++bindingIndex)
+	for (u32 bindingIndex = 0; bindingIndex < bindingCount; ++bindingIndex)
 	{
-		const ShaderBinding &shaderBinding = groupBindings.bindings[bindingIndex];
-		device.shaderBindings[device.shaderBindingCount++] = shaderBinding;
+		const ShaderBinding &shaderBinding = bindings[bindingIndex];
 
-		VkDescriptorSetLayoutBinding &binding = vkBindings[bindingCount++];
+		persistentBindings[bindingIndex] = shaderBinding;
+
+		VkDescriptorSetLayoutBinding &binding = vkBindings[bindingIndex];
 		binding.binding = shaderBinding.binding;
 		binding.descriptorType = SpvDescriptorTypeToVulkan((SpvType)shaderBinding.type);
 		binding.descriptorCount = 1;
@@ -2212,7 +2207,7 @@ BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBindin
 	const BindGroupLayout layout = {
 		.handle = layoutHandle,
 		.crc = crc,
-		.bindings = bindings,
+		.bindings = persistentBindings,
 		.bindingCount = bindingCount,
 	};
 
@@ -2269,10 +2264,12 @@ void UpdateBindGroup(const GraphicsDevice &device, const BindGroupDesc &bindGrou
 
 	for (u32 i = 0; i < layout.bindingCount; ++i)
 	{
-		const ShaderBinding &binding = layout.bindings[i];
-		if ( !AddDescriptorWrite(device, bindGroupDesc.bindings, binding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
+		const ShaderBinding &shaderBinding = layout.bindings[i];
+		const ResourceBinding &resourceBinding = GetResourceBinding(bindGroupDesc.bindings, shaderBinding.binding);
+
+		if ( !AddDescriptorWrite(device, resourceBinding, shaderBinding, bindGroup.handle, descriptorInfos, descriptorWrites, descriptorWriteCount) )
 		{
-			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", binding.name, "<pipeline>");
+			LOG(Warning, "Could not add descriptor write for binding %s of pipeline %s.\n", shaderBinding.name, "<pipeline>");
 		}
 	}
 
@@ -2723,9 +2720,9 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	// BindGroup layouts
 	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
 		globalBindGroupLayout,
-		CreateBindGroupLayout(device, shaderBindings, 1),
-		CreateBindGroupLayout(device, shaderBindings, 2),
-		CreateBindGroupLayout(device, shaderBindings, 3),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[1], shaderBindings.bindGroupBindingCount[1]),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[2], shaderBindings.bindGroupBindingCount[2]),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[3], shaderBindings.bindGroupBindingCount[3]),
 	};
 
 	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
@@ -2771,19 +2768,20 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	DestroyShaderModule(device, vertexShaderModule);
 	DestroyShaderModule(device, fragmentShaderModule);
 
-	Pipeline pipeline = {
+	const Pipeline pipeline = {
 		.name = desc.name,
 		.handle = vkPipelineHandle,
 		.layout = {
 			.handle = pipelineLayout,
-			.shaderBindings = shaderBindings,
+			.bindGroupLayouts = {
+				bindGroupLayouts[0],
+				bindGroupLayouts[1],
+				bindGroupLayouts[2],
+				bindGroupLayouts[3],
+			},
 		},
 		.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
 	};
-
-	for (u32 bindGroup = 0; bindGroup < MAX_BIND_GROUPS; ++bindGroup) {
-		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
-	}
 
 	return pipeline;
 }
@@ -2805,10 +2803,10 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 
 	// BindGroup layouts
 	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
-		CreateBindGroupLayout(device, shaderBindings, 0),
-		CreateBindGroupLayout(device, shaderBindings, 1),
-		CreateBindGroupLayout(device, shaderBindings, 2),
-		CreateBindGroupLayout(device, shaderBindings, 3),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[0], shaderBindings.bindGroupBindingCount[0]),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[1], shaderBindings.bindGroupBindingCount[1]),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[2], shaderBindings.bindGroupBindingCount[2]),
+		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[3], shaderBindings.bindGroupBindingCount[3]),
 	};
 
 	// Descriptor set layouts (same as BindGroup, but Vulkan handles)
@@ -2840,19 +2838,20 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 
 	DestroyShaderModule(device, shaderModule);
 
-	Pipeline pipeline = {
+	const Pipeline pipeline = {
 		.name = desc.name,
 		.handle = computePipeline,
 		.layout = {
 			.handle = pipelineLayout,
-			.shaderBindings = shaderBindings,
+			.bindGroupLayouts = {
+				bindGroupLayouts[0],
+				bindGroupLayouts[1],
+				bindGroupLayouts[2],
+				bindGroupLayouts[3],
+			},
 		},
 		.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE,
 	};
-
-	for (u32 bindGroup = 0; bindGroup < MAX_BIND_GROUPS; ++bindGroup) {
-		pipeline.layout.bindGroupLayouts[bindGroup] = bindGroupLayouts[bindGroup];
-	}
 
 	return pipeline;
 }
