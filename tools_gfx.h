@@ -1730,22 +1730,25 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 
 
 	// Data to discover from the physical device selection
-	bool suitableDeviceFound = false;
+	u32 bestDeviceScore = 0;
 
 	// Physical device selection
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
+		u32 deviceScore = 0;
 		VkPhysicalDevice physicalDevice = physicalDevices[i];
 
 		Arena scratch2 = MakeSubArena(scratch);
 
-		#if !PLATFORM_ANDROID
-		// We only want dedicated GPUs
+		// Prioritize discrete GPUs over integrated ones
 		VkPhysicalDeviceProperties properties;
 		vkGetPhysicalDeviceProperties( physicalDevice, &properties );
-		if ( properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+		deviceScore +=
+			( properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ) ? 200 :
+			( properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ) ? 100 :
+			0;
+		if ( deviceScore == 0 )
 			continue;
-		#endif
 
 		VkPhysicalDeviceFeatures features;
 		vkGetPhysicalDeviceFeatures( physicalDevice, &features );
@@ -1865,14 +1868,16 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 #endif
 
 		// At this point, we know this device meets all the requirements
-		suitableDeviceFound = true;
-		device.physicalDevice = physicalDevice;
-		device.graphicsQueueFamilyIndex = gfxFamilyIndex;
-		device.presentQueueFamilyIndex = presentFamilyIndex;
-		break;
+		if (deviceScore > bestDeviceScore)
+		{
+			bestDeviceScore = deviceScore;
+			device.physicalDevice = physicalDevice;
+			device.graphicsQueueFamilyIndex = gfxFamilyIndex;
+			device.presentQueueFamilyIndex = presentFamilyIndex;
+		}
 	}
 
-	if ( !suitableDeviceFound )
+	if ( bestDeviceScore == 0 )
 	{
 		LOG(Error, "Could not find any suitable GFX device.\n");
 		return false;
