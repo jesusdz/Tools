@@ -1966,7 +1966,10 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(device.physicalDevice, &properties);
 	LOG(Info, "Physical device info:\n");
-	LOG(Info, "- apiVersion: %u\n", properties.apiVersion); // uint32_t
+	LOG(Info, "- apiVersion: %u.%u.%u\n",
+			VK_API_VERSION_MAJOR(properties.apiVersion),
+			VK_API_VERSION_MINOR(properties.apiVersion),
+			VK_API_VERSION_PATCH(properties.apiVersion)); // uint32_t
 	LOG(Info, "- driverVersion: %u.%u.%u\n",
 			VK_VERSION_MAJOR(properties.driverVersion),
 			VK_VERSION_MINOR(properties.driverVersion),
