@@ -183,6 +183,8 @@ del /Q *.spv *.dxil *.pdb *.cso *.dis 2>nul
 %DXC% -spirv -T ps_6_7 -Fo fs_sky.spv -Fc fs_sky.dis sky.hlsl -E PSMain
 %DXC% -spirv -T vs_6_7 -Fo vs_shadowmap.spv -Fc vs_shadowmap.dis shadowmap.hlsl -E VSMain
 %DXC% -spirv -T ps_6_7 -Fo fs_shadowmap.spv -Fc fs_shadowmap.dis shadowmap.hlsl -E PSMain
+%DXC% -spirv -T vs_6_7 -Fo vs_ui.spv -Fc vs_ui.dis ui.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo fs_ui.spv -Fc fs_ui.dis ui.hlsl -E PSMain
 %DXC% -spirv -T cs_6_7 -Fo compute_clear.spv -Fc compute_clear.dis compute.hlsl -E main_clear
 %DXC% -spirv -T cs_6_7 -Fo compute_update.spv -Fc compute_update.dis compute.hlsl -E main_update
 

@@ -1729,10 +1729,9 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	};
 
 
-	// Data to discover from the physical device selection
+	// Physical device selection
 	u32 bestDeviceScore = 0;
 
-	// Physical device selection
 	for (u32 i = 0; i < physicalDeviceCount; ++i)
 	{
 		u32 deviceScore = 0;

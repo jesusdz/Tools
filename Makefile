@@ -36,6 +36,8 @@ shaders:
 	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_sky.spv -Fc shaders/fs_sky.dis shaders/sky.hlsl -E PSMain
 	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_shadowmap.spv -Fc shaders/vs_shadowmap.dis shaders/shadowmap.hlsl -E VSMain
 	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_shadowmap.spv -Fc shaders/fs_shadowmap.dis shaders/shadowmap.hlsl -E PSMain
+	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_ui.spv -Fc shaders/vs_ui.dis shaders/ui.hlsl -E VSMain
+	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_ui.spv -Fc shaders/fs_ui.dis shaders/ui.hlsl -E PSMain
 	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl -E main_clear
 	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl -E main_update
 

@@ -31,6 +31,8 @@ static StringInterning *gStringInterning;
 
 #define INVALID_HANDLE -1
 
+#define USE_UI 1
+
 
 
 
@@ -86,6 +88,12 @@ struct Entity
 	BufferChunk indices;
 	u16 materialIndex;
 };
+
+#ifdef USE_UI
+struct UI
+{
+};
+#endif
 
 struct Graphics
 {
@@ -156,6 +164,10 @@ struct Graphics
 	PipelineH computeUpdateH;
 
 	bool deviceInitialized;
+
+#if USE_UI
+	UI ui;
+#endif
 };
 
 
@@ -273,6 +285,23 @@ static const PipelineDesc pipelineDescs[] =
 		},
 		.depthCompareOp = CompareOpGreaterOrEqual,
 	},
+	{
+		.name = "pipeline_ui",
+		.vsFilename = "shaders/vs_ui.spv",
+		.fsFilename = "shaders/fs_ui.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "main_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 20 }, },
+		.vertexAttributeCount = 3,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
+			{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatFloat2, },
+			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8_SRGB, },
+		},
+		.depthCompareOp = CompareOpNone,
+	},
 };
 
 static const ComputeDesc computeDescs[] =
@@ -280,6 +309,29 @@ static const ComputeDesc computeDescs[] =
 	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
 	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 };
+
+
+#if USE_UI
+// InitializeGraphics
+void InitializeUI(Graphics &gfx)
+{
+	UI &ui = gfx.ui;
+}
+
+// EngineUpdate
+void UpdateUI(Graphics &gfx)
+{
+	UI &ui = gfx.ui;
+}
+
+// CleanupGraphics
+void CleanupUI(Graphics &gfx)
+{
+	UI &ui = gfx.ui;
+}
+#endif
+
+
 
 
 struct StagedData
@@ -819,6 +871,10 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
 	}
 
+#ifdef USE_UI
+	InitializeUI(gfx);
+#endif
+
 	return true;
 }
 
@@ -1039,6 +1095,10 @@ void CleanupGraphics(Graphics &gfx)
 	CleanupGraphicsDevice( gfx.device );
 
 	CleanupGraphicsDriver( gfx.device );
+
+#if USE_UI
+	CleanupUI(gfx);
+#endif
 
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
@@ -1826,6 +1886,9 @@ void EngineUpdate(Platform &platform)
 
 #if USE_IMGUI
 		UpdateImGui(gfx);
+#endif
+#if USE_UI
+		UpdateUI(gfx);
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
