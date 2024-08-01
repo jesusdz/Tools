@@ -92,6 +92,8 @@ struct Entity
 #ifdef USE_UI
 struct UI
 {
+	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
+	BufferH indexBuffer[MAX_FRAMES_IN_FLIGHT];
 };
 #endif
 
@@ -298,7 +300,7 @@ static const PipelineDesc pipelineDescs[] =
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
 			{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatFloat2, },
-			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8_SRGB, },
+			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
 		},
 		.depthCompareOp = CompareOpNone,
 	},
@@ -316,6 +318,21 @@ static const ComputeDesc computeDescs[] =
 void InitializeUI(Graphics &gfx)
 {
 	UI &ui = gfx.ui;
+
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		ui.vertexBuffer[i] = CreateBuffer(
+			gfx.device,
+			KB(512),
+			BufferUsageVertexBuffer,
+			HeapType_Dynamic);
+
+		ui.indexBuffer[i] = CreateBuffer(
+			gfx.device,
+			KB(512),
+			BufferUsageIndexBuffer,
+			HeapType_Dynamic);
+	}
 }
 
 // EngineUpdate
