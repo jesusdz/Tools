@@ -605,6 +605,10 @@ struct GraphicsDevice
 	{
 		float timestampPeriod;
 	} limits;
+	struct
+	{
+		bool linearFilteredSampling;
+	} formatSupport[FormatCount];
 
 	VkDebugReportCallbackEXT debugReportCallback;
 
@@ -783,6 +787,25 @@ static Format FormatFromVulkan(VkFormat format)
 	};
 	INVALID_CODE_PATH();
 	return FormatCount;
+}
+
+static const char *FormatName(Format format)
+{
+	ASSERT(format < FormatCount);
+	static const char *names[] = {
+		"VK_FORMAT_R32_SFLOAT",
+		"VK_FORMAT_R32G32_SFLOAT",
+		"VK_FORMAT_R32G32B32_SFLOAT",
+		"VK_FORMAT_R8G8B8A8_UNORM",
+		"VK_FORMAT_R8G8B8A8_SRGB",
+		"VK_FORMAT_B8G8R8A8_SRGB",
+		"VK_FORMAT_D32_SFLOAT",
+		"VK_FORMAT_D32_SFLOAT_S8_UINT",
+		"VK_FORMAT_D24_UNORM_S8_UINT",
+	};
+	CT_ASSERT(ARRAY_COUNT(names) == FormatCount);
+	const char *name = names[format];
+	return name;
 }
 
 static VkBorderColor BorderColorToVulkan(BorderColor color)
@@ -1984,7 +2007,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	//LOG(Info, "- \n"); // VkPhysicalDeviceSparseProperties	sparseProperties;
 
 
-	// Format support
+	// Depth format support
 	const VkFormat depthFormatCandidates[] = {
 		VK_FORMAT_D32_SFLOAT,
 		VK_FORMAT_D32_SFLOAT_S8_UINT,
@@ -2006,6 +2029,16 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	// Timestamp queries support
 	device.support.timestampQueries = properties.limits.timestampComputeAndGraphics;
 	device.limits.timestampPeriod = properties.limits.timestampPeriod;
+
+
+	// Format support
+	for (u32 format = 0; format < FormatCount; ++format)
+	{
+		const VkFormat vkFormat = FormatToVulkan((Format)format);
+		VkFormatProperties formatProperties;
+		vkGetPhysicalDeviceFormatProperties(device.physicalDevice, vkFormat, &formatProperties);
+		device.formatSupport[format].linearFilteredSampling = formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	}
 
 
 	// Create heaps

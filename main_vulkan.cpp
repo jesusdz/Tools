@@ -461,13 +461,8 @@ void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandLis
 {
 	const Image &image = GetImage(device, imageH);
 
-	const VkFormat vkFormat = FormatToVulkan(image.format);
-
-	VkFormatProperties formatProperties;
-	vkGetPhysicalDeviceFormatProperties(device.physicalDevice, vkFormat, &formatProperties);
-
-	if (!(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-		LOG(Error, "GenerateMipmaps() - Linear filtering not supported for the given format.\n");
+	if (!device.formatSupport[image.format].linearFilteredSampling) {
+		LOG(Error, "GenerateMipmaps() - Linear filtering not supported for format %s.\n", FormatName(image.format));
 		QUIT_ABNORMALLY();
 	}
 
