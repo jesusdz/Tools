@@ -31,7 +31,7 @@ static StringInterning *gStringInterning;
 
 #define INVALID_HANDLE -1
 
-#define USE_UI 1
+#define USE_UI 0
 
 
 
@@ -888,7 +888,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
 	}
 
-#ifdef USE_UI
+#if USE_UI
 	InitializeUI(gfx);
 #endif
 
@@ -921,9 +921,12 @@ void UpdateGlobalBindGroups(Graphics &gfx)
 
 BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &material)
 {
+	const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
+	const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL];
 	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
 
 	const BindGroupDesc bindGroupDesc = {
+		.layout = bindGroupLayout,
 		.bindings = {
 			{ .index = BINDING_MATERIAL, .buffer = gfx.materialBuffer, .offset = material.bufferOffset, .range = sizeof(SMaterial) },
 			{ .index = BINDING_ALBEDO, .image = albedoTexture.image },
@@ -932,34 +935,14 @@ BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &materia
 	return bindGroupDesc;
 }
 
-void UpdateMaterialBindGroup(Graphics &gfx)
+void UpdateMaterialBindGroups(Graphics &gfx)
 {
-	VkDescriptorGenericInfo descriptorInfos[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
-	VkWriteDescriptorSet descriptorWrites[MAX_MATERIALS * MAX_SHADER_BINDINGS] = {};
-	u32 descriptorWriteCount = 0;
-
 	for (u32 materialIndex = 0; materialIndex < gfx.materialCount; ++materialIndex)
 	{
 		const Material &material = GetMaterial(gfx, materialIndex);
-		const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
-		const ShaderBinding *shaderBindings = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL].bindings;
-		const u32 shaderBindingCount = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL].bindingCount;
-
 		const BindGroupDesc materialBindGroupDesc = MaterialBindGroupDesc(gfx, material);
-
-		for ( u32 bindingIndex = 0; bindingIndex < shaderBindingCount; ++bindingIndex )
-		{
-			const ShaderBinding &shaderBinding = shaderBindings[bindingIndex];
-			const ResourceBinding &resourceBinding = materialBindGroupDesc.bindings[bindingIndex];
-			const VkDescriptorSet descriptorSet = gfx.materialBindGroups[materialIndex].handle;
-
-			if ( !AddDescriptorWrite(gfx.device, resourceBinding, shaderBinding, descriptorSet, descriptorInfos, descriptorWrites, descriptorWriteCount) ) {
-				LOG(Warning, "Could not add descriptor write for binding %s of material %s.\n", shaderBinding.name, material.name);
-			}
-		}
+		UpdateBindGroup(gfx.device, materialBindGroupDesc, gfx.materialBindGroups[materialIndex]);
 	}
-
-	UpdateDescriptorSets(gfx.device, descriptorWrites, descriptorWriteCount);
 }
 
 void InitializeScene(Arena scratch, Graphics &gfx)
@@ -1063,7 +1046,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 	// Update bind groups
 	UpdateGlobalBindGroups(gfx);
-	UpdateMaterialBindGroup(gfx);
+	UpdateMaterialBindGroups(gfx);
 
 	// Timestamp queries
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
