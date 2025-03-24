@@ -58,6 +58,11 @@
  * - (Begin/End)Frame
  * - WaitQueueIdle
  * - WaitDeviceIdle
+ *
+ * Debug utils:
+ * - BeginDebugGroup / EndDebugGroup
+ * - InsertDebugLabel
+ * - SetObjectName
  */
 
 #ifndef TOOLS_GFX_H
@@ -598,7 +603,7 @@ struct GraphicsDevice
 
 	struct
 	{
-		bool debugReportCallbacks;
+		bool debugUtils;
 		bool timestampQueries;
 	} support;
 	struct
@@ -611,6 +616,8 @@ struct GraphicsDevice
 	} formatSupport[FormatCount];
 
 	VkDebugReportCallbackEXT debugReportCallback;
+
+	VkDebugUtilsMessengerEXT debugUtilsMessenger;
 
 	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUP_LAYOUTS];
 	u32 bindGroupLayoutCount;
@@ -968,6 +975,23 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
 	LOG(Warning, "VulkanDebugReportCallback was called.\n");
 	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
 	LOG(Warning, " - pMessage: %s.\n", pMessage);
+	return VK_FALSE;
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsMessengerCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT		message_severity,
+    VkDebugUtilsMessageTypeFlagsEXT				message_type,
+    const VkDebugUtilsMessengerCallbackDataEXT	*callback_data,
+    void 										*user_data)
+{
+	if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+	{
+		LOG(Warning, "%u - %s: %s", callback_data->messageIdNumber, callback_data->pMessageIdName, callback_data->pMessage);
+	}
+	else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+	{
+		LOG(Error, "%u - %s: %s", callback_data->messageIdNumber, callback_data->pMessageIdName, callback_data->pMessage);
+	}
 	return VK_FALSE;
 }
 
@@ -1395,6 +1419,43 @@ void WaitDeviceIdle(const GraphicsDevice &device)
 
 
 //////////////////////////////
+// Debug utils
+//////////////////////////////
+
+static constexpr float4 s_defaultDebugLabelColor = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor = s_defaultDebugLabelColor )
+{
+	const VkDebugUtilsLabelEXT label = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+		.pNext = NULL,
+		.pLabelName = labelName,
+		.color = { labelColor.r, labelColor.g, labelColor.b, labelColor.a },
+	};
+	vkCmdBeginDebugUtilsLabelEXT(cmd.handle, &label);
+}
+
+void EndDebugGroup(const CommandList &cmd)
+{
+	vkCmdEndDebugUtilsLabelEXT(cmd.handle);
+}
+
+void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor = s_defaultDebugLabelColor )
+{
+	const VkDebugUtilsLabelEXT label = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+		.pNext = NULL,
+		.pLabelName = labelName,
+		.color = { labelColor.r, labelColor.g, labelColor.b, labelColor.a },
+	};
+	vkCmdInsertDebugUtilsLabelEXT(cmd.handle, &label);
+}
+
+void SetObjectName()
+{
+}
+
+//////////////////////////////
 // Device
 //////////////////////////////
 
@@ -1628,12 +1689,12 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 		LOG(Info, "%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
 	}
 
-	u32 instanceExtensionCount;
-	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, NULL ) );
-	VkExtensionProperties *instanceExtensions = PushArray(scratch, VkExtensionProperties, instanceExtensionCount);
-	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &instanceExtensionCount, instanceExtensions ) );
+	u32 availableInstanceExtensionCount;
+	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &availableInstanceExtensionCount, NULL ) );
+	VkExtensionProperties *availableInstanceExtensions = PushArray(scratch, VkExtensionProperties, availableInstanceExtensionCount);
+	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &availableInstanceExtensionCount, availableInstanceExtensions ) );
 
-	const char *wantedInstanceExtensionNames[] = {
+	const char *requiredInstanceExtensionNames[] = {
 #if USE_VK_EXT_PORTABILITY_ENUMERATION
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 #endif
@@ -1645,33 +1706,59 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 #elif VK_USE_PLATFORM_WIN32_KHR
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #endif
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
-		//VK_EXT_DEBUG_UTILS_EXTENSION_NAME, // This one is newer, only supported from vulkan 1.1
 	};
-	const char *enabledInstanceExtensionNames[ARRAY_COUNT(wantedInstanceExtensionNames)];
+
+	const char *enabledInstanceExtensionNames[16];
 	u32 enabledInstanceExtensionCount = 0;
 
-	LOG(Info, "Instance extensions:\n");
-	for (u32 i = 0; i < instanceExtensionCount; ++i)
+	const auto EnableExtension = [&](const char *extensionName)
 	{
-		bool enabled = false;
+		bool found = false;
 
-		const char *availableExtensionName = instanceExtensions[i].extensionName;
-		for (u32 j = 0; j < ARRAY_COUNT(wantedInstanceExtensionNames); ++j)
+		for (u32 i = 0; i < availableInstanceExtensionCount && !found; ++i)
 		{
-			const char *wantedExtensionName = wantedInstanceExtensionNames[j];
-			if ( StrEq( availableExtensionName, wantedExtensionName ) )
-			{
-				enabledInstanceExtensionNames[enabledInstanceExtensionCount++] = wantedExtensionName;
-				enabled = true;
-			}
+			found = StrEq( availableInstanceExtensions[i].extensionName, extensionName );
 		}
 
-		LOG(Info, "%c %s\n", enabled?'*':' ', instanceExtensions[i].extensionName);
+		if ( found )
+		{
+			ASSERT(enabledInstanceExtensionCount < ARRAY_COUNT(enabledInstanceExtensionNames));
+			enabledInstanceExtensionNames[enabledInstanceExtensionCount++] = extensionName;
+		}
+
+		return found;
+	};
+
+	// Enable mandatory extensions
+	for (u32 i = 0; i < ARRAY_COUNT(requiredInstanceExtensionNames); ++i)
+	{
+		if ( !EnableExtension( requiredInstanceExtensionNames[i] ) )
+		{
+			return false;
+		}
 	}
+
+	// Enable optional extensions
+	if ( EnableExtension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME ) ) {
+		device.support.debugUtils = true;
+	}
+
+	LOG(Info, "Enabled extensions:\n");
+	for ( u32 i = 0; i < enabledInstanceExtensionCount; ++i )
+	{
+		LOG(Info, "- %s\n", enabledInstanceExtensionNames[i]);
+	}
+
+	const VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
+		.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+		.pfnUserCallback = VulkanDebugUtilsMessengerCallback,
+	};
 
 	const VkInstanceCreateInfo instanceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+		.pNext = &debugUtilsCreateInfo, // To capture events that occur while creating or destroying the instance 
 		.pApplicationInfo = &applicationInfo,
 #if USE_VK_EXT_PORTABILITY_ENUMERATION
 		.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR,
@@ -1688,24 +1775,9 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 	// Load the instance-related Vulkan function pointers
 	volkLoadInstanceOnly(device.instance);
 
-
-	// Report callback
-	if ( vkCreateDebugReportCallbackEXT )
+	if ( device.support.debugUtils )
 	{
-		device.support.debugReportCallbacks = true;
-
-		const VkDebugReportCallbackCreateInfoEXT debugReportCallbackCreateInfo = {
-			.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
-			.flags = 0
-		//		| VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
-				| VK_DEBUG_REPORT_WARNING_BIT_EXT
-				| VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT
-				| VK_DEBUG_REPORT_ERROR_BIT_EXT,
-			.pfnCallback = VulkanDebugReportCallback,
-			.pUserData = 0,
-		};
-
-		VK_CALL( vkCreateDebugReportCallbackEXT( device.instance, &debugReportCallbackCreateInfo, VULKAN_ALLOCATORS, &device.debugReportCallback) );
+		VK_CALL( vkCreateDebugUtilsMessengerEXT( device.instance, &debugUtilsCreateInfo, VULKAN_ALLOCATORS, &device.debugUtilsMessenger ) );
 	}
 
 	return true;
@@ -1957,7 +2029,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	}
 #else
 	const char **enabledDeviceExtensionNames = requiredDeviceExtensionNames;
-	u32 enabledDeviceExtensionCount = ARRAY_COUNT(requiredDeviceExtensionNames);
+	const u32 enabledDeviceExtensionCount = ARRAY_COUNT(requiredDeviceExtensionNames);
 #endif
 
 	VkPhysicalDeviceFeatures requiredPhysicalDeviceFeatures = {};
@@ -3796,9 +3868,9 @@ void CleanupGraphicsSurface(const GraphicsDevice &device)
 
 void CleanupGraphicsDriver(GraphicsDevice &device)
 {
-	if ( device.support.debugReportCallbacks )
+	if ( device.support.debugUtils )
 	{
-		vkDestroyDebugReportCallbackEXT( device.instance, device.debugReportCallback, VULKAN_ALLOCATORS );
+		vkDestroyDebugUtilsMessengerEXT( device.instance, device.debugUtilsMessenger, VULKAN_ALLOCATORS );
 	}
 
 	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);

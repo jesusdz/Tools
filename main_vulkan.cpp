@@ -1473,6 +1473,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Shadow map
 	{
+		BeginDebugGroup(commandList, "Shadow map");
+
 		SetClearDepth(commandList, 0, 0.0f);
 
 		const Framebuffer shadowmapFramebuffer = GetShadowmapFramebuffer(gfx);
@@ -1503,6 +1505,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		}
 
 		EndRenderPass(commandList);
+
+		EndDebugGroup(commandList);
 	}
 
 	const Format depthFormat = gfx.device.defaultDepthFormat;
@@ -1511,6 +1515,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 	// Scene and UI
 	{
+		BeginDebugGroup(commandList, "Scene and UI");
+
 		SetClearColor(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
 		SetClearDepth(commandList, 1, 0.0f);
 
@@ -1580,6 +1586,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 #endif
 
 		EndRenderPass(commandList);
+
+		EndDebugGroup(commandList);
 	}
 
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
