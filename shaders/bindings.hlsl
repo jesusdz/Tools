@@ -11,3 +11,6 @@
 #define BINDING_MATERIAL 0
 #define BINDING_ALBEDO   1
 
+// Stub variable so this file debug info does not disappear in RenderDoc
+static const int stubGlobalVar = 0;
+
