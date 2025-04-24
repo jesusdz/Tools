@@ -3,6 +3,7 @@
 CXX=g++
 CXXFLAGS= -g
 DXC=./dxc/linux/bin/dxc
+DEBUG_FLAGS=-fspv-debug=vulkan-with-source
 
 default: main_vulkan
 
@@ -30,16 +31,16 @@ cast:
 	${CXX} ${CXXFLAGS} -o cast cast.cpp
 
 shaders:
-	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_shading.spv -Fc shaders/vs_shading.dis shaders/shading.hlsl -E VSMain
-	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_shading.spv -Fc shaders/fs_shading.dis shaders/shading.hlsl -E PSMain
-	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_sky.spv -Fc shaders/vs_sky.dis shaders/sky.hlsl -E VSMain
-	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_sky.spv -Fc shaders/fs_sky.dis shaders/sky.hlsl -E PSMain
-	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_shadowmap.spv -Fc shaders/vs_shadowmap.dis shaders/shadowmap.hlsl -E VSMain
-	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_shadowmap.spv -Fc shaders/fs_shadowmap.dis shaders/shadowmap.hlsl -E PSMain
-	${DXC} -spirv -T vs_6_7 -Fo shaders/vs_ui.spv -Fc shaders/vs_ui.dis shaders/ui.hlsl -E VSMain
-	${DXC} -spirv -T ps_6_7 -Fo shaders/fs_ui.spv -Fc shaders/fs_ui.dis shaders/ui.hlsl -E PSMain
-	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl -E main_clear
-	${DXC} -spirv -T cs_6_7 -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl -E main_update
+	${DXC} -spirv ${DEBUG_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_shading.spv -Fc shaders/vs_shading.dis -Fi shaders/vs_shading.pp shaders/shading.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_shading.spv -Fc shaders/fs_shading.dis -Fi shaders/fs_shading.pp shaders/shading.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_sky.spv -Fc shaders/vs_sky.dis shaders/sky.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_sky.spv -Fc shaders/fs_sky.dis shaders/sky.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_shadowmap.spv -Fc shaders/vs_shadowmap.dis shaders/shadowmap.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_shadowmap.spv -Fc shaders/fs_shadowmap.dis shaders/shadowmap.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_ui.spv -Fc shaders/vs_ui.dis shaders/ui.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_ui.spv -Fc shaders/fs_ui.dis shaders/ui.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T cs_6_7 -E main_clear -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl
+	${DXC} -spirv ${DEBUG_FLAGS} -T cs_6_7 -E main_update -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl
 
 clean:
 	rm -f main_interpreter main_vulkan main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
