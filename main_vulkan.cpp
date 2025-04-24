@@ -1535,6 +1535,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const u32 materialIndex = entity.materialIndex;
 			const Material &material = gfx.materials[materialIndex];
 
+			BeginDebugGroup(commandList, material.name);
+
 			// Pipeline
 			SetPipeline(commandList, material.pipelineH);
 
@@ -1551,6 +1553,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+
+			EndDebugGroup(commandList);
 		}
 
 		{ // Sky
@@ -1571,18 +1575,26 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
+			BeginDebugGroup(commandList, "sky");
+
 			SetPipeline(commandList, gfx.skyPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+
+			EndDebugGroup(commandList);
 		}
 
 #if USE_IMGUI
+		BeginDebugGroup(commandList, "ImGui");
+
 		// Record dear imgui primitives into command buffer
 		ImDrawData* draw_data = ImGui::GetDrawData();
 		ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
+
+		EndDebugGroup(commandList);
 #endif
 
 		EndRenderPass(commandList);
