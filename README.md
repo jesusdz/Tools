@@ -64,7 +64,7 @@ Abstraction of a modern graphics API for now made on top of Vulkan.
 Currently, there are the following *in-progress* projects:
 
 * `main_interpreter`: Implementation of a scripted language interpreter. Following the contents of the *Crafting interpreters* book (by Robert Nystrom).
-* `main_vulkan`: Implementation of a graphics application template using the Vulkan graphics API.
+* `main_gfx`: Implementation of a graphics application template using the `tools_gfx.h` header.
 * `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
 * `main_atof`: Custom implementation of the atof (ASCII to float) function.
 * `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.

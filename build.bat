@@ -32,10 +32,10 @@ REM Target to build
 REM ######################################################
 
 set target=%1
-if [%target%] == [] goto main_vulkan
+if [%target%] == [] goto main_gfx
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
-if "%target%" == "main_vulkan" goto main_vulkan
+if "%target%" == "main_gfx" goto main_gfx
 if "%target%" == "main_d3d12" goto main_d3d12
 if "%target%" == "main_reflect_serialize" goto main_reflect_serialize
 if "%target%" == "main_interpreter" goto main_interpreter
@@ -64,15 +64,15 @@ exit /b 0
 
 
 REM ######################################################
-REM main_vulkan
+REM main_gfx
 REM ######################################################
-: main_vulkan
+: main_gfx
 
 call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-cl %CommonCompilerFlags% ..\main_vulkan.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\main_gfx.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
