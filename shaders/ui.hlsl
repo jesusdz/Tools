@@ -1,3 +1,5 @@
+#include "types.hlsl"
+#include "bindings.hlsl"
 
 struct VertexInput
 {
@@ -13,16 +15,17 @@ struct VertexOutput
 	float4 color : COLOR0;
 };
 
+ConstantBuffer<Globals> globals         : REGISTER_B(3, 0);
+
 VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 {
 	VertexOutput OUT;
-	OUT.position = float4(IN.position, 0.0, 1.0);
+	OUT.position = mul(globals.camera2dProj, float4(IN.position, 0.0, 1.0));
 	OUT.texCoord = IN.texCoord;
 	OUT.color = IN.color;
 	return OUT;
 }
 
-//typedef VertexOutput PixelInput;
 struct PixelInput
 {
 	float2 texCoord : TEXCOORD0;

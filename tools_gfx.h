@@ -42,6 +42,7 @@
  * - SetBindGroup
  * - SetVertexBuffer
  * - SetIndexBuffer
+ * - Draw
  * - DrawIndexed
  * - Dispatch
  *
@@ -442,6 +443,8 @@ struct PipelineDesc
 	VertexBufferDesc vertexBuffers[4];
 	unsigned int vertexAttributeCount;
 	VertexAttributeDesc vertexAttributes[4];
+	bool depthTest;
+	bool depthWrite;
 	CompareOp depthCompareOp;
 };
 
@@ -2791,8 +2794,8 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 
 	const VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.depthTestEnable = VK_TRUE,
-		.depthWriteEnable = VK_TRUE,
+		.depthTestEnable = desc.depthTest ? VK_TRUE : VK_FALSE,
+		.depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE,
 		.depthCompareOp = CompareOpToVulkan(desc.depthCompareOp),
 		.depthBoundsTestEnable = VK_FALSE,
 		.stencilTestEnable = VK_FALSE,
@@ -3543,6 +3546,13 @@ void SetIndexBuffer(CommandList &commandList, BufferH bufferH)
 		VkDeviceSize indexBufferOffset = 0;
 		vkCmdBindIndexBuffer(commandList.handle, buffer.handle, indexBufferOffset, VK_INDEX_TYPE_UINT16);
 	}
+}
+
+void Draw(CommandList &commandList, u32 vertexCount, u32 firstVertex)
+{
+	BindDescriptorSets(commandList);
+
+	vkCmdDraw(commandList.handle, vertexCount, 1, firstVertex, 0);
 }
 
 void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex)

@@ -90,11 +90,84 @@ struct Entity
 };
 
 #ifdef USE_UI
+struct UIVertex
+{
+	float2 position;
+	float2 texCoord;
+	rgba color;
+};
+
 struct UI
 {
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
-	BufferH indexBuffer[MAX_FRAMES_IN_FLIGHT];
+	UIVertex *vertexData[MAX_FRAMES_IN_FLIGHT];
+	u32 frameIndex;
+	u32 vertexCount;
+	u32 vertexCountLimit;
+
+	float4 colors[16];
+	u32 colorCount;
 };
+
+void UI_NextFrame(UI &ui)
+{
+	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	ui.vertexCount = 0;
+}
+
+BufferH UI_GetVertexBuffer(const UI& ui)
+{
+	return ui.vertexBuffer[ui.frameIndex];
+}
+
+void UI_PushColor(UI &ui, float4 color)
+{
+	ASSERT(ui.colorCount < ARRAY_COUNT(ui.colors));
+	ui.colors[ui.colorCount++] = color;
+}
+
+void UI_PopColor(UI &ui)
+{
+	ASSERT(ui.colorCount > 1); // Avoid popping the default color
+	ui.colorCount--;
+}
+
+float4 UI_GetColor(const UI &ui)
+{
+	const float4 color = ui.colors[ui.colorCount-1];
+	return color;
+}
+
+void UI_AddRectangle(UI &ui, float2 pos, float2 size)
+{
+	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
+
+	// pos
+	const float2 v0 = { pos.x, pos.y }; // top-left
+	const float2 v1 = { pos.x, pos.y + size.y }; // bottom-left
+	const float2 v2 = { pos.x + size.x, pos.y + size.y }; // bottom-right
+	const float2 v3 = { pos.x + size.x, pos.y }; // top-right
+
+	// uv
+	const float2 uvTL = { 0, 0 };
+	const float2 uvBL = { 0, 1 };
+	const float2 uvBR = { 1, 1 };
+	const float2 uvTR = { 1, 0 };
+
+	// color
+	const rgba color = Rgba(UI_GetColor(ui));
+
+	// add vertices
+	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex];
+	*vertexPtr++ = UIVertex{ v0, uvTL, color };
+	*vertexPtr++ = UIVertex{ v1, uvBL, color };
+	*vertexPtr++ = UIVertex{ v2, uvBR, color };
+	*vertexPtr++ = UIVertex{ v0, uvTL, color };
+	*vertexPtr++ = UIVertex{ v2, uvBR, color };
+	*vertexPtr++ = UIVertex{ v3, uvTR, color };
+
+	ui.vertexCount += 6;
+}
 #endif
 
 struct Graphics
@@ -161,6 +234,7 @@ struct Graphics
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
+	PipelineH guiPipelineH;
 
 	PipelineH computeClearH;
 	PipelineH computeUpdateH;
@@ -254,6 +328,8 @@ static const PipelineDesc pipelineDescs[] =
 			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
 			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
 		},
+		.depthTest = true,
+		.depthWrite = true,
 		.depthCompareOp = CompareOpGreater,
 	},
 	{
@@ -269,6 +345,8 @@ static const PipelineDesc pipelineDescs[] =
 		.vertexAttributes = {
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
 		},
+		.depthTest = true,
+		.depthWrite = true,
 		.depthCompareOp = CompareOpGreater,
 	},
 	{
@@ -285,6 +363,8 @@ static const PipelineDesc pipelineDescs[] =
 			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
 			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
 		},
+		.depthTest = true,
+		.depthWrite = false,
 		.depthCompareOp = CompareOpGreaterOrEqual,
 	},
 	{
@@ -302,7 +382,7 @@ static const PipelineDesc pipelineDescs[] =
 			{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatFloat2, },
 			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
 		},
-		.depthCompareOp = CompareOpNone,
+		.depthTest = false,
 	},
 };
 
@@ -319,26 +399,35 @@ void InitializeUI(Graphics &gfx)
 {
 	UI &ui = gfx.ui;
 
+	const u32 vertexBufferSize = KB(16);
+	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
+
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
 		ui.vertexBuffer[i] = CreateBuffer(
 			gfx.device,
-			KB(512),
+			vertexBufferSize,
 			BufferUsageVertexBuffer,
 			HeapType_Dynamic);
 
-		ui.indexBuffer[i] = CreateBuffer(
-			gfx.device,
-			KB(512),
-			BufferUsageIndexBuffer,
-			HeapType_Dynamic);
+		ui.vertexData[i] = (UIVertex*)GetBufferPtr(gfx.device, ui.vertexBuffer[i]);
 	}
+
+	const float4 defaultColor = { 0.1, 0.2, 0.4 };
+	UI_PushColor(ui, defaultColor);
 }
 
 // EngineUpdate
 void UpdateUI(Graphics &gfx)
 {
 	UI &ui = gfx.ui;
+
+	UI_NextFrame(ui);
+
+	const float2 position = { 10, 10 };
+	const float2 size = { 100, 100 };
+
+	UI_AddRectangle(ui, position, size);
 }
 
 // CleanupGraphics
@@ -874,12 +963,14 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
 		const RenderPassH renderPassH = RenderPassHandle(gfx, pipelineDescs[i].renderPass);
+		LOG(Info, "Creating Graphics Pipeline: %s\n", pipelineDescs[i].name);
 		CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
+		LOG(Info, "Creating Compute Pipeline: %s\n", computeDescs[i].name);
 		CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
 	}
 
@@ -990,6 +1081,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	// Pipelines
 	gfx.shadowmapPipelineH = PipelineHandle(gfx, "pipeline_shadowmap");
 	gfx.skyPipelineH = PipelineHandle(gfx, "pipeline_sky");
+	gfx.guiPipelineH = PipelineHandle(gfx, "pipeline_ui");
 
 	// Computes
 	gfx.computeClearH = PipelineHandle(gfx, "compute_clear");
@@ -1361,13 +1453,15 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		return false;
 	}
 
+	// Display size
+	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
+	const f32 displayHeight = static_cast<f32>(gfx.device.swapchain.extent.height);
+
 	// Calculate camera matrices
 	const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
 	const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-	const f32 ar = isLandscapeRotation ?
-		static_cast<f32>(gfx.device.swapchain.extent.width) / static_cast<f32>(gfx.device.swapchain.extent.height) :
-		static_cast<f32>(gfx.device.swapchain.extent.height) / static_cast<f32>(gfx.device.swapchain.extent.width);
+	const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
 	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
 	const float fovy = 60.0f;
 	const float znear = 0.1f;
@@ -1406,11 +1500,21 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	const float4x4 sunViewMatrix = LookAt(sunVrp, sunPos, sunUp);
 	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -10.0f, 5.0f, -5.0f, 10.0f);
 
+	// Camera 2D
+	const f32 l = 0.0f;
+	const f32 r = displayWidth;
+	const f32 b = 0.0f;
+	const f32 t = displayHeight;
+	const f32 n = 0.0f;
+	const f32 f = 1.0f;
+	const float4x4 camera2dProjection = Orthogonal(l, r, b, t, n, f);
+
 	// Update globals struct
 	const Globals globals = {
 		.cameraView = viewMatrix,
 		.cameraViewInv = Float4x4(Transpose(Float3x3(viewMatrix))),
 		.cameraProj = projectionMatrix,
+		.camera2dProj = camera2dProjection,
 		.viewportRotationMatrix = viewportRotationMatrix,
 		.cameraFrustumTopLeft = frustumTopLeft,
 		.cameraFrustumBottomRight = frustumBottomRight,
@@ -1595,6 +1699,32 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
 
 		EndDebugGroup(commandList);
+#endif
+
+#if USE_UI
+		{ // GUI
+			const UI &ui = gfx.ui;
+
+			// TODO: Should work only with this bind group (3) or only with the global one (0)
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
+			const BindGroupDesc bindGroupDesc = {
+				.layout = pipeline.layout.bindGroupLayouts[3],
+				.bindings = {
+					{ .index = 0, .buffer = gfx.globalsBuffer[frameIndex] }
+				},
+			};
+			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+
+			BeginDebugGroup(commandList, "GUI");
+
+			SetPipeline(commandList, gfx.guiPipelineH);
+			//SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetBindGroup(commandList, 3, bindGroup);
+			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
+			Draw(commandList, ui.vertexCount, 0);
+
+			EndDebugGroup(commandList);
+		}
 #endif
 
 		EndRenderPass(commandList);

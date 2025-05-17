@@ -920,6 +920,11 @@ FilePath MakePath(const char *relativePath)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math
 
+struct rgba
+{
+	byte r, g, b, a;
+};
+
 struct uint2
 {
 	union { u32 x, r; };
@@ -987,6 +992,17 @@ struct float4x4
 static constexpr f32 Pi = 3.14159265358979323846f;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
+
+rgba Rgba(float4 color)
+{
+	const rgba res = {
+		(byte)(color.r * 255),
+		(byte)(color.g * 255),
+		(byte)(color.b * 255),
+		(byte)(color.a * 255),
+	};
+	return res;
+}
 
 float3 Float3(float value)
 {

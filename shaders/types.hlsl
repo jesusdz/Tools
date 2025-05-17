@@ -4,6 +4,7 @@ struct Globals
 	float4x4 cameraView;
 	float4x4 cameraViewInv;
 	float4x4 cameraProj;
+	float4x4 camera2dProj;
 	float4x4 viewportRotationMatrix;
 	float4 cameraFrustumTopLeft;
 	float4 cameraFrustumBottomRight;

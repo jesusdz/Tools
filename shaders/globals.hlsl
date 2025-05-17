@@ -1,19 +1,6 @@
 #include "types.hlsl"
 #include "bindings.hlsl"
 
-// register( name<binding>, space<descriptor set> )
-#define REGISTER(reg, set, binding) register(reg##binding, space##set)
-
-// Types of registers:
-// t – for shader resource views (SRV)
-// s – for samplers
-// u – for unordered access views (UAV)
-// b – for constant buffer views (CBV)
-#define REGISTER_B(set, binding) REGISTER(b, set, binding)
-#define REGISTER_S(set, binding) REGISTER(s, set, binding)
-#define REGISTER_T(set, binding) REGISTER(t, set, binding)
-#define REGISTER_U(set, binding) REGISTER(u, set, binding)
-
 // Space 0: Globals
 ConstantBuffer<Globals> globals         : REGISTER_B(BIND_GROUP_GLOBAL, BINDING_GLOBALS);
 SamplerState linearSampler              : REGISTER_S(BIND_GROUP_GLOBAL, BINDING_SAMPLER);
