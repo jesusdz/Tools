@@ -1503,8 +1503,8 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	// Camera 2D
 	const f32 l = 0.0f;
 	const f32 r = displayWidth;
-	const f32 b = 0.0f;
-	const f32 t = displayHeight;
+	const f32 t = 0.0f;
+	const f32 b = displayHeight;
 	const f32 n = 0.0f;
 	const f32 f = 1.0f;
 	const float4x4 camera2dProjection = Orthogonal(l, r, b, t, n, f);
@@ -1691,6 +1691,21 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			EndDebugGroup(commandList);
 		}
 
+#if USE_UI
+		{ // GUI
+			const UI &ui = gfx.ui;
+
+			BeginDebugGroup(commandList, "GUI");
+
+			SetPipeline(commandList, gfx.guiPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
+			Draw(commandList, ui.vertexCount, 0);
+
+			EndDebugGroup(commandList);
+		}
+#endif
+
 #if USE_IMGUI
 		BeginDebugGroup(commandList, "ImGui");
 
@@ -1699,32 +1714,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
 
 		EndDebugGroup(commandList);
-#endif
-
-#if USE_UI
-		{ // GUI
-			const UI &ui = gfx.ui;
-
-			// TODO: Should work only with this bind group (3) or only with the global one (0)
-			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
-			const BindGroupDesc bindGroupDesc = {
-				.layout = pipeline.layout.bindGroupLayouts[3],
-				.bindings = {
-					{ .index = 0, .buffer = gfx.globalsBuffer[frameIndex] }
-				},
-			};
-			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
-
-			BeginDebugGroup(commandList, "GUI");
-
-			SetPipeline(commandList, gfx.guiPipelineH);
-			//SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-			SetBindGroup(commandList, 3, bindGroup);
-			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
-			Draw(commandList, ui.vertexCount, 0);
-
-			EndDebugGroup(commandList);
-		}
 #endif
 
 		EndRenderPass(commandList);

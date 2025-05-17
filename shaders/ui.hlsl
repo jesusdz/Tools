@@ -1,5 +1,4 @@
-#include "types.hlsl"
-#include "bindings.hlsl"
+#include "globals.hlsl"
 
 struct VertexInput
 {
@@ -14,8 +13,6 @@ struct VertexOutput
 	float2 texCoord : TEXCOORD0;
 	float4 color : COLOR0;
 };
-
-ConstantBuffer<Globals> globals         : REGISTER_B(3, 0);
 
 VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 {
