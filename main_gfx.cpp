@@ -11,6 +11,12 @@ static StringInterning *gStringInterning;
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
+//#define STB_RECT_PACK_IMPLEMENTATION
+//#include "stb/stb_rect_pack.h"
+
+//#define STB_TRUETYPE_IMPLEMENTATION
+//#include "stb/stb_truetype.h"
+
 // C/HLSL shared types and bindings
 #include "shaders/types.hlsl"
 #include "shaders/bindings.hlsl"
@@ -31,7 +37,7 @@ static StringInterning *gStringInterning;
 
 #define INVALID_HANDLE -1
 
-#define USE_UI 0
+#define USE_UI 1
 
 
 
@@ -97,6 +103,17 @@ struct UIVertex
 	rgba color;
 };
 
+struct UIInput
+{
+	u32 mouseX, mouseY;
+};
+
+struct UIWidget
+{
+	float2 pos;
+	float2 size;
+};
+
 struct UI
 {
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -107,17 +124,60 @@ struct UI
 
 	float4 colors[16];
 	u32 colorCount;
+
+	float2 currentPos;
+
+	UIInput input;
+
+	UIWidget widgetStack[16];
+	u32 widgetStackSize;
 };
 
 void UI_NextFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
 	ui.vertexCount = 0;
+
+	ui.currentPos = float2{10, 10};
 }
 
 BufferH UI_GetVertexBuffer(const UI& ui)
 {
 	return ui.vertexBuffer[ui.frameIndex];
+}
+
+void UI_BeginWidget(UI &ui, float2 pos, float2 size)
+{
+	ASSERT(ui.widgetStackSize < ARRAY_COUNT(ui.widgetStack));
+	const UIWidget widget = {
+		.pos = pos,
+		.size = size,
+	};
+	ui.widgetStack[ui.widgetStackSize++] = widget;
+}
+
+void UI_EndWidget(UI &ui)
+{
+	ASSERT(ui.widgetStackSize > 0);
+	ui.widgetStackSize--;
+}
+
+bool UI_IsHover(UI &ui)
+{
+	bool hover = false;
+
+	if (ui.widgetStackSize > 0)
+	{
+		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
+
+		hover =
+			ui.input.mouseX >= widget.pos.x &&
+			ui.input.mouseX <  widget.pos.x + widget.size.x &&
+			ui.input.mouseY >= widget.pos.y &&
+			ui.input.mouseY <  widget.pos.y + widget.size.y;
+	}
+
+	return hover;
 }
 
 void UI_PushColor(UI &ui, float4 color)
@@ -158,7 +218,7 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	const rgba color = Rgba(UI_GetColor(ui));
 
 	// add vertices
-	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex];
+	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex] + ui.vertexCount;
 	*vertexPtr++ = UIVertex{ v0, uvTL, color };
 	*vertexPtr++ = UIVertex{ v1, uvBL, color };
 	*vertexPtr++ = UIVertex{ v2, uvBR, color };
@@ -167,6 +227,38 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	*vertexPtr++ = UIVertex{ v3, uvTR, color };
 
 	ui.vertexCount += 6;
+}
+
+bool UI_Button(UI &ui, const char *text)
+{
+	bool clicked = false;
+
+	constexpr float2 size = { 200, 50 };
+	constexpr float padding = 10;
+
+	const float2 pos = ui.currentPos;
+
+	UI_BeginWidget(ui, pos, size);
+
+	const bool hover = UI_IsHover(ui);
+	if (hover)
+	{
+		const float4 hoverColor = { 0.2, 0.4, 0.8 };
+		UI_PushColor(ui, hoverColor);
+	}
+
+	UI_AddRectangle(ui, pos, size);
+
+	if (hover)
+	{
+		UI_PopColor(ui);
+	}
+
+	ui.currentPos.y += size.y + padding;
+
+	UI_EndWidget(ui);
+
+	return clicked;
 }
 #endif
 
@@ -418,16 +510,16 @@ void InitializeUI(Graphics &gfx)
 }
 
 // EngineUpdate
-void UpdateUI(Graphics &gfx)
+void UpdateUI(UI &ui, Window &window)
 {
-	UI &ui = gfx.ui;
-
 	UI_NextFrame(ui);
 
-	const float2 position = { 10, 10 };
-	const float2 size = { 100, 100 };
+	UIInput &input = ui.input;
+	input.mouseX = window.mouse.x;
+	input.mouseY = window.mouse.y;
 
-	UI_AddRectangle(ui, position, size);
+	UI_Button(ui, "Hola");
+	UI_Button(ui, "Adios");
 }
 
 // CleanupGraphics
@@ -2022,7 +2114,7 @@ void EngineUpdate(Platform &platform)
 		UpdateImGui(gfx);
 #endif
 #if USE_UI
-		UpdateUI(gfx);
+		UpdateUI(gfx.ui, platform.window);
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
