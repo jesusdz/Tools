@@ -28,7 +28,7 @@ static StringInterning *gStringInterning;
 
 
 
-#define MAX_TEXTURES 4
+#define MAX_TEXTURES 8 
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
 #define MAX_GLOBAL_BINDINGS 8
@@ -121,6 +121,8 @@ struct UI
 	u32 frameIndex;
 	u32 vertexCount;
 	u32 vertexCountLimit;
+
+	TextureH fontTextureH;
 
 	float4 colors[16];
 	u32 colorCount;
@@ -243,7 +245,7 @@ bool UI_Button(UI &ui, const char *text)
 	const bool hover = UI_IsHover(ui);
 	if (hover)
 	{
-		const float4 hoverColor = { 0.2, 0.4, 0.8 };
+		const float4 hoverColor = { 0.2, 0.4, 0.8, 1.0 };
 		UI_PushColor(ui, hoverColor);
 	}
 
@@ -475,6 +477,7 @@ static const PipelineDesc pipelineDescs[] =
 			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
 		},
 		.depthTest = false,
+		.blending = true,
 	},
 };
 
@@ -486,8 +489,11 @@ static const ComputeDesc computeDescs[] =
 
 
 #if USE_UI
+
+TextureH CreateTexture(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
+
 // InitializeGraphics
-void InitializeUI(Graphics &gfx)
+void InitializeUI(Graphics &gfx, Arena scratch)
 {
 	UI &ui = gfx.ui;
 
@@ -505,8 +511,39 @@ void InitializeUI(Graphics &gfx)
 		ui.vertexData[i] = (UIVertex*)GetBufferPtr(gfx.device, ui.vertexBuffer[i]);
 	}
 
-	const float4 defaultColor = { 0.1, 0.2, 0.4 };
+	const float4 defaultColor = { 0.1, 0.2, 0.4, 0.8 };
 	UI_PushColor(ui, defaultColor);
+
+
+	// Load TTF font texture
+	FilePath fontPath = MakePath("assets/ProggyClean.ttf");
+	DataChunk *chunk = PushFile( scratch, fontPath.str );
+	if ( !chunk )
+	{
+		LOG(Error, "Could not open file %s\n", fontPath.str);
+		return;
+	}
+
+	const u32 fontAtlasWidth = 128;
+	const u32 fontAtlasHeight = 64;
+	byte *fontAtlasBitmap = PushArray(scratch, byte, fontAtlasWidth * fontAtlasHeight);
+
+	const f32 glyphHeight = 13.0f;
+	const int firstChar = 32;
+	const int charCount = 96;
+	stbtt_bakedchar backedChars[charCount];
+	stbtt_BakeFontBitmap(chunk->bytes, 0, glyphHeight, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, firstChar, charCount, backedChars); // no guarantee this fits!
+
+	rgba *fontAtlasBitmapRGBA = PushArray(scratch, rgba, fontAtlasWidth * fontAtlasHeight);
+
+	byte *srcPtr = fontAtlasBitmap;
+	rgba *dstPtr = fontAtlasBitmapRGBA;
+	for (u32 i = 0; i < fontAtlasWidth * fontAtlasHeight; ++i)
+	{
+		*dstPtr++ = rgba{255, 255, 255, *srcPtr++};
+	}
+
+	ui.fontTextureH = CreateTexture(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
 }
 
 // EngineUpdate
@@ -666,39 +703,27 @@ void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandLis
 	TransitionImageLayout(commandList, imageH, ImageStateTransferDst, ImageStateShaderInput, image.mipLevels - 1, 1);
 }
 
-TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
+TextureH CreateTexture(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels)
 {
-	int texWidth, texHeight, texChannels;
-	FilePath imagePath = MakePath(desc.filename);
-	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-	stbi_uc* pixels = originalPixels;
-	if ( !pixels )
-	{
-		LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
-		static stbi_uc constPixels[] = {255, 0, 255, 255};
-		pixels = constPixels;
-		texWidth = texHeight = 1;
-		texChannels = 4;
-	}
+	const u32 pixelSize = channels * sizeof(byte);
+	const u32 size = width * height * pixelSize;
+	const u32 alignment = channels == 1 ? 1 : 4;
 
-	const u32 pixelSize = 4 * sizeof(byte);
-	const u32 size = texWidth * texHeight * pixelSize;
+	StagedData staged = StageData(gfx, pixels, size, alignment);
 
-	StagedData staged = StageData(gfx, pixels, size, pixelSize);
-
-	if ( originalPixels )
-	{
-		stbi_image_free(originalPixels);
-	}
-
-	const u32 mipLevels = desc.mipmap ?
-		static_cast<uint32_t>(Floor(Log2(Max(texWidth, texHeight)))) + 1 :
+	const u32 mipLevels = mipmap ?
+		static_cast<uint32_t>(Floor(Log2(Max(width, height)))) + 1 :
 		1;
 
-	const Format texFormat = FormatRGBA8_SRGB;
+	ASSERT(channels >= 1 && channels <= 4);
+	const Format texFormat =
+		channels == 4 ? FormatRGBA8_SRGB :
+		channels == 3 ? FormatRGB8_SRGB :
+		channels == 2 ? FormatRG8_SRGB :
+		FormatR8;
 
 	ImageH image = CreateImage(gfx.device,
-			texWidth, texHeight, mipLevels,
+			width, height, mipLevels,
 			texFormat,
 			ImageUsageTransferSrc | // for mipmap blits
 			ImageUsageTransferDst | // for intitial copy from buffer and blits
@@ -724,9 +749,34 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	EndTransientCommandList(gfx.device, commandList);
 
 	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
-	TextureH textureHandle = gfx.textureCount++;
-	gfx.textures[textureHandle].name = desc.name;
+	const TextureH textureHandle = gfx.textureCount++;
+	gfx.textures[textureHandle].name = name;
 	gfx.textures[textureHandle].image = image;
+	return textureHandle;
+}
+
+TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
+{
+	int texWidth, texHeight, texChannels;
+	FilePath imagePath = MakePath(desc.filename);
+	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	texChannels = 4; // Because we use STBI_rgb_alpha
+	stbi_uc* pixels = originalPixels;
+	if ( !pixels )
+	{
+		LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
+		static stbi_uc constPixels[] = {255, 0, 255, 255};
+		pixels = constPixels;
+		texWidth = texHeight = 1;
+		texChannels = 4;
+	}
+
+	const TextureH textureHandle = CreateTexture(gfx, desc.name, texWidth, texHeight, texChannels, desc.mipmap, pixels);
+
+	if ( originalPixels )
+	{
+		stbi_image_free(originalPixels);
+	}
 
 	return textureHandle;
 }
@@ -1067,7 +1117,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	}
 
 #if USE_UI
-	InitializeUI(gfx);
+	InitializeUI(gfx, scratch);
 #endif
 
 	return true;
@@ -1787,10 +1837,23 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		{ // GUI
 			const UI &ui = gfx.ui;
 
+			const Texture &texture = GetTexture(gfx, gfx.ui.fontTextureH);
+
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
+			const BindGroupDesc bindGroupDesc = {
+				.layout = pipeline.layout.bindGroupLayouts[3],
+				.bindings = {
+					{ .index = 0, .sampler = gfx.skySamplerH },
+					{ .index = 1, .image = texture.image },
+				},
+			};
+			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+
 			BeginDebugGroup(commandList, "GUI");
 
 			SetPipeline(commandList, gfx.guiPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
 			Draw(commandList, ui.vertexCount, 0);
 

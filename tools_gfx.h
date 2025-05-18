@@ -251,6 +251,12 @@ enum Format
 	FormatFloat,
 	FormatFloat2,
 	FormatFloat3,
+	FormatR8,
+	FormatR8_SRGB,
+	FormatRG8,
+	FormatRG8_SRGB,
+	FormatRGB8,
+	FormatRGB8_SRGB,
 	FormatRGBA8,
 	FormatRGBA8_SRGB,
 	FormatBGRA8_SRGB,
@@ -446,6 +452,7 @@ struct PipelineDesc
 	bool depthTest;
 	bool depthWrite;
 	CompareOp depthCompareOp;
+	bool blending;
 };
 
 struct ComputeDesc
@@ -770,6 +777,12 @@ static VkFormat FormatToVulkan(Format format)
 		VK_FORMAT_R32_SFLOAT,
 		VK_FORMAT_R32G32_SFLOAT,
 		VK_FORMAT_R32G32B32_SFLOAT,
+		VK_FORMAT_R8_UNORM,
+		VK_FORMAT_R8_SRGB,
+		VK_FORMAT_R8G8_UNORM,
+		VK_FORMAT_R8G8_SRGB,
+		VK_FORMAT_R8G8B8_UNORM,
+		VK_FORMAT_R8G8B8_SRGB,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_R8G8B8A8_SRGB,
 		VK_FORMAT_B8G8R8A8_SRGB,
@@ -788,6 +801,13 @@ static Format FormatFromVulkan(VkFormat format)
 		case VK_FORMAT_R32_SFLOAT: return FormatFloat;
 		case VK_FORMAT_R32G32_SFLOAT: return FormatFloat2;
 		case VK_FORMAT_R32G32B32_SFLOAT: return FormatFloat3;
+		case VK_FORMAT_R8_UNORM: return FormatR8;
+		case VK_FORMAT_R8_SRGB: return FormatR8_SRGB;
+		case VK_FORMAT_R8G8_UNORM: return FormatRG8;
+		case VK_FORMAT_R8G8_SRGB: return FormatRG8_SRGB;
+		case VK_FORMAT_R8G8B8_UNORM: return FormatRGB8;
+		case VK_FORMAT_R8G8B8_SRGB: return FormatRGB8_SRGB;
+		case VK_FORMAT_R8G8B8A8_UNORM: return FormatRGBA8;
 		case VK_FORMAT_R8G8B8A8_SRGB: return FormatRGBA8_SRGB;
 		case VK_FORMAT_B8G8R8A8_SRGB: return FormatBGRA8_SRGB;
 		case VK_FORMAT_D32_SFLOAT: return FormatD32;
@@ -806,6 +826,12 @@ static const char *FormatName(Format format)
 		"VK_FORMAT_R32_SFLOAT",
 		"VK_FORMAT_R32G32_SFLOAT",
 		"VK_FORMAT_R32G32B32_SFLOAT",
+		"VK_FORMAT_R8_UNORM",
+		"VK_FORMAT_R8_SRGB",
+		"VK_FORMAT_R8G8_UNORM",
+		"VK_FORMAT_R8G8_SRGB",
+		"VK_FORMAT_R8G8B8_UNORM",
+		"VK_FORMAT_R8G8B8_SRGB",
 		"VK_FORMAT_R8G8B8A8_UNORM",
 		"VK_FORMAT_R8G8B8A8_SRGB",
 		"VK_FORMAT_B8G8R8A8_SRGB",
@@ -2806,23 +2832,14 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	};
 
 	const VkPipelineColorBlendAttachmentState colorBlendAttachmentState = {
-	// Color replace
-		.blendEnable = VK_FALSE,
-		.srcColorBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
-		.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
-		.colorBlendOp = VK_BLEND_OP_ADD, // Optional
+		.blendEnable         = desc.blending ? VK_TRUE : VK_FALSE,
+		.srcColorBlendFactor = desc.blending ? VK_BLEND_FACTOR_SRC_ALPHA : VK_BLEND_FACTOR_ONE, // Optional
+		.dstColorBlendFactor = desc.blending ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ZERO, // Optional
+		.colorBlendOp        = VK_BLEND_OP_ADD, // Optional
 		.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
 		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
-		.alphaBlendOp = VK_BLEND_OP_ADD, // Optional
-	// Alpha blending
-	//	.blendEnable = VK_TRUE,
-	//	.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-	//	.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-	//	.colorBlendOp = VK_BLEND_OP_ADD,
-	//	.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-	//	.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-	//	.alphaBlendOp = VK_BLEND_OP_ADD,
-		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+		.alphaBlendOp        = VK_BLEND_OP_ADD, // Optional
+		.colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
 	};
 
 	const VkPipelineColorBlendStateCreateInfo colorBlendingCreateInfo = {

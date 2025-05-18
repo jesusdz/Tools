@@ -34,10 +34,13 @@ struct PixelOutput
 	float4 color;
 };
 
+SamplerState widgetSampler : REGISTER_S(3, 0);
+Texture2D<float4> widgetTexture : REGISTER_T(3, 1);
+
 PixelOutput PSMain(PixelInput IN) : SV_Target
 {
 	PixelOutput OUT = (PixelOutput)0;
-	OUT.color = IN.color;
+	OUT.color = IN.color * widgetTexture.Sample(widgetSampler, IN.texCoord);
 	return OUT;
 }
 
