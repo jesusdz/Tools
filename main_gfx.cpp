@@ -11,11 +11,15 @@ static StringInterning *gStringInterning;
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-//#define STB_RECT_PACK_IMPLEMENTATION
-//#include "stb/stb_rect_pack.h"
+#define USE_UI 1
 
-//#define STB_TRUETYPE_IMPLEMENTATION
-//#include "stb/stb_truetype.h"
+#if USE_UI && !USE_IMGUI
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb/stb_rect_pack.h"
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb/stb_truetype.h"
+#endif
 
 // C/HLSL shared types and bindings
 #include "shaders/types.hlsl"
@@ -36,8 +40,6 @@ static StringInterning *gStringInterning;
 #define MAX_COMPUTE_BINDINGS 4
 
 #define INVALID_HANDLE -1
-
-#define USE_UI 1
 
 
 
@@ -123,6 +125,7 @@ struct UI
 	u32 vertexCountLimit;
 
 	TextureH fontTextureH;
+	float2 whitePixelUv;
 
 	float4 colors[16];
 	u32 colorCount;
@@ -211,10 +214,10 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	const float2 v3 = { pos.x + size.x, pos.y }; // top-right
 
 	// uv
-	const float2 uvTL = { 0, 0 };
-	const float2 uvBL = { 0, 1 };
-	const float2 uvBR = { 1, 1 };
-	const float2 uvTR = { 1, 0 };
+	const float2 uvTL = ui.whitePixelUv; // { 0, 0 };
+	const float2 uvBL = ui.whitePixelUv; // { 0, 1 };
+	const float2 uvBR = ui.whitePixelUv; // { 1, 1 };
+	const float2 uvTR = ui.whitePixelUv; // { 1, 0 };
 
 	// color
 	const rgba color = Rgba(UI_GetColor(ui));
@@ -523,16 +526,52 @@ void InitializeUI(Graphics &gfx, Arena scratch)
 		LOG(Error, "Could not open file %s\n", fontPath.str);
 		return;
 	}
+	const byte *fontData = chunk->bytes;
 
 	const u32 fontAtlasWidth = 128;
 	const u32 fontAtlasHeight = 64;
 	byte *fontAtlasBitmap = PushArray(scratch, byte, fontAtlasWidth * fontAtlasHeight);
 
+#if 0
 	const f32 glyphHeight = 13.0f;
 	const int firstChar = 32;
 	const int charCount = 96;
 	stbtt_bakedchar backedChars[charCount];
-	stbtt_BakeFontBitmap(chunk->bytes, 0, glyphHeight, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, firstChar, charCount, backedChars); // no guarantee this fits!
+	stbtt_BakeFontBitmap(fontData, 0, glyphHeight, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, firstChar, charCount, backedChars); // no guarantee this fits!
+#else
+	stbtt_pack_context packContext;
+	const int strideInBytes = fontAtlasWidth; // Could be 0 to indicate 'tightly packed'
+	const int padding = 1;
+	void *allocContext = nullptr;
+	const int res = stbtt_PackBegin(&packContext, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, strideInBytes, padding, allocContext);
+
+	// Pack Latin1 font range
+	const int fontIndex = 0;
+	const int firstChar = 32;
+	const int charCount = 96;
+	stbtt_packedchar charData[255];
+	stbtt_pack_range packRange = {
+		.font_size = 13.0f,
+		.first_unicode_codepoint_in_range = firstChar,
+		.array_of_unicode_codepoints = nullptr,
+		.num_chars = charCount,
+		.chardata_for_range = charData + firstChar,
+	};
+	const int res2 = stbtt_PackFontRanges(&packContext, fontData, fontIndex, &packRange, 1);
+
+	// Pack custom white pixel
+	stbrp_rect whitePixelRect = {
+		.id = 0, // ignored by us
+		.w = 1, .h = 1, // input
+		// .x = 99, .y = 99, // output
+		// .was_packed = false, // output
+	};
+	stbtt_PackFontRangesPackRects(&packContext, &whitePixelRect, 1);
+	fontAtlasBitmap[strideInBytes * whitePixelRect.y + whitePixelRect.x] = 0xFF;
+	ui.whitePixelUv = float2{ (whitePixelRect.x + 0.5f) / fontAtlasWidth, (whitePixelRect.y + 0.5f)/ fontAtlasHeight };
+
+	stbtt_PackEnd(&packContext);
+#endif
 
 	rgba *fontAtlasBitmapRGBA = PushArray(scratch, rgba, fontAtlasWidth * fontAtlasHeight);
 
