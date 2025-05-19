@@ -125,7 +125,12 @@ struct UI
 	u32 vertexCountLimit;
 
 	TextureH fontTextureH;
+	float2 fontTextureSize;
+	float fontScale, fontAscent, fontDescent, fontLineGap;
+
 	float2 whitePixelUv;
+
+	stbtt_packedchar charData[255];
 
 	float4 colors[16];
 	u32 colorCount;
@@ -203,7 +208,7 @@ float4 UI_GetColor(const UI &ui)
 	return color;
 }
 
-void UI_AddRectangle(UI &ui, float2 pos, float2 size)
+void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float4 fcolor)
 {
 	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
 
@@ -214,13 +219,13 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	const float2 v3 = { pos.x + size.x, pos.y }; // top-right
 
 	// uv
-	const float2 uvTL = ui.whitePixelUv; // { 0, 0 };
-	const float2 uvBL = ui.whitePixelUv; // { 0, 1 };
-	const float2 uvBR = ui.whitePixelUv; // { 1, 1 };
-	const float2 uvTR = ui.whitePixelUv; // { 1, 0 };
+	const float2 uvTL = { uv.x, uv.y };
+	const float2 uvBL = { uv.x, uv.y + uvSize.y };
+	const float2 uvBR = { uv.x + uvSize.x , uv.y + uvSize.y };
+	const float2 uvTR = { uv.x + uvSize.x , uv.y };
 
 	// color
-	const rgba color = Rgba(UI_GetColor(ui));
+	const rgba color  = Rgba(fcolor);
 
 	// add vertices
 	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex] + ui.vertexCount;
@@ -234,12 +239,67 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	ui.vertexCount += 6;
 }
 
+void UI_AddRectangle(UI &ui, float2 pos, float2 size)
+{
+	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
+
+	const float2 uvSize = {0, 0};
+	const float4 color = UI_GetColor(ui);
+	UI_AddQuad(ui, pos, size, ui.whitePixelUv, uvSize, color);
+}
+
+float2 UI_CalcTextSize(UI &ui, const char *text)
+{
+	float textWidth = 0.0f;
+
+	const char *ptr = text;
+	while ( *ptr )
+	{
+		const char c = *ptr;
+		const stbtt_packedchar &pc = ui.charData[c];
+		textWidth += pc.xadvance;
+		ptr++;
+	}
+
+	const float textHeight = ui.fontAscent - ui.fontDescent;
+	const float2 textSize = { textWidth , textHeight };
+	return textSize;
+}
+
+void UI_AddText(UI &ui, float2 pos, const char *text)
+{
+	const float cursory = Round( pos.y + ui.fontAscent );
+	float cursorx = pos.x;
+
+	const char *ptr = text;
+	while ( *ptr )
+	{
+		const char c = *ptr;
+		const stbtt_packedchar &pc = ui.charData[c];
+
+		const float charWidth = pc.x1 - pc.x0;
+		const float charHeight = pc.y1 - pc.y0;
+		const float2 charPos = {cursorx + pc.xoff, cursory + pc.yoff};
+		const float2 charSize = {charWidth, charHeight};
+		const float2 charUv = {pc.x0/ui.fontTextureSize.x, pc.y0/ui.fontTextureSize.y};
+		const float2 charUvSize = {charWidth/ui.fontTextureSize.x, charHeight/ui.fontTextureSize.y};
+		const float4 charColor = {1.0, 1.0, 1.0, 1.0};
+
+		UI_AddQuad(ui, charPos, charSize, charUv, charUvSize, charColor);
+
+		cursorx = Round( cursorx + pc.xadvance );
+		ptr++;
+	}
+}
+
 bool UI_Button(UI &ui, const char *text)
 {
 	bool clicked = false;
 
-	constexpr float2 size = { 200, 50 };
-	constexpr float padding = 10;
+	constexpr float2 padding = {4.0f, 3.0f};
+	constexpr float spacing = 4.0f;
+	const float2 textSize = UI_CalcTextSize(ui, text);
+	const float2 size = Add(Add(textSize, padding), padding);
 
 	const float2 pos = ui.currentPos;
 
@@ -254,12 +314,16 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_AddRectangle(ui, pos, size);
 
+	const float2 textPos = Add(pos, padding);
+	UI_AddText(ui, textPos, text);
+
 	if (hover)
 	{
 		UI_PopColor(ui);
 	}
 
-	ui.currentPos.y += size.y + padding;
+	const float displacement = size.y + spacing;
+	ui.currentPos.y += displacement;
 
 	UI_EndWidget(ui);
 
@@ -532,13 +596,21 @@ void InitializeUI(Graphics &gfx, Arena scratch)
 	const u32 fontAtlasHeight = 64;
 	byte *fontAtlasBitmap = PushArray(scratch, byte, fontAtlasWidth * fontAtlasHeight);
 
-#if 0
-	const f32 glyphHeight = 13.0f;
-	const int firstChar = 32;
-	const int charCount = 96;
-	stbtt_bakedchar backedChars[charCount];
-	stbtt_BakeFontBitmap(fontData, 0, glyphHeight, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, firstChar, charCount, backedChars); // no guarantee this fits!
-#else
+	stbtt_fontinfo font;
+	const int fontIndex = 0;
+	const int fontOffset = stbtt_GetFontOffsetForIndex(fontData, fontIndex);
+	const int pixelHeight = 13.0f;
+	if ( stbtt_InitFont(&font, fontData, fontOffset) )
+	{
+		ui.fontScale = stbtt_ScaleForPixelHeight(&font, pixelHeight);
+		int fontAscent, fontDescent, fontLineGap;
+		stbtt_GetFontVMetrics(&font, &fontAscent, &fontDescent, &fontLineGap);
+		ui.fontAscent = fontAscent * ui.fontScale;
+		ui.fontDescent = fontDescent * ui.fontScale;
+		ui.fontLineGap = fontLineGap * ui.fontScale;
+	}
+
+	// Begin packing
 	stbtt_pack_context packContext;
 	const int strideInBytes = fontAtlasWidth; // Could be 0 to indicate 'tightly packed'
 	const int padding = 1;
@@ -546,16 +618,14 @@ void InitializeUI(Graphics &gfx, Arena scratch)
 	const int res = stbtt_PackBegin(&packContext, fontAtlasBitmap, fontAtlasWidth, fontAtlasHeight, strideInBytes, padding, allocContext);
 
 	// Pack Latin1 font range
-	const int fontIndex = 0;
 	const int firstChar = 32;
 	const int charCount = 96;
-	stbtt_packedchar charData[255];
 	stbtt_pack_range packRange = {
-		.font_size = 13.0f,
+		.font_size = pixelHeight,
 		.first_unicode_codepoint_in_range = firstChar,
 		.array_of_unicode_codepoints = nullptr,
 		.num_chars = charCount,
-		.chardata_for_range = charData + firstChar,
+		.chardata_for_range = ui.charData + firstChar,
 	};
 	const int res2 = stbtt_PackFontRanges(&packContext, fontData, fontIndex, &packRange, 1);
 
@@ -570,9 +640,10 @@ void InitializeUI(Graphics &gfx, Arena scratch)
 	fontAtlasBitmap[strideInBytes * whitePixelRect.y + whitePixelRect.x] = 0xFF;
 	ui.whitePixelUv = float2{ (whitePixelRect.x + 0.5f) / fontAtlasWidth, (whitePixelRect.y + 0.5f)/ fontAtlasHeight };
 
+	// End packing
 	stbtt_PackEnd(&packContext);
-#endif
 
+	// One channel to RGBA
 	rgba *fontAtlasBitmapRGBA = PushArray(scratch, rgba, fontAtlasWidth * fontAtlasHeight);
 
 	byte *srcPtr = fontAtlasBitmap;
@@ -582,7 +653,9 @@ void InitializeUI(Graphics &gfx, Arena scratch)
 		*dstPtr++ = rgba{255, 255, 255, *srcPtr++};
 	}
 
+	// Create texture
 	ui.fontTextureH = CreateTexture(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
+	ui.fontTextureSize = {fontAtlasWidth, fontAtlasHeight};
 }
 
 // EngineUpdate
