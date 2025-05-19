@@ -1067,9 +1067,21 @@ f32 Sqrt(f32 value)
 	return res;
 }
 
+f32 Round(f32 value)
+{
+	const f32 res = static_cast<f32>(static_cast<i32>((value + 0.5f - ( value < 0.0f ))));
+	return res;
+}
+
 float3 FromTo(const float3 &a, const float3 &b)
 {
 	const float3 res = { b.x - a.x, b.y - a.y, b.z - a.z };
+	return res;
+}
+
+float2 Add(const float2 &a, const float2 &b)
+{
+	const float2 res = { b.x + a.x, b.y + a.y };
 	return res;
 }
 
