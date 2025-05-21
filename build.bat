@@ -72,6 +72,8 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
+cl %CommonCompilerFlags% ..\reflex.cpp /link %CommonLinkerFlags%
+reflex.exe ..\assets\assets.h > ..\assets.reflex.h
 cl %CommonCompilerFlags% ..\main_gfx.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0

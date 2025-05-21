@@ -310,7 +310,7 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 
 UIWindow &UI_GetWindow(UI &ui, const char *caption)
 {
-	for (uint i = 0; i < ARRAY_COUNT(ui.windows); ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
 	{
 		UIWindow &window = ui.windows[i];
 		if (!window.caption)
