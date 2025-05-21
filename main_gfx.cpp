@@ -107,7 +107,14 @@ struct UIVertex
 
 struct UIInput
 {
-	u32 mouseX, mouseY;
+	Mouse mouse;
+};
+
+struct UIWindow
+{
+	const char *caption;
+	float2 pos;
+	float2 size;
 };
 
 struct UIWidget
@@ -138,6 +145,9 @@ struct UI
 	float2 currentPos;
 
 	UIInput input;
+
+	UIWindow windows[16];
+	bool windowBegan;
 
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
@@ -172,7 +182,7 @@ void UI_EndWidget(UI &ui)
 	ui.widgetStackSize--;
 }
 
-bool UI_IsHover(UI &ui)
+bool UI_IsHover(const UI &ui)
 {
 	bool hover = false;
 
@@ -181,13 +191,19 @@ bool UI_IsHover(UI &ui)
 		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
 
 		hover =
-			ui.input.mouseX >= widget.pos.x &&
-			ui.input.mouseX <  widget.pos.x + widget.size.x &&
-			ui.input.mouseY >= widget.pos.y &&
-			ui.input.mouseY <  widget.pos.y + widget.size.y;
+			ui.input.mouse.x >= widget.pos.x &&
+			ui.input.mouse.x <  widget.pos.x + widget.size.x &&
+			ui.input.mouse.y >= widget.pos.y &&
+			ui.input.mouse.y <  widget.pos.y + widget.size.y;
 	}
 
 	return hover;
+}
+
+bool UI_IsMouseClick(const UI &ui)
+{
+	const bool click = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS;
+	return click;
 }
 
 void UI_PushColor(UI &ui, float4 color)
@@ -292,14 +308,73 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
+UIWindow &UI_GetWindow(UI &ui, const char *caption)
+{
+	for (uint i = 0; i < ARRAY_COUNT(ui.windows); ++i)
+	{
+		UIWindow &window = ui.windows[i];
+		if (!window.caption)
+		{
+			window.caption = caption;
+			window.pos = {100.0f, 100.0f};
+			window.size = {200.0f, 300.0f};
+			return window;
+		}
+		else if (StrEq(window.caption, caption))
+		{
+			return window;
+		}
+	}
+
+	ASSERT(0 && "Window not found.");
+	static UIWindow nullWindow = { };
+	return nullWindow;
+}
+
+float2 operator+(float2 a, float2 b)
+{
+	const float2 res = Add(a, b);
+	return res;
+}
+
+void UI_BeginWindow(UI &ui, const char *caption)
+{
+	ASSERT(!ui.windowBegan);
+	ui.windowBegan = true;
+
+	UIWindow &window = UI_GetWindow(ui, caption);
+
+	const float4 windowColor = {0.05, 0.05, 0.05, 0.9};
+	UI_PushColor(ui, windowColor);
+	UI_AddRectangle(ui, window.pos, window.size);
+	UI_PopColor(ui);
+
+	const float2 windowPadding = {4.0f, 4.0f};
+	ui.currentPos = window.pos + windowPadding;
+}
+
+void UI_EndWindow(UI &ui)
+{
+	ASSERT(ui.windowBegan);
+	ui.windowBegan = false;
+}
+
+void UI_Label(UI &ui, const char *text)
+{
+	UI_AddText(ui, ui.currentPos, text);
+
+	constexpr float spacing = 4.0f;
+	const float2 textSize = UI_CalcTextSize(ui, text);
+	const float displacement = textSize.y + spacing;
+	ui.currentPos.y += displacement;
+}
+
 bool UI_Button(UI &ui, const char *text)
 {
-	bool clicked = false;
-
 	constexpr float2 padding = {4.0f, 3.0f};
 	constexpr float spacing = 4.0f;
 	const float2 textSize = UI_CalcTextSize(ui, text);
-	const float2 size = Add(Add(textSize, padding), padding);
+	const float2 size = textSize + padding + padding;
 
 	const float2 pos = ui.currentPos;
 
@@ -314,7 +389,7 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_AddRectangle(ui, pos, size);
 
-	const float2 textPos = Add(pos, padding);
+	const float2 textPos = pos + padding;
 	UI_AddText(ui, textPos, text);
 
 	if (hover)
@@ -327,6 +402,7 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_EndWidget(ui);
 
+	const bool clicked = hover && UI_IsMouseClick(ui);
 	return clicked;
 }
 #endif
@@ -664,11 +740,24 @@ void UpdateUI(UI &ui, Window &window)
 	UI_NextFrame(ui);
 
 	UIInput &input = ui.input;
-	input.mouseX = window.mouse.x;
-	input.mouseY = window.mouse.y;
+	input.mouse = window.mouse;
 
-	UI_Button(ui, "Hola");
+	UI_BeginWindow(ui, "Debug UI");
+
+	static u32 labelIndex = 0;
+	const char *labels[] = {"Label 1", "Label 2"};
+	const char *label = labels[labelIndex];
+	UI_Label(ui, label);
+
+	if ( UI_Button(ui, "Hola") )
+	{
+		labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
+	}
+
 	UI_Button(ui, "Adios");
+	UI_Button(ui, "Memory");
+
+	UI_EndWindow(ui);
 }
 
 // CleanupGraphics
