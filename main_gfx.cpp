@@ -98,6 +98,25 @@ struct Entity
 };
 
 #ifdef USE_UI
+
+float2 operator+(float2 a, float2 b)
+{
+	const float2 res = { .x = a.x + b.x, .y = a.y + b.y };
+	return res;
+}
+
+float2 operator-(float2 a, float2 b)
+{
+	const float2 res = { .x = a.x - b.x, .y = a.y - b.y };
+	return res;
+}
+
+float2 operator*(float a, float2 b)
+{
+	const float2 res = { .x = a * b.x, .y = a * b.y };
+	return res;
+}
+
 struct UIVertex
 {
 	float2 position;
@@ -264,6 +283,24 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	UI_AddQuad(ui, pos, size, ui.whitePixelUv, uvSize, color);
 }
 
+void UI_AddBorder(UI &ui, float2 pos, float2 size, float borderSize)
+{
+	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
+
+	const float2 uvSize = {0, 0};
+	const float4 color = UI_GetColor(ui);
+	const float2 topPos = pos;
+	const float2 leftPos = pos + float2{0.0, 1.0f};
+	const float2 rightPos = pos + float2{size.x-1, 1.0f};
+	const float2 bottomPos = pos + float2{0.0,size.y-1};
+	const float2 hSize = float2{size.x, 1.0f};
+	const float2 vSize = float2{1.0, size.y};
+	UI_AddQuad(ui, topPos, hSize, ui.whitePixelUv, uvSize, color);
+	UI_AddQuad(ui, leftPos, vSize, ui.whitePixelUv, uvSize, color);
+	UI_AddQuad(ui, rightPos, vSize, ui.whitePixelUv, uvSize, color);
+	UI_AddQuad(ui, bottomPos, hSize, ui.whitePixelUv, uvSize, color);
+}
+
 float2 UI_CalcTextSize(UI &ui, const char *text)
 {
 	float textWidth = 0.0f;
@@ -331,12 +368,6 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 	return nullWindow;
 }
 
-float2 operator+(float2 a, float2 b)
-{
-	const float2 res = Add(a, b);
-	return res;
-}
-
 void UI_BeginWindow(UI &ui, const char *caption)
 {
 	ASSERT(!ui.windowBegan);
@@ -344,13 +375,32 @@ void UI_BeginWindow(UI &ui, const char *caption)
 
 	UIWindow &window = UI_GetWindow(ui, caption);
 
-	const float4 windowColor = {0.05, 0.05, 0.05, 0.9};
-	UI_PushColor(ui, windowColor);
-	UI_AddRectangle(ui, window.pos, window.size);
+	const float4 borderColor = {0.3, 0.3, 0.3, 0.9};
+	const float2 borderSize = float2{1.0f, 1.0f};
+	UI_PushColor(ui, borderColor);
+	UI_AddBorder(ui, window.pos, window.size, borderSize.x);
+	UI_PopColor(ui);
+
+	const float4 titlebarColor = { 0.1, 0.2, 0.4, 0.8 };
+	const float2 titlebarPos = window.pos + borderSize;
+	const float2 titlebarSize = float2{window.size.x - 2.0f * borderSize.x, 18.0f};
+	UI_PushColor(ui, titlebarColor);
+	UI_AddRectangle(ui, titlebarPos, titlebarSize);
+	UI_PopColor(ui);
+
+	const float4 panelColor = {0.05, 0.05, 0.05, 0.9};
+	const float2 panelPos = titlebarPos + float2{0.0, titlebarSize.y};
+	const float2 panelSize = window.size - 2.0 * borderSize - float2{ 0.0, titlebarSize.y };
+	UI_PushColor(ui, panelColor);
+	UI_AddRectangle(ui, panelPos, panelSize);
 	UI_PopColor(ui);
 
 	const float2 windowPadding = {4.0f, 4.0f};
-	ui.currentPos = window.pos + windowPadding;
+
+	const float2 captionPos = window.pos + borderSize + windowPadding;
+	UI_AddText(ui, captionPos, caption);
+
+	ui.currentPos = window.pos + windowPadding + borderSize + float2{0.0, titlebarSize.y};
 }
 
 void UI_EndWindow(UI &ui)
