@@ -1416,10 +1416,9 @@ static VkImageView CreateImageView(const GraphicsDevice &device, VkImage image, 
 	return imageView;
 }
 
-static void DestroyImageView(const GraphicsDevice &device, VkImageView &imageView)
+static void DestroyImageView(const GraphicsDevice &device, const VkImageView &imageView)
 {
 	vkDestroyImageView(device.handle, imageView, VULKAN_ALLOCATORS);
-	imageView = VK_NULL_HANDLE;
 }
 
 
@@ -1659,7 +1658,9 @@ void DestroySwapchain(GraphicsDevice &device, Swapchain &swapchain)
 {
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
-		DestroyImageView(device, device.images[FIRST_SWAPCHAIN_IMAGE_INDEX + i].imageViewHandle);
+		VkImageView &imageView = device.images[FIRST_SWAPCHAIN_IMAGE_INDEX + i].imageViewHandle;
+		DestroyImageView(device, imageView);
+		imageView = VK_NULL_HANDLE;
 	}
 
 	vkDestroySwapchainKHR(device.handle, swapchain.handle, VULKAN_ALLOCATORS);
@@ -2631,20 +2632,28 @@ bool IsSwapchainImage(ImageH image)
 	return isSwapchainImage;
 }
 
-void DestroyImageInternal(GraphicsDevice &device, Image &image)
+void DestroyImage(const GraphicsDevice &device, const Image &image)
 {
-	vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
-	image.handle = VK_NULL_HANDLE;
+	if ( image.handle != VK_NULL_HANDLE )
+	{
+		vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
+	}
 
-	DestroyImageView( device, image.imageViewHandle );
+	if ( image.imageViewHandle != VK_NULL_HANDLE )
+	{
+		DestroyImageView( device, image.imageViewHandle );
+	}
 
 	// TODO: We should somehow deallocate memory when destroying images at runtime
 }
 
-void DestroyImage(GraphicsDevice &device, ImageH imageH)
+void DestroyImageH(GraphicsDevice &device, ImageH imageH)
 {
 	Image &image = GetImage(device, imageH);
-	DestroyImageInternal(device, image);
+
+	DestroyImage(device, image);
+	image.handle = VK_NULL_HANDLE;
+	image.imageViewHandle = VK_NULL_HANDLE;
 
 	if ( !IsSwapchainImage(imageH) )
 	{
@@ -3848,6 +3857,11 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 	for (u32 i = 0; i < device.bufferViewCount; ++i)
 	{
 		DestroyBufferView( device, device.bufferViews[i] );
+	}
+
+	for (u32 i = 0; i < MAX_IMAGES; ++i)
+	{
+		DestroyImage( device, device.images[i] );
 	}
 
 	for (u32 i = 0; i < device.samplerCount; ++i)
