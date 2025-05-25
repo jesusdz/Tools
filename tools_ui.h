@@ -67,6 +67,7 @@ struct UIDrawList
 	urect scissorRect;
 	u32 firstVertex;
 	u32 vertexCount;
+	ImageH imageHandle;
 };
 
 struct UI
@@ -189,7 +190,7 @@ void UI_EndLayout(UI &ui)
 	}
 }
 
-void UI_SetMouseState(UI &ui, Mouse &mouse)
+void UI_SetMouseState(UI &ui, const Mouse &mouse)
 {
 	UIInput &input = ui.input;
 	const Mouse prevMouse = input.mouse;
@@ -210,31 +211,61 @@ u32 UI_DrawListCount(const UI &ui)
 	return ui.drawListCount;
 }
 
-void UI_CloseDrawList(UI &ui)
-{
-	if (ui.drawListCount > 0)
-	{
-		UIDrawList &prevDrawList = ui.drawLists[ui.drawListCount-1];
-		prevDrawList.vertexCount = ui.vertexCount - prevDrawList.firstVertex;
-	}
-}
-
-void UI_NewDrawList(UI &ui, urect scissorRect)
-{
-	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
-
-	UI_CloseDrawList(ui);
-
-	UIDrawList &drawList = ui.drawLists[ui.drawListCount++];
-	drawList.firstVertex = ui.vertexCount;
-	drawList.vertexCount = 0;
-	drawList.scissorRect = scissorRect;
-}
-
 const UIDrawList &UI_GetDrawListAt(const UI &ui, u32 i)
 {
 	ASSERT(i < ui.drawListCount);
 	return ui.drawLists[i];
+}
+
+const UIDrawList &UI_GetDrawList(const UI &ui)
+{
+	ASSERT(ui.drawListCount > 0);
+	return ui.drawLists[ui.drawListCount-1];
+}
+
+void UI_CloseDrawList(UI &ui)
+{
+	if (ui.drawListCount > 0)
+	{
+		UIDrawList &currDrawList = ui.drawLists[ui.drawListCount-1];
+		currDrawList.vertexCount = ui.vertexCount - currDrawList.firstVertex;
+		if ( currDrawList.vertexCount == 0 ) {
+			ui.drawListCount--;
+		}
+	}
+}
+
+bool UI_NeedNewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
+{
+	const bool needNew = true;
+//	if (ui.drawListCount > 0)
+//	{
+//		const UIDrawList &prevDrawList = ui.drawLists[ui.drawListCount-1];
+//		if (
+//	}
+	return needNew;
+}
+
+void UI_NewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
+{
+	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
+
+	if ( UI_NeedNewDrawList(ui, scissorRect, imageHandle) )
+	{
+		UI_CloseDrawList(ui);
+
+		UIDrawList &drawList = ui.drawLists[ui.drawListCount++];
+		drawList.firstVertex = ui.vertexCount;
+		drawList.vertexCount = 0;
+		drawList.scissorRect = scissorRect;
+		drawList.imageHandle = imageHandle;
+	}
+}
+
+void UI_NewDrawList(UI &ui, ImageH imageHandle)
+{
+	const UIDrawList &currDrawList = UI_GetDrawList(ui);
+	UI_NewDrawList(ui, currDrawList.scissorRect, imageHandle);
 }
 
 void UI_BeginFrame(UI &ui)
@@ -243,7 +274,7 @@ void UI_BeginFrame(UI &ui)
 	ui.vertexPtr = ui.vertexData[ui.frameIndex];
 	ui.vertexCount = 0;
 	ui.drawListCount = 0;
-	UI_NewDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y});
+	UI_NewDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
 }
 
 void UI_EndFrame(UI &ui)
@@ -600,7 +631,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 		.y = (u32)panelSize.y,
 	};
 	const urect contentRect = { .pos = contentPos, .size = contentSize };
-	UI_NewDrawList(ui, contentRect);
+	UI_NewDrawList(ui, contentRect, ui.fontAtlasH);
 }
 
 void UI_EndWindow(UI &ui)
@@ -740,6 +771,20 @@ void UI_Separator(UI &ui)
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
+	UI_CursorAdvance(ui, size);
+}
+
+void UI_Image(UI &ui, ImageH image)
+{
+	UI_NewDrawList(ui, image);
+
+	const float2 pos = ui.currentPos;
+	const float2 size = { 50.0f, 50.0f };
+	const float2 uvPos = {0.0f, 0.0f};
+	const float2 uvSize = {1.0f, 1.0f};
+	UI_BeginWidget(ui, pos, size);
+	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
+	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
 }
 

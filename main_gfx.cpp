@@ -329,7 +329,7 @@ static const ComputeDesc computeDescs[] =
 
 #if USE_UI
 
-void UpdateUI(UI &ui, Window &window)
+void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 {
 	UI_SetMouseState(ui, window.mouse);
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
@@ -377,6 +377,15 @@ void UpdateUI(UI &ui, Window &window)
 	{
 		UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
 	}
+
+	UI_Separator(ui);
+
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+	for (u32 i = 0; i < gfx.textureCount; ++i)
+	{
+		UI_Image(ui, gfx.textures[i].image);
+	}
+	UI_EndLayout(ui);
 
 	UI_EndWindow(ui);
 
@@ -1652,26 +1661,29 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			const UI &ui = gfx.ui;
 
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
-			const BindGroupDesc bindGroupDesc = {
-				.layout = pipeline.layout.bindGroupLayouts[3],
-				.bindings = {
-					{ .index = 0, .sampler = gfx.skySamplerH },
-					{ .index = 1, .image = ui.fontAtlasH },
-				},
-			};
-			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+			const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[3];
 
 			BeginDebugGroup(commandList, "GUI");
 
 			SetPipeline(commandList, gfx.guiPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
 
 			for (u32 i = 0; i < UI_DrawListCount(ui); ++i)
 			{
 				const UIDrawList &drawList = UI_GetDrawListAt(ui, i);
 				SetScissor(commandList, drawList.scissorRect);
+
+				const BindGroupDesc bindGroupDesc = {
+					.layout = bindGroupLayout,
+					.bindings = {
+						{ .index = 0, .sampler = gfx.skySamplerH },
+						{ .index = 1, .image = drawList.imageHandle },
+					},
+				};
+				const BindGroup textureBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+				SetBindGroup(commandList, 3, textureBindGroup);
+
 				Draw(commandList, drawList.vertexCount, drawList.firstVertex);
 			}
 
@@ -1991,7 +2003,7 @@ void EngineUpdate(Platform &platform)
 		UpdateImGui(gfx);
 #endif
 #if USE_UI
-		UpdateUI(gfx.ui, platform.window);
+		UpdateUI(gfx.ui, platform.window, gfx);
 		const bool animateCamera = !gfx.ui.wantsMouseInput;
 #else
 		constexpr bool animateCamera = true;
