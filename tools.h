@@ -993,6 +993,30 @@ static constexpr f32 Pi = 3.14159265358979323846f;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
 
+float2 operator+(float2 a, float2 b)
+{
+	const float2 res = { .x = a.x + b.x, .y = a.y + b.y };
+	return res;
+}
+
+float2 operator+=(float2& a, float2 b)
+{
+	a = { .x = a.x + b.x, .y = a.y + b.y };
+	return a;
+}
+
+float2 operator-(float2 a, float2 b)
+{
+	const float2 res = { .x = a.x - b.x, .y = a.y - b.y };
+	return res;
+}
+
+float2 operator*(float a, float2 b)
+{
+	const float2 res = { .x = a * b.x, .y = a * b.y };
+	return res;
+}
+
 rgba Rgba(float4 color)
 {
 	const rgba res = {
@@ -1436,6 +1460,12 @@ Type Clamp( Type v, Type min, Type max ) { return Min( Max( v, min ), max ); }
 INSTANTIATE_MATH_OPS_FOR_TYPE( float )
 INSTANTIATE_MATH_OPS_FOR_TYPE( i32 )
 INSTANTIATE_MATH_OPS_FOR_TYPE( u32 )
+
+float2 Max(float2 a, float2 b)
+{
+	const float2 res = { .x = Max(a.x, b.x), .y = Max(a.y, b.y) };
+	return res;
+}
 
 
 

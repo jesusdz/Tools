@@ -12,25 +12,6 @@
 #error "tools_gfx.h needs to be defined before tools_ui.h"
 #endif
 
-
-float2 operator+(float2 a, float2 b)
-{
-	const float2 res = { .x = a.x + b.x, .y = a.y + b.y };
-	return res;
-}
-
-float2 operator-(float2 a, float2 b)
-{
-	const float2 res = { .x = a.x - b.x, .y = a.y - b.y };
-	return res;
-}
-
-float2 operator*(float a, float2 b)
-{
-	const float2 res = { .x = a * b.x, .y = a * b.y };
-	return res;
-}
-
 struct UIVertex
 {
 	float2 position;
@@ -48,6 +29,8 @@ struct UIWindow
 	const char *caption;
 	float2 pos;
 	float2 size;
+	bool dragging;
+	bool resizing;
 };
 
 struct UIWidget
@@ -84,14 +67,71 @@ struct UI
 
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
+
+	bool avoidWindowInteraction;
+	bool wantsMouseInput;
 };
 
-void UI_NextFrame(UI &ui)
+bool UI_IsMouseClick(const UI &ui)
+{
+	const bool click = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS;
+	return click;
+}
+
+bool UI_IsMouseIdle(const UI &ui)
+{
+	const bool idle = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_IDLE;
+	return idle;
+}
+
+void UI_BeginFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
 	ui.vertexCount = 0;
+}
 
-	ui.currentPos = float2{10, 10};
+void UI_SetMouseState(UI &ui, Mouse &mouse)
+{
+	UIInput &input = ui.input;
+	const Mouse prevMouse = input.mouse;
+	input.mouse = mouse;
+
+	// Workaround to avoid missing some dx,dy updates...
+	input.mouse.dx = mouse.x - prevMouse.x;
+	input.mouse.dy = mouse.y - prevMouse.y;
+}
+
+void UI_EndFrame(UI &ui)
+{
+	if ( UI_IsMouseIdle(ui) )
+	{
+		ui.avoidWindowInteraction = false;
+		ui.wantsMouseInput = false;
+	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
+	{
+		UIWindow &window = ui.windows[i];
+
+		// In case some widget interaction blocked the window...
+		if ( UI_IsMouseIdle(ui) )
+		{
+			window.dragging = false;
+			window.resizing = false;
+		}
+
+		if ( !ui.avoidWindowInteraction )
+		{
+			if ( window.resizing )
+			{
+				window.size = Max(float2{10, 10}, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
+			}
+			else if ( window.dragging )
+			{
+				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
+			}
+		}
+	}
 }
 
 BufferH UI_GetVertexBuffer(const UI& ui)
@@ -115,7 +155,7 @@ void UI_EndWidget(UI &ui)
 	ui.widgetStackSize--;
 }
 
-bool UI_IsHover(const UI &ui)
+bool UI_WidgetHovered(const UI &ui)
 {
 	bool hover = false;
 
@@ -133,10 +173,10 @@ bool UI_IsHover(const UI &ui)
 	return hover;
 }
 
-bool UI_IsMouseClick(const UI &ui)
+bool UI_WidgetClicked(const UI &ui)
 {
-	const bool click = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS;
-	return click;
+	const bool clicked = UI_WidgetHovered(ui) && UI_IsMouseClick(ui);
+	return clicked;
 }
 
 void UI_PushColor(UI &ui, float4 color)
@@ -155,6 +195,22 @@ float4 UI_GetColor(const UI &ui)
 {
 	const float4 color = ui.colors[ui.colorCount-1];
 	return color;
+}
+
+void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2, float4 fcolor )
+{
+	ASSERT(ui.vertexCount + 3 <= ui.vertexCountLimit);
+
+	float2 uv = ui.whitePixelUv;
+	const rgba color  = Rgba(fcolor);
+
+	// add vertices
+	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex] + ui.vertexCount;
+	*vertexPtr++ = UIVertex{ p0, uv, color };
+	*vertexPtr++ = UIVertex{ p1, uv, color };
+	*vertexPtr++ = UIVertex{ p2, uv, color };
+
+	ui.vertexCount += 3;
 }
 
 void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float4 fcolor)
@@ -188,10 +244,14 @@ void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float
 	ui.vertexCount += 6;
 }
 
+void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2)
+{
+	const float4 color = UI_GetColor(ui);
+	UI_AddTriangle(ui, p0, p1, p2, color);
+}
+
 void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 {
-	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
-
 	const float2 uvSize = {0, 0};
 	const float4 color = UI_GetColor(ui);
 	UI_AddQuad(ui, pos, size, ui.whitePixelUv, uvSize, color);
@@ -282,6 +342,12 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 	return nullWindow;
 }
 
+constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
+constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 0.8 };
+constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
+constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 0.8 };
+constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 0.8, 1.0 };
+
 void UI_BeginWindow(UI &ui, const char *caption)
 {
 	ASSERT(!ui.windowBegan);
@@ -289,25 +355,47 @@ void UI_BeginWindow(UI &ui, const char *caption)
 
 	UIWindow &window = UI_GetWindow(ui, caption);
 
-	const float4 borderColor = {0.3, 0.3, 0.3, 0.9};
+	UI_BeginWidget(ui, window.pos, window.size);
+
+	if ( UI_WidgetClicked(ui) )
+	{
+		ui.wantsMouseInput = true;
+		window.dragging = true;
+	}
+
 	const float2 borderSize = float2{1.0f, 1.0f};
-	UI_PushColor(ui, borderColor);
+	UI_PushColor(ui, UiColorBorder);
 	UI_AddBorder(ui, window.pos, window.size, borderSize.x);
 	UI_PopColor(ui);
 
-	const float4 titlebarColor = { 0.1, 0.2, 0.4, 0.8 };
 	const float2 titlebarPos = window.pos + borderSize;
 	const float2 titlebarSize = float2{window.size.x - 2.0f * borderSize.x, 18.0f};
-	UI_PushColor(ui, titlebarColor);
+	UI_PushColor(ui, UiColorCaption);
 	UI_AddRectangle(ui, titlebarPos, titlebarSize);
 	UI_PopColor(ui);
 
-	const float4 panelColor = {0.05, 0.05, 0.05, 0.9};
 	const float2 panelPos = titlebarPos + float2{0.0, titlebarSize.y};
 	const float2 panelSize = window.size - 2.0 * borderSize - float2{ 0.0, titlebarSize.y };
-	UI_PushColor(ui, panelColor);
+	UI_PushColor(ui, UiColorPanel);
 	UI_AddRectangle(ui, panelPos, panelSize);
 	UI_PopColor(ui);
+
+	const float cornerSize = 14;
+	const float2 cornerBR = window.pos + window.size - borderSize;
+	const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
+	const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
+	const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
+	UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize});
+	const bool cornerHovered = UI_WidgetHovered(ui);
+	UI_PushColor(ui, cornerHovered ? UiColorWidgetHover : UiColorWidget);
+	UI_AddTriangle(ui, cornerBL, cornerBR, cornerTR);
+	UI_PopColor(ui);
+	if (UI_WidgetClicked(ui))
+	{
+		window.dragging = false;
+		window.resizing = true;
+	}
+	UI_EndWidget(ui);
 
 	const float2 windowPadding = {4.0f, 4.0f};
 
@@ -321,6 +409,8 @@ void UI_EndWindow(UI &ui)
 {
 	ASSERT(ui.windowBegan);
 	ui.windowBegan = false;
+
+	UI_EndWidget(ui);
 }
 
 void UI_Label(UI &ui, const char *text)
@@ -344,11 +434,10 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_BeginWidget(ui, pos, size);
 
-	const bool hover = UI_IsHover(ui);
+	const bool hover = UI_WidgetHovered(ui);
 	if (hover)
 	{
-		const float4 hoverColor = { 0.2, 0.4, 0.8, 1.0 };
-		UI_PushColor(ui, hoverColor);
+		UI_PushColor(ui, UiColorWidgetHover);
 	}
 
 	UI_AddRectangle(ui, pos, size);
@@ -367,6 +456,12 @@ bool UI_Button(UI &ui, const char *text)
 	UI_EndWidget(ui);
 
 	const bool clicked = hover && UI_IsMouseClick(ui);
+
+	if (clicked)
+	{
+		ui.avoidWindowInteraction = true;
+	}
+
 	return clicked;
 }
 
@@ -390,8 +485,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 		ui.vertexData[i] = (UIVertex*)GetBufferPtr(gfxDev, ui.vertexBuffer[i]);
 	}
 
-	const float4 defaultColor = { 0.1, 0.2, 0.4, 0.8 };
-	UI_PushColor(ui, defaultColor);
+	UI_PushColor(ui, UiColorWidget);
 
 	// Load TTF font texture
 	FilePath fontPath = MakePath("assets/ProggyClean.ttf");

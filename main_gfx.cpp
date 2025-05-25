@@ -331,10 +331,9 @@ static const ComputeDesc computeDescs[] =
 
 void UpdateUI(UI &ui, Window &window)
 {
-	UI_NextFrame(ui);
+	UI_BeginFrame(ui);
 
-	UIInput &input = ui.input;
-	input.mouse = window.mouse;
+	UI_SetMouseState(ui, window.mouse);
 
 	UI_BeginWindow(ui, "Debug UI");
 
@@ -352,6 +351,8 @@ void UpdateUI(UI &ui, Window &window)
 	UI_Button(ui, "Memory");
 
 	UI_EndWindow(ui);
+
+	UI_EndFrame(ui);
 }
 #endif
 
@@ -1952,15 +1953,21 @@ void EngineUpdate(Platform &platform)
 
 	if ( gfx.deviceInitialized && gfx.device.swapchain.handle != VK_NULL_HANDLE )
 	{
-#if USE_CAMERA_MOVEMENT
-		AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
-#endif
-
 #if USE_IMGUI
 		UpdateImGui(gfx);
 #endif
 #if USE_UI
 		UpdateUI(gfx.ui, platform.window);
+		const bool animateCamera = !gfx.ui.wantsMouseInput;
+#else
+		constexpr bool animateCamera = true;
+#endif
+
+#if USE_CAMERA_MOVEMENT
+		if (animateCamera)
+		{
+			AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
+		}
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
