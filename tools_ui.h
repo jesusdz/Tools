@@ -12,6 +12,15 @@
 #error "tools_gfx.h needs to be defined before tools_ui.h"
 #endif
 
+constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
+constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 0.8 };
+constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
+constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 0.8 };
+constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 0.8, 1.0 };
+constexpr float UiSpacing = 4.0f;
+constexpr float2 UiBorderSize = { 1.0, 1.0 };
+constexpr float2 UiWindowPadding = { 8.0f, 8.0f };
+
 struct UIVertex
 {
 	float2 position;
@@ -63,7 +72,7 @@ struct UI
 	UIInput input;
 
 	UIWindow windows[16];
-	bool windowBegan;
+	UIWindow *currentWindow;
 
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
@@ -124,7 +133,8 @@ void UI_EndFrame(UI &ui)
 		{
 			if ( window.resizing )
 			{
-				window.size = Max(float2{10, 10}, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
+				constexpr float2 minWindowSize = { 100.0f, 100.0f };
+				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
 			}
 			else if ( window.dragging )
 			{
@@ -275,6 +285,12 @@ void UI_AddBorder(UI &ui, float2 pos, float2 size, float borderSize)
 	UI_AddQuad(ui, bottomPos, hSize, ui.whitePixelUv, uvSize, color);
 }
 
+float UI_TextHeight(UI &ui)
+{
+	const float textHeight = ui.fontAscent - ui.fontDescent;
+	return textHeight;
+}
+
 float2 UI_CalcTextSize(UI &ui, const char *text)
 {
 	float textWidth = 0.0f;
@@ -319,6 +335,16 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
+void UI_SetCursorPos(UI &ui, float2 pos)
+{
+	ui.currentPos = pos;
+}
+
+void UI_MoveCursorDown(UI &ui, float amount)
+{
+	ui.currentPos.y += amount;
+}
+
 UIWindow &UI_GetWindow(UI &ui, const char *caption)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
@@ -342,18 +368,11 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 	return nullWindow;
 }
 
-constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
-constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 0.8 };
-constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
-constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 0.8 };
-constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 0.8, 1.0 };
-
 void UI_BeginWindow(UI &ui, const char *caption)
 {
-	ASSERT(!ui.windowBegan);
-	ui.windowBegan = true;
-
+	ASSERT(!ui.currentWindow);
 	UIWindow &window = UI_GetWindow(ui, caption);
+	ui.currentWindow = &window;
 
 	UI_BeginWidget(ui, window.pos, window.size);
 
@@ -363,25 +382,24 @@ void UI_BeginWindow(UI &ui, const char *caption)
 		window.dragging = true;
 	}
 
-	const float2 borderSize = float2{1.0f, 1.0f};
 	UI_PushColor(ui, UiColorBorder);
-	UI_AddBorder(ui, window.pos, window.size, borderSize.x);
+	UI_AddBorder(ui, window.pos, window.size, UiBorderSize.x);
 	UI_PopColor(ui);
 
-	const float2 titlebarPos = window.pos + borderSize;
-	const float2 titlebarSize = float2{window.size.x - 2.0f * borderSize.x, 18.0f};
+	const float2 titlebarPos = window.pos + UiBorderSize;
+	const float2 titlebarSize = float2{window.size.x - 2.0f * UiBorderSize.x, 18.0f};
 	UI_PushColor(ui, UiColorCaption);
 	UI_AddRectangle(ui, titlebarPos, titlebarSize);
 	UI_PopColor(ui);
 
 	const float2 panelPos = titlebarPos + float2{0.0, titlebarSize.y};
-	const float2 panelSize = window.size - 2.0 * borderSize - float2{ 0.0, titlebarSize.y };
+	const float2 panelSize = window.size - 2.0 * UiBorderSize - float2{ 0.0, titlebarSize.y };
 	UI_PushColor(ui, UiColorPanel);
 	UI_AddRectangle(ui, panelPos, panelSize);
 	UI_PopColor(ui);
 
 	const float cornerSize = 14;
-	const float2 cornerBR = window.pos + window.size - borderSize;
+	const float2 cornerBR = window.pos + window.size - UiBorderSize;
 	const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
 	const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
 	const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
@@ -397,36 +415,44 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	}
 	UI_EndWidget(ui);
 
-	const float2 windowPadding = {4.0f, 4.0f};
-
-	const float2 captionPos = window.pos + borderSize + windowPadding;
+	const float2 captionPos = window.pos + UiBorderSize + UiWindowPadding;
 	UI_AddText(ui, captionPos, caption);
 
-	ui.currentPos = window.pos + windowPadding + borderSize + float2{0.0, titlebarSize.y};
+	UI_SetCursorPos(ui, window.pos + UiWindowPadding + UiBorderSize);
+	UI_MoveCursorDown(ui, titlebarSize.y);
 }
 
 void UI_EndWindow(UI &ui)
 {
-	ASSERT(ui.windowBegan);
-	ui.windowBegan = false;
+	ASSERT(ui.currentWindow);
+	ui.currentWindow = nullptr;
 
 	UI_EndWidget(ui);
+}
+
+UIWindow &UI_GetCurrentWindow(UI &ui)
+{
+	ASSERT(ui.currentWindow);
+	return *ui.currentWindow;
+}
+
+float2 UI_GetContentSize(const UIWindow &window)
+{
+	const float2 size = window.size - 2.0 * ( UiWindowPadding + UiBorderSize );
+	return size;
 }
 
 void UI_Label(UI &ui, const char *text)
 {
 	UI_AddText(ui, ui.currentPos, text);
 
-	constexpr float spacing = 4.0f;
-	const float2 textSize = UI_CalcTextSize(ui, text);
-	const float displacement = textSize.y + spacing;
-	ui.currentPos.y += displacement;
+	const float textHeight = UI_TextHeight(ui);
+	UI_MoveCursorDown(ui, textHeight + UiSpacing);
 }
 
 bool UI_Button(UI &ui, const char *text)
 {
 	constexpr float2 padding = {4.0f, 3.0f};
-	constexpr float spacing = 4.0f;
 	const float2 textSize = UI_CalcTextSize(ui, text);
 	const float2 size = textSize + padding + padding;
 
@@ -450,10 +476,9 @@ bool UI_Button(UI &ui, const char *text)
 		UI_PopColor(ui);
 	}
 
-	const float displacement = size.y + spacing;
-	ui.currentPos.y += displacement;
-
 	UI_EndWidget(ui);
+
+	UI_MoveCursorDown(ui, size.y + UiSpacing);
 
 	const bool clicked = hover && UI_IsMouseClick(ui);
 
@@ -463,6 +488,20 @@ bool UI_Button(UI &ui, const char *text)
 	}
 
 	return clicked;
+}
+
+void UI_Separator(UI &ui)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const float contentWidth = UI_GetContentSize(window).x;
+
+	const float2 pos = ui.currentPos;
+	const float2 size = { contentWidth, 1.0 };
+
+	UI_PushColor(ui, UiColorBorder);
+	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
+	UI_MoveCursorDown(ui, size.y + UiSpacing);
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.

@@ -348,6 +348,7 @@ void UpdateUI(UI &ui, Window &window)
 	}
 
 	UI_Button(ui, "Adios");
+	UI_Separator(ui);
 	UI_Button(ui, "Memory");
 
 	UI_EndWindow(ui);
