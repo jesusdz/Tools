@@ -49,6 +49,19 @@ struct UIWidget
 	float2 size;
 };
 
+enum UILayout
+{
+	UiLayoutVertical,
+	UiLayoutHorizontal,
+};
+
+struct UILayoutGroup
+{
+	UILayout layout;
+	float2 pos;
+	float2 size;
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -80,6 +93,9 @@ struct UI
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
 
+	UILayoutGroup layoutGroups[16];
+	u32 layoutGroupCount;
+
 	bool avoidWindowInteraction;
 	bool wantsMouseInput;
 };
@@ -96,11 +112,70 @@ bool UI_IsMouseIdle(const UI &ui)
 	return idle;
 }
 
-void UI_BeginFrame(UI &ui)
+void UI_SetCursorPos(UI &ui, float2 pos)
 {
-	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
-	ui.vertexPtr = ui.vertexData[ui.frameIndex];
-	ui.vertexCount = 0;
+	ui.currentPos = pos;
+}
+
+void UI_MoveCursorDown(UI &ui, float amount)
+{
+	ui.currentPos.y += amount;
+}
+
+void UI_MoveCursorRight(UI &ui, float amount)
+{
+	ui.currentPos.x += amount;
+}
+
+UILayout UI_GetLayout(const UI &ui)
+{
+	ASSERT(ui.layoutGroupCount > 0);
+	const UILayout layout = ui.layoutGroups[ui.layoutGroupCount - 1].layout;
+	return layout;
+}
+
+UILayoutGroup &UI_GetLayoutGroup(UI &ui)
+{
+	ASSERT(ui.layoutGroupCount > 0);
+	UILayoutGroup &group = ui.layoutGroups[ui.layoutGroupCount - 1];
+	return group;
+}
+
+void UI_CursorAdvance(UI &ui, float2 prevWidgetSize)
+{
+	const UILayout layout = UI_GetLayout(ui);
+
+	if ( layout == UiLayoutHorizontal )
+	{
+		UI_MoveCursorRight(ui, prevWidgetSize.x + UiSpacing);
+	}
+	else // if ( layout == UiLayoutVertical )
+	{
+		UI_MoveCursorDown(ui, prevWidgetSize.y + UiSpacing);
+	}
+}
+
+void UI_BeginLayout(UI &ui, UILayout layout)
+{
+	ASSERT(ui.layoutGroupCount < ARRAY_COUNT(ui.layoutGroups));
+	UILayoutGroup &group = ui.layoutGroups[ui.layoutGroupCount++];
+	group.layout = layout;
+	group.pos = ui.currentPos;
+	group.size = {};
+}
+
+void UI_EndLayout(UI &ui)
+{
+	ASSERT(ui.layoutGroupCount > 0);
+
+	ui.layoutGroupCount--;
+
+	if ( ui.layoutGroupCount )
+	{
+		const UILayoutGroup &group = ui.layoutGroups[ui.layoutGroupCount];
+		UI_SetCursorPos(ui, group.pos);
+		UI_CursorAdvance(ui, group.size);
+	}
 }
 
 void UI_SetMouseState(UI &ui, Mouse &mouse)
@@ -112,6 +187,13 @@ void UI_SetMouseState(UI &ui, Mouse &mouse)
 	// Workaround to avoid missing some dx,dy updates...
 	input.mouse.dx = mouse.x - prevMouse.x;
 	input.mouse.dy = mouse.y - prevMouse.y;
+}
+
+void UI_BeginFrame(UI &ui)
+{
+	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	ui.vertexPtr = ui.vertexData[ui.frameIndex];
+	ui.vertexCount = 0;
 }
 
 void UI_EndFrame(UI &ui)
@@ -161,6 +243,17 @@ void UI_BeginWidget(UI &ui, float2 pos, float2 size)
 		.size = size,
 	};
 	ui.widgetStack[ui.widgetStackSize++] = widget;
+
+	// Grow the current layout group
+	UILayoutGroup &group = UI_GetLayoutGroup(ui);
+	const float2 maxWidgetPoint = pos + size;
+	const float2 maxLayoutPoint = group.pos + group.size;
+	if (maxWidgetPoint.x > maxLayoutPoint.x) {
+		group.size.x = maxWidgetPoint.x - group.pos.x;
+	}
+	if (maxWidgetPoint.y > maxLayoutPoint.y) {
+		group.size.y = maxWidgetPoint.y - group.pos.y;
+	}
 }
 
 void UI_EndWidget(UI &ui)
@@ -369,16 +462,6 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
-void UI_SetCursorPos(UI &ui, float2 pos)
-{
-	ui.currentPos = pos;
-}
-
-void UI_MoveCursorDown(UI &ui, float amount)
-{
-	ui.currentPos.y += amount;
-}
-
 UIWindow &UI_GetWindow(UI &ui, const char *caption)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
@@ -408,6 +491,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UIWindow &window = UI_GetWindow(ui, caption);
 	ui.currentWindow = &window;
 
+	UI_BeginLayout(ui, UiLayoutVertical);
 	UI_BeginWidget(ui, window.pos, window.size);
 
 	if ( UI_WidgetClicked(ui) )
@@ -462,6 +546,7 @@ void UI_EndWindow(UI &ui)
 	ui.currentWindow = nullptr;
 
 	UI_EndWidget(ui);
+	UI_EndLayout(ui);
 }
 
 UIWindow &UI_GetCurrentWindow(UI &ui)
@@ -508,7 +593,7 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_EndWidget(ui);
 
-	UI_MoveCursorDown(ui, size.y + UiSpacing);
+	UI_CursorAdvance(ui, size);
 
 	return clicked;
 }
@@ -540,7 +625,7 @@ bool UI_Radio(UI &ui, const char *text, bool active)
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
 	UI_AddText(ui, adjustedPos, text);
 
-	UI_MoveCursorDown(ui, size.y + UiSpacing);
+	UI_CursorAdvance(ui, size);
 
 	return clicked;
 }
@@ -576,7 +661,7 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
 	UI_AddText(ui, adjustedPos, text);
 
-	UI_MoveCursorDown(ui, size.y + UiSpacing);
+	UI_CursorAdvance(ui, size);
 
 	return clicked;
 }
@@ -592,7 +677,7 @@ void UI_Separator(UI &ui)
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
-	UI_MoveCursorDown(ui, size.y + UiSpacing);
+	UI_CursorAdvance(ui, size);
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.

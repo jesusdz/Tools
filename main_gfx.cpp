@@ -342,12 +342,17 @@ void UpdateUI(UI &ui, Window &window)
 	const char *label = labels[labelIndex];
 	UI_Label(ui, label);
 
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+
 	if ( UI_Button(ui, "Hola") )
 	{
 		labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
 	}
 
 	UI_Button(ui, "Adios");
+
+	UI_EndLayout(ui);
+
 	UI_Separator(ui);
 	UI_Button(ui, "Memory");
 
