@@ -931,6 +931,12 @@ struct uint2
 	union { u32 y, g; };
 };
 
+struct urect
+{
+	uint2 pos;
+	uint2 size;
+};
+
 struct float2
 {
 	union { float x, r; };

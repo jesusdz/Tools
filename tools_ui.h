@@ -62,6 +62,13 @@ struct UILayoutGroup
 	float2 size;
 };
 
+struct UIDrawList
+{
+	urect scissorRect;
+	u32 firstVertex;
+	u32 vertexCount;
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -71,6 +78,9 @@ struct UI
 	UIVertex *vertexPtr;
 	u32 vertexCount;
 	u32 vertexCountLimit;
+
+	UIDrawList drawLists[32];
+	u32 drawListCount;
 
 	ImageH fontAtlasH;
 	float2 fontAtlasSize;
@@ -86,6 +96,7 @@ struct UI
 	float2 currentPos;
 
 	UIInput input;
+	uint2 viewportSize;
 
 	UIWindow windows[16];
 	UIWindow *currentWindow;
@@ -189,15 +200,56 @@ void UI_SetMouseState(UI &ui, Mouse &mouse)
 	input.mouse.dy = mouse.y - prevMouse.y;
 }
 
+void UI_SetViewportSize(UI &ui, uint2 size)
+{
+	ui.viewportSize = size;
+}
+
+u32 UI_DrawListCount(const UI &ui)
+{
+	return ui.drawListCount;
+}
+
+void UI_CloseDrawList(UI &ui)
+{
+	if (ui.drawListCount > 0)
+	{
+		UIDrawList &prevDrawList = ui.drawLists[ui.drawListCount-1];
+		prevDrawList.vertexCount = ui.vertexCount - prevDrawList.firstVertex;
+	}
+}
+
+void UI_NewDrawList(UI &ui, urect scissorRect)
+{
+	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
+
+	UI_CloseDrawList(ui);
+
+	UIDrawList &drawList = ui.drawLists[ui.drawListCount++];
+	drawList.firstVertex = ui.vertexCount;
+	drawList.vertexCount = 0;
+	drawList.scissorRect = scissorRect;
+}
+
+const UIDrawList &UI_GetDrawListAt(const UI &ui, u32 i)
+{
+	ASSERT(i < ui.drawListCount);
+	return ui.drawLists[i];
+}
+
 void UI_BeginFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
 	ui.vertexPtr = ui.vertexData[ui.frameIndex];
 	ui.vertexCount = 0;
+	ui.drawListCount = 0;
+	UI_NewDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y});
 }
 
 void UI_EndFrame(UI &ui)
 {
+	UI_CloseDrawList(ui);
+
 	if ( UI_IsMouseIdle(ui) )
 	{
 		ui.avoidWindowInteraction = false;
@@ -538,6 +590,17 @@ void UI_BeginWindow(UI &ui, const char *caption)
 
 	UI_SetCursorPos(ui, window.pos + UiWindowPadding + UiBorderSize);
 	UI_MoveCursorDown(ui, titlebarSize.y);
+
+	const uint2 contentPos = {
+		.x = (u32)panelPos.x,
+		.y = (u32)panelPos.y,
+	};
+	const uint2 contentSize = {
+		.x = (u32)panelSize.x,
+		.y = (u32)panelSize.y,
+	};
+	const urect contentRect = { .pos = contentPos, .size = contentSize };
+	UI_NewDrawList(ui, contentRect);
 }
 
 void UI_EndWindow(UI &ui)

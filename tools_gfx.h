@@ -36,6 +36,8 @@
  * - Blit
  * - TransitionImageLayout
  * - (Begin/End)RenderPass
+ * - SetViewport
+ * - SetScissor
  * - SetViewportAndScissor
  * - SetClear(Color/Depth/Stencil)
  * - SetPipeline
@@ -3490,7 +3492,7 @@ void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuf
 	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 }
 
-void SetViewportAndScissor(const CommandList &commandList, uint2 size)
+void SetViewport(const CommandList &commandList, uint2 size)
 {
 	const VkViewport viewport = {
 		.x = 0.0f,
@@ -3501,12 +3503,22 @@ void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 		.maxDepth = 1.0f,
 	};
 	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
+}
 
+void SetScissor(const CommandList &commandList, urect r)
+{
 	const VkRect2D scissor = {
-		.offset = {0, 0},
-		.extent = {size.x, size.y},
+		.offset = {(i32)r.pos.x, (i32)r.pos.y},
+		.extent = {r.size.x, r.size.y},
 	};
 	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
+}
+
+void SetViewportAndScissor(const CommandList &commandList, uint2 size)
+{
+	SetViewport(commandList, size);
+
+	SetScissor(commandList, urect{0, 0, size.x, size.y});
 }
 
 void SetClearColor(CommandList &commandList, u32 renderTargetIndex, float4 color)

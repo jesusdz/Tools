@@ -331,9 +331,10 @@ static const ComputeDesc computeDescs[] =
 
 void UpdateUI(UI &ui, Window &window)
 {
-	UI_BeginFrame(ui);
-
 	UI_SetMouseState(ui, window.mouse);
+	UI_SetViewportSize(ui, uint2{window.width, window.height});
+
+	UI_BeginFrame(ui);
 
 	UI_BeginWindow(ui, "Debug UI");
 
@@ -1666,7 +1667,13 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetBindGroup(commandList, 3, bindGroup);
 			SetVertexBuffer(commandList, UI_GetVertexBuffer(ui));
-			Draw(commandList, ui.vertexCount, 0);
+
+			for (u32 i = 0; i < UI_DrawListCount(ui); ++i)
+			{
+				const UIDrawList &drawList = UI_GetDrawListAt(ui, i);
+				SetScissor(commandList, drawList.scissorRect);
+				Draw(commandList, drawList.vertexCount, drawList.firstVertex);
+			}
 
 			EndDebugGroup(commandList);
 		}
