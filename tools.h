@@ -990,6 +990,7 @@ struct float4x4
 };
 
 static constexpr f32 Pi = 3.14159265358979323846f;
+static constexpr f32 TwoPi = 2.0f * Pi;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
 

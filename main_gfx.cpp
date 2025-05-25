@@ -351,6 +351,27 @@ void UpdateUI(UI &ui, Window &window)
 	UI_Separator(ui);
 	UI_Button(ui, "Memory");
 
+	const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
+	static int selectedOption = 0;
+
+	for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+	{
+		if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+		{
+			selectedOption = i;
+		}
+	}
+
+	UI_Separator(ui);
+
+	static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
+	static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
+
+	for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
+	{
+		UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
+	}
+
 	UI_EndWindow(ui);
 
 	UI_EndFrame(ui);

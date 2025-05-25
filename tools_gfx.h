@@ -3917,5 +3917,18 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);
 }
 
+//void FlushBufferMemory(GraphicsDevice &device, BufferH bufferHandle)
+//{
+//	Buffer &buffer = GetBuffer(device, bufferHandle);
+//	const Heap &heap = device.heaps[buffer.alloc.heap];
+//	const VkMappedMemoryRange range[] = { {
+//		.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+//		.memory = heap.memory,
+//		.offset = buffer.alloc.offset,
+//		.size = buffer.alloc.size,
+//	} };
+//	VK_CALL( vkFlushMappedMemoryRanges(device.handle, 1, range) );
+//}
+
 #endif // #ifndef TOOLS_GFX_H
 

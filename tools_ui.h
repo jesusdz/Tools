@@ -12,14 +12,15 @@
 #error "tools_gfx.h needs to be defined before tools_ui.h"
 #endif
 
+constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
 constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 0.8 };
 constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
 constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 0.8 };
 constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 0.8, 1.0 };
-constexpr float UiSpacing = 4.0f;
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
 constexpr float2 UiWindowPadding = { 8.0f, 8.0f };
+constexpr float UiSpacing = 8.0f;
 
 struct UIVertex
 {
@@ -50,9 +51,11 @@ struct UIWidget
 
 struct UI
 {
+	u32 frameIndex;
+
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
 	UIVertex *vertexData[MAX_FRAMES_IN_FLIGHT];
-	u32 frameIndex;
+	UIVertex *vertexPtr;
 	u32 vertexCount;
 	u32 vertexCountLimit;
 
@@ -96,6 +99,7 @@ bool UI_IsMouseIdle(const UI &ui)
 void UI_BeginFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	ui.vertexPtr = ui.vertexData[ui.frameIndex];
 	ui.vertexCount = 0;
 }
 
@@ -189,6 +193,12 @@ bool UI_WidgetClicked(const UI &ui)
 	return clicked;
 }
 
+float4 UI_WidgetColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorWidgetHover : UiColorWidget;
+	return res;
+}
+
 void UI_PushColor(UI &ui, float4 color)
 {
 	ASSERT(ui.colorCount < ARRAY_COUNT(ui.colors));
@@ -207,26 +217,39 @@ float4 UI_GetColor(const UI &ui)
 	return color;
 }
 
-void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2, float4 fcolor )
+void UI_AddTriangle(UI &ui, const UIVertex &v0, const UIVertex &v1, const UIVertex v2)
 {
 	ASSERT(ui.vertexCount + 3 <= ui.vertexCountLimit);
-
-	float2 uv = ui.whitePixelUv;
-	const rgba color  = Rgba(fcolor);
-
-	// add vertices
-	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex] + ui.vertexCount;
-	*vertexPtr++ = UIVertex{ p0, uv, color };
-	*vertexPtr++ = UIVertex{ p1, uv, color };
-	*vertexPtr++ = UIVertex{ p2, uv, color };
-
+	*ui.vertexPtr++ = v0;
+	*ui.vertexPtr++ = v1;
+	*ui.vertexPtr++ = v2;
 	ui.vertexCount += 3;
+
+	static u32 maxVertexCount = 0;
+	if ( ui.vertexCount > maxVertexCount )
+	{
+		maxVertexCount = ui.vertexCount;
+	}
+}
+
+void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2, float4 fcolor )
+{
+	const float2 uv = ui.whitePixelUv;
+	const rgba color  = Rgba(fcolor);
+	UI_AddTriangle(ui,
+			UIVertex{ p0, uv, color },
+			UIVertex{ p1, uv, color },
+			UIVertex{ p2, uv, color });
+}
+
+void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2)
+{
+	const float4 color = UI_GetColor(ui);
+	UI_AddTriangle(ui, p0, p1, p2, color);
 }
 
 void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float4 fcolor)
 {
-	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
-
 	// pos
 	const float2 v0 = { pos.x, pos.y }; // top-left
 	const float2 v1 = { pos.x, pos.y + size.y }; // bottom-left
@@ -242,22 +265,14 @@ void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float
 	// color
 	const rgba color  = Rgba(fcolor);
 
-	// add vertices
-	UIVertex *vertexPtr = ui.vertexData[ui.frameIndex] + ui.vertexCount;
-	*vertexPtr++ = UIVertex{ v0, uvTL, color };
-	*vertexPtr++ = UIVertex{ v1, uvBL, color };
-	*vertexPtr++ = UIVertex{ v2, uvBR, color };
-	*vertexPtr++ = UIVertex{ v0, uvTL, color };
-	*vertexPtr++ = UIVertex{ v2, uvBR, color };
-	*vertexPtr++ = UIVertex{ v3, uvTR, color };
-
-	ui.vertexCount += 6;
-}
-
-void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2)
-{
-	const float4 color = UI_GetColor(ui);
-	UI_AddTriangle(ui, p0, p1, p2, color);
+	UI_AddTriangle(ui,
+		UIVertex{ v0, uvTL, color },
+		UIVertex{ v1, uvBL, color },
+		UIVertex{ v2, uvBR, color });
+	UI_AddTriangle(ui,
+		UIVertex{ v0, uvTL, color },
+		UIVertex{ v2, uvBR, color },
+		UIVertex{ v3, uvTR, color });
 }
 
 void UI_AddRectangle(UI &ui, float2 pos, float2 size)
@@ -267,10 +282,22 @@ void UI_AddRectangle(UI &ui, float2 pos, float2 size)
 	UI_AddQuad(ui, pos, size, ui.whitePixelUv, uvSize, color);
 }
 
+void UI_AddCircle(UI &ui, float2 pos, float radius)
+{
+	const u32 numTriangles = 8;
+	const float2 center = pos + float2{radius, radius};
+	for (u32 i = 0; i < numTriangles; ++i)
+	{
+		const float angle0 = TwoPi * (float)i / numTriangles;
+		const float angle1 = TwoPi * (float)(i + 1) / numTriangles;
+		const float2 v0 = center + radius * float2{Sin(angle0),Cos(angle0)};
+		const float2 v1 = center + radius * float2{Sin(angle1),Cos(angle1)};
+		UI_AddTriangle(ui, center, v0, v1);
+	}
+}
+
 void UI_AddBorder(UI &ui, float2 pos, float2 size, float borderSize)
 {
-	ASSERT(ui.vertexCount + 6 <= ui.vertexCountLimit);
-
 	const float2 uvSize = {0, 0};
 	const float4 color = UI_GetColor(ui);
 	const float2 topPos = pos;
@@ -289,6 +316,14 @@ float UI_TextHeight(UI &ui)
 {
 	const float textHeight = ui.fontAscent - ui.fontDescent;
 	return textHeight;
+}
+
+float2 UI_AdjustTextVertically(UI &ui, float2 pos, float height)
+{
+	const float textHeight = UI_TextHeight(ui);
+	const float ypos = Round(pos.y + height / 2.0 - textHeight / 2.0);
+	const float2 res = { pos.x, ypos };
+	return res;
 }
 
 float2 UI_CalcTextSize(UI &ui, const char *text)
@@ -326,9 +361,8 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 		const float2 charSize = {charWidth, charHeight};
 		const float2 charUv = {pc.x0/ui.fontAtlasSize.x, pc.y0/ui.fontAtlasSize.y};
 		const float2 charUvSize = {charWidth/ui.fontAtlasSize.x, charHeight/ui.fontAtlasSize.y};
-		const float4 charColor = {1.0, 1.0, 1.0, 1.0};
 
-		UI_AddQuad(ui, charPos, charSize, charUv, charUvSize, charColor);
+		UI_AddQuad(ui, charPos, charSize, charUv, charUvSize, UiColorWhite);
 
 		cursorx = Round( cursorx + pc.xadvance );
 		ptr++;
@@ -415,7 +449,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	}
 	UI_EndWidget(ui);
 
-	const float2 captionPos = window.pos + UiBorderSize + UiWindowPadding;
+	const float2 captionPos = UI_AdjustTextVertically(ui, titlebarPos + float2{UiWindowPadding.x, 0.0}, titlebarSize.y);
 	UI_AddText(ui, captionPos, caption);
 
 	UI_SetCursorPos(ui, window.pos + UiWindowPadding + UiBorderSize);
@@ -460,32 +494,89 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_BeginWidget(ui, pos, size);
 
-	const bool hover = UI_WidgetHovered(ui);
-	if (hover)
-	{
-		UI_PushColor(ui, UiColorWidgetHover);
-	}
-
+	UI_PushColor(ui, UI_WidgetColor(ui));
 	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
 
 	const float2 textPos = pos + padding;
 	UI_AddText(ui, textPos, text);
 
-	if (hover)
-	{
-		UI_PopColor(ui);
+	const bool clicked = UI_WidgetClicked(ui);
+	if (clicked) {
+		ui.avoidWindowInteraction = true;
 	}
 
 	UI_EndWidget(ui);
 
 	UI_MoveCursorDown(ui, size.y + UiSpacing);
 
-	const bool clicked = hover && UI_IsMouseClick(ui);
+	return clicked;
+}
 
+bool UI_Radio(UI &ui, const char *text, bool active)
+{
+	const float2 pos = ui.currentPos;
+	const float2 size = {15.0, 15.0};
+	UI_BeginWidget(ui, pos, size);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddCircle(ui, pos, size.y/2.0);
+	UI_PopColor(ui);
+	if (active)
+	{
+		const float2 margin = {3.0, 3.0};
+		const float2 innerPos = pos + margin;
+		const float2 innerSize = size - 2.0 * margin;
+		UI_PushColor(ui, UiColorWhite);
+		UI_AddCircle(ui, innerPos, innerSize.y/2.0);
+		UI_PopColor(ui);
+	}
+	const bool clicked = UI_WidgetClicked(ui);
+	if (clicked) {
+		ui.avoidWindowInteraction = true;
+	}
+	UI_EndWidget(ui);
+
+	const float2 textPos = pos + float2{size.x + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
+	UI_AddText(ui, adjustedPos, text);
+
+	UI_MoveCursorDown(ui, size.y + UiSpacing);
+
+	return clicked;
+}
+
+bool UI_Checkbox(UI &ui, const char *text, bool *checked)
+{
+	ASSERT(checked != nullptr);
+
+	const float2 pos = ui.currentPos;
+	const float2 size = {15.0, 15.0};
+	UI_BeginWidget(ui, pos, size);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
+	if (*checked)
+	{
+		const float2 margin = {3.0, 3.0};
+		const float2 innerPos = pos + margin;
+		const float2 innerSize = size - 2.0 * margin;
+		UI_PushColor(ui, UiColorWhite);
+		UI_AddRectangle(ui, innerPos, innerSize);
+		UI_PopColor(ui);
+	}
+	const bool clicked = UI_WidgetClicked(ui);
 	if (clicked)
 	{
 		ui.avoidWindowInteraction = true;
+		*checked = !*checked;
 	}
+	UI_EndWidget(ui);
+
+	const float2 textPos = pos + float2{size.x + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
+	UI_AddText(ui, adjustedPos, text);
+
+	UI_MoveCursorDown(ui, size.y + UiSpacing);
 
 	return clicked;
 }
