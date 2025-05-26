@@ -488,21 +488,13 @@ void UI_AddBorder(UI &ui, float2 pos, float2 size, float borderSize)
 	UI_AddQuad(ui, bottomPos, hSize, ui.whitePixelUv, uvSize, color);
 }
 
-float UI_TextHeight(UI &ui)
+float UI_TextHeight(const UI &ui)
 {
 	const float textHeight = ui.fontAscent - ui.fontDescent;
 	return textHeight;
 }
 
-float2 UI_AdjustTextVertically(UI &ui, float2 pos, float height)
-{
-	const float textHeight = UI_TextHeight(ui);
-	const float ypos = Round(pos.y + height / 2.0 - textHeight / 2.0);
-	const float2 res = { pos.x, ypos };
-	return res;
-}
-
-float2 UI_CalcTextSize(UI &ui, const char *text)
+float UI_TextWidth(const UI &ui, const char *text)
 {
 	float textWidth = 0.0f;
 
@@ -515,8 +507,22 @@ float2 UI_CalcTextSize(UI &ui, const char *text)
 		ptr++;
 	}
 
-	const float textHeight = ui.fontAscent - ui.fontDescent;
-	const float2 textSize = { textWidth , textHeight };
+	return textWidth;
+}
+
+float2 UI_AdjustTextVertically(const UI &ui, float2 pos, float height)
+{
+	const float textHeight = UI_TextHeight(ui);
+	const float ypos = Round(pos.y + height / 2.0 - textHeight / 2.0);
+	const float2 res = { pos.x, ypos };
+	return res;
+}
+
+float2 UI_TextSize(const UI &ui, const char *text)
+{
+	const float textWidth = UI_TextWidth(ui, text);
+	const float textHeight = UI_TextHeight(ui);
+	const float2 textSize = { textWidth, textHeight };
 	return textSize;
 }
 
@@ -623,12 +629,12 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UI_MoveCursorDown(ui, titlebarSize.y);
 
 	const uint2 contentPos = {
-		.x = (u32)panelPos.x,
-		.y = (u32)panelPos.y,
+		.x = (u32)(panelPos.x + UiWindowPadding.x),
+		.y = (u32)(panelPos.y + UiWindowPadding.y),
 	};
 	const uint2 contentSize = {
-		.x = (u32)panelSize.x,
-		.y = (u32)panelSize.y,
+		.x = (u32)(panelSize.x - 2.0f * UiWindowPadding.x),
+		.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
 	};
 	const urect contentRect = { .pos = contentPos, .size = contentSize };
 	UI_NewDrawList(ui, contentRect, ui.fontAtlasH);
@@ -666,7 +672,7 @@ void UI_Label(UI &ui, const char *text)
 bool UI_Button(UI &ui, const char *text)
 {
 	constexpr float2 padding = {4.0f, 3.0f};
-	const float2 textSize = UI_CalcTextSize(ui, text);
+	const float2 textSize = UI_TextSize(ui, text);
 	const float2 size = textSize + padding + padding;
 
 	const float2 pos = ui.currentPos;
@@ -694,17 +700,24 @@ bool UI_Button(UI &ui, const char *text)
 
 bool UI_Radio(UI &ui, const char *text, bool active)
 {
-	const float2 pos = ui.currentPos;
-	const float2 size = {15.0, 15.0};
-	UI_BeginWidget(ui, pos, size);
+	const float2 ballPos = ui.currentPos;
+	const float2 ballSize = {15.0, 15.0};
+	const float2 textPos = ballPos + float2{ballSize.x + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, ballSize.y);
+	const float  textWidth = UI_TextWidth(ui, text);
+
+	const float2 widgetPos = ballPos;
+	const float2 widgetSize = ballSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
 	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddCircle(ui, pos, size.y/2.0);
+	UI_AddCircle(ui, ballPos, ballSize.y/2.0);
 	UI_PopColor(ui);
 	if (active)
 	{
 		const float2 margin = {3.0, 3.0};
-		const float2 innerPos = pos + margin;
-		const float2 innerSize = size - 2.0 * margin;
+		const float2 innerPos = ballPos + margin;
+		const float2 innerSize = ballSize - 2.0 * margin;
 		UI_PushColor(ui, UiColorWhite);
 		UI_AddCircle(ui, innerPos, innerSize.y/2.0);
 		UI_PopColor(ui);
@@ -713,13 +726,12 @@ bool UI_Radio(UI &ui, const char *text, bool active)
 	if (clicked) {
 		ui.avoidWindowInteraction = true;
 	}
-	UI_EndWidget(ui);
 
-	const float2 textPos = pos + float2{size.x + UiSpacing * 0.5f, 0.0};
-	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
 	UI_AddText(ui, adjustedPos, text);
 
-	UI_CursorAdvance(ui, size);
+	UI_EndWidget(ui);
+
+	UI_CursorAdvance(ui, widgetSize);
 
 	return clicked;
 }
@@ -728,17 +740,24 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 {
 	ASSERT(checked != nullptr);
 
-	const float2 pos = ui.currentPos;
-	const float2 size = {15.0, 15.0};
-	UI_BeginWidget(ui, pos, size);
+	const float2 boxPos = ui.currentPos;
+	const float2 boxSize = {15.0, 15.0};
+	const float2 textPos = boxPos + float2{boxSize.x + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, boxSize.y);
+	const float  textWidth = UI_TextWidth(ui, text);
+
+	const float2 widgetPos = boxPos;
+	const float2 widgetSize = boxSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
 	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddRectangle(ui, pos, size);
+	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	if (*checked)
 	{
 		const float2 margin = {3.0, 3.0};
-		const float2 innerPos = pos + margin;
-		const float2 innerSize = size - 2.0 * margin;
+		const float2 innerPos = boxPos + margin;
+		const float2 innerSize = boxSize - 2.0 * margin;
 		UI_PushColor(ui, UiColorWhite);
 		UI_AddRectangle(ui, innerPos, innerSize);
 		UI_PopColor(ui);
@@ -749,13 +768,12 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 		ui.avoidWindowInteraction = true;
 		*checked = !*checked;
 	}
-	UI_EndWidget(ui);
 
-	const float2 textPos = pos + float2{size.x + UiSpacing * 0.5f, 0.0};
-	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, size.y);
 	UI_AddText(ui, adjustedPos, text);
 
-	UI_CursorAdvance(ui, size);
+	UI_EndWidget(ui);
+
+	UI_CursorAdvance(ui, widgetSize);
 
 	return clicked;
 }
