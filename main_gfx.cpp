@@ -1413,11 +1413,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 {
 	u32 frameIndex = gfx.device.currentFrame;
 
-	if ( !BeginFrame(gfx.device) )
-	{
-		return false;
-	}
-
 	// Display size
 	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
 	const f32 displayHeight = static_cast<f32>(gfx.device.swapchain.extent.height);
@@ -1718,8 +1713,6 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		return false;
 	}
 
-	EndFrame(gfx.device);
-
 	return true;
 }
 
@@ -2002,6 +1995,9 @@ void EngineUpdate(Platform &platform)
 #if USE_IMGUI
 		UpdateImGui(gfx);
 #endif
+
+		BeginFrame(gfx.device);
+
 #if USE_UI
 		UpdateUI(gfx.ui, platform.window, gfx);
 		const bool animateCamera = !gfx.ui.wantsMouseInput;
@@ -2017,6 +2013,8 @@ void EngineUpdate(Platform &platform)
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+
+		EndFrame(gfx.device);
 	}
 }
 
