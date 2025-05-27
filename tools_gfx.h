@@ -627,8 +627,6 @@ struct GraphicsDevice
 		bool linearFilteredSampling;
 	} formatSupport[FormatCount];
 
-	VkDebugReportCallbackEXT debugReportCallback;
-
 	VkDebugUtilsMessengerEXT debugUtilsMessenger;
 
 	BindGroupLayout bindGroupLayouts[MAX_BIND_GROUP_LAYOUTS];
@@ -993,22 +991,6 @@ static VkPipelineStageFlagBits PipelineStageToVulkan( PipelineStage stage )
 // Internal functions
 ////////////////////////////////////////////////////////////////////////
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback(
-		VkDebugReportFlagsEXT       flags,
-		VkDebugReportObjectTypeEXT  objectType,
-		uint64_t                    object,
-		size_t                      location,
-		int32_t                     messageCode,
-		const char*                 pLayerPrefix,
-		const char*                 pMessage,
-		void*                       pUserData)
-{
-	LOG(Warning, "VulkanDebugReportCallback was called.\n");
-	LOG(Warning, " - pLayerPrefix: %s.\n", pLayerPrefix);
-	LOG(Warning, " - pMessage: %s.\n", pMessage);
-	return VK_FALSE;
-}
-
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT		message_severity,
     VkDebugUtilsMessageTypeFlagsEXT				message_type,
@@ -1022,6 +1004,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsMessengerCallback(
 	else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 	{
 		LOG(Error, "%u - %s: %s\n", callback_data->messageIdNumber, callback_data->pMessageIdName, callback_data->pMessage);
+	}
+	else
+	{
+		LOG(Debug, "%u - %s: %s\n", callback_data->messageIdNumber, callback_data->pMessageIdName, callback_data->pMessage);
 	}
 	return VK_FALSE;
 }
@@ -1788,9 +1774,16 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 		.pfnUserCallback = VulkanDebugUtilsMessengerCallback,
 	};
 
+	const void *pNext = nullptr;
+	if ( device.support.debugUtils )
+	{
+		// To capture events that occur while creating or destroying the instance 
+		pNext = &debugUtilsCreateInfo;
+	}
+
 	const VkInstanceCreateInfo instanceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-		.pNext = &debugUtilsCreateInfo, // To capture events that occur while creating or destroying the instance 
+		.pNext = pNext,
 		.pApplicationInfo = &applicationInfo,
 #if USE_VK_EXT_PORTABILITY_ENUMERATION
 		.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR,
