@@ -70,12 +70,18 @@ struct UIDrawList
 	ImageH imageHandle;
 };
 
+struct UIDrawListCmd
+{
+};
+
 struct UI
 {
 	u32 frameIndex;
 
+	UIVertex *frontendVertices;
+
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
-	UIVertex *vertexData[MAX_FRAMES_IN_FLIGHT];
+	UIVertex *backendVertices[MAX_FRAMES_IN_FLIGHT];
 	UIVertex *vertexPtr;
 	u32 vertexCount;
 	u32 vertexCountLimit;
@@ -271,7 +277,7 @@ void UI_NewDrawList(UI &ui, ImageH imageHandle)
 void UI_BeginFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
-	ui.vertexPtr = ui.vertexData[ui.frameIndex];
+	ui.vertexPtr = ui.frontendVertices;
 	ui.vertexCount = 0;
 	ui.drawListCount = 0;
 	UI_NewDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
@@ -311,6 +317,13 @@ void UI_EndFrame(UI &ui)
 			}
 		}
 	}
+}
+
+void UI_UploadVerticesToGPU(UI &ui)
+{
+	UIVertex *src = ui.frontendVertices;
+	UIVertex *dst = ui.backendVertices[ui.frameIndex];
+	MemCopy(dst, src, ui.vertexCount * sizeof(UIVertex));
 }
 
 BufferH UI_GetVertexBuffer(const UI& ui)
@@ -815,6 +828,8 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	const u32 vertexBufferSize = KB(16);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
+	ui.frontendVertices = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);
+
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
 		ui.vertexBuffer[i] = CreateBuffer(
@@ -823,7 +838,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 			BufferUsageVertexBuffer,
 			HeapType_Dynamic);
 
-		ui.vertexData[i] = (UIVertex*)GetBufferPtr(gfxDev, ui.vertexBuffer[i]);
+		ui.backendVertices[i] = (UIVertex*)GetBufferPtr(gfxDev, ui.vertexBuffer[i]);
 	}
 
 	UI_PushColor(ui, UiColorWidget);

@@ -1413,6 +1413,10 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 {
 	u32 frameIndex = gfx.device.currentFrame;
 
+	BeginFrame(gfx.device);
+
+	UI_UploadVerticesToGPU(gfx.ui);
+
 	// Display size
 	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
 	const f32 displayHeight = static_cast<f32>(gfx.device.swapchain.extent.height);
@@ -1713,6 +1717,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		return false;
 	}
 
+	// TODO: Check if this should be executed even if Present failed...
+	EndFrame(gfx.device);
+
 	return true;
 }
 
@@ -1788,6 +1795,10 @@ void UpdateImGui(Graphics &gfx)
 #error "Missing codepath"
 #endif
 	ImGui::NewFrame();
+
+	static bool open = true;
+	ImGui::ShowDemoWindow(&open);
+
 	ImGui::Begin("Hello, world!");
 
 
@@ -1996,8 +2007,6 @@ void EngineUpdate(Platform &platform)
 		UpdateImGui(gfx);
 #endif
 
-		BeginFrame(gfx.device);
-
 #if USE_UI
 		UpdateUI(gfx.ui, platform.window, gfx);
 		const bool animateCamera = !gfx.ui.wantsMouseInput;
@@ -2013,8 +2022,6 @@ void EngineUpdate(Platform &platform)
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
-
-		EndFrame(gfx.device);
 	}
 }
 

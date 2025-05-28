@@ -103,6 +103,7 @@
 #include "imgui/imgui_draw.cpp"
 #include "imgui/imgui_tables.cpp"
 #include "imgui/imgui_widgets.cpp"
+#include "imgui/imgui_demo.cpp"
 
 #if PLATFORM_WINDOWS
 #include "imgui/imgui_impl_win32.cpp"
