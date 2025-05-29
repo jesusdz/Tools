@@ -109,6 +109,7 @@ struct UI
 	uint2 viewportSize;
 
 	UIWindow windows[16];
+	u32 windowCount;
 	UIWindow *currentWindow;
 
 	UIWidget widgetStack[16];
@@ -226,23 +227,11 @@ const UIDrawList &UI_GetDrawListAt(const UI &ui, u32 i)
 	return ui.drawLists[i];
 }
 
-const UIDrawList &UI_GetDrawList(const UI &ui)
+UIDrawList &UI_GetDrawList(UI &ui)
 {
 	ASSERT(ui.drawListCount > 0 && ui.drawListStackSize > 0);
 	const u32 drawListIndex = ui.drawListStack[ui.drawListStackSize-1];
 	return ui.drawLists[drawListIndex];
-}
-
-void UI_CloseDrawList(UI &ui)
-{
-	if (ui.drawListCount > 0)
-	{
-		UIDrawList &currDrawList = ui.drawLists[ui.drawListCount-1];
-		currDrawList.vertexCount = ui.vertexCount - currDrawList.firstVertex;
-		if ( currDrawList.vertexCount == 0 ) {
-			ui.drawListCount--;
-		}
-	}
 }
 
 bool UI_NeedNewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
@@ -262,8 +251,6 @@ void UI_BeginDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
 
 	if ( UI_NeedNewDrawList(ui, scissorRect, imageHandle) )
 	{
-		UI_CloseDrawList(ui);
-
 		const u32 drawListIndex = ui.drawListCount++;
 
 		UIDrawList &drawList = ui.drawLists[drawListIndex];
@@ -295,21 +282,17 @@ void UI_BeginFrame(UI &ui)
 	ui.vertexCount = 0;
 	ui.drawListCount = 0;
 	ui.drawListStackSize = 0;
-	UI_BeginDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
 }
 
 void UI_EndFrame(UI &ui)
 {
-	UI_CloseDrawList(ui);
-	UI_EndDrawList(ui);
-
 	if ( UI_IsMouseIdle(ui) )
 	{
 		ui.avoidWindowInteraction = false;
 		ui.wantsMouseInput = false;
 	}
 
-	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
+	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
 		UIWindow &window = ui.windows[i];
 
@@ -429,6 +412,9 @@ void UI_AddTriangle(UI &ui, const UIVertex &v0, const UIVertex &v1, const UIVert
 	*ui.vertexPtr++ = v1;
 	*ui.vertexPtr++ = v2;
 	ui.vertexCount += 3;
+
+	UIDrawList &drawList = UI_GetDrawList(ui);
+	drawList.vertexCount += 3;
 
 	static u32 maxVertexCount = 0;
 	if ( ui.vertexCount > maxVertexCount )
@@ -591,6 +577,7 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 			StrCopy(window.caption, caption);
 			window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
 			window.size = {200.0f, 300.0f};
+			ui.windowCount++;
 			start++;
 			return window;
 		}
