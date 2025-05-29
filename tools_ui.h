@@ -36,7 +36,7 @@ struct UIInput
 
 struct UIWindow
 {
-	const char *caption;
+	char caption[64];
 	float2 pos;
 	float2 size;
 	bool dragging;
@@ -88,6 +88,9 @@ struct UI
 
 	UIDrawList drawLists[32];
 	u32 drawListCount;
+
+	u32 drawListStack[32];
+	u32 drawListStackSize;
 
 	ImageH fontAtlasH;
 	float2 fontAtlasSize;
@@ -225,8 +228,9 @@ const UIDrawList &UI_GetDrawListAt(const UI &ui, u32 i)
 
 const UIDrawList &UI_GetDrawList(const UI &ui)
 {
-	ASSERT(ui.drawListCount > 0);
-	return ui.drawLists[ui.drawListCount-1];
+	ASSERT(ui.drawListCount > 0 && ui.drawListStackSize > 0);
+	const u32 drawListIndex = ui.drawListStack[ui.drawListStackSize-1];
+	return ui.drawLists[drawListIndex];
 }
 
 void UI_CloseDrawList(UI &ui)
@@ -252,7 +256,7 @@ bool UI_NeedNewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
 	return needNew;
 }
 
-void UI_NewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
+void UI_BeginDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
 {
 	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
 
@@ -260,18 +264,28 @@ void UI_NewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
 	{
 		UI_CloseDrawList(ui);
 
-		UIDrawList &drawList = ui.drawLists[ui.drawListCount++];
+		const u32 drawListIndex = ui.drawListCount++;
+
+		UIDrawList &drawList = ui.drawLists[drawListIndex];
 		drawList.firstVertex = ui.vertexCount;
 		drawList.vertexCount = 0;
 		drawList.scissorRect = scissorRect;
 		drawList.imageHandle = imageHandle;
+
+		ui.drawListStack[ui.drawListStackSize++] = drawListIndex;
 	}
 }
 
-void UI_NewDrawList(UI &ui, ImageH imageHandle)
+void UI_BeginDrawList(UI &ui, ImageH imageHandle)
 {
 	const UIDrawList &currDrawList = UI_GetDrawList(ui);
-	UI_NewDrawList(ui, currDrawList.scissorRect, imageHandle);
+	UI_BeginDrawList(ui, currDrawList.scissorRect, imageHandle);
+}
+
+void UI_EndDrawList(UI &ui)
+{
+	ASSERT(ui.drawListStackSize > 0);
+	ui.drawListStackSize--;
 }
 
 void UI_BeginFrame(UI &ui)
@@ -280,12 +294,14 @@ void UI_BeginFrame(UI &ui)
 	ui.vertexPtr = ui.frontendVertices;
 	ui.vertexCount = 0;
 	ui.drawListCount = 0;
-	UI_NewDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
+	ui.drawListStackSize = 0;
+	UI_BeginDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
 }
 
 void UI_EndFrame(UI &ui)
 {
 	UI_CloseDrawList(ui);
+	UI_EndDrawList(ui);
 
 	if ( UI_IsMouseIdle(ui) )
 	{
@@ -569,11 +585,13 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
 	{
 		UIWindow &window = ui.windows[i];
-		if (!window.caption)
+		if (*window.caption == '\0')
 		{
-			window.caption = caption;
-			window.pos = {100.0f, 100.0f};
+			static int start = 0;
+			StrCopy(window.caption, caption);
+			window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
 			window.size = {200.0f, 300.0f};
+			start++;
 			return window;
 		}
 		else if (StrEq(window.caption, caption))
@@ -593,6 +611,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UIWindow &window = UI_GetWindow(ui, caption);
 	ui.currentWindow = &window;
 
+	UI_BeginDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
 	UI_BeginLayout(ui, UiLayoutVertical);
 	UI_BeginWidget(ui, window.pos, window.size);
 
@@ -650,7 +669,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 		.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
 	};
 	const urect contentRect = { .pos = contentPos, .size = contentSize };
-	UI_NewDrawList(ui, contentRect, ui.fontAtlasH);
+	UI_BeginDrawList(ui, contentRect, ui.fontAtlasH);
 }
 
 void UI_EndWindow(UI &ui)
@@ -658,8 +677,10 @@ void UI_EndWindow(UI &ui)
 	ASSERT(ui.currentWindow);
 	ui.currentWindow = nullptr;
 
+	UI_EndDrawList(ui);
 	UI_EndWidget(ui);
 	UI_EndLayout(ui);
+	UI_EndDrawList(ui);
 }
 
 UIWindow &UI_GetCurrentWindow(UI &ui)
@@ -807,16 +828,16 @@ void UI_Separator(UI &ui)
 
 void UI_Image(UI &ui, ImageH image)
 {
-	UI_NewDrawList(ui, image);
-
 	const float2 pos = ui.currentPos;
 	const float2 size = { 50.0f, 50.0f };
 	const float2 uvPos = {0.0f, 0.0f};
 	const float2 uvSize = {1.0f, 1.0f};
+	UI_BeginDrawList(ui, image);
 	UI_BeginWidget(ui, pos, size);
 	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
 	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
+	UI_EndDrawList(ui);
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
@@ -825,7 +846,7 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 {
-	const u32 vertexBufferSize = KB(16);
+	const u32 vertexBufferSize = KB(32);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
 	ui.frontendVertices = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);

@@ -336,7 +336,11 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 
 	UI_BeginFrame(ui);
 
-	UI_BeginWindow(ui, "Debug UI");
+	for (u32 i = 0; i < 2; ++i)
+	{
+		char caption[64];
+		sprintf(caption, "Debug UI %u", i);
+	UI_BeginWindow(ui, caption);
 
 	static u32 labelIndex = 0;
 	const char *labels[] = {"Label 1", "Label 2"};
@@ -388,6 +392,7 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 	UI_EndLayout(ui);
 
 	UI_EndWindow(ui);
+	}
 
 	UI_EndFrame(ui);
 }
