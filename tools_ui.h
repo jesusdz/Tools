@@ -41,6 +41,7 @@ struct UIWindow
 	float2 size;
 	bool dragging;
 	bool resizing;
+	u32 layer;
 };
 
 struct UIWidget
@@ -275,6 +276,21 @@ void UI_EndDrawList(UI &ui)
 	ui.drawListStackSize--;
 }
 
+void UI_RaiseWindow(UI &ui, UIWindow &window)
+{
+	// Push down all windows in front of the one to be raised
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		 if (ui.windows[i].layer < window.layer)
+		 {
+			 ui.windows[i].layer++;
+		 }
+	}
+
+	// Finally put this window in front
+	window.layer = 0;
+}
+
 void UI_BeginFrame(UI &ui)
 {
 	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
@@ -286,6 +302,11 @@ void UI_BeginFrame(UI &ui)
 
 void UI_EndFrame(UI &ui)
 {
+	// TODO: Test code. Remove.
+	static u32 frameCount = 0;
+	const u32 indexToRaise = ( frameCount++ / 30 ) % 2;
+	UI_RaiseWindow(ui, ui.windows[indexToRaise]);
+
 	if ( UI_IsMouseIdle(ui) )
 	{
 		ui.avoidWindowInteraction = false;
@@ -573,11 +594,13 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 		UIWindow &window = ui.windows[i];
 		if (*window.caption == '\0')
 		{
+			// TODO: Remove test code to set initial window position.
 			static int start = 0;
 			StrCopy(window.caption, caption);
 			window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
 			window.size = {200.0f, 300.0f};
-			ui.windowCount++;
+			window.layer = ui.windowCount++;
+			UI_RaiseWindow(ui, window);
 			start++;
 			return window;
 		}
@@ -820,9 +843,7 @@ void UI_Image(UI &ui, ImageH image)
 	const float2 uvPos = {0.0f, 0.0f};
 	const float2 uvSize = {1.0f, 1.0f};
 	UI_BeginDrawList(ui, image);
-	UI_BeginWidget(ui, pos, size);
 	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
-	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
 	UI_EndDrawList(ui);
 }
