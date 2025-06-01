@@ -120,6 +120,9 @@ struct UI
 
 	UIWindow windows[16];
 	u32 windowCount;
+
+	UIWindow *activeWindow;
+	UIWindow *hoveredWindow;
 	UIWindow *currentWindow;
 
 	UIWidget widgetStack[16];
@@ -406,7 +409,7 @@ bool UI_WidgetHovered(const UI &ui)
 {
 	bool hover = false;
 
-	if (ui.widgetStackSize > 0)
+	if ( ui.currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
 	{
 		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
 
@@ -1044,22 +1047,30 @@ void UI_EndFrame(UI &ui)
 		ui.wantsMouseInput = false;
 	}
 
-	u32 hoveredWindowIndex = U32_MAX;
+	// Setup hovered / active window
+	ui.hoveredWindow = nullptr;
 	u32 hoveredWindowLayer = U32_MAX;
 	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
-		const UIWindow &window = ui.windows[i];
+		UIWindow &window = ui.windows[i];
 
 		if ( UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
 		{
-			hoveredWindowIndex = i;
+			ui.hoveredWindow = &window;
 			hoveredWindowLayer = window.layer;
 		}
 	}
-	if ( UI_IsMouseClick(ui) && hoveredWindowIndex != U32_MAX )
+	if ( UI_IsMouseClick(ui) )
 	{
-		UIWindow &window = ui.windows[hoveredWindowIndex];
-		UI_RaiseWindow(ui, window);
+		if ( ui.hoveredWindow )
+		{
+			UI_RaiseWindow(ui, *ui.hoveredWindow);
+			ui.activeWindow = ui.hoveredWindow;
+		}
+		else
+		{
+			ui.activeWindow = nullptr;
+		}
 	}
 
 	for (u32 i = 0; i < ui.windowCount; ++i)
