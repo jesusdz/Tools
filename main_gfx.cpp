@@ -374,6 +374,16 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 
 	UI_Separator(ui);
 
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+	for (u32 i = 0; i < gfx.textureCount; ++i)
+	{
+		UI_Image(ui, gfx.textures[i].image);
+	}
+	UI_EndLayout(ui);
+
+
+	UI_Separator(ui);
+
 	static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
 	static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
 
@@ -381,15 +391,6 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 	{
 		UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
 	}
-
-	UI_Separator(ui);
-
-	UI_BeginLayout(ui, UiLayoutHorizontal);
-	for (u32 i = 0; i < gfx.textureCount; ++i)
-	{
-		UI_Image(ui, gfx.textures[i].image);
-	}
-	UI_EndLayout(ui);
 
 	UI_EndWindow(ui);
 	}
@@ -1688,7 +1689,11 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 				const BindGroup textureBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 				SetBindGroup(commandList, 3, textureBindGroup);
 
-				Draw(commandList, drawList.vertexCount, drawList.firstVertex);
+				for (u32 i = 0; i < drawList.vertexRangeCount; ++i)
+				{
+					const UIVertexRange &range = drawList.vertexRanges[i];
+					Draw(commandList, range.count, range.index);
+				}
 			}
 
 			EndDebugGroup(commandList);

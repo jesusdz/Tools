@@ -63,16 +63,31 @@ struct UILayoutGroup
 	float2 size;
 };
 
+struct UIVertexRange
+{
+	u32 index;
+	u32 count;
+};
+
+union UISortKey
+{
+	struct
+	{
+		// In big endian architectures,
+		// the order should be opposite.
+		u16 order;
+		u16 layer;
+	};
+	u32 value;
+};
+
 struct UIDrawList
 {
 	urect scissorRect;
-	u32 firstVertex;
-	u32 vertexCount;
+	UIVertexRange vertexRanges[32];
+	u32 vertexRangeCount;
 	ImageH imageHandle;
-};
-
-struct UIDrawListCmd
-{
+	UISortKey sortKey;
 };
 
 struct UI
@@ -80,6 +95,7 @@ struct UI
 	u32 frameIndex;
 
 	UIVertex *frontendVertices;
+	UIVertex *frontendVerticesSorted;
 
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
 	UIVertex *backendVertices[MAX_FRAMES_IN_FLIGHT];
@@ -235,45 +251,72 @@ UIDrawList &UI_GetDrawList(UI &ui)
 	return ui.drawLists[drawListIndex];
 }
 
-bool UI_NeedNewDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
-{
-	const bool needNew = true;
-//	if (ui.drawListCount > 0)
-//	{
-//		const UIDrawList &prevDrawList = ui.drawLists[ui.drawListCount-1];
-//		if (
-//	}
-	return needNew;
-}
-
-void UI_BeginDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
+void UI_PushDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
 {
 	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
 
-	if ( UI_NeedNewDrawList(ui, scissorRect, imageHandle) )
+	const u32 drawListIndex = ui.drawListCount++;
+
+	UIDrawList &drawList = ui.drawLists[drawListIndex];
+	drawList.vertexRanges[0].index = ui.vertexCount;
+	drawList.vertexRanges[0].count = 0;
+	drawList.vertexRangeCount = 1;
+	drawList.scissorRect = scissorRect;
+	drawList.imageHandle = imageHandle;
+
+	drawList.sortKey.order = drawListIndex;
+	if (ui.drawListStackSize > 0)
 	{
-		const u32 drawListIndex = ui.drawListCount++;
-
-		UIDrawList &drawList = ui.drawLists[drawListIndex];
-		drawList.firstVertex = ui.vertexCount;
-		drawList.vertexCount = 0;
-		drawList.scissorRect = scissorRect;
-		drawList.imageHandle = imageHandle;
-
-		ui.drawListStack[ui.drawListStackSize++] = drawListIndex;
+		const u32 parentDrawListIndex = ui.drawListStack[ui.drawListStackSize-1];
+		drawList.sortKey.layer = ui.drawLists[parentDrawListIndex].sortKey.layer;
 	}
+
+	ui.drawListStack[ui.drawListStackSize++] = drawListIndex;
 }
 
-void UI_BeginDrawList(UI &ui, ImageH imageHandle)
+void UI_PushDrawList(UI &ui, ImageH imageHandle)
 {
 	const UIDrawList &currDrawList = UI_GetDrawList(ui);
-	UI_BeginDrawList(ui, currDrawList.scissorRect, imageHandle);
+	UI_PushDrawList(ui, currDrawList.scissorRect, imageHandle);
 }
 
-void UI_EndDrawList(UI &ui)
+void UI_PopDrawList(UI &ui)
 {
 	ASSERT(ui.drawListStackSize > 0);
+
+	// Remove empty ranges in the draw list before popping
+	const u32 drawListIndex = ui.drawListStack[ui.drawListStackSize-1];
+	UIDrawList &drawList = ui.drawLists[drawListIndex];
+	ASSERT(drawList.vertexRangeCount > 0);
+	UIVertexRange &range = drawList.vertexRanges[drawList.vertexRangeCount-1];
+	if (range.count == 0)
+	{
+		drawList.vertexRangeCount--;
+	}
+
 	ui.drawListStackSize--;
+
+	if (ui.drawListStackSize > 0)
+	{
+		// Setup the next range in the parent draw list
+		const u32 drawListIndex = ui.drawListStack[ui.drawListStackSize-1];
+		UIDrawList &drawList = ui.drawLists[drawListIndex];
+		ASSERT(drawList.vertexRangeCount > 0);
+		UIVertexRange &range = drawList.vertexRanges[drawList.vertexRangeCount-1];
+		if (range.count == 0)
+		{
+			// Reuse range, it was empty
+			range.index = ui.vertexCount;
+		}
+		else
+		{
+			// Previous range was not empty, create a new one
+			UIVertexRange &nextRange = drawList.vertexRanges[drawList.vertexRangeCount++];
+			nextRange.index = ui.vertexCount;
+			nextRange.count = 0;
+		}
+	}
+
 }
 
 void UI_RaiseWindow(UI &ui, UIWindow &window)
@@ -289,54 +332,6 @@ void UI_RaiseWindow(UI &ui, UIWindow &window)
 
 	// Finally put this window in front
 	window.layer = 0;
-}
-
-void UI_BeginFrame(UI &ui)
-{
-	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
-	ui.vertexPtr = ui.frontendVertices;
-	ui.vertexCount = 0;
-	ui.drawListCount = 0;
-	ui.drawListStackSize = 0;
-}
-
-void UI_EndFrame(UI &ui)
-{
-	// TODO: Test code. Remove.
-	static u32 frameCount = 0;
-	const u32 indexToRaise = ( frameCount++ / 30 ) % 2;
-	UI_RaiseWindow(ui, ui.windows[indexToRaise]);
-
-	if ( UI_IsMouseIdle(ui) )
-	{
-		ui.avoidWindowInteraction = false;
-		ui.wantsMouseInput = false;
-	}
-
-	for (u32 i = 0; i < ui.windowCount; ++i)
-	{
-		UIWindow &window = ui.windows[i];
-
-		// In case some widget interaction blocked the window...
-		if ( UI_IsMouseIdle(ui) )
-		{
-			window.dragging = false;
-			window.resizing = false;
-		}
-
-		if ( !ui.avoidWindowInteraction )
-		{
-			if ( window.resizing )
-			{
-				constexpr float2 minWindowSize = { 100.0f, 100.0f };
-				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
-			}
-			else if ( window.dragging )
-			{
-				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
-			}
-		}
-	}
 }
 
 void UI_UploadVerticesToGPU(UI &ui)
@@ -435,13 +430,8 @@ void UI_AddTriangle(UI &ui, const UIVertex &v0, const UIVertex &v1, const UIVert
 	ui.vertexCount += 3;
 
 	UIDrawList &drawList = UI_GetDrawList(ui);
-	drawList.vertexCount += 3;
-
-	static u32 maxVertexCount = 0;
-	if ( ui.vertexCount > maxVertexCount )
-	{
-		maxVertexCount = ui.vertexCount;
-	}
+	UIVertexRange &vertexRange = drawList.vertexRanges[drawList.vertexRangeCount-1];
+	vertexRange.count += 3;
 }
 
 void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2, float4 fcolor )
@@ -587,6 +577,22 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
+UIWindow &UI_GetWindowAtLayer(UI &ui, u32 layer)
+{
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+		if (window.layer == layer)
+		{
+			return window;
+		}
+	}
+
+	ASSERT(0 && "Window not found.");
+	static UIWindow nullWindow = { };
+	return nullWindow;
+}
+
 UIWindow &UI_GetWindow(UI &ui, const char *caption)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
@@ -621,7 +627,12 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UIWindow &window = UI_GetWindow(ui, caption);
 	ui.currentWindow = &window;
 
-	UI_BeginDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
+	UI_PushDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
+
+	UIDrawList &drawList = UI_GetDrawList(ui);
+	drawList.sortKey.layer = window.layer;
+	drawList.sortKey.order = 0;
+
 	UI_BeginLayout(ui, UiLayoutVertical);
 	UI_BeginWidget(ui, window.pos, window.size);
 
@@ -679,7 +690,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 		.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
 	};
 	const urect contentRect = { .pos = contentPos, .size = contentSize };
-	UI_BeginDrawList(ui, contentRect, ui.fontAtlasH);
+	UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
 }
 
 void UI_EndWindow(UI &ui)
@@ -687,10 +698,10 @@ void UI_EndWindow(UI &ui)
 	ASSERT(ui.currentWindow);
 	ui.currentWindow = nullptr;
 
-	UI_EndDrawList(ui);
+	UI_PopDrawList(ui);
 	UI_EndWidget(ui);
 	UI_EndLayout(ui);
-	UI_EndDrawList(ui);
+	UI_PopDrawList(ui);
 }
 
 UIWindow &UI_GetCurrentWindow(UI &ui)
@@ -842,10 +853,12 @@ void UI_Image(UI &ui, ImageH image)
 	const float2 size = { 50.0f, 50.0f };
 	const float2 uvPos = {0.0f, 0.0f};
 	const float2 uvSize = {1.0f, 1.0f};
-	UI_BeginDrawList(ui, image);
+	UI_PushDrawList(ui, image);
+	UI_BeginWidget(ui, pos, size);
 	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
+	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
-	UI_EndDrawList(ui);
+	UI_PopDrawList(ui);
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
@@ -857,7 +870,9 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	const u32 vertexBufferSize = KB(32);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
-	ui.frontendVertices = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);
+	UIVertex *vertexData = (UIVertex*)AllocateVirtualMemory(2*vertexBufferSize);
+	ui.frontendVertices = vertexData;
+	ui.frontendVerticesSorted = vertexData + ui.vertexCountLimit;
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
@@ -946,6 +961,100 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	// Create texture
 	ui.fontAtlasH = CreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
 	ui.fontAtlasSize = {fontAtlasWidth, fontAtlasHeight};
+}
+
+void UI_BeginFrame(UI &ui)
+{
+	ui.frameIndex = ( ui.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
+	ui.vertexPtr = ui.frontendVertices;
+	ui.vertexCount = 0;
+	ui.drawListCount = 0;
+	ui.drawListStackSize = 0;
+}
+
+void UI_EndFrame(UI &ui)
+{
+	// Create a new array of sorted draw lists
+	u32 sortedDrawListIndices[ARRAY_COUNT(ui.drawLists)];
+	for (u32 i = 0; i < ui.drawListCount; ++i)
+	{
+		sortedDrawListIndices[i] = i;
+	}
+	// Bubblesort
+	u32 numSwaps = U32_MAX;
+	while (numSwaps > 0)
+	{
+		numSwaps = 0;
+		for (u32 i = 1; i < ui.drawListCount; ++i)
+		{
+			const u32 index0 = sortedDrawListIndices[i-1];
+			const u32 index1 = sortedDrawListIndices[i];
+			const u32 sortKey0 = ui.drawLists[index0].sortKey.value;
+			const u32 sortKey1 = ui.drawLists[index1].sortKey.value;
+			if ( sortKey0 > sortKey1 )
+			{
+				sortedDrawListIndices[i-1] = index1;
+				sortedDrawListIndices[i] = index0;
+				numSwaps++;
+			}
+		}
+	}
+
+	// Copy the sorted draw lists to tmp array and back
+	UIDrawList sortedDrawLists[ARRAY_COUNT(ui.drawLists)];
+	for (u32 i = 0; i < ui.drawListCount; ++i)
+	{
+		const u32 sortedDrawListIndex = sortedDrawListIndices[i];
+		sortedDrawLists[i] = ui.drawLists[sortedDrawListIndex];
+	}
+	for (u32 i = 0; i < ui.drawListCount; ++i)
+	{
+		ui.drawLists[i] = sortedDrawLists[i];
+	}
+
+	// Populate sorted draw list vertices
+	for (u32 i = 0; i < ui.drawListCount; ++i)
+	{
+		const UIDrawList &drawLists = ui.drawLists[i];
+		// TODO
+	}
+
+	// TODO: Test code. Remove.
+	static u32 frameCount = 0;
+	const u32 indexToRaise = ( frameCount++ / 30 ) % 2;
+	UI_RaiseWindow(ui, ui.windows[indexToRaise]);
+
+
+	if ( UI_IsMouseIdle(ui) )
+	{
+		ui.avoidWindowInteraction = false;
+		ui.wantsMouseInput = false;
+	}
+
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+
+		// In case some widget interaction blocked the window...
+		if ( UI_IsMouseIdle(ui) )
+		{
+			window.dragging = false;
+			window.resizing = false;
+		}
+
+		if ( !ui.avoidWindowInteraction )
+		{
+			if ( window.resizing )
+			{
+				constexpr float2 minWindowSize = { 100.0f, 100.0f };
+				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
+			}
+			else if ( window.dragging )
+			{
+				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
+			}
+		}
+	}
 }
 
 void UI_Cleanup(const UI &ui)
