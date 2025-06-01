@@ -69,16 +69,10 @@ struct UIVertexRange
 	u32 count;
 };
 
-union UISortKey
+struct UISortKey
 {
-	struct
-	{
-		// In big endian architectures,
-		// the order should be opposite.
-		u16 order;
-		u16 layer;
-	};
-	u32 value;
+	u16 layer;
+	u16 order;
 };
 
 struct UIDrawList
@@ -398,6 +392,16 @@ void UI_EndWidget(UI &ui)
 	ui.widgetStackSize--;
 }
 
+bool UI_MouseInArea(const UI &ui, float2 pos, float2 size)
+{
+	const bool inArea =
+			ui.input.mouse.x >= pos.x &&
+			ui.input.mouse.x <  pos.x + size.x &&
+			ui.input.mouse.y >= pos.y &&
+			ui.input.mouse.y <  pos.y + size.y;
+	return inArea;
+}
+
 bool UI_WidgetHovered(const UI &ui)
 {
 	bool hover = false;
@@ -406,11 +410,7 @@ bool UI_WidgetHovered(const UI &ui)
 	{
 		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
 
-		hover =
-			ui.input.mouse.x >= widget.pos.x &&
-			ui.input.mouse.x <  widget.pos.x + widget.size.x &&
-			ui.input.mouse.y >= widget.pos.y &&
-			ui.input.mouse.y <  widget.pos.y + widget.size.y;
+		hover = UI_MouseInArea(ui, widget.pos, widget.size);
 	}
 
 	return hover;
@@ -1013,9 +1013,11 @@ void UI_EndFrame(UI &ui)
 		{
 			const u32 index0 = sortedDrawListIndices[i-1];
 			const u32 index1 = sortedDrawListIndices[i];
-			const u32 sortKey0 = ui.drawLists[index0].sortKey.value;
-			const u32 sortKey1 = ui.drawLists[index1].sortKey.value;
-			if ( sortKey0 > sortKey1 )
+			const u32 layer0 = ui.drawLists[index0].sortKey.layer;
+			const u32 layer1 = ui.drawLists[index1].sortKey.layer;
+			const u32 order0 = ui.drawLists[index0].sortKey.order;
+			const u32 order1 = ui.drawLists[index1].sortKey.order;
+			if ( layer0 < layer1 || ( layer0 == layer1 &&  order0 > order1 ) )
 			{
 				sortedDrawListIndices[i-1] = index1;
 				sortedDrawListIndices[i] = index0;
@@ -1036,16 +1038,28 @@ void UI_EndFrame(UI &ui)
 		ui.drawLists[i] = sortedDrawLists[i];
 	}
 
-	// TODO: Test code. Remove.
-	static u32 frameCount = 0;
-	const u32 indexToRaise = ( frameCount++ / 30 ) % 2;
-	UI_RaiseWindow(ui, ui.windows[indexToRaise]);
-
-
 	if ( UI_IsMouseIdle(ui) )
 	{
 		ui.avoidWindowInteraction = false;
 		ui.wantsMouseInput = false;
+	}
+
+	u32 hoveredWindowIndex = U32_MAX;
+	u32 hoveredWindowLayer = U32_MAX;
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		const UIWindow &window = ui.windows[i];
+
+		if ( UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
+		{
+			hoveredWindowIndex = i;
+			hoveredWindowLayer = window.layer;
+		}
+	}
+	if ( UI_IsMouseClick(ui) && hoveredWindowIndex != U32_MAX )
+	{
+		UIWindow &window = ui.windows[hoveredWindowIndex];
+		UI_RaiseWindow(ui, window);
 	}
 
 	for (u32 i = 0; i < ui.windowCount; ++i)
