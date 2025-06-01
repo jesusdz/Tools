@@ -95,7 +95,6 @@ struct UI
 	u32 frameIndex;
 
 	UIVertex *frontendVertices;
-	UIVertex *frontendVerticesSorted;
 
 	BufferH vertexBuffer[MAX_FRAMES_IN_FLIGHT];
 	UIVertex *backendVertices[MAX_FRAMES_IN_FLIGHT];
@@ -336,9 +335,35 @@ void UI_RaiseWindow(UI &ui, UIWindow &window)
 
 void UI_UploadVerticesToGPU(UI &ui)
 {
-	UIVertex *src = ui.frontendVertices;
-	UIVertex *dst = ui.backendVertices[ui.frameIndex];
-	MemCopy(dst, src, ui.vertexCount * sizeof(UIVertex));
+	const UIVertex *srcVertexBase = ui.frontendVertices;
+	UIVertex *dstVertexBase = ui.backendVertices[ui.frameIndex];
+	u32 totalVertexCount = 0;
+
+	// Merge vertex ranges and copy draw list vertices to GPU
+	for (u32 i = 0; i < ui.drawListCount; ++i)
+	{
+		UIDrawList &drawList = ui.drawLists[i];
+		u32 drawListVertexCount = 0;
+
+		// Copy merged vertex ranges into a contiguous chunk of GPU memory
+		for (u32 j = 0; j < drawList.vertexRangeCount; ++j)
+		{
+			const UIVertexRange &range = drawList.vertexRanges[j];
+			const UIVertex *srcVertex = srcVertexBase + range.index;
+			UIVertex *dstVertex = dstVertexBase + totalVertexCount;
+			MemCopy(dstVertex, srcVertex, range.count * sizeof(UIVertex));
+			drawListVertexCount += range.count;
+			totalVertexCount += range.count;
+		}
+
+		// Modify draw list range info (now there's only one range)
+		drawList.vertexRangeCount = 1;
+		drawList.vertexRanges[0].index = totalVertexCount - drawListVertexCount;
+		drawList.vertexRanges[0].count = drawListVertexCount;
+	}
+
+	ASSERT(ui.vertexCount == totalVertexCount);
+
 }
 
 BufferH UI_GetVertexBuffer(const UI& ui)
@@ -867,12 +892,11 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 {
-	const u32 vertexBufferSize = KB(32);
+	const u32 vertexBufferSize = KB(64);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
-	UIVertex *vertexData = (UIVertex*)AllocateVirtualMemory(2*vertexBufferSize);
+	UIVertex *vertexData = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);
 	ui.frontendVertices = vertexData;
-	ui.frontendVerticesSorted = vertexData + ui.vertexCountLimit;
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
@@ -1010,13 +1034,6 @@ void UI_EndFrame(UI &ui)
 	for (u32 i = 0; i < ui.drawListCount; ++i)
 	{
 		ui.drawLists[i] = sortedDrawLists[i];
-	}
-
-	// Populate sorted draw list vertices
-	for (u32 i = 0; i < ui.drawListCount; ++i)
-	{
-		const UIDrawList &drawLists = ui.drawLists[i];
-		// TODO
 	}
 
 	// TODO: Test code. Remove.
