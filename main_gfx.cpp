@@ -342,54 +342,63 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 		sprintf(caption, "Debug UI %u", i);
 	UI_BeginWindow(ui, caption);
 
-	static u32 labelIndex = 0;
-	const char *labels[] = {"Label 1", "Label 2"};
-	const char *label = labels[labelIndex];
-	UI_Label(ui, label);
-
-	UI_BeginLayout(ui, UiLayoutHorizontal);
-
-	if ( UI_Button(ui, "Hola") )
+	if ( UI_Section(ui, "Buttons") )
 	{
-		labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
-	}
+		static u32 labelIndex = 0;
+		const char *labels[] = {"Label 1", "Label 2"};
+		const char *label = labels[labelIndex];
+		UI_Label(ui, label);
 
-	UI_Button(ui, "Adios");
+		UI_BeginLayout(ui, UiLayoutHorizontal);
 
-	UI_EndLayout(ui);
-
-	UI_Separator(ui);
-	UI_Button(ui, "Memory");
-
-	const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
-	static int selectedOption = 0;
-
-	for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
-	{
-		if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+		if ( UI_Button(ui, "Hola") )
 		{
-			selectedOption = i;
+			labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
 		}
+
+		UI_Button(ui, "Adios");
+
+		UI_Button(ui, "Memory");
+
+		UI_EndLayout(ui);
+
 	}
 
 	UI_Separator(ui);
 
-	UI_BeginLayout(ui, UiLayoutHorizontal);
-	for (u32 i = 0; i < gfx.textureCount; ++i)
+	if ( UI_Section(ui, "Radio/Check") )
 	{
-		UI_Image(ui, gfx.textures[i].image);
-	}
-	UI_EndLayout(ui);
+		const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
+		static int selectedOption = 0;
+
+		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+		{
+			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+			{
+				selectedOption = i;
+			}
+		}
+
+		UI_Separator(ui);
+
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		for (u32 i = 0; i < gfx.textureCount; ++i)
+		{
+			UI_Image(ui, gfx.textures[i].image);
+		}
+		UI_EndLayout(ui);
 
 
-	UI_Separator(ui);
+		UI_Separator(ui);
 
-	static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
-	static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
+		static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
+		static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
 
-	for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
-	{
-		UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
+		for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
+		{
+			UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
+		}
+
 	}
 
 	UI_EndWindow(ui);

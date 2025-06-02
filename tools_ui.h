@@ -39,6 +39,12 @@ struct UIInput
 	Mouse mouse;
 };
 
+struct UISection
+{
+	u32 hash;
+	bool open;
+};
+
 struct UIWindow
 {
 	char caption[64];
@@ -47,6 +53,9 @@ struct UIWindow
 	bool dragging;
 	bool resizing;
 	u32 layer;
+
+	UISection sections[16];
+	u32 sectionCount;
 };
 
 struct UIWidget
@@ -373,33 +382,6 @@ BufferH UI_GetVertexBuffer(const UI& ui)
 	return ui.vertexBuffer[ui.frameIndex];
 }
 
-void UI_BeginWidget(UI &ui, float2 pos, float2 size)
-{
-	ASSERT(ui.widgetStackSize < ARRAY_COUNT(ui.widgetStack));
-	const UIWidget widget = {
-		.pos = pos,
-		.size = size,
-	};
-	ui.widgetStack[ui.widgetStackSize++] = widget;
-
-	// Grow the current layout group
-	UILayoutGroup &group = UI_GetLayoutGroup(ui);
-	const float2 maxWidgetPoint = pos + size;
-	const float2 maxLayoutPoint = group.pos + group.size;
-	if (maxWidgetPoint.x > maxLayoutPoint.x) {
-		group.size.x = maxWidgetPoint.x - group.pos.x;
-	}
-	if (maxWidgetPoint.y > maxLayoutPoint.y) {
-		group.size.y = maxWidgetPoint.y - group.pos.y;
-	}
-}
-
-void UI_EndWidget(UI &ui)
-{
-	ASSERT(ui.widgetStackSize > 0);
-	ui.widgetStackSize--;
-}
-
 bool UI_MouseInArea(const UI &ui, float2 pos, float2 size)
 {
 	const bool inArea =
@@ -434,6 +416,39 @@ float4 UI_WidgetColor(const UI &ui)
 {
 	const float4 res = UI_WidgetHovered(ui) ? UiColorWidgetHover : UiColorWidget;
 	return res;
+}
+
+void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction = true)
+{
+	ASSERT(ui.widgetStackSize < ARRAY_COUNT(ui.widgetStack));
+	const UIWidget widget = {
+		.pos = pos,
+		.size = size,
+	};
+	ui.widgetStack[ui.widgetStackSize++] = widget;
+
+	// Grow the current layout group
+	UILayoutGroup &group = UI_GetLayoutGroup(ui);
+	const float2 maxWidgetPoint = pos + size;
+	const float2 maxLayoutPoint = group.pos + group.size;
+	if (maxWidgetPoint.x > maxLayoutPoint.x) {
+		group.size.x = maxWidgetPoint.x - group.pos.x;
+	}
+	if (maxWidgetPoint.y > maxLayoutPoint.y) {
+		group.size.y = maxWidgetPoint.y - group.pos.y;
+	}
+
+	// Disable window interaction in case the widget was clicked
+	const bool clicked = UI_WidgetHovered(ui) && UI_IsMouseClick(ui);
+	if ( clicked ) {
+		ui.avoidWindowInteraction = avoidWindowInteraction;
+	}
+}
+
+void UI_EndWidget(UI &ui)
+{
+	ASSERT(ui.widgetStackSize > 0);
+	ui.widgetStackSize--;
 }
 
 void UI_PushColor(UI &ui, float4 color)
@@ -654,6 +669,12 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 	return nullWindow;
 }
 
+UIWindow &UI_GetCurrentWindow(UI &ui)
+{
+	ASSERT(ui.currentWindow != nullptr);
+	return *ui.currentWindow;
+}
+
 void UI_BeginWindow(UI &ui, const char *caption)
 {
 	ASSERT(!ui.currentWindow);
@@ -667,7 +688,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	drawList.sortKey.order = 0;
 
 	UI_BeginLayout(ui, UiLayoutVertical);
-	UI_BeginWidget(ui, window.pos, window.size);
+	UI_BeginWidget(ui, window.pos, window.size, false);
 
 	if ( UI_WidgetClicked(ui) )
 	{
@@ -696,7 +717,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
 	const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
 	const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
-	UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize});
+	UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize}, false);
 	const bool cornerHovered = UI_WidgetHovered(ui);
 	UI_PushColor(ui, cornerHovered ? UiColorWidgetHover : UiColorWidget);
 	UI_AddTriangle(ui, cornerBL, cornerBR, cornerTR);
@@ -737,16 +758,70 @@ void UI_EndWindow(UI &ui)
 	UI_PopDrawList(ui);
 }
 
-UIWindow &UI_GetCurrentWindow(UI &ui)
+UISection &UI_GetSection(UIWindow &window, const char *caption)
 {
-	ASSERT(ui.currentWindow);
-	return *ui.currentWindow;
+	const u32 sectionHash = HashStringFNV(caption);
+	for (u32 i = 0; i < window.sectionCount; ++i)
+	{
+		if ( window.sections[i].hash == sectionHash )
+		{
+			return window.sections[i];
+		}
+	}
+
+	ASSERT(window.sectionCount < ARRAY_COUNT(window.sections));
+	UISection &section = window.sections[window.sectionCount++];
+	section.hash = sectionHash;
+	section.open = true;
+	return section;
 }
 
 float2 UI_GetContentSize(const UIWindow &window)
 {
 	const float2 size = window.size - 2.0 * ( UiWindowPadding + UiBorderSize );
 	return size;
+}
+
+bool UI_Section(UI &ui, const char *caption)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	UISection &section = UI_GetSection(window, caption);
+
+	const float contentWidth = UI_GetContentSize(window).x;
+	const float textHeight = UI_TextHeight(ui);
+	constexpr f32 vpadding = 3.0f;
+	const float2 pos = ui.currentPos;
+	const float2 size = { contentWidth, textHeight + 2.0f * vpadding};
+
+	UI_BeginWidget(ui, pos, size);
+
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
+
+	constexpr f32 triangleHeight = 10.0f;
+	constexpr float2 triangleOffset = {4.0f, 4.0f};
+	const float2 p0 = pos + triangleOffset;
+	const float2 p1 = p0 + ( section.open ?
+		float2{triangleHeight*0.5f, triangleHeight} :
+		float2{0.0f, triangleHeight} );
+	const float2 p2 = p0 + ( section.open ?
+		float2{triangleHeight, 0.0f} :
+		float2{triangleHeight, triangleHeight * 0.5f} );
+	UI_AddTriangle(ui, p0, p1, p2, UiColorWhite);
+
+	constexpr float2 textOffset = {20.0f, 3.0f};
+	const float2 textPos = pos + textOffset;
+	UI_AddText(ui, textPos, caption);
+
+	const bool clicked = UI_WidgetClicked(ui);
+	if (clicked) {
+		section.open = !section.open;
+	}
+	UI_EndWidget(ui);
+	UI_CursorAdvance(ui, size);
+
+	return section.open;
 }
 
 void UI_Label(UI &ui, const char *text)
@@ -761,7 +836,7 @@ bool UI_Button(UI &ui, const char *text)
 {
 	constexpr float2 padding = {4.0f, 3.0f};
 	const float2 textSize = UI_TextSize(ui, text);
-	const float2 size = textSize + padding + padding;
+	const float2 size = textSize + 2.0f * padding;
 
 	const float2 pos = ui.currentPos;
 
@@ -775,9 +850,6 @@ bool UI_Button(UI &ui, const char *text)
 	UI_AddText(ui, textPos, text);
 
 	const bool clicked = UI_WidgetClicked(ui);
-	if (clicked) {
-		ui.avoidWindowInteraction = true;
-	}
 
 	UI_EndWidget(ui);
 
@@ -811,9 +883,6 @@ bool UI_Radio(UI &ui, const char *text, bool active)
 		UI_PopColor(ui);
 	}
 	const bool clicked = UI_WidgetClicked(ui);
-	if (clicked) {
-		ui.avoidWindowInteraction = true;
-	}
 
 	UI_AddText(ui, adjustedPos, text);
 
@@ -853,7 +922,6 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	const bool clicked = UI_WidgetClicked(ui);
 	if (clicked)
 	{
-		ui.avoidWindowInteraction = true;
 		*checked = !*checked;
 	}
 
