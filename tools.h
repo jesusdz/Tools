@@ -37,7 +37,7 @@
 
 
 #if PLATFORM_WINDOWS || PLATFORM_LINUX
-#define USE_IMGUI 1
+#define USE_IMGUI 0
 #endif
 
 
@@ -137,8 +137,11 @@ CT_ASSERT(sizeof(f32) == 4);
 CT_ASSERT(sizeof(f64) == 8);
 CT_ASSERT(sizeof(byte) == 1);
 
+#define I8_MAX 128
 #define U8_MAX 255
+#define I16_MAX 32767
 #define U16_MAX 65535
+#define I32_MAX 2147483647
 #define U32_MAX 4294967295
 
 
@@ -925,15 +928,21 @@ struct rgba
 	byte r, g, b, a;
 };
 
+struct int2
+{
+	union { i32 x, r; };
+	union { i32 y, g; };
+};
+
 struct uint2
 {
 	union { u32 x, r; };
 	union { u32 y, g; };
 };
 
-struct urect
+struct rect
 {
-	uint2 pos;
+	int2 pos;
 	uint2 size;
 };
 
@@ -1023,6 +1032,42 @@ float2 operator*(float a, float2 b)
 	const float2 res = { .x = a * b.x, .y = a * b.y };
 	return res;
 }
+
+int2 operator+(int2 pos, uint2 size)
+{
+	const int2 pos2 = { pos.x + (i32)size.x, pos.y + (i32)size.y };
+	return pos2;
+}
+
+int2 operator+(int2 pos, int2 size)
+{
+	const int2 pos2 = { pos.x + size.x, pos.y + size.y };
+	return pos2;
+}
+
+int2 operator-(int2 a, int2 b)
+{
+	const int2 size = { a.x - b.x, a.y - b.y };
+	return size;
+}
+
+i32 Max(i32 a, i32 b) { return a > b ? a : b; }
+u32 Max(u32 a, u32 b) { return a > b ? a : b; }
+f32 Max(f32 a, f32 b) { return a > b ? a : b; }
+int2 Max(int2 a, int2 b) { return { Max(a.x, b.x), Max(a.y, b.y) }; }
+uint2 Max(uint2 a, uint2 b) { return { Max(a.x, b.x), Max(a.y, b.y) }; }
+float2 Max(float2 a, float2 b) { return { .x = Max(a.x, b.x), .y = Max(a.y, b.y) }; }
+
+i32 Min(i32 a, i32 b) { return a < b ? a : b; }
+u32 Min(u32 a, u32 b) { return a < b ? a : b; }
+f32 Min(f32 a, f32 b) { return a < b ? a : b; }
+int2 Min(int2 a, int2 b) { return { Min(a.x, b.x), Min(a.y, b.y) }; }
+uint2 Min(uint2 a, uint2 b) { return { Min(a.x, b.x), Min(a.y, b.y) }; }
+float2 Min(float2 a, float2 b) { return { Min(a.x, b.x), Min(a.y, b.y) }; }
+
+i32 Clamp( i32 v, i32 min, i32 max ) { return Min( Max( v, min ), max ); }
+u32 Clamp( u32 v, u32 min, u32 max ) { return Min( Max( v, min ), max ); }
+f32 Clamp( f32 v, f32 min, f32 max ) { return Min( Max( v, min ), max ); }
 
 rgba Rgba(float4 color)
 {
@@ -1454,23 +1499,6 @@ i32 Floor(f32 value)
 f32 Log2(f32 value)
 {
 	const f32 res = ::log2f(value);
-	return res;
-}
-
-
-
-#define INSTANTIATE_MATH_OPS_FOR_TYPE( Type ) \
-Type Min( Type a, Type b ) { return a < b ? a : b; } \
-Type Max( Type a, Type b ) { return a > b ? a : b; } \
-Type Clamp( Type v, Type min, Type max ) { return Min( Max( v, min ), max ); }
-
-INSTANTIATE_MATH_OPS_FOR_TYPE( float )
-INSTANTIATE_MATH_OPS_FOR_TYPE( i32 )
-INSTANTIATE_MATH_OPS_FOR_TYPE( u32 )
-
-float2 Max(float2 a, float2 b)
-{
-	const float2 res = { .x = Max(a.x, b.x), .y = Max(a.y, b.y) };
 	return res;
 }
 

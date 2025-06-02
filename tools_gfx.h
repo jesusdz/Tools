@@ -3499,11 +3499,16 @@ void SetViewport(const CommandList &commandList, uint2 size)
 	vkCmdSetViewport(commandList.handle, 0, 1, &viewport);
 }
 
-void SetScissor(const CommandList &commandList, urect r)
+void SetScissor(const CommandList &commandList, rect r)
 {
+	const int2 p0 = Max(r.pos, {0, 0});
+	const int2 windowSize = { I32_MAX, I32_MAX };
+	const int2 p1 = Min(r.pos + r.size, windowSize );
+	const int2 size = p1 - p0;
+
 	const VkRect2D scissor = {
-		.offset = {(i32)r.pos.x, (i32)r.pos.y},
-		.extent = {r.size.x, r.size.y},
+		.offset = {p0.x, p0.y},
+		.extent = {(u32)size.x, (u32)size.y},
 	};
 	vkCmdSetScissor(commandList.handle, 0, 1, &scissor);
 }
@@ -3512,7 +3517,7 @@ void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 {
 	SetViewport(commandList, size);
 
-	SetScissor(commandList, urect{0, 0, size.x, size.y});
+	SetScissor(commandList, rect{0, 0, size.x, size.y});
 }
 
 void SetClearColor(CommandList &commandList, u32 renderTargetIndex, float4 color)

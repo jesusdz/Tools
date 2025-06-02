@@ -77,7 +77,7 @@ struct UISortKey
 
 struct UIDrawList
 {
-	urect scissorRect;
+	rect scissorRect;
 	UIVertexRange vertexRanges[32];
 	u32 vertexRangeCount;
 	ImageH imageHandle;
@@ -247,7 +247,7 @@ UIDrawList &UI_GetDrawList(UI &ui)
 	return ui.drawLists[drawListIndex];
 }
 
-void UI_PushDrawList(UI &ui, urect scissorRect, ImageH imageHandle)
+void UI_PushDrawList(UI &ui, rect scissorRect, ImageH imageHandle)
 {
 	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
 
@@ -655,7 +655,7 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UIWindow &window = UI_GetWindow(ui, caption);
 	ui.currentWindow = &window;
 
-	UI_PushDrawList(ui, urect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
+	UI_PushDrawList(ui, rect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
 
 	UIDrawList &drawList = UI_GetDrawList(ui);
 	drawList.sortKey.layer = window.layer;
@@ -709,15 +709,15 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UI_SetCursorPos(ui, window.pos + UiWindowPadding + UiBorderSize);
 	UI_MoveCursorDown(ui, titlebarSize.y);
 
-	const uint2 contentPos = {
-		.x = (u32)(panelPos.x + UiWindowPadding.x),
-		.y = (u32)(panelPos.y + UiWindowPadding.y),
+	const int2 contentPos = {
+		.x = (i32)(panelPos.x + UiWindowPadding.x),
+		.y = (i32)(panelPos.y + UiWindowPadding.y),
 	};
 	const uint2 contentSize = {
 		.x = (u32)(panelSize.x - 2.0f * UiWindowPadding.x),
 		.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
 	};
-	const urect contentRect = { .pos = contentPos, .size = contentSize };
+	const rect contentRect = { .pos = contentPos, .size = contentSize };
 	UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
 }
 
