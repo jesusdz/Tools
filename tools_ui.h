@@ -12,12 +12,17 @@
 #error "tools_gfx.h needs to be defined before tools_ui.h"
 #endif
 
+// Colors
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
-constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 0.8 };
+constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
+constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
 constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
-constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 0.8 };
-constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 0.8, 1.0 };
+constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 1.0 };
+constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
+constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
+
+// Metrics
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
 constexpr float2 UiWindowPadding = { 8.0f, 8.0f };
 constexpr float UiSpacing = 8.0f;
@@ -132,7 +137,7 @@ struct UI
 	u32 layoutGroupCount;
 
 	bool avoidWindowInteraction;
-	bool wantsMouseInput;
+	bool wantsInput;
 };
 
 bool UI_IsMouseClick(const UI &ui)
@@ -666,7 +671,6 @@ void UI_BeginWindow(UI &ui, const char *caption)
 
 	if ( UI_WidgetClicked(ui) )
 	{
-		ui.wantsMouseInput = true;
 		window.dragging = true;
 	}
 
@@ -674,9 +678,10 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UI_AddBorder(ui, window.pos, window.size, UiBorderSize.x);
 	UI_PopColor(ui);
 
+	const bool activeWindow = ui.activeWindow == &window;
 	const float2 titlebarPos = window.pos + UiBorderSize;
 	const float2 titlebarSize = float2{window.size.x - 2.0f * UiBorderSize.x, 18.0f};
-	UI_PushColor(ui, UiColorCaption);
+	UI_PushColor(ui, activeWindow ? UiColorCaption : UiColorCaptionInactive);
 	UI_AddRectangle(ui, titlebarPos, titlebarSize);
 	UI_PopColor(ui);
 
@@ -1044,7 +1049,6 @@ void UI_EndFrame(UI &ui)
 	if ( UI_IsMouseIdle(ui) )
 	{
 		ui.avoidWindowInteraction = false;
-		ui.wantsMouseInput = false;
 	}
 
 	// Setup hovered / active window
@@ -1066,10 +1070,12 @@ void UI_EndFrame(UI &ui)
 		{
 			UI_RaiseWindow(ui, *ui.hoveredWindow);
 			ui.activeWindow = ui.hoveredWindow;
+			ui.wantsInput = true;
 		}
 		else
 		{
 			ui.activeWindow = nullptr;
+			ui.wantsInput = false;
 		}
 	}
 

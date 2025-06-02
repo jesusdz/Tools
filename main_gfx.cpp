@@ -1230,47 +1230,52 @@ bool GetMovementTouchId(const Window &window, u32 *touchId)
 }
 #endif
 
-void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds)
+void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
 {
-	// Camera rotation
-	f32 deltaYaw = 0.0f;
-	f32 deltaPitch = 0.0f;
-#if PLATFORM_ANDROID
-	u32 touchId;
-	if ( GetOrientationTouchId(window, &touchId) )
-	{
-		deltaYaw = - window.touches[touchId].dx * ToRadians * 0.2f;
-		deltaPitch = - window.touches[touchId].dy * ToRadians * 0.2f;
-	}
-#else
-	if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
-		deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
-		deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
-	}
-#endif
-	float2 angles = camera.orientation;
-	angles.x = angles.x + deltaYaw;
-	angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
-	camera.orientation = angles;
-
-	// Movement direction
 	float3 dir = { 0, 0, 0 };
-#if PLATFORM_ANDROID
-	if ( GetMovementTouchId(window, &touchId) )
+
+	if ( handleInput )
 	{
-		const float3 forward = ForwardDirectionFromAngles(angles);
-		const float3 right = RightDirectionFromAngles(angles);
-		const float scaleForward = -window.touches[touchId].dy;
-		const float scaleRight = window.touches[touchId].dx;
-		dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
-	}
+		// Camera rotation
+		f32 deltaYaw = 0.0f;
+		f32 deltaPitch = 0.0f;
+#if PLATFORM_ANDROID
+		u32 touchId;
+		if ( GetOrientationTouchId(window, &touchId) )
+		{
+			deltaYaw = - window.touches[touchId].dx * ToRadians * 0.2f;
+			deltaPitch = - window.touches[touchId].dy * ToRadians * 0.2f;
+		}
 #else
-	if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
-	if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
-	if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
-	if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
+			deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
+			deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
+		}
 #endif
-	dir = NormalizeIfNotZero(dir);
+		float2 angles = camera.orientation;
+		angles.x = angles.x + deltaYaw;
+		angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
+
+		camera.orientation = angles;
+
+		// Movement direction
+#if PLATFORM_ANDROID
+		if ( GetMovementTouchId(window, &touchId) )
+		{
+			const float3 forward = ForwardDirectionFromAngles(angles);
+			const float3 right = RightDirectionFromAngles(angles);
+			const float scaleForward = -window.touches[touchId].dy;
+			const float scaleRight = window.touches[touchId].dx;
+			dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
+		}
+#else
+		if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+#endif
+		dir = NormalizeIfNotZero(dir);
+	}
 
 	// Accelerated translation
 	static constexpr f32 MAX_SPEED = 100.0f;
@@ -2019,16 +2024,13 @@ void EngineUpdate(Platform &platform)
 
 #if USE_UI
 		UpdateUI(gfx.ui, platform.window, gfx);
-		const bool animateCamera = !gfx.ui.wantsMouseInput;
+		const bool handleInput = !gfx.ui.wantsInput;
 #else
-		constexpr bool animateCamera = true;
+		constexpr bool handleInput = true;
 #endif
 
 #if USE_CAMERA_MOVEMENT
-		if (animateCamera)
-		{
-			AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds);
-		}
+		AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds, handleInput);
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
