@@ -1,11 +1,6 @@
 #define TOOLS_WINDOW
 #include "tools.h"
 
-// TODO: This StringInterning also needs to be declared before we
-// include `tools_gfx.h` as it still makes use of it.
-#define InternString(str) MakeStringIntern(gStringInterning, str)
-static StringInterning *gStringInterning;
-
 #include "tools_gfx.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -326,6 +321,7 @@ static const ComputeDesc computeDescs[] =
 	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 };
 
+static StringInterning *gStringInterning;
 
 #if USE_UI
 
@@ -1955,6 +1951,8 @@ Graphics &GetPlatformGraphics(Platform &platform)
 bool EngineInit(Platform &platform)
 {
 	gStringInterning = &platform.stringInterning;
+
+	SetGraphicsStringInterning(gStringInterning);
 
 	Graphics &gfx = GetPlatformGraphics(platform);
 

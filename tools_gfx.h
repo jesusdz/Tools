@@ -659,6 +659,20 @@ struct GraphicsDevice
 
 
 ////////////////////////////////////////////////////////////////////////
+// String interning
+////////////////////////////////////////////////////////////////////////
+
+#define InternStringGfx(str) MakeStringIntern(gStringInterningGfx, str)
+static StringInterning *gStringInterningGfx = nullptr;
+
+void SetGraphicsStringInterning(StringInterning *stringInterning)
+{
+	ASSERT(gStringInterningGfx == nullptr);
+	gStringInterningGfx = stringInterning;
+}
+
+
+////////////////////////////////////////////////////////////////////////
 // Prototypes
 ////////////////////////////////////////////////////////////////////////
 
@@ -1295,7 +1309,7 @@ static ShaderBindings ReflectShaderBindings( Arena scratch, byte* microcodeData[
 				shaderBinding.set = setIndex;
 				shaderBinding.type = (SpvType)descriptor.type;
 				shaderBinding.stageFlags = descriptor.stageFlags;
-				shaderBinding.name = InternString( descriptor.name );
+				shaderBinding.name = InternStringGfx( descriptor.name );
 				//LOG(Info, "Descriptor name: %s\n", descriptor.name);
 			}
 		}
@@ -3110,7 +3124,7 @@ RenderPass CreateRenderPassInternal( const GraphicsDevice &device, const Renderp
 	VK_CALL( vkCreateRenderPass( device.handle, &renderPassCreateInfo, VULKAN_ALLOCATORS, &vkRenderPass ) );
 
 	const RenderPass renderPass = {
-		.name = InternString(desc.name),
+		.name = InternStringGfx(desc.name),
 		.handle = vkRenderPass
 	};
 
