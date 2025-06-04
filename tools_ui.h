@@ -1034,7 +1034,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 
 	const u32 comboId = UI_MakeID(ui, text);
 	if ( mouseClick && clickedInside ) {
-		ui.comboBox.id = comboId;
+		ui.comboBox.id = ui.comboBox.id == 0 ? comboId : 0;
 	}
 
 	if (ui.comboBox.id == comboId)
@@ -1067,7 +1067,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			UI_PopColor(ui);
 			const float2 textPos = ui.currentPos + padding;
 			UI_AddText(ui, textPos, items[i]);
-			if (itemHovered)// && mouseClick) // TODO: mouseClick not detected here...
+			if (itemHovered && mouseClick)
 			{
 				*selectedIndex = i;
 			}
@@ -1080,10 +1080,10 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 		ui.comboBox.items = items;
 		ui.comboBox.itemCount = itemCount;
 		ui.comboBox.selectedIndex = *selectedIndex;
-	}
 
-	if ( mouseClick && !clickedInside ) {
-		ui.comboBox.id = 0;
+		if ( mouseClick && !clickedInside ) {
+			ui.comboBox.id = 0;
+		}
 	}
 }
 
