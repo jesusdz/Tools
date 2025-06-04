@@ -21,6 +21,9 @@ constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
 constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
 constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
+constexpr float4 UiColorBox = { 0.05, 0.1, 0.2, 1.0 };
+constexpr float4 UiColorBoxHover = { 0.1, 0.2, 0.4, 1.0 };
+constexpr float4 UiColorBoxInactive = { 0.01, 0.02, 0.05, 1.0 };
 
 // Metrics
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
@@ -98,6 +101,15 @@ struct UIDrawList
 	UISortKey sortKey;
 };
 
+struct UICombo
+{
+	const char *text;
+	const char **items;
+	u32 itemCount;
+	u32 selectedIndex;
+	bool selectedIndexChanged;
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -144,6 +156,8 @@ struct UI
 
 	UILayoutGroup layoutGroups[16];
 	u32 layoutGroupCount;
+
+	UICombo comboBox;
 
 	bool avoidWindowInteraction;
 	bool wantsInput;
@@ -418,6 +432,13 @@ float4 UI_WidgetColor(const UI &ui)
 	return res;
 }
 
+
+float4 UI_BoxColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorBoxHover : UiColorBox;
+	return res;
+}
+
 void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction = true)
 {
 	ASSERT(ui.widgetStackSize < ARRAY_COUNT(ui.widgetStack));
@@ -673,6 +694,16 @@ UIWindow &UI_GetCurrentWindow(UI &ui)
 {
 	ASSERT(ui.currentWindow != nullptr);
 	return *ui.currentWindow;
+}
+
+void UI_BeginPanel(UI &ui, const char *caption, float2 pos, float2 size)
+{
+	UI_PushDrawList(ui, rect{pos.x, pos.y, size.x, size.y}, ui.fontAtlasH);
+}
+
+void UI_EndPanel(UI &ui)
+{
+	UI_PopDrawList(ui);
 }
 
 void UI_BeginWindow(UI &ui, const char *caption)
@@ -932,6 +963,110 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	UI_CursorAdvance(ui, widgetSize);
 
 	return clicked;
+}
+
+void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *selectedIndex)
+{
+	ASSERT(selectedIndex != nullptr);
+	const u32 index = *selectedIndex;
+
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 contentWidth = UI_GetContentSize(window).x;
+
+	constexpr float2 padding = {4.0f, 3.0f};
+	const f32 textHeight = UI_TextHeight(ui);
+
+	const f32 side = textHeight + 2.0f * padding.y;
+
+	const float2 widgetPos = ui.currentPos;
+	const float2 widgetSize = float2{contentWidth*0.6f, side};
+
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = float2{widgetSize.x - side, side};
+
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+
+	const float2 textPos = widgetPos + padding;
+	UI_AddText(ui, textPos, items[index]);
+
+	const float2 butPos = widgetPos + float2{boxSize.x, 0.0f};
+	const float2 butSize = {side, side};
+
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, butPos, butSize);
+	UI_PopColor(ui);
+
+	const f32 triangleSide = side * 0.6f;
+	const float2 triangleOffset = 0.2f * float2{side, side};
+	const float2 p0 = butPos + triangleOffset;
+	const float2 p1 = p0 + float2{triangleSide*0.5f, triangleSide};
+	const float2 p2 = p0 + float2{triangleSide, 0.0f};
+	UI_AddTriangle(ui, p0, p1, p2, UiColorWhite);
+
+	const bool clicked = UI_IsMouseClick(ui);
+	const bool clickedInside = UI_WidgetClicked(ui);
+
+	UI_EndWidget(ui);
+	UI_CursorAdvance(ui, widgetSize);
+
+	const float2 text2Pos = butPos + float2{butSize.x + UiSpacing, padding.y};
+	UI_AddText(ui, text2Pos, text);
+
+	if ( clicked ) {
+		if ( clickedInside ) {
+			ui.comboBox.text = text;
+		} else {
+			ui.comboBox.text = nullptr;
+		}
+	}
+
+	if (ui.comboBox.text == text)
+	{
+		const f32 textHeight = UI_TextHeight(ui);
+		const f32 itemHeight = textHeight + 2.0f*padding.y;
+		const float2 panelPos = boxPos + float2{0.0f, boxSize.y};
+		float2 panelSize = UiBorderSize;
+		for (u32 i = 0; i < itemCount; ++i)
+		{
+			const f32 itemWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) + 2.0*padding.x );
+			panelSize.x = Max(panelSize.x, itemWidth);
+			panelSize.y += itemHeight;
+		}
+
+		UI_BeginPanel(ui, "TODO", panelPos, panelSize);
+		UI_AddBorder(ui, panelPos, panelSize, UiBorderSize.x);
+		ui.currentPos = panelPos + UiBorderSize;
+		const f32 itemWidth = panelSize.x - 2.0f*UiBorderSize.x;
+		const float2 itemSize = float2{itemWidth, itemHeight};
+		for (u32 i = 0; i < itemCount; ++i)
+		{
+			const f32 textWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) );
+			UI_BeginWidget(ui, ui.currentPos, itemSize);
+			const bool itemHovered = UI_WidgetHovered(ui);
+			UI_PushColor(ui, itemHovered ? UiColorBoxHover : UiColorPanel);
+			UI_AddRectangle(ui, ui.currentPos, itemSize);
+			UI_PopColor(ui);
+			const float2 textPos = ui.currentPos + padding;
+			UI_AddText(ui, textPos, items[i]);
+			UI_EndWidget(ui);
+			ui.currentPos.y += itemHeight;
+		}
+		UI_EndPanel(ui);
+
+		ui.comboBox.text = text;
+		ui.comboBox.items = items;
+		ui.comboBox.itemCount = itemCount;
+		ui.comboBox.selectedIndex = *selectedIndex;
+	}
+
+	if ( ui.comboBox.text == text && ui.comboBox.selectedIndexChanged )
+	{
+		*selectedIndex = ui.comboBox.selectedIndex;
+	}
 }
 
 void UI_Separator(UI &ui)

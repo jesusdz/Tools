@@ -384,7 +384,6 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 		}
 		UI_EndLayout(ui);
 
-
 		UI_Separator(ui);
 
 		static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
@@ -395,6 +394,12 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 			UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
 		}
 
+		UI_Separator(ui);
+
+		static const char *comboOptions[] = { "Combo 1", "Combo 2", "Combo 3" };
+		static u32 comboIndex = 0;
+
+		UI_Combo(ui, "Select type", comboOptions, ARRAY_COUNT(comboOptions), &comboIndex);
 	}
 
 	UI_EndWindow(ui);
