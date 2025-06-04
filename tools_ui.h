@@ -50,6 +50,7 @@ struct UISection
 
 struct UIWindow
 {
+	i32 id;
 	char caption[64];
 	float2 pos;
 	float2 size;
@@ -103,6 +104,7 @@ struct UIDrawList
 
 struct UICombo
 {
+	u32 id;
 	const char *text;
 	const char **items;
 	u32 itemCount;
@@ -602,7 +604,7 @@ float UI_TextWidth(const UI &ui, const char *text)
 		ptr++;
 	}
 
-	return textWidth;
+	return (f32)(u32)textWidth;
 }
 
 float2 UI_AdjustTextVertically(const UI &ui, float2 pos, float height)
@@ -671,6 +673,7 @@ UIWindow &UI_GetWindow(UI &ui, const char *caption)
 		{
 			// TODO: Remove test code to set initial window position.
 			static int start = 0;
+			window.id = ui.windowCount;
 			StrCopy(window.caption, caption);
 			window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
 			window.size = {200.0f, 300.0f};
@@ -698,7 +701,7 @@ UIWindow &UI_GetCurrentWindow(UI &ui)
 
 void UI_BeginPanel(UI &ui, const char *caption, float2 pos, float2 size)
 {
-	UI_PushDrawList(ui, rect{pos.x, pos.y, size.x, size.y}, ui.fontAtlasH);
+	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH);
 }
 
 void UI_EndPanel(UI &ui)
@@ -787,6 +790,19 @@ void UI_EndWindow(UI &ui)
 	UI_EndWidget(ui);
 	UI_EndLayout(ui);
 	UI_PopDrawList(ui);
+}
+
+i32 UI_MakeID(UIWindow &window, const char *text)
+{
+	const u32 hash = HashStringFNV(text, window.id);
+	return hash;
+}
+
+i32 UI_MakeID(UI &ui, const char *text)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	const u32 id = UI_MakeID(window, text);
+	return id;
 }
 
 UISection &UI_GetSection(UIWindow &window, const char *caption)
@@ -979,7 +995,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const f32 side = textHeight + 2.0f * padding.y;
 
 	const float2 widgetPos = ui.currentPos;
-	const float2 widgetSize = float2{contentWidth*0.6f, side};
+	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -1016,20 +1032,21 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 text2Pos = butPos + float2{butSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, text2Pos, text);
 
+	const u32 comboId = UI_MakeID(ui, text);
 	if ( clicked ) {
 		if ( clickedInside ) {
-			ui.comboBox.text = text;
+			ui.comboBox.id = comboId;
 		} else {
-			ui.comboBox.text = nullptr;
+			ui.comboBox.id = 0;
 		}
 	}
 
-	if (ui.comboBox.text == text)
+	if (ui.comboBox.id == comboId)
 	{
 		const f32 textHeight = UI_TextHeight(ui);
 		const f32 itemHeight = textHeight + 2.0f*padding.y;
 		const float2 panelPos = boxPos + float2{0.0f, boxSize.y};
-		float2 panelSize = UiBorderSize;
+		float2 panelSize = 2.0f * UiBorderSize;
 		for (u32 i = 0; i < itemCount; ++i)
 		{
 			const f32 itemWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) + 2.0*padding.x );
@@ -1038,7 +1055,9 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 		}
 
 		UI_BeginPanel(ui, "TODO", panelPos, panelSize);
+		UI_PushColor(ui, UiColorBorder);
 		UI_AddBorder(ui, panelPos, panelSize, UiBorderSize.x);
+		UI_PopColor(ui);
 		ui.currentPos = panelPos + UiBorderSize;
 		const f32 itemWidth = panelSize.x - 2.0f*UiBorderSize.x;
 		const float2 itemSize = float2{itemWidth, itemHeight};

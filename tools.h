@@ -501,9 +501,9 @@ f32 StrToFloat(const String &s)
 
 #define TOOLS_HASH_FNV_SEED 16777619
 
-u32 HashFNV(const void *data, u32 size, u32 prime = TOOLS_HASH_FNV_SEED)
+u32 HashFNV(const void *data, u32 size, u32 initial = 0, u32 prime = TOOLS_HASH_FNV_SEED)
 {
-	u32 hash = 0;
+	u32 hash = initial;
 	const unsigned char *str = (const unsigned char *)data;
 	for (u32 i = 0; i < size; ++i) {
 		hash = (hash * prime) ^ str[i];
@@ -511,9 +511,9 @@ u32 HashFNV(const void *data, u32 size, u32 prime = TOOLS_HASH_FNV_SEED)
 	return hash;
 }
 
-u32 HashStringFNV(const char *data, u32 prime = TOOLS_HASH_FNV_SEED)
+u32 HashStringFNV(const char *data, u32 initial = 0, u32 prime = TOOLS_HASH_FNV_SEED)
 {
-	u32 hash = 0;
+	u32 hash = initial;
 	const unsigned char *str = (const unsigned char *)data;
 	while (*str) {
 		hash = (hash * prime) ^ *str++;
