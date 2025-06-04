@@ -1023,7 +1023,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 p2 = p0 + float2{triangleSide, 0.0f};
 	UI_AddTriangle(ui, p0, p1, p2, UiColorWhite);
 
-	const bool clicked = UI_IsMouseClick(ui);
+	const bool mouseClick = UI_IsMouseClick(ui);
 	const bool clickedInside = UI_WidgetClicked(ui);
 
 	UI_EndWidget(ui);
@@ -1033,12 +1033,8 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	UI_AddText(ui, text2Pos, text);
 
 	const u32 comboId = UI_MakeID(ui, text);
-	if ( clicked ) {
-		if ( clickedInside ) {
-			ui.comboBox.id = comboId;
-		} else {
-			ui.comboBox.id = 0;
-		}
+	if ( mouseClick && clickedInside ) {
+		ui.comboBox.id = comboId;
 	}
 
 	if (ui.comboBox.id == comboId)
@@ -1071,6 +1067,10 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			UI_PopColor(ui);
 			const float2 textPos = ui.currentPos + padding;
 			UI_AddText(ui, textPos, items[i]);
+			if (itemHovered)// && mouseClick) // TODO: mouseClick not detected here...
+			{
+				*selectedIndex = i;
+			}
 			UI_EndWidget(ui);
 			ui.currentPos.y += itemHeight;
 		}
@@ -1082,9 +1082,8 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 		ui.comboBox.selectedIndex = *selectedIndex;
 	}
 
-	if ( ui.comboBox.text == text && ui.comboBox.selectedIndexChanged )
-	{
-		*selectedIndex = ui.comboBox.selectedIndex;
+	if ( mouseClick && !clickedInside ) {
+		ui.comboBox.id = 0;
 	}
 }
 
