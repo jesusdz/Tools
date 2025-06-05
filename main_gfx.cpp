@@ -336,6 +336,7 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 	{
 		char caption[64];
 		sprintf(caption, "Debug UI %u", i);
+
 	UI_BeginWindow(ui, caption);
 
 	if ( UI_Section(ui, "Buttons") )
@@ -343,7 +344,10 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 		static u32 labelIndex = 0;
 		const char *labels[] = {"Label 1", "Label 2"};
 		const char *label = labels[labelIndex];
+
 		UI_Label(ui, label);
+
+		UI_Separator(ui);
 
 		UI_BeginLayout(ui, UiLayoutHorizontal);
 
@@ -360,8 +364,6 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 
 	}
 
-	UI_Separator(ui);
-
 	if ( UI_Section(ui, "Radio/Check") )
 	{
 		const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
@@ -374,15 +376,6 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 				selectedOption = i;
 			}
 		}
-
-		UI_Separator(ui);
-
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < gfx.textureCount; ++i)
-		{
-			UI_Image(ui, gfx.textures[i].image);
-		}
-		UI_EndLayout(ui);
 
 		UI_Separator(ui);
 
@@ -400,6 +393,23 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 		static u32 comboIndex = 0;
 
 		UI_Combo(ui, "Select type", comboOptions, ARRAY_COUNT(comboOptions), &comboIndex);
+	}
+
+	if ( UI_Section(ui, "Images") )
+	{
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		for (u32 i = 0; i < gfx.textureCount; ++i)
+		{
+			UI_Image(ui, gfx.textures[i].image);
+		}
+		UI_EndLayout(ui);
+	}
+
+	if ( UI_Section(ui, "Inputs") )
+	{
+		static char text[128];
+
+		UI_InputText(ui, "Name", text, ARRAY_COUNT(text));
 	}
 
 	UI_EndWindow(ui);

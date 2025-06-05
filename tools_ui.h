@@ -93,6 +93,12 @@ struct UISortKey
 	u16 order;
 };
 
+enum UIDrawListFlags
+{
+	UIDrawListFlags_None = 0 << 0,
+	UIDrawListFlags_Topmost = 1 << 0,
+};
+
 struct UIDrawList
 {
 	rect scissorRect;
@@ -105,11 +111,13 @@ struct UIDrawList
 struct UICombo
 {
 	u32 id;
-	const char *text;
-	const char **items;
-	u32 itemCount;
-	u32 selectedIndex;
-	bool selectedIndexChanged;
+//	const char *text;
+//	const char **items;
+//	u32 itemCount;
+//	u32 selectedIndex;
+//	bool selectedIndexChanged;
+	float2 pos;
+	float2 size;
 };
 
 struct UI
@@ -277,7 +285,7 @@ UIDrawList &UI_GetDrawList(UI &ui)
 	return ui.drawLists[drawListIndex];
 }
 
-void UI_PushDrawList(UI &ui, rect scissorRect, ImageH imageHandle)
+void UI_PushDrawList(UI &ui, rect scissorRect, ImageH imageHandle, UIDrawListFlags flags = UIDrawListFlags_None)
 {
 	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
 
@@ -290,7 +298,7 @@ void UI_PushDrawList(UI &ui, rect scissorRect, ImageH imageHandle)
 	drawList.scissorRect = scissorRect;
 	drawList.imageHandle = imageHandle;
 
-	drawList.sortKey.order = drawListIndex;
+	drawList.sortKey.order = ( flags & UIDrawListFlags_Topmost ) ? U32_MAX : drawListIndex;
 	if (ui.drawListStackSize > 0)
 	{
 		const u32 parentDrawListIndex = ui.drawListStack[ui.drawListStackSize-1];
@@ -699,9 +707,9 @@ UIWindow &UI_GetCurrentWindow(UI &ui)
 	return *ui.currentWindow;
 }
 
-void UI_BeginPanel(UI &ui, const char *caption, float2 pos, float2 size)
+void UI_BeginPanel(UI &ui, const char *caption, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
 {
-	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH);
+	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
 }
 
 void UI_EndPanel(UI &ui)
@@ -1050,36 +1058,36 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			panelSize.y += itemHeight;
 		}
 
-		UI_BeginPanel(ui, "TODO", panelPos, panelSize);
+		UI_BeginPanel(ui, "TODO", panelPos, panelSize, UIDrawListFlags_Topmost);
 		UI_PushColor(ui, UiColorBorder);
 		UI_AddBorder(ui, panelPos, panelSize, UiBorderSize.x);
 		UI_PopColor(ui);
-		ui.currentPos = panelPos + UiBorderSize;
+		float2 itemPos = panelPos + UiBorderSize;
 		const f32 itemWidth = panelSize.x - 2.0f*UiBorderSize.x;
 		const float2 itemSize = float2{itemWidth, itemHeight};
 		for (u32 i = 0; i < itemCount; ++i)
 		{
 			const f32 textWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) );
-			UI_BeginWidget(ui, ui.currentPos, itemSize);
+			UI_BeginWidget(ui, itemPos, itemSize);
 			const bool itemHovered = UI_WidgetHovered(ui);
 			UI_PushColor(ui, itemHovered ? UiColorBoxHover : UiColorPanel);
-			UI_AddRectangle(ui, ui.currentPos, itemSize);
+			UI_AddRectangle(ui, itemPos, itemSize);
 			UI_PopColor(ui);
-			const float2 textPos = ui.currentPos + padding;
+			const float2 textPos = itemPos + padding;
 			UI_AddText(ui, textPos, items[i]);
 			if (itemHovered && mouseClick)
 			{
 				*selectedIndex = i;
 			}
 			UI_EndWidget(ui);
-			ui.currentPos.y += itemHeight;
+			itemPos.y += itemHeight;
 		}
 		UI_EndPanel(ui);
 
-		ui.comboBox.text = text;
-		ui.comboBox.items = items;
-		ui.comboBox.itemCount = itemCount;
-		ui.comboBox.selectedIndex = *selectedIndex;
+		//ui.comboBox.text = text;
+		//ui.comboBox.items = items;
+		//ui.comboBox.itemCount = itemCount;
+		//ui.comboBox.selectedIndex = *selectedIndex;
 
 		if ( mouseClick && !clickedInside ) {
 			ui.comboBox.id = 0;
@@ -1113,6 +1121,42 @@ void UI_Image(UI &ui, ImageH image)
 	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
 	UI_PopDrawList(ui);
+}
+
+void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 contentWidth = UI_GetContentSize(window).x;
+
+	constexpr float2 padding = {4.0f, 3.0f};
+	const f32 textHeight = UI_TextHeight(ui);
+
+	const f32 side = textHeight + 2.0f * padding.y;
+
+	const float2 widgetPos = ui.currentPos;
+	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = float2{widgetSize.x, side};
+
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+
+	const float2 textPos = boxPos;
+	UI_AddText(ui, textPos, buffer);
+
+	const bool mouseClick = UI_IsMouseClick(ui);
+	const bool clickedInside = UI_WidgetClicked(ui);
+
+	UI_EndWidget(ui);
+
+	const float2 text2Pos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
+	UI_AddText(ui, text2Pos, label);
+
+	UI_CursorAdvance(ui, widgetSize);
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
