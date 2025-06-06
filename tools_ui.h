@@ -1159,6 +1159,112 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	UI_CursorAdvance(ui, widgetSize);
 }
 
+void UI_InputInt(UI &ui, const char *label, i32 *number)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 contentWidth = UI_GetContentSize(window).x;
+
+	constexpr float2 padding = {4.0f, 3.0f};
+	const f32 textHeight = UI_TextHeight(ui);
+
+	const f32 side = textHeight + 2.0f * padding.y;
+
+	const float2 widgetPos = ui.currentPos;
+	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
+	UI_BeginWidget(ui, boxPos, boxSize);
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 textPos = boxPos + padding;
+	UI_AddText(ui, textPos, "<insert number>");
+
+	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
+	const float2 minusSize = float2{side, side};
+	UI_BeginWidget(ui, minusPos, minusSize);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, minusPos, minusSize);
+	UI_PopColor(ui);
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
+	const float2 plusSize = float2{side, side};
+	UI_BeginWidget(ui, plusPos, plusSize);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, plusPos, plusSize);
+	UI_PopColor(ui);
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
+	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
+	UI_AddText(ui, labelPos, label);
+
+	UI_CursorAdvance(ui, widgetSize);
+}
+
+void UI_InputFloat(UI &ui, const char *label, f32 *number)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 contentWidth = UI_GetContentSize(window).x;
+
+	constexpr float2 padding = {4.0f, 3.0f};
+	const f32 textHeight = UI_TextHeight(ui);
+
+	const f32 side = textHeight + 2.0f * padding.y;
+
+	const float2 widgetPos = ui.currentPos;
+	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2, side};
+	UI_BeginWidget(ui, boxPos, boxSize);
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 textPos = boxPos + padding;
+	UI_AddText(ui, textPos, "<insert number>");
+
+	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
+	const float2 minusSize = float2{side, side};
+	UI_BeginWidget(ui, minusPos, minusSize);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, minusPos, minusSize);
+	UI_PopColor(ui);
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
+	const float2 plusSize = float2{side, side};
+	UI_BeginWidget(ui, plusPos, plusSize);
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, plusPos, plusSize);
+	UI_PopColor(ui);
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
+	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
+	UI_PopColor(ui);
+	UI_EndWidget(ui);
+
+	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
+	UI_AddText(ui, labelPos, label);
+
+	UI_CursorAdvance(ui, widgetSize);
+}
+
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
 struct Graphics;
 ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);

@@ -408,8 +408,12 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 	if ( UI_Section(ui, "Inputs") )
 	{
 		static char text[128];
+		static i32 intNumber = 0;
+		static f32 floatNumber = 0.0f;
 
-		UI_InputText(ui, "Name", text, ARRAY_COUNT(text));
+		UI_InputText(ui, "Input text", text, ARRAY_COUNT(text));
+		UI_InputInt(ui, "Input int", &intNumber);
+		UI_InputFloat(ui, "Input float", &floatNumber);
 	}
 
 	UI_EndWindow(ui);
