@@ -656,22 +656,6 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
-UIWindow &UI_GetWindowAtLayer(UI &ui, u32 layer)
-{
-	for (u32 i = 0; i < ui.windowCount; ++i)
-	{
-		UIWindow &window = ui.windows[i];
-		if (window.layer == layer)
-		{
-			return window;
-		}
-	}
-
-	ASSERT(0 && "Window not found.");
-	static UIWindow nullWindow = { };
-	return nullWindow;
-}
-
 UIWindow &UI_GetWindow(UI &ui, const char *caption)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
@@ -707,7 +691,7 @@ UIWindow &UI_GetCurrentWindow(UI &ui)
 	return *ui.currentWindow;
 }
 
-void UI_BeginPanel(UI &ui, const char *caption, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
+void UI_BeginPanel(UI &ui, u32 id, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
 {
 	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
 }
@@ -723,19 +707,14 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UIWindow &window = UI_GetWindow(ui, caption);
 	ui.currentWindow = &window;
 
-	UI_PushDrawList(ui, rect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH);
+	const u32 panelId = window.id;
+	UI_BeginPanel(ui, panelId, window.pos, window.size );
 
 	UIDrawList &drawList = UI_GetDrawList(ui);
 	drawList.sortKey.layer = window.layer;
 	drawList.sortKey.order = 0;
 
 	UI_BeginLayout(ui, UiLayoutVertical);
-	UI_BeginWidget(ui, window.pos, window.size, false);
-
-	if ( UI_WidgetClicked(ui) )
-	{
-		window.dragging = true;
-	}
 
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddBorder(ui, window.pos, window.size, UiBorderSize.x);
@@ -766,7 +745,6 @@ void UI_BeginWindow(UI &ui, const char *caption)
 	UI_PopColor(ui);
 	if (UI_WidgetClicked(ui))
 	{
-		window.dragging = false;
 		window.resizing = true;
 	}
 	UI_EndWidget(ui);
@@ -795,9 +773,8 @@ void UI_EndWindow(UI &ui)
 	ui.currentWindow = nullptr;
 
 	UI_PopDrawList(ui);
-	UI_EndWidget(ui);
 	UI_EndLayout(ui);
-	UI_PopDrawList(ui);
+	UI_EndPanel(ui);
 }
 
 i32 UI_MakeID(UIWindow &window, const char *text)
@@ -1040,7 +1017,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 text2Pos = butPos + float2{butSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, text2Pos, text);
 
-	const u32 comboId = UI_MakeID(ui, text);
+	const u32 comboId = UI_MakeID(ui, text); // TODO: Make this ID depend on parent panel
 	if ( mouseClick && clickedInside ) {
 		ui.comboBox.id = ui.comboBox.id == 0 ? comboId : 0;
 	}
@@ -1058,10 +1035,12 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			panelSize.y += itemHeight;
 		}
 
-		UI_BeginPanel(ui, "TODO", panelPos, panelSize, UIDrawListFlags_Topmost);
+		UI_BeginPanel(ui, comboId, panelPos, panelSize, UIDrawListFlags_Topmost);
+
 		UI_PushColor(ui, UiColorBorder);
 		UI_AddBorder(ui, panelPos, panelSize, UiBorderSize.x);
 		UI_PopColor(ui);
+
 		float2 itemPos = panelPos + UiBorderSize;
 		const f32 itemWidth = panelSize.x - 2.0f*UiBorderSize.x;
 		const float2 itemSize = float2{itemWidth, itemHeight};
@@ -1082,12 +1061,8 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			UI_EndWidget(ui);
 			itemPos.y += itemHeight;
 		}
-		UI_EndPanel(ui);
 
-		//ui.comboBox.text = text;
-		//ui.comboBox.items = items;
-		//ui.comboBox.itemCount = itemCount;
-		//ui.comboBox.selectedIndex = *selectedIndex;
+		UI_EndPanel(ui);
 
 		if ( mouseClick && !clickedInside ) {
 			ui.comboBox.id = 0;
@@ -1441,6 +1416,7 @@ void UI_EndFrame(UI &ui)
 		{
 			UI_RaiseWindow(ui, *ui.hoveredWindow);
 			ui.activeWindow = ui.hoveredWindow;
+			ui.activeWindow->dragging = true;
 			ui.wantsInput = true;
 		}
 		else
@@ -1454,13 +1430,13 @@ void UI_EndFrame(UI &ui)
 	{
 		UIWindow &window = ui.windows[i];
 
-		// In case some widget interaction blocked the window...
 		if ( UI_IsMouseIdle(ui) )
 		{
 			window.dragging = false;
 			window.resizing = false;
 		}
 
+		// If no other widget interaction blocked the window...
 		if ( !ui.avoidWindowInteraction )
 		{
 			if ( window.resizing )
