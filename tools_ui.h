@@ -560,29 +560,42 @@ void UI_AddTriangle(UI &ui, float2 p0, float2 p1, float2 p2)
 
 void UI_AddQuad(UI &ui, float2 pos, float2 size, float2 uv, float2 uvSize, float4 fcolor)
 {
-	// pos
-	const float2 v0 = { pos.x, pos.y }; // top-left
-	const float2 v1 = { pos.x, pos.y + size.y }; // bottom-left
-	const float2 v2 = { pos.x + size.x, pos.y + size.y }; // bottom-right
-	const float2 v3 = { pos.x + size.x, pos.y }; // top-right
+	UIDrawList &drawList = UI_GetDrawList(ui);
 
-	// uv
-	const float2 uvTL = { uv.x, uv.y };
-	const float2 uvBL = { uv.x, uv.y + uvSize.y };
-	const float2 uvBR = { uv.x + uvSize.x , uv.y + uvSize.y };
-	const float2 uvTR = { uv.x + uvSize.x , uv.y };
+	const int2 containerMin = drawList.scissorRect.pos;
+	const int2 containerMax = drawList.scissorRect.pos + drawList.scissorRect.size;
+	const float2 min = pos;
+	const float2 max = pos + size;
+	const bool outside =
+		min.x >= containerMax.x || min.y >= containerMax.y ||
+		max.x < containerMin.x || max.y < containerMin.y;
 
-	// color
-	const rgba color  = Rgba(fcolor);
+	if ( !outside )
+	{
+		// pos
+		const float2 v0 = { pos.x, pos.y }; // top-left
+		const float2 v1 = { pos.x, pos.y + size.y }; // bottom-left
+		const float2 v2 = { pos.x + size.x, pos.y + size.y }; // bottom-right
+		const float2 v3 = { pos.x + size.x, pos.y }; // top-right
 
-	UI_AddTriangle(ui,
-		UIVertex{ v0, uvTL, color },
-		UIVertex{ v1, uvBL, color },
-		UIVertex{ v2, uvBR, color });
-	UI_AddTriangle(ui,
-		UIVertex{ v0, uvTL, color },
-		UIVertex{ v2, uvBR, color },
-		UIVertex{ v3, uvTR, color });
+		// uv
+		const float2 uvTL = { uv.x, uv.y };
+		const float2 uvBL = { uv.x, uv.y + uvSize.y };
+		const float2 uvBR = { uv.x + uvSize.x , uv.y + uvSize.y };
+		const float2 uvTR = { uv.x + uvSize.x , uv.y };
+
+		// color
+		const rgba color  = Rgba(fcolor);
+
+		UI_AddTriangle(ui,
+				UIVertex{ v0, uvTL, color },
+				UIVertex{ v1, uvBL, color },
+				UIVertex{ v2, uvBR, color });
+		UI_AddTriangle(ui,
+				UIVertex{ v0, uvTL, color },
+				UIVertex{ v2, uvBR, color },
+				UIVertex{ v3, uvTR, color });
+	}
 }
 
 void UI_AddRectangle(UI &ui, float2 pos, float2 size)
