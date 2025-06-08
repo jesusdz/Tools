@@ -169,6 +169,11 @@ struct Graphics
 
 	bool deviceInitialized;
 
+	f32 gpuFrameTimes[32];
+	u32 gpuFrameTimeCount;
+	f32 gpuFrameTimeAvg;
+	f32 gpuFrameTimeMax;
+
 #if USE_UI
 	UI ui;
 #endif
@@ -338,6 +343,16 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 		sprintf(caption, "Debug UI %u", i);
 
 	UI_BeginWindow(ui, caption);
+
+	if ( UI_Section(ui, "Profiling" ) )
+	{
+		sprintf(caption, "Avg. GPU frame time: %f ms", gfx.gpuFrameTimeAvg);
+		UI_Label(ui, caption);
+		UI_Histogram(ui, gfx.gpuFrameTimes, ARRAY_COUNT(gfx.gpuFrameTimes), 1.5f * gfx.gpuFrameTimeAvg);
+
+		sprintf(caption, "Avg. CPU frame time: %f ms", gfx.gpuFrameTimeAvg);
+		UI_Label(ui, caption);
+	}
 
 	if ( UI_Section(ui, "Buttons") )
 	{
@@ -1139,6 +1154,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
 	{
 		gfx.timestampPools[i] = CreateTimestampPool(gfx.device, 128);
+		//ResetTimestampPool(gfx.device, gfx.timestampPools[i]); // Vulkan 1.2
 	}
 
 	// Camera
@@ -1449,6 +1465,26 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	u32 frameIndex = gfx.device.currentFrame;
 
 	BeginFrame(gfx.device);
+
+	// We can query for previous (MAX_FRAMES_IN_FLIGHT before) frame fences
+	static u32 frameCount = 0;
+	if ( frameCount++ >= MAX_FRAMES_IN_FLIGHT )
+	{
+		const TimestampPool &timestampPool = gfx.timestampPools[frameIndex];
+		const Timestamp t0 = ReadTimestamp(timestampPool, 0);
+		const Timestamp t1 = ReadTimestamp(timestampPool, 1);
+		ASSERT(t1.millis >= t0.millis);
+		gfx.gpuFrameTimes[gfx.gpuFrameTimeCount] = t1.millis - t0.millis;
+		gfx.gpuFrameTimeCount = ( gfx.gpuFrameTimeCount + 1 ) % ARRAY_COUNT(gfx.gpuFrameTimes);
+		gfx.gpuFrameTimeMax = 0.0f;
+		f32 gpuFrameTimeSum = 0.0f;
+		for (u32 i = 0; i < ARRAY_COUNT(gfx.gpuFrameTimes); ++i)
+		{
+			gfx.gpuFrameTimeMax = Max(gfx.gpuFrameTimeMax, gfx.gpuFrameTimes[i]);
+			gpuFrameTimeSum += gfx.gpuFrameTimes[i];
+		}
+		gfx.gpuFrameTimeAvg = gpuFrameTimeSum / ARRAY_COUNT(gfx.gpuFrameTimes);
+	}
 
 	UI_UploadVerticesToGPU(gfx.ui);
 

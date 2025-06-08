@@ -786,7 +786,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 	{
 		const bool activeWindow = ui.activeWindow == &window;
 		const float2 titlebarPos = panelPos;
-		const float2 titlebarSize = float2{window.size.x - 2.0f * UiBorderSize.x, 18.0f};
+		const float2 titlebarSize = float2{panelSize.x, 18.0f};
 
 		UI_PushColor(ui, activeWindow ? UiColorCaption : UiColorCaptionInactive);
 		UI_AddRectangle(ui, titlebarPos, titlebarSize);
@@ -1339,13 +1339,43 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	UI_CursorAdvance(ui, widgetSize);
 }
 
+void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 histogramWidth = UI_GetContentSize(window).x;
+	const f32 histogramHeight = 40.0f;
+	const float2 histPos = ui.currentPos;
+	const float2 histSize = {histogramWidth, histogramHeight};
+
+	UI_BeginWidget(ui, histPos, histSize, false);
+
+	const f32 barWidth = histogramWidth / valueCount;
+	const float2 barBase = histPos + float2{0.0f, histSize.y};
+
+	const float4 colorOrange = {1.0, 0.6, 0.0, 1.0};
+	UI_PushColor(ui, colorOrange);
+	for (u32 i = 0; i < valueCount; ++i)
+	{
+		const float heightRatio = values[i] / maxValue;
+		const f32 barHeight = heightRatio * histogramHeight;
+		const float2 barPos = barBase + float2{ i * barWidth, -barHeight };
+		const float2 barSize = {barWidth - 1, barHeight};
+		UI_AddRectangle(ui, barPos, barSize);
+	}
+	UI_PopColor(ui);
+
+	UI_EndWidget(ui);
+
+	UI_CursorAdvance(ui, histSize);
+}
+
 // TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
 struct Graphics;
 ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 {
-	const u32 vertexBufferSize = KB(64);
+	const u32 vertexBufferSize = KB(128);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
 	UIVertex *vertexData = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);

@@ -3642,7 +3642,7 @@ struct TimestampPool
 
 struct Timestamp
 {
-	float millis;
+	double millis;
 };
 
 TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries)
@@ -3671,6 +3671,13 @@ void DestroyTimestampPool(const GraphicsDevice &device, const TimestampPool &poo
 	vkDestroyQueryPool(device.handle, pool.handle, VULKAN_ALLOCATORS);
 }
 
+//void ResetTimestampPool(const GraphicsDevice &device, TimestampPool &pool)
+//{
+//	// Vulkan 1.2
+//	vkResetQueryPool(device.handle, pool.handle, 0, pool.maxQueries);
+//	pool.queryCount = 0;
+//}
+
 void ResetTimestampPool(const CommandList &commandBuffer, TimestampPool &pool)
 {
 	vkCmdResetQueryPool(commandBuffer.handle, pool.handle, 0, pool.maxQueries);
@@ -3689,15 +3696,17 @@ u32 WriteTimestamp(const CommandList &commandBuffer, TimestampPool &pool, Pipeli
 
 Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex)
 {
-	float millis = 0.0f;
+	double millis = 0.0f;
 
 	if ( queryIndex < pool.queryCount )
 	{
-		u32 data[2];
+		u64 data[2];
 		const VkDevice device = pool.deviceHandle;
 		const VkQueryPool queryPool = pool.handle;
-		const VkQueryResultFlags flags = VK_QUERY_RESULT_WITH_AVAILABILITY_BIT;
-		VkResult result = vkGetQueryPoolResults(device, queryPool, queryIndex, 1, sizeof(data), data, sizeof(data), flags);
+		const VkQueryResultFlags flags = VK_QUERY_RESULT_WITH_AVAILABILITY_BIT | VK_QUERY_RESULT_64_BIT;
+		const VkDeviceSize stride = sizeof(data);
+		const u32 queryCount = 1;
+		VkResult result = vkGetQueryPoolResults(device, queryPool, queryIndex, queryCount, sizeof(data), data, stride, flags);
 
 		// Exit with error
 		if (result < VK_SUCCESS) {
@@ -3706,9 +3715,11 @@ Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex)
 
 		// result could be VK_NOT_READY
 		const bool isAvailable = result == VK_SUCCESS && data[1] != 0;
-		const u32 ticks = isAvailable ? data[0] : 0;
+		ASSERT(isAvailable);
+
+		const u64 ticks = isAvailable ? data[0] : 0;
 		const double nanos = (double)ticks * pool.nanosPerTick;
-		millis = (float)(nanos / 1000000.0);
+		millis = nanos / 1000000.0;
 	}
 
 	const Timestamp timestamp = {
