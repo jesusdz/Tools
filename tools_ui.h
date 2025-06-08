@@ -17,7 +17,7 @@ constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
 constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
-constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.9 };
+constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.97 };
 constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
 constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
@@ -48,14 +48,26 @@ struct UISection
 	bool open;
 };
 
+enum UIWindowFlags
+{
+	UIWindowFlag_None = 0,
+	UIWindowFlag_Resizable = 1 << 0,
+	UIWindowFlag_Titlebar = 1 << 1,
+	UIWindowFlag_Background = 1 << 2,
+	UIWindowFlag_Border = 1 << 3,
+	UIWindowFlag_ClipContents = 1 << 4,
+};
+
 struct UIWindow
 {
-	i32 id;
+	u32 id;
+	i32 index;
 	char caption[64];
 	float2 pos;
 	float2 size;
 	bool dragging;
 	bool resizing;
+	bool clippedContents;
 	u32 layer;
 
 	UISection sections[16];
@@ -157,9 +169,11 @@ struct UI
 	UIWindow windows[16];
 	u32 windowCount;
 
+	u32 windowStack[16];
+	u32 windowStackSize;
+
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
-	UIWindow *currentWindow;
 
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
@@ -416,11 +430,26 @@ bool UI_MouseInArea(const UI &ui, float2 pos, float2 size)
 	return inArea;
 }
 
+UIWindow &UI_GetCurrentWindow(UI &ui)
+{
+	ASSERT(ui.windowStackSize > 0);
+	const u32 windowIndex = ui.windowStack[ui.windowStackSize-1];
+	return ui.windows[windowIndex];
+}
+
+const UIWindow &UI_GetCurrentWindow(const UI &ui)
+{
+	ASSERT(ui.windowStackSize > 0);
+	const u32 windowIndex = ui.windowStack[ui.windowStackSize-1];
+	return ui.windows[windowIndex];
+}
+
 bool UI_WidgetHovered(const UI &ui)
 {
 	bool hover = false;
+	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
 
-	if ( ui.currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
+	if ( &currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
 	{
 		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
 
@@ -656,42 +685,53 @@ void UI_AddText(UI &ui, float2 pos, const char *text)
 	}
 }
 
-UIWindow &UI_GetWindow(UI &ui, const char *caption)
+UIWindow &UI_FindWindow(UI &ui, u32 windowId)
 {
-	for (u32 i = 0; i < ARRAY_COUNT(ui.windows); ++i)
+	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
 		UIWindow &window = ui.windows[i];
-		if (*window.caption == '\0')
-		{
-			// TODO: Remove test code to set initial window position.
-			static int start = 0;
-			window.id = ui.windowCount;
-			StrCopy(window.caption, caption);
-			window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
-			window.size = {200.0f, 300.0f};
-			window.layer = ui.windowCount++;
-			UI_RaiseWindow(ui, window);
-			start++;
-			return window;
-		}
-		else if (StrEq(window.caption, caption))
+		if ( window.id == windowId )
 		{
 			return window;
 		}
 	}
 
-	ASSERT(0 && "Window not found.");
-	static UIWindow nullWindow = { };
-	return nullWindow;
+	ASSERT(0 && "Could not find window.");
+	static UIWindow window = {};
+	return window;
 }
 
-UIWindow &UI_GetCurrentWindow(UI &ui)
+UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 {
-	ASSERT(ui.currentWindow != nullptr);
-	return *ui.currentWindow;
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+		if ( window.id == windowId )
+		{
+			ASSERT(window.caption != 0);
+			return window;
+		}
+	}
+
+	ASSERT(ui.windowCount < ARRAY_COUNT(ui.windows));
+	const u32 windowIndex = ui.windowCount++;
+	UIWindow &window = ui.windows[windowIndex];
+
+	// TODO: Remove test code to set initial window position.
+	static int start = 0;
+	window.id = windowId;
+	window.index = windowIndex;
+	StrCopy(window.caption, caption);
+	window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
+	window.size = {200.0f, 300.0f};
+	window.layer = windowIndex;
+	UI_RaiseWindow(ui, window);
+	start++;
+
+	return window;
 }
 
-void UI_BeginPanel(UI &ui, u32 id, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
+void UI_BeginPanel(UI &ui, u32 index, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
 {
 	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
 }
@@ -701,14 +741,14 @@ void UI_EndPanel(UI &ui)
 	UI_PopDrawList(ui);
 }
 
-void UI_BeginWindow(UI &ui, const char *caption)
+void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 {
-	ASSERT(!ui.currentWindow);
-	UIWindow &window = UI_GetWindow(ui, caption);
-	ui.currentWindow = &window;
+	ASSERT(ui.windowStackSize < ARRAY_COUNT(ui.windowStack));
 
-	const u32 panelId = window.id;
-	UI_BeginPanel(ui, panelId, window.pos, window.size );
+	UIWindow &window = UI_FindWindow(ui, windowId);
+	ui.windowStack[ui.windowStackSize++] = window.index;
+
+	UI_PushDrawList(ui, rect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH, UIDrawListFlags_None);
 
 	UIDrawList &drawList = UI_GetDrawList(ui);
 	drawList.sortKey.layer = window.layer;
@@ -716,78 +756,119 @@ void UI_BeginWindow(UI &ui, const char *caption)
 
 	UI_BeginLayout(ui, UiLayoutVertical);
 
-	UI_PushColor(ui, UiColorBorder);
-	UI_AddBorder(ui, window.pos, window.size, UiBorderSize.x);
-	UI_PopColor(ui);
+	float2 panelPos = window.pos;
+	float2 panelSize = window.size;
 
-	const bool activeWindow = ui.activeWindow == &window;
-	const float2 titlebarPos = window.pos + UiBorderSize;
-	const float2 titlebarSize = float2{window.size.x - 2.0f * UiBorderSize.x, 18.0f};
-	UI_PushColor(ui, activeWindow ? UiColorCaption : UiColorCaptionInactive);
-	UI_AddRectangle(ui, titlebarPos, titlebarSize);
-	UI_PopColor(ui);
-
-	const float2 panelPos = titlebarPos + float2{0.0, titlebarSize.y};
-	const float2 panelSize = window.size - 2.0 * UiBorderSize - float2{ 0.0, titlebarSize.y };
-	UI_PushColor(ui, UiColorPanel);
-	UI_AddRectangle(ui, panelPos, panelSize);
-	UI_PopColor(ui);
-
-	const float cornerSize = 14;
-	const float2 cornerBR = window.pos + window.size - UiBorderSize;
-	const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
-	const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
-	const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
-	UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize}, false);
-	const bool cornerHovered = UI_WidgetHovered(ui);
-	UI_PushColor(ui, cornerHovered ? UiColorWidgetHover : UiColorWidget);
-	UI_AddTriangle(ui, cornerBL, cornerBR, cornerTR);
-	UI_PopColor(ui);
-	if (UI_WidgetClicked(ui))
+	if ( flags & UIWindowFlag_Border )
 	{
-		window.resizing = true;
+		UI_PushColor(ui, UiColorBorder);
+		UI_AddBorder(ui, window.pos, window.size, UiBorderSize.x);
+		UI_PopColor(ui);
+
+		panelPos = panelPos + UiBorderSize;
+		panelSize = panelSize - 2.0f * UiBorderSize;
 	}
-	UI_EndWidget(ui);
 
-	const float2 captionPos = UI_AdjustTextVertically(ui, titlebarPos + float2{UiWindowPadding.x, 0.0}, titlebarSize.y);
-	UI_AddText(ui, captionPos, caption);
+	if (flags & UIWindowFlag_Titlebar)
+	{
+		const bool activeWindow = ui.activeWindow == &window;
+		const float2 titlebarPos = panelPos;
+		const float2 titlebarSize = float2{window.size.x - 2.0f * UiBorderSize.x, 18.0f};
 
-	UI_SetCursorPos(ui, window.pos + UiWindowPadding + UiBorderSize);
-	UI_MoveCursorDown(ui, titlebarSize.y);
+		UI_PushColor(ui, activeWindow ? UiColorCaption : UiColorCaptionInactive);
+		UI_AddRectangle(ui, titlebarPos, titlebarSize);
+		UI_PopColor(ui);
 
-	const int2 contentPos = {
-		.x = (i32)(panelPos.x + UiWindowPadding.x),
-		.y = (i32)(panelPos.y + UiWindowPadding.y),
-	};
-	const uint2 contentSize = {
-		.x = (u32)(panelSize.x - 2.0f * UiWindowPadding.x),
-		.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
-	};
-	const rect contentRect = { .pos = contentPos, .size = contentSize };
-	UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
+		const float2 captionPos = UI_AdjustTextVertically(ui, titlebarPos + float2{UiWindowPadding.x, 0.0}, titlebarSize.y);
+		UI_AddText(ui, captionPos, window.caption);
+
+		panelPos.y += titlebarSize.y;
+		panelSize.y -= titlebarSize.y;
+	}
+
+	if ( flags & UIWindowFlag_Background )
+	{
+		UI_PushColor(ui, UiColorPanel);
+		UI_AddRectangle(ui, panelPos, panelSize);
+		UI_PopColor(ui);
+	}
+
+	if ( flags & UIWindowFlag_Resizable )
+	{
+		const float cornerSize = 14;
+		const float2 cornerBR = window.pos + window.size - UiBorderSize;
+		const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
+		const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
+		const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
+		UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize}, false);
+		const bool cornerHovered = UI_WidgetHovered(ui);
+		UI_PushColor(ui, cornerHovered ? UiColorWidgetHover : UiColorWidget);
+		UI_AddTriangle(ui, cornerBL, cornerBR, cornerTR);
+		UI_PopColor(ui);
+		if (UI_WidgetClicked(ui))
+		{
+			window.resizing = true;
+		}
+		UI_EndWidget(ui);
+	}
+
+	if ( flags & UIWindowFlag_ClipContents )
+	{
+		window.clippedContents = true;
+
+		const int2 contentPos = {
+			.x = (i32)(panelPos.x + UiWindowPadding.x),
+			.y = (i32)(panelPos.y + UiWindowPadding.y),
+		};
+		const uint2 contentSize = {
+			.x = (u32)(panelSize.x - 2.0f * UiWindowPadding.x),
+			.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
+		};
+		const rect contentRect = { .pos = contentPos, .size = contentSize };
+		UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
+
+		panelPos = panelPos + UiWindowPadding;
+		panelSize = panelSize = 2.0f * UiWindowPadding;
+	}
+
+	UI_SetCursorPos(ui, panelPos);
+}
+
+i32 UI_MakeID(const UI &ui, const char *text)
+{
+	u32 parentId = 0;
+	if ( ui.windowStackSize > 0 )
+	{
+		const UIWindow &window = UI_GetCurrentWindow(ui);
+		parentId = window.id;
+	}
+
+	const u32 id = HashStringFNV(text, parentId);
+	return id;
+}
+
+void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Background | UIWindowFlag_ClipContents )
+{
+	const u32 windowId = UI_MakeID(ui, caption);
+	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, caption);
+
+	UI_BeginWindow(ui, windowId, flags);
 }
 
 void UI_EndWindow(UI &ui)
 {
-	ASSERT(ui.currentWindow);
-	ui.currentWindow = nullptr;
-
-	UI_PopDrawList(ui);
-	UI_EndLayout(ui);
-	UI_EndPanel(ui);
-}
-
-i32 UI_MakeID(UIWindow &window, const char *text)
-{
-	const u32 hash = HashStringFNV(text, window.id);
-	return hash;
-}
-
-i32 UI_MakeID(UI &ui, const char *text)
-{
 	UIWindow &window = UI_GetCurrentWindow(ui);
-	const u32 id = UI_MakeID(window, text);
-	return id;
+
+	if (window.clippedContents)
+	{
+		UI_PopDrawList(ui);
+	}
+	UI_EndLayout(ui);
+	UI_PopDrawList(ui);
+
+	ASSERT(ui.windowStackSize > 0);
+	ui.windowStackSize--;
+
 }
 
 UISection &UI_GetSection(UIWindow &window, const char *caption)
@@ -1017,9 +1098,10 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 text2Pos = butPos + float2{butSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, text2Pos, text);
 
-	const u32 comboId = UI_MakeID(ui, text); // TODO: Make this ID depend on parent panel
-	if ( mouseClick && clickedInside ) {
-		ui.comboBox.id = ui.comboBox.id == 0 ? comboId : 0;
+	const u32 comboId = UI_MakeID(ui, "$combo");
+	if ( clickedInside )
+	{
+		ui.comboBox.id = ui.comboBox.id == comboId ? 0 : comboId;
 	}
 
 	if (ui.comboBox.id == comboId)
@@ -1035,11 +1117,12 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			panelSize.y += itemHeight;
 		}
 
-		UI_BeginPanel(ui, comboId, panelPos, panelSize, UIDrawListFlags_Topmost);
+		UIWindow &comboPanel = UI_FindOrCreateWindow(ui, comboId, "$combo");
+		UI_RaiseWindow(ui, comboPanel);
+		comboPanel.pos = panelPos;
+		comboPanel.size = panelSize;
 
-		UI_PushColor(ui, UiColorBorder);
-		UI_AddBorder(ui, panelPos, panelSize, UiBorderSize.x);
-		UI_PopColor(ui);
+		UI_BeginWindow(ui, comboId, UIWindowFlag_Border);
 
 		float2 itemPos = panelPos + UiBorderSize;
 		const f32 itemWidth = panelSize.x - 2.0f*UiBorderSize.x;
@@ -1062,12 +1145,15 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			itemPos.y += itemHeight;
 		}
 
-		UI_EndPanel(ui);
+		UI_EndWindow(ui);
 
 		if ( mouseClick && !clickedInside ) {
 			ui.comboBox.id = 0;
 		}
 	}
+
+	ui.currentPos = widgetPos;
+	UI_CursorAdvance(ui, widgetSize);
 }
 
 void UI_Separator(UI &ui)
