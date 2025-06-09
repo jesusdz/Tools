@@ -40,6 +40,7 @@ struct UIVertex
 struct UIInput
 {
 	Mouse mouse;
+	Keyboard keyboard;
 };
 
 struct UISection
@@ -67,6 +68,7 @@ struct UIWindow
 	float2 size;
 	bool dragging;
 	bool resizing;
+	bool disableWidgets;
 	bool clippedContents;
 	u32 layer;
 
@@ -499,8 +501,9 @@ void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction
 	}
 
 	// Disable window interaction in case the widget was clicked
-	const bool clicked = UI_WidgetHovered(ui) && UI_IsMouseClick(ui);
-	if ( clicked ) {
+	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
+	if ( !currentWindow.disableWidgets && UI_WidgetClicked(ui) )
+	{
 		ui.avoidWindowInteraction = avoidWindowInteraction;
 	}
 }
@@ -821,6 +824,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 		if (UI_WidgetClicked(ui))
 		{
 			window.resizing = true;
+			window.disableWidgets = true;
 		}
 		UI_EndWidget(ui);
 	}
@@ -1487,6 +1491,7 @@ void UI_BeginFrame(UI &ui)
 		{
 			window.dragging = false;
 			window.resizing = false;
+			window.disableWidgets = false;
 		}
 
 		// If no other widget interaction blocked the window...
