@@ -449,9 +449,9 @@ bool UI_WidgetHovered(const UI &ui)
 	bool hover = false;
 	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
 
-	if ( &currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
+	if ( &currentWindow == ui.activeWindow && ui.widgetStackSize > 0 )
 	{
-		const UIWidget widget = ui.widgetStack[ui.widgetStackSize-1];
+		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
 
 		hover = UI_MouseInArea(ui, widget.pos, widget.size);
 	}
@@ -1477,17 +1477,76 @@ void UI_BeginFrame(UI &ui)
 	ui.vertexCount = 0;
 	ui.drawListCount = 0;
 	ui.drawListStackSize = 0;
+
+	// Resize / move window interactions
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+
+		if ( UI_IsMouseIdle(ui) )
+		{
+			window.dragging = false;
+			window.resizing = false;
+		}
+
+		// If no other widget interaction blocked the window...
+		if ( !ui.avoidWindowInteraction )
+		{
+			if ( window.resizing )
+			{
+				constexpr float2 minWindowSize = { 100.0f, 100.0f };
+				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
+			}
+			else if ( window.dragging )
+			{
+				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
+			}
+		}
+	}
+
+	// Update hovered window
+	ui.hoveredWindow = nullptr;
+	u32 hoveredWindowLayer = U32_MAX;
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+
+		if ( UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
+		{
+			ui.hoveredWindow = &window;
+			hoveredWindowLayer = window.layer;
+		}
+	}
+
+	// Update active window
+	if ( UI_IsMouseClick(ui) )
+	{
+		if ( ui.hoveredWindow )
+		{
+			UI_RaiseWindow(ui, *ui.hoveredWindow);
+			ui.activeWindow = ui.hoveredWindow;
+			ui.activeWindow->dragging = true;
+			ui.wantsInput = true;
+		}
+		else
+		{
+			ui.activeWindow = nullptr;
+			ui.wantsInput = false;
+		}
+	}
+
 }
 
 void UI_EndFrame(UI &ui)
 {
-	// Create a new array of sorted draw lists
+	// Create an array of draw list indices
 	u32 sortedDrawListIndices[ARRAY_COUNT(ui.drawLists)];
 	for (u32 i = 0; i < ui.drawListCount; ++i)
 	{
 		sortedDrawListIndices[i] = i;
 	}
-	// Bubblesort
+
+	// Sort draw lists
 	u32 numSwaps = U32_MAX;
 	while (numSwaps > 0)
 	{
@@ -1526,59 +1585,6 @@ void UI_EndFrame(UI &ui)
 		ui.avoidWindowInteraction = false;
 	}
 
-	// Setup hovered / active window
-	ui.hoveredWindow = nullptr;
-	u32 hoveredWindowLayer = U32_MAX;
-	for (u32 i = 0; i < ui.windowCount; ++i)
-	{
-		UIWindow &window = ui.windows[i];
-
-		if ( UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
-		{
-			ui.hoveredWindow = &window;
-			hoveredWindowLayer = window.layer;
-		}
-	}
-	if ( UI_IsMouseClick(ui) )
-	{
-		if ( ui.hoveredWindow )
-		{
-			UI_RaiseWindow(ui, *ui.hoveredWindow);
-			ui.activeWindow = ui.hoveredWindow;
-			ui.activeWindow->dragging = true;
-			ui.wantsInput = true;
-		}
-		else
-		{
-			ui.activeWindow = nullptr;
-			ui.wantsInput = false;
-		}
-	}
-
-	for (u32 i = 0; i < ui.windowCount; ++i)
-	{
-		UIWindow &window = ui.windows[i];
-
-		if ( UI_IsMouseIdle(ui) )
-		{
-			window.dragging = false;
-			window.resizing = false;
-		}
-
-		// If no other widget interaction blocked the window...
-		if ( !ui.avoidWindowInteraction )
-		{
-			if ( window.resizing )
-			{
-				constexpr float2 minWindowSize = { 100.0f, 100.0f };
-				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
-			}
-			else if ( window.dragging )
-			{
-				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
-			}
-		}
-	}
 }
 
 void UI_Cleanup(const UI &ui)

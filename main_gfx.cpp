@@ -365,10 +365,8 @@ void UpdateUI(UI &ui, Platform &platform)
 
 	UI_BeginFrame(ui);
 
-	for (u32 i = 0; i < 2; ++i)
-	{
 	char text[128];
-	sprintf(text, "Debug UI %u", i);
+	sprintf(text, "Debug UI");
 
 	UI_BeginWindow(ui, text);
 
@@ -465,7 +463,6 @@ void UpdateUI(UI &ui, Platform &platform)
 	}
 
 	UI_EndWindow(ui);
-	}
 
 	UI_EndFrame(ui);
 }
