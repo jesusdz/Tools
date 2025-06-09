@@ -17,7 +17,7 @@ constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
 constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
-constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.97 };
+constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.95 };
 constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
 constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
@@ -809,7 +809,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 	if ( flags & UIWindowFlag_Resizable )
 	{
 		const float cornerSize = 14;
-		const float2 cornerBR = window.pos + window.size - UiBorderSize;
+		const float2 cornerBR = window.pos + window.size - (flags & UIWindowFlag_Border ? UiBorderSize : float2{0, 0});
 		const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
 		const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
 		const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
@@ -1343,7 +1343,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 histogramWidth = UI_GetContentSize(window).x;
-	const f32 histogramHeight = 40.0f;
+	const f32 histogramHeight = 30.0f;
 	const float2 histPos = ui.currentPos;
 	const float2 histSize = {histogramWidth, histogramHeight};
 
@@ -1357,7 +1357,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	for (u32 i = 0; i < valueCount; ++i)
 	{
 		const float heightRatio = values[i] / maxValue;
-		const f32 barHeight = heightRatio * histogramHeight;
+		const f32 barHeight = Min(heightRatio * histogramHeight, histogramHeight);
 		const float2 barPos = barBase + float2{ i * barWidth, -barHeight };
 		const float2 barSize = {barWidth - 1, barHeight};
 		UI_AddRectangle(ui, barPos, barSize);

@@ -98,6 +98,14 @@ struct Entity
 	u16 materialIndex;
 };
 
+#define MAX_TIME_SAMPLES 32
+struct TimeSamples
+{
+	f32 samples[MAX_TIME_SAMPLES];
+	u32 sampleCount;
+	f32 average;
+};
+
 struct Graphics
 {
 	GraphicsDevice device;
@@ -169,10 +177,8 @@ struct Graphics
 
 	bool deviceInitialized;
 
-	f32 gpuFrameTimes[32];
-	u32 gpuFrameTimeCount;
-	f32 gpuFrameTimeAvg;
-	f32 gpuFrameTimeMax;
+	TimeSamples cpuFrameTimes;
+	TimeSamples gpuFrameTimes;
 
 #if USE_UI
 	UI ui;
@@ -328,10 +334,32 @@ static const ComputeDesc computeDescs[] =
 
 static StringInterning *gStringInterning;
 
+Graphics &GetPlatformGraphics(Platform &platform)
+{
+	Graphics *gfx = (Graphics*)platform.userData;
+	ASSERT(gfx != NULL);
+	return *gfx;
+}
+
+void AddTimeSample(TimeSamples &timeSamples, f32 sample)
+{
+	timeSamples.samples[timeSamples.sampleCount] = sample;
+	timeSamples.sampleCount = ( timeSamples.sampleCount + 1 ) % ARRAY_COUNT(timeSamples.samples);
+	f32 sum = 0.0f;
+	for (u32 i = 0; i < ARRAY_COUNT(timeSamples.samples); ++i)
+	{
+		sum += timeSamples.samples[i];
+	}
+	timeSamples.average = sum / ARRAY_COUNT(timeSamples.samples);
+}
+
 #if USE_UI
 
-void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
+void UpdateUI(UI &ui, Platform &platform)
 {
+	const Window &window = platform.window;
+	const Graphics &gfx = GetPlatformGraphics(platform);
+
 	UI_SetMouseState(ui, window.mouse);
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
 
@@ -339,19 +367,24 @@ void UpdateUI(UI &ui, const Window &window, const Graphics &gfx)
 
 	for (u32 i = 0; i < 2; ++i)
 	{
-		char caption[64];
-		sprintf(caption, "Debug UI %u", i);
+	char text[128];
+	sprintf(text, "Debug UI %u", i);
 
-	UI_BeginWindow(ui, caption);
+	UI_BeginWindow(ui, text);
 
 	if ( UI_Section(ui, "Profiling" ) )
 	{
-		sprintf(caption, "Avg. GPU frame time: %f ms", gfx.gpuFrameTimeAvg);
-		UI_Label(ui, caption);
-		UI_Histogram(ui, gfx.gpuFrameTimes, ARRAY_COUNT(gfx.gpuFrameTimes), 1.5f * gfx.gpuFrameTimeAvg);
+		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
 
-		sprintf(caption, "Avg. CPU frame time: %f ms", gfx.gpuFrameTimeAvg);
-		UI_Label(ui, caption);
+		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
+		sprintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
+		UI_Label(ui, text);
+		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
+
+		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
+		sprintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
+		UI_Label(ui, text);
+		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
 
 	if ( UI_Section(ui, "Buttons") )
@@ -1474,16 +1507,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		const Timestamp t0 = ReadTimestamp(timestampPool, 0);
 		const Timestamp t1 = ReadTimestamp(timestampPool, 1);
 		ASSERT(t1.millis >= t0.millis);
-		gfx.gpuFrameTimes[gfx.gpuFrameTimeCount] = t1.millis - t0.millis;
-		gfx.gpuFrameTimeCount = ( gfx.gpuFrameTimeCount + 1 ) % ARRAY_COUNT(gfx.gpuFrameTimes);
-		gfx.gpuFrameTimeMax = 0.0f;
-		f32 gpuFrameTimeSum = 0.0f;
-		for (u32 i = 0; i < ARRAY_COUNT(gfx.gpuFrameTimes); ++i)
-		{
-			gfx.gpuFrameTimeMax = Max(gfx.gpuFrameTimeMax, gfx.gpuFrameTimes[i]);
-			gpuFrameTimeSum += gfx.gpuFrameTimes[i];
-		}
-		gfx.gpuFrameTimeAvg = gpuFrameTimeSum / ARRAY_COUNT(gfx.gpuFrameTimes);
+		AddTimeSample(gfx.gpuFrameTimes, t1.millis - t0.millis);
 	}
 
 	UI_UploadVerticesToGPU(gfx.ui);
@@ -1996,13 +2020,6 @@ void CleanupImGui()
 
 
 
-Graphics &GetPlatformGraphics(Platform &platform)
-{
-	Graphics *gfx = (Graphics*)platform.userData;
-	ASSERT(gfx != NULL);
-	return *gfx;
-}
-
 bool EngineInit(Platform &platform)
 {
 	gStringInterning = &platform.stringInterning;
@@ -2064,6 +2081,9 @@ void EngineUpdate(Platform &platform)
 {
 	Graphics &gfx = GetPlatformGraphics(platform);
 
+	const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
+	AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
+
 	if ( gfx.device.swapchain.outdated || platform.window.flags & WindowFlags_WasResized )
 	{
 		WaitDeviceIdle(gfx);
@@ -2085,7 +2105,7 @@ void EngineUpdate(Platform &platform)
 #endif
 
 #if USE_UI
-		UpdateUI(gfx.ui, platform.window, gfx);
+		UpdateUI(gfx.ui, platform);
 		const bool handleInput = !gfx.ui.wantsInput;
 #else
 		constexpr bool handleInput = true;

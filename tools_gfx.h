@@ -3808,22 +3808,35 @@ bool BeginFrame(GraphicsDevice &device)
 {
 	const u32 frameIndex = device.currentFrame;
 
-	// Catch-up frame fences if needed
+	// Catch-up frame fences
 	VkFence fences[MAX_FENCES] = {};
 	GraphicsDevice::FrameData &frameData = device.frameData[frameIndex];
 
 	if ( frameData.usedFenceCount > 0 )
 	{
+		// Populate from ring buffer to linear buffer
 		for (u32 i = 0; i < frameData.usedFenceCount; ++i)
 		{
 			const u32 fenceIndex = ( frameData.firstFenceIndex + i ) % MAX_FENCES;
 			fences[i] = device.fences[fenceIndex];
 		}
 
-		// Swapchain sync
+		// Fence wait/lock
 		VK_CALL( vkWaitForFences( device.handle, frameData.usedFenceCount, fences, VK_TRUE, UINT64_MAX ) );
+
+		// Reset this frame fences
+		VK_CALL( vkResetFences( device.handle, frameData.usedFenceCount, fences ) );
+
+		// Advance global fence ring tail
+		device.firstFenceIndex = ( device.firstFenceIndex + frameData.usedFenceCount ) % MAX_FENCES;
+		device.usedFenceCount -= frameData.usedFenceCount;
 	}
 
+	// Make this frame fences point to the head of the global fence ring buffer
+	frameData.firstFenceIndex = ( device.firstFenceIndex + device.usedFenceCount ) % MAX_FENCES;
+	frameData.usedFenceCount = 0;
+
+	// Acquire swapchain image for this frame
 	u32 imageIndex;
 	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex );
 
@@ -3838,20 +3851,6 @@ bool BeginFrame(GraphicsDevice &device)
 		LOG(Error, "vkAcquireNextImageKHR failed.\n");
 		return false;
 	}
-
-	if ( frameData.usedFenceCount > 0 )
-	{
-		// Reset this frame fences
-		VK_CALL( vkResetFences( device.handle, frameData.usedFenceCount, fences ) );
-
-		// Update global fence ring status
-		device.firstFenceIndex = ( device.firstFenceIndex + frameData.usedFenceCount ) % MAX_FENCES;
-		device.usedFenceCount -= frameData.usedFenceCount;
-	}
-
-	// Reset this frame fence ring status
-	frameData.firstFenceIndex = ( device.firstFenceIndex + device.usedFenceCount ) % MAX_FENCES;
-	frameData.usedFenceCount = 0;
 
 	device.swapchain.currentImageIndex = imageIndex;
 
