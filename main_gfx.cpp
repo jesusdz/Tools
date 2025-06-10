@@ -374,6 +374,11 @@ void UpdateUI(UI &ui, Platform &platform)
 	{
 		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
 
+		const u32 sceneWidth = gfx.device.swapchain.extent.width;
+		const u32 sceneHeight = gfx.device.swapchain.extent.height;
+		sprintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
+		UI_Label(ui, text);
+
 		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
 		sprintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
 		UI_Label(ui, text);
@@ -1507,7 +1512,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		AddTimeSample(gfx.gpuFrameTimes, t1.millis - t0.millis);
 	}
 
+#if USE_UI
 	UI_UploadVerticesToGPU(gfx.ui);
+#endif
 
 	// Display size
 	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
