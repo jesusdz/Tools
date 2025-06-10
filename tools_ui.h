@@ -1222,6 +1222,70 @@ u32 UI_IsActiveWidget(UI &ui, u32 widgetId)
 	return isActive;
 }
 
+enum UpdateTextAction
+{
+	UpdateTextNone,
+	UpdateTextUpdating,
+	UpdateTextDone,
+	UpdateTextCancel,
+};
+#define TEXT_BOX_BUFER_LEN 128
+UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &cursorIndex)
+{
+	UpdateTextAction action = UpdateTextUpdating;
+
+	const int len = StrLen(activeBuffer);
+	char tmp[TEXT_BOX_BUFER_LEN];
+
+	if ( ui.input.chars.charCount > 0 )
+	{
+		StrCopy(tmp, activeBuffer + cursorIndex); // Save characters after the cursor
+		for (u32 i = 0; i < ui.input.chars.charCount; ++i)
+		{
+			activeBuffer[cursorIndex+i] = ui.input.chars.chars[i];
+			cursorIndex++;
+		}
+		StrCopy(activeBuffer + cursorIndex, tmp);
+	}
+	else if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
+	{
+		if (cursorIndex > 0) {
+			StrCopy(tmp, activeBuffer + cursorIndex);
+			StrCopy(activeBuffer + cursorIndex - 1, tmp);
+			cursorIndex--;
+		}
+	}
+	else if ( ui.input.keyboard.keys[KEY_DELETE] == KEY_STATE_PRESS )
+	{
+		if (cursorIndex < len) {
+			StrCopy(tmp, activeBuffer + cursorIndex + 1);
+			StrCopy(activeBuffer + cursorIndex, tmp);
+		}
+	}
+	else if ( KeyPress(ui.input.keyboard, KEY_LEFT) )
+	{
+		cursorIndex = Max(cursorIndex - 1, 0);
+	}
+	else if ( KeyPress(ui.input.keyboard, KEY_RIGHT) )
+	{
+		cursorIndex = Min(cursorIndex + 1, len);
+	}
+	else if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
+	{
+		action = UpdateTextDone;
+	}
+	else if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
+	{
+		action = UpdateTextCancel;
+	}
+	else
+	{
+		action = UpdateTextNone;
+	}
+
+	return action;
+}
+
 void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
@@ -1236,6 +1300,15 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = widgetSize;
+
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+
+	const float2 textPos = boxPos + padding;
 
 	const u32 id = UI_MakeID(ui, label);
 
@@ -1253,77 +1326,31 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 		cursorIndex = StrLen(activeBuffer);
 	}
 
-	const float2 boxPos = widgetPos;
-	const float2 boxSize = widgetSize;
-
-	UI_PushColor(ui, UI_BoxColor(ui));
-	UI_AddRectangle(ui, boxPos, boxSize);
-	UI_PopColor(ui);
-
 	if (active)
 	{
-		const int len = StrLen(activeBuffer);
+		const UpdateTextAction action = UpdateText(ui, activeBuffer, cursorIndex);
 
-		if ( KeyPress(ui.input.keyboard, KEY_LEFT) )
-		{
-			cursorIndex = Max(cursorIndex - 1, 0);
-		}
-		else if ( KeyPress(ui.input.keyboard, KEY_RIGHT) )
-		{
-			cursorIndex = Min(cursorIndex + 1, len);
-		}
-		else if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
-		{
-			char tmp[ARRAY_COUNT(activeBuffer)];
-			if (cursorIndex > 0) {
-				StrCopy(tmp, activeBuffer + cursorIndex);
-				StrCopy(activeBuffer + cursorIndex - 1, tmp);
-				cursorIndex--;
-			}
-		}
-		else if ( ui.input.keyboard.keys[KEY_DELETE] == KEY_STATE_PRESS )
-		{
-			char tmp[ARRAY_COUNT(activeBuffer)];
-			if (cursorIndex < len) {
-				StrCopy(tmp, activeBuffer + cursorIndex + 1);
-				StrCopy(activeBuffer + cursorIndex, tmp);
-			}
-		}
-		else if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
+		if ( action == UpdateTextDone )
 		{
 			StrCopy(buffer, activeBuffer);
 			UI_SetActiveWidget(ui, 0);
 		}
-		else if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
+		else if ( action == UpdateTextCancel )
 		{
 			UI_SetActiveWidget(ui, 0);
 		}
-		else if ( ui.input.chars.charCount > 0 )
+		else if ( action == UpdateTextUpdating )
 		{
-			char tmp[ARRAY_COUNT(activeBuffer)];
-			StrCopy(tmp, activeBuffer + cursorIndex); // Save characters after the cursor
-			for (u32 i = 0; i < ui.input.chars.charCount; ++i)
-			{
-				activeBuffer[cursorIndex+i] = ui.input.chars.chars[i];
-				cursorIndex++;
-			}
-			StrCopy(activeBuffer + cursorIndex, tmp);
+			activeBeginClock = GetClock();
 		}
-	}
 
-	const char *text = active ? activeBuffer : buffer;
-	const float2 textPos = boxPos + padding;
-	UI_AddText(ui, textPos, text);
-
-	if (active)
-	{
 		const Clock currentClock = GetClock();
 		const float secondsActive = GetSecondsElapsed(activeBeginClock, currentClock);
 
-		const bool printCursor = (int)(secondsActive * 2) % 2 == 0; // Blink each 1/2 second
+		const bool printCursor = (int)(secondsActive * 3) % 3 != 2; // Show 2/3 second, hide 1/3 second
 		if ( printCursor )
 		{
-			const f32 textWidth = UI_TextWidth(ui, text, cursorIndex);
+			const f32 textWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
 			const float2 cursorPos = textPos + float2{textWidth + 1.0f, 0.0f};
 			const float2 cursorSize = {1.0f, textHeight};
 			UI_PushColor(ui, UiColorWhite);
@@ -1331,6 +1358,9 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 			UI_PopColor(ui);
 		}
 	}
+
+	const char *text = active ? activeBuffer : buffer;
+	UI_AddText(ui, textPos, text);
 
 	const bool mouseClick = UI_IsMouseClick(ui);
 	const bool clickedInside = UI_WidgetClicked(ui);
@@ -1364,9 +1394,6 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	UI_PopColor(ui);
 	UI_EndWidget(ui);
 
-	const float2 textPos = boxPos + padding;
-	UI_AddText(ui, textPos, "<insert number>");
-
 	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
 	const float2 minusSize = float2{side, side};
 	UI_BeginWidget(ui, minusPos, minusSize);
@@ -1376,6 +1403,9 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	UI_PushColor(ui, UiColorWhite);
 	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
 	UI_PopColor(ui);
+	if ( UI_WidgetClicked(ui) ) {
+		(*number)--;
+	}
 	UI_EndWidget(ui);
 
 	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
@@ -1388,8 +1418,18 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
 	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
 	UI_PopColor(ui);
+	if ( UI_WidgetClicked(ui) ) {
+		(*number)++;
+	}
 	UI_EndWidget(ui);
 
+	// Number
+	char numberText[TEXT_BOX_BUFER_LEN];
+	sprintf(numberText, "%d", *number);
+	const float2 textPos = boxPos + padding;
+	UI_AddText(ui, textPos, numberText);
+
+	// Label
 	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
@@ -1410,15 +1450,12 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
-	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2, side};
+	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
 	UI_BeginWidget(ui, boxPos, boxSize);
 	UI_PushColor(ui, UI_BoxColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	UI_EndWidget(ui);
-
-	const float2 textPos = boxPos + padding;
-	UI_AddText(ui, textPos, "<insert number>");
 
 	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
 	const float2 minusSize = float2{side, side};
@@ -1429,6 +1466,9 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	UI_PushColor(ui, UiColorWhite);
 	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
 	UI_PopColor(ui);
+	if ( UI_WidgetClicked(ui) ) {
+		(*number) -= 0.1f;
+	}
 	UI_EndWidget(ui);
 
 	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
@@ -1441,8 +1481,18 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
 	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
 	UI_PopColor(ui);
+	if ( UI_WidgetClicked(ui) ) {
+		(*number) += 0.1f;
+	}
 	UI_EndWidget(ui);
 
+	// Number
+	char numberText[TEXT_BOX_BUFER_LEN];
+	sprintf(numberText, "%f", *number);
+	const float2 textPos = boxPos + padding;
+	UI_AddText(ui, textPos, numberText);
+
+	// Label
 	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
