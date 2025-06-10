@@ -360,7 +360,7 @@ void UpdateUI(UI &ui, Platform &platform)
 	const Window &window = platform.window;
 	const Graphics &gfx = GetPlatformGraphics(platform);
 
-	UI_SetMouseState(ui, window.mouse);
+	UI_SetInputState(ui, window.keyboard, window.mouse);
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
 
 	UI_BeginFrame(ui);
@@ -453,7 +453,7 @@ void UpdateUI(UI &ui, Platform &platform)
 
 	if ( UI_Section(ui, "Inputs") )
 	{
-		static char text[128];
+		static char text[128] = "name";
 		static i32 intNumber = 0;
 		static f32 floatNumber = 0.0f;
 

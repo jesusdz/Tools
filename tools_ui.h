@@ -180,6 +180,8 @@ struct UI
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
 
+	u32 activeWidgetId;
+
 	UILayoutGroup layoutGroups[16];
 	u32 layoutGroupCount;
 
@@ -267,11 +269,14 @@ void UI_EndLayout(UI &ui)
 	}
 }
 
-void UI_SetMouseState(UI &ui, const Mouse &mouse)
+void UI_SetInputState(UI &ui, const Keyboard &keyboard, const Mouse &mouse)
 {
 	UIInput &input = ui.input;
+
 	const Mouse prevMouse = input.mouse;
+
 	input.mouse = mouse;
+	input.keyboard = keyboard;
 
 	// Workaround to avoid missing some dx,dy updates...
 	input.mouse.dx = mouse.x - prevMouse.x;
@@ -451,7 +456,7 @@ bool UI_WidgetHovered(const UI &ui)
 	bool hover = false;
 	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
 
-	if ( &currentWindow == ui.activeWindow && ui.widgetStackSize > 0 )
+	if ( &currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
 	{
 		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
 
@@ -861,6 +866,7 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	}
 
 	const u32 id = HashStringFNV(text, parentId);
+	ASSERT(id != 0);
 	return id;
 }
 
@@ -1115,7 +1121,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 text2Pos = butPos + float2{butSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, text2Pos, text);
 
-	const u32 comboId = UI_MakeID(ui, "$combo");
+	const u32 comboId = UI_MakeID(ui, text);
 	if ( clickedInside )
 	{
 		ui.comboBox.id = ui.comboBox.id == comboId ? 0 : comboId;
@@ -1201,6 +1207,17 @@ void UI_Image(UI &ui, ImageH image)
 	UI_PopDrawList(ui);
 }
 
+void UI_SetActiveWidget(UI &ui, u32 widgetId)
+{
+	ui.activeWidgetId = widgetId;
+}
+
+u32 UI_IsActiveWidget(UI &ui, u32 widgetId)
+{
+	const bool isActive = widgetId == ui.activeWidgetId;
+	return isActive;
+}
+
 void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
@@ -1216,15 +1233,66 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
+	const u32 id = UI_MakeID(ui, label);
+
+	static char activeBuffer[128] = {};
+	static Clock activeBeginClock;
+	const bool clicked = UI_WidgetClicked(ui);
+	const bool active = UI_IsActiveWidget(ui, id);
+	if (clicked && !active)
+	{
+		UI_SetActiveWidget(ui, id);
+		StrCopy(activeBuffer, buffer);
+		activeBeginClock = GetClock();
+	}
+
 	const float2 boxPos = widgetPos;
-	const float2 boxSize = float2{widgetSize.x, side};
+	const float2 boxSize = widgetSize;
 
 	UI_PushColor(ui, UI_BoxColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 
-	const float2 textPos = boxPos;
-	UI_AddText(ui, textPos, buffer);
+	if (active)
+	{
+		if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
+		{
+			const int len = StrLen(activeBuffer);
+			if (len > 0) {
+				activeBuffer[len-1] = 0;
+			}
+		}
+		if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
+		{
+			StrCopy(buffer, activeBuffer);
+			UI_SetActiveWidget(ui, 0);
+		}
+		if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
+		{
+			UI_SetActiveWidget(ui, 0);
+		}
+	}
+
+	const char *text = active ? activeBuffer : buffer;
+	const float2 textPos = boxPos + padding;
+	UI_AddText(ui, textPos, text);
+
+	if (active)
+	{
+		const Clock currentClock = GetClock();
+		const float secondsActive = GetSecondsElapsed(activeBeginClock, currentClock);
+
+		const bool printCursor = (int)secondsActive % 2 == 0; // Blink each second
+		if ( printCursor )
+		{
+			const float textWidth = UI_TextWidth(ui, text);
+			const float2 cursorPos = textPos + float2{textWidth + 1.0f, 0.0f};
+			const float2 cursorSize = {1.0f, textHeight};
+			UI_PushColor(ui, UiColorWhite);
+			UI_AddRectangle(ui, cursorPos, cursorSize);
+			UI_PopColor(ui);
+		}
+	}
 
 	const bool mouseClick = UI_IsMouseClick(ui);
 	const bool clickedInside = UI_WidgetClicked(ui);
@@ -1538,6 +1606,8 @@ void UI_BeginFrame(UI &ui)
 			ui.activeWindow = nullptr;
 			ui.wantsInput = false;
 		}
+
+		ui.activeWidgetId = 0;
 	}
 
 }

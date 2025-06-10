@@ -104,7 +104,7 @@
 #define INVALID_CODE_PATH_MSG(message) ASSERT(0 && message)
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 
-#define CT_ASSERT3(expression, number) static int ct_assert_##number[(expression) ? 1 : 0]
+#define CT_ASSERT3(expression, number) static int ct_assert_##number[(expression) ? 1 : -1]
 #define CT_ASSERT2(expression, number) CT_ASSERT3(expression, number)
 #define CT_ASSERT(expression) CT_ASSERT2(expression, __COUNTER__)
 
@@ -1640,6 +1640,7 @@ enum Key
 	KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN,
 	KEY_ESCAPE,
 	KEY_SPACE,
+	KEY_BACKSPACE,
 	KEY_RETURN,
 	KEY_TAB,
 	KEY_CONTROL,
