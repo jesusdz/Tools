@@ -8,7 +8,7 @@ KEY_NULL, // VK_MBUTTON				0x04	Middle mouse button (three-button mouse)
 KEY_NULL, // VK_XBUTTON1			0x05	X1 mouse button
 KEY_NULL, // VK_XBUTTON2			0x06	X2 mouse button
 KEY_NULL, // -						0x07	Undefined
-KEY_NULL, // VK_BACK				0x08	BACKSPACE key
+KEY_BACKSPACE, // VK_BACK			0x08	BACKSPACE key
 KEY_TAB, // VK_TAB					0x09	TAB key
 KEY_NULL, // -						0x0A
 KEY_NULL, // -						0x0B	Reserved
@@ -46,7 +46,7 @@ KEY_NULL, // VK_PRINT				0x2A	PRINT key
 KEY_NULL, // VK_EXECUTE				0x2B	EXECUTE key
 KEY_NULL, // VK_SNAPSHOT			0x2C	PRINTSCREEN key
 KEY_NULL, // VK_INSERT				0x2D	INS key
-KEY_NULL, // VK_DELETE				0x2E	DEL key
+KEY_DELETE, // VK_DELETE			0x2E	DEL key
 KEY_NULL, // VK_HELP				0x2F	HELP key
 KEY_0, // 							0x30	0 key
 KEY_1, // 							0x31	1 key
@@ -96,16 +96,16 @@ KEY_NULL, // VK_RWIN				0x5C	Right Windows key(Natural keyboard)
 KEY_NULL, // VK_APPS				0x5D	Applications key(Natural keyboard)
 KEY_NULL, // -						0x5E	Reserved
 KEY_NULL, // VK_SLEEP				0x5F	Computer Sleep key
-KEY_NULL, // VK_NUMPAD0				0x60	Numeric keypad0 key
-KEY_NULL, // VK_NUMPAD1				0x61	Numeric keypad1 key
-KEY_NULL, // VK_NUMPAD2				0x62	Numeric keypad2 key
-KEY_NULL, // VK_NUMPAD3				0x63	Numeric keypad3 key
-KEY_NULL, // VK_NUMPAD4				0x64	Numeric keypad4 key
-KEY_NULL, // VK_NUMPAD5				0x65	Numeric keypad5 key
-KEY_NULL, // VK_NUMPAD6				0x66	Numeric keypad6 key
-KEY_NULL, // VK_NUMPAD7				0x67	Numeric keypad7 key
-KEY_NULL, // VK_NUMPAD8				0x68	Numeric keypad8 key
-KEY_NULL, // VK_NUMPAD9				0x69	Numeric keypad9 key
+KEY_0, // VK_NUMPAD0				0x60	Numeric keypad0 key
+KEY_1, // VK_NUMPAD1				0x61	Numeric keypad1 key
+KEY_2, // VK_NUMPAD2				0x62	Numeric keypad2 key
+KEY_3, // VK_NUMPAD3				0x63	Numeric keypad3 key
+KEY_4, // VK_NUMPAD4				0x64	Numeric keypad4 key
+KEY_5, // VK_NUMPAD5				0x65	Numeric keypad5 key
+KEY_6, // VK_NUMPAD6				0x66	Numeric keypad6 key
+KEY_7, // VK_NUMPAD7				0x67	Numeric keypad7 key
+KEY_8, // VK_NUMPAD8				0x68	Numeric keypad8 key
+KEY_9, // VK_NUMPAD9				0x69	Numeric keypad9 key
 KEY_NULL, // VK_MULTIPLY			0x6A	Multiply key
 KEY_NULL, // VK_ADD					0x6B	Add key
 KEY_NULL, // VK_SEPARATOR			0x6C	Separator key
