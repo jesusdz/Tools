@@ -1641,6 +1641,7 @@ enum Key
 	KEY_ESCAPE,
 	KEY_SPACE,
 	KEY_BACKSPACE,
+	KEY_DELETE,
 	KEY_RETURN,
 	KEY_TAB,
 	KEY_CONTROL,
@@ -1701,6 +1702,17 @@ struct Mouse
 	u32 x, y;
 	i32 dx, dy;
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
+};
+
+#define MAX_INPUT_CHARS 16
+
+struct Chars
+{
+	char chars[MAX_INPUT_CHARS];
+	u32 charCount;
+	bool shift;
+	bool ctrl;
+	bool alt;
 };
 
 struct Touch
@@ -1791,6 +1803,7 @@ struct Window
 
 	Keyboard keyboard;
 	Mouse mouse;
+	Chars chars;
 	Touch touches[2];
 };
 
@@ -2511,6 +2524,8 @@ void PlatformUpdateEventLoop(Platform &platform)
 	window.mouse.dx = 0.0f;
 	window.mouse.dy = 0.0f;
 
+	window.chars.charCount = 0;
+
 	// Transition touch states
 	for ( u32 i = 0; i < ARRAY_COUNT(window.touches); ++i ) {
 		if ( window.touches[i].state == TOUCH_STATE_PRESS ) {
@@ -2573,6 +2588,32 @@ void PlatformUpdateEventLoop(Platform &platform)
 	}
 
 #endif
+
+	// Update key modifiers
+	window.chars.shift = KeyPressed(window.keyboard, KEY_SHIFT);
+	window.chars.ctrl = KeyPressed(window.keyboard, KEY_CONTROL);
+	window.chars.alt = KeyPressed(window.keyboard, KEY_ALT);
+
+	for ( u32 i = 0; i < KEY_COUNT; ++i )
+	{
+		if ( KeyPress(window.keyboard, (Key)i) )
+		{
+			char character = 0;
+
+			if ( i >= KEY_A && i <= KEY_Z ) {
+				character = window.chars.shift ? 'A' + (i - KEY_A) : 'a' + (i - KEY_A);
+			} else if ( i >= KEY_0 && i <= KEY_9 ) {
+				character = '0' + (i - KEY_0);
+			} else if ( i == KEY_SPACE ) {
+				character = ' ';
+			}
+
+			if (character)
+			{
+				window.chars.chars[window.chars.charCount++] = character;
+			}
+		}
+	}
 }
 
 bool PlatformRun(Platform &platform)

@@ -27,7 +27,7 @@ constexpr float4 UiColorBoxInactive = { 0.01, 0.02, 0.05, 1.0 };
 
 // Metrics
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
-constexpr float2 UiWindowPadding = { 8.0f, 8.0f };
+constexpr float2 UiWindowPadding = { 4.0f, 8.0f };
 constexpr float UiSpacing = 8.0f;
 
 struct UIVertex
@@ -41,6 +41,7 @@ struct UIInput
 {
 	Mouse mouse;
 	Keyboard keyboard;
+	Chars chars;
 };
 
 struct UISection
@@ -66,6 +67,7 @@ struct UIWindow
 	char caption[64];
 	float2 pos;
 	float2 size;
+	float2 contentSize;
 	bool dragging;
 	bool resizing;
 	bool disableWidgets;
@@ -269,7 +271,7 @@ void UI_EndLayout(UI &ui)
 	}
 }
 
-void UI_SetInputState(UI &ui, const Keyboard &keyboard, const Mouse &mouse)
+void UI_SetInputState(UI &ui, const Keyboard &keyboard, const Mouse &mouse, const Chars &chars)
 {
 	UIInput &input = ui.input;
 
@@ -277,6 +279,7 @@ void UI_SetInputState(UI &ui, const Keyboard &keyboard, const Mouse &mouse)
 
 	input.mouse = mouse;
 	input.keyboard = keyboard;
+	input.chars = chars;
 
 	// Workaround to avoid missing some dx,dy updates...
 	input.mouse.dx = mouse.x - prevMouse.x;
@@ -649,12 +652,12 @@ float UI_TextHeight(const UI &ui)
 	return textHeight;
 }
 
-float UI_TextWidth(const UI &ui, const char *text)
+float UI_TextWidth(const UI &ui, const char *text, u32 maxChars = U32_MAX)
 {
 	float textWidth = 0.0f;
 
 	const char *ptr = text;
-	while ( *ptr )
+	while ( *ptr && maxChars-- > 0 )
 	{
 		const char c = *ptr;
 		const stbtt_packedchar &pc = ui.charData[c];
@@ -850,8 +853,10 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 		UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
 
 		panelPos = panelPos + UiWindowPadding;
-		panelSize = panelSize = 2.0f * UiWindowPadding;
+		panelSize = panelSize - 2.0f * UiWindowPadding;
 	}
+
+	window.contentSize = panelSize;
 
 	UI_SetCursorPos(ui, panelPos);
 }
@@ -914,8 +919,7 @@ UISection &UI_GetSection(UIWindow &window, const char *caption)
 
 float2 UI_GetContentSize(const UIWindow &window)
 {
-	const float2 size = window.size - 2.0 * ( UiWindowPadding + UiBorderSize );
-	return size;
+	return window.contentSize;
 }
 
 bool UI_Section(UI &ui, const char *caption)
@@ -1237,6 +1241,8 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 
 	static char activeBuffer[128] = {};
 	static Clock activeBeginClock;
+	static i32 cursorIndex;
+
 	const bool clicked = UI_WidgetClicked(ui);
 	const bool active = UI_IsActiveWidget(ui, id);
 	if (clicked && !active)
@@ -1244,6 +1250,7 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 		UI_SetActiveWidget(ui, id);
 		StrCopy(activeBuffer, buffer);
 		activeBeginClock = GetClock();
+		cursorIndex = StrLen(activeBuffer);
 	}
 
 	const float2 boxPos = widgetPos;
@@ -1255,21 +1262,52 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 
 	if (active)
 	{
-		if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
+		const int len = StrLen(activeBuffer);
+
+		if ( KeyPress(ui.input.keyboard, KEY_LEFT) )
 		{
-			const int len = StrLen(activeBuffer);
-			if (len > 0) {
-				activeBuffer[len-1] = 0;
+			cursorIndex = Max(cursorIndex - 1, 0);
+		}
+		else if ( KeyPress(ui.input.keyboard, KEY_RIGHT) )
+		{
+			cursorIndex = Min(cursorIndex + 1, len);
+		}
+		else if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
+		{
+			char tmp[ARRAY_COUNT(activeBuffer)];
+			if (cursorIndex > 0) {
+				StrCopy(tmp, activeBuffer + cursorIndex);
+				StrCopy(activeBuffer + cursorIndex - 1, tmp);
+				cursorIndex--;
 			}
 		}
-		if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
+		else if ( ui.input.keyboard.keys[KEY_DELETE] == KEY_STATE_PRESS )
+		{
+			char tmp[ARRAY_COUNT(activeBuffer)];
+			if (cursorIndex < len) {
+				StrCopy(tmp, activeBuffer + cursorIndex + 1);
+				StrCopy(activeBuffer + cursorIndex, tmp);
+			}
+		}
+		else if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
 		{
 			StrCopy(buffer, activeBuffer);
 			UI_SetActiveWidget(ui, 0);
 		}
-		if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
+		else if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
 		{
 			UI_SetActiveWidget(ui, 0);
+		}
+		else if ( ui.input.chars.charCount > 0 )
+		{
+			char tmp[ARRAY_COUNT(activeBuffer)];
+			StrCopy(tmp, activeBuffer + cursorIndex); // Save characters after the cursor
+			for (u32 i = 0; i < ui.input.chars.charCount; ++i)
+			{
+				activeBuffer[cursorIndex+i] = ui.input.chars.chars[i];
+				cursorIndex++;
+			}
+			StrCopy(activeBuffer + cursorIndex, tmp);
 		}
 	}
 
@@ -1282,10 +1320,10 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 		const Clock currentClock = GetClock();
 		const float secondsActive = GetSecondsElapsed(activeBeginClock, currentClock);
 
-		const bool printCursor = (int)secondsActive % 2 == 0; // Blink each second
+		const bool printCursor = (int)(secondsActive * 2) % 2 == 0; // Blink each 1/2 second
 		if ( printCursor )
 		{
-			const float textWidth = UI_TextWidth(ui, text);
+			const f32 textWidth = UI_TextWidth(ui, text, cursorIndex);
 			const float2 cursorPos = textPos + float2{textWidth + 1.0f, 0.0f};
 			const float2 cursorSize = {1.0f, textHeight};
 			UI_PushColor(ui, UiColorWhite);

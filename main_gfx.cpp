@@ -360,7 +360,7 @@ void UpdateUI(UI &ui, Platform &platform)
 	const Window &window = platform.window;
 	const Graphics &gfx = GetPlatformGraphics(platform);
 
-	UI_SetInputState(ui, window.keyboard, window.mouse);
+	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
 
 	UI_BeginFrame(ui);
