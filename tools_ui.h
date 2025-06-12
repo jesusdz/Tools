@@ -913,7 +913,7 @@ UISection &UI_GetSection(UIWindow &window, const char *caption)
 	ASSERT(window.sectionCount < ARRAY_COUNT(window.sections));
 	UISection &section = window.sections[window.sectionCount++];
 	section.hash = sectionHash;
-	section.open = true;
+	section.open = false;
 	return section;
 }
 
