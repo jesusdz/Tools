@@ -67,6 +67,7 @@ struct Material
 	TextureH albedoTexture;
 	f32 uvScale;
 	u32 bufferOffset;
+	MaterialDesc desc;
 };
 
 typedef u32 MaterialH;
@@ -183,6 +184,9 @@ struct Graphics
 #if USE_UI
 	UI ui;
 #endif
+
+	u32 reloadQueue[128];
+	u32 reloadQueueSize;
 };
 
 
@@ -326,11 +330,15 @@ static const PipelineDesc pipelineDescs[] =
 	},
 };
 
+static PipelineH pipelineHandles[ARRAY_COUNT(pipelineDescs)] = {};
+
 static const ComputeDesc computeDescs[] =
 {
 	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
 	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 };
+
+static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
 
 static StringInterning *gStringInterning;
 
@@ -353,126 +361,34 @@ void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 	timeSamples.average = sum / ARRAY_COUNT(timeSamples.samples);
 }
 
-#if USE_UI
-
-void UpdateUI(UI &ui, Platform &platform)
+RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 {
-	const Window &window = platform.window;
-	const Graphics &gfx = GetPlatformGraphics(platform);
-
-	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
-	UI_SetViewportSize(ui, uint2{window.width, window.height});
-
-	UI_BeginFrame(ui);
-
-	char text[128];
-	sprintf(text, "Debug UI");
-
-	UI_BeginWindow(ui, text);
-
-	if ( UI_Section(ui, "Profiling" ) )
-	{
-		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
-
-		const u32 sceneWidth = gfx.device.swapchain.extent.width;
-		const u32 sceneHeight = gfx.device.swapchain.extent.height;
-		sprintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
-		UI_Label(ui, text);
-
-		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
-		sprintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
-		UI_Label(ui, text);
-		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
-
-		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
-		sprintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
-		UI_Label(ui, text);
-		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
-	}
-
-	if ( UI_Section(ui, "Buttons") )
-	{
-		static u32 labelIndex = 0;
-		const char *labels[] = {"Label 1", "Label 2"};
-		const char *label = labels[labelIndex];
-
-		UI_Label(ui, label);
-
-		UI_Separator(ui);
-
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-
-		if ( UI_Button(ui, "Hola") )
-		{
-			labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
+	for (u32 i = 0; i < gfx.device.renderPassCount; ++i) {
+		if ( StrEq(gfx.device.renderPasses[i].name, name) ) {
+			return { .index = i };
 		}
-
-		UI_Button(ui, "Adios");
-
-		UI_Button(ui, "Memory");
-
-		UI_EndLayout(ui);
-
 	}
-
-	if ( UI_Section(ui, "Radio/Check") )
-	{
-		const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
-		static int selectedOption = 0;
-
-		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
-		{
-			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
-			{
-				selectedOption = i;
-			}
-		}
-
-		UI_Separator(ui);
-
-		static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
-		static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
-
-		for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
-		{
-			UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
-		}
-
-		UI_Separator(ui);
-
-		static const char *comboOptions[] = { "Combo 1", "Combo 2", "Combo 3" };
-		static u32 comboIndex = 0;
-
-		UI_Combo(ui, "Select type", comboOptions, ARRAY_COUNT(comboOptions), &comboIndex);
-	}
-
-	if ( UI_Section(ui, "Images") )
-	{
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < gfx.textureCount; ++i)
-		{
-			UI_Image(ui, gfx.textures[i].image);
-		}
-		UI_EndLayout(ui);
-	}
-
-	if ( UI_Section(ui, "Inputs") )
-	{
-		static char text[128] = "name";
-		static i32 intNumber = 0;
-		static f32 floatNumber = 0.0f;
-
-		UI_InputText(ui, "Input text", text, ARRAY_COUNT(text));
-		UI_InputInt(ui, "Input int", &intNumber);
-		UI_InputFloat(ui, "Input float", &floatNumber);
-	}
-
-	UI_EndWindow(ui);
-
-	UI_EndFrame(ui);
+	LOG(Warning, "Could not find render <%s> handle.\n", name);
+	INVALID_CODE_PATH();
+	return { .index = (u32)INVALID_HANDLE };
 }
-#endif
 
+PipelineH FindPipelineHandle(const Graphics &gfx, const char *name)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i) {
+		if ( StrEq(pipelineDescs[i].name, name) ) {
+			return pipelineHandles[i];
+		}
+	}
+	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i) {
+		if ( StrEq(computeDescs[i].name, name) ) {
+			return computeHandles[i];
+		}
+	}
+	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
+	INVALID_CODE_PATH();
+	return { .index = (u32)INVALID_HANDLE };
+}
 
 
 
@@ -556,30 +472,6 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 	arena.used += size;
 
 	return chunk;
-}
-
-RenderPassH RenderPassHandle(const Graphics &gfx, const char *name)
-{
-	for (u32 i = 0; i < gfx.device.renderPassCount; ++i) {
-		if ( StrEq(gfx.device.renderPasses[i].name, name) ) {
-			return { .index = i };
-		}
-	}
-	LOG(Warning, "Could not find render <%s> handle.\n", name);
-	INVALID_CODE_PATH();
-	return { .index = (u32)INVALID_HANDLE };
-}
-
-PipelineH PipelineHandle(const Graphics &gfx, const char *name)
-{
-	for (u32 i = 0; i < gfx.device.pipelineCount; ++i) {
-		if ( StrEq(gfx.device.pipelines[i].name, name) ) {
-			return PipelineH{ .index = i };
-		}
-	}
-	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
-	INVALID_CODE_PATH();
-	return { .index = (u32)INVALID_HANDLE };
 }
 
 void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandList, ImageH imageH)
@@ -710,7 +602,7 @@ TextureH TextureHandle(const Graphics &gfx, const char *name)
 MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 {
 	TextureH textureHandle = TextureHandle(gfx, desc.textureName);
-	PipelineH pipelineHandle = PipelineHandle(gfx, desc.pipelineName);
+	PipelineH pipelineHandle = FindPipelineHandle(gfx, desc.pipelineName);
 
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
@@ -719,6 +611,7 @@ MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	gfx.materials[materialHandle].uvScale = desc.uvScale;
 	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
+	gfx.materials[materialHandle].desc = desc;
 
 	return materialHandle;
 }
@@ -729,7 +622,7 @@ Material &GetMaterial( Graphics &gfx, MaterialH materialHandle )
 	return material;
 }
 
-MaterialH MaterialHandle(const Graphics &gfx, const char *name)
+MaterialH FindMaterialHandle(const Graphics &gfx, const char *name)
 {
 	for (u32 i = 0; i < gfx.materialCount; ++i) {
 		if ( StrEq(gfx.materials[i].name, name) ) {
@@ -778,7 +671,7 @@ void CreateEntity(Graphics &gfx, const EntityDesc &desc)
 		gfx.entities[entityIndex].scale = desc.scale;
 		gfx.entities[entityIndex].vertices = vertices;
 		gfx.entities[entityIndex].indices = indices;
-		gfx.entities[entityIndex].materialIndex = MaterialHandle(gfx, desc.materialName);
+		gfx.entities[entityIndex].materialIndex = FindMaterialHandle(gfx, desc.materialName);
 	}
 	else
 	{
@@ -1012,16 +905,18 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
-		const RenderPassH renderPassH = RenderPassHandle(gfx, pipelineDescs[i].renderPass);
+		const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[i].renderPass);
 		LOG(Info, "Creating Graphics Pipeline: %s\n", pipelineDescs[i].name);
-		CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
+		const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
+		pipelineHandles[i] = pipelineH;
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
 		LOG(Info, "Creating Compute Pipeline: %s\n", computeDescs[i].name);
-		CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
+		const PipelineH pipelineH = CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
+		computeHandles[i] = pipelineH;
 	}
 
 #if USE_UI
@@ -1081,6 +976,24 @@ void UpdateMaterialBindGroups(Graphics &gfx)
 	}
 }
 
+void LinkPipelineHandles(Graphics &gfx)
+{
+	// Graphics pipelines
+	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
+	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
+	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
+
+	// Compute pipelines
+	gfx.computeClearH = FindPipelineHandle(gfx, "compute_clear");
+	gfx.computeUpdateH = FindPipelineHandle(gfx, "compute_update");
+
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		Material &material = gfx.materials[i];
+		material.pipelineH = FindPipelineHandle(gfx, material.desc.pipelineName);
+	}
+}
+
 void InitializeScene(Arena scratch, Graphics &gfx)
 {
 	FilePath assetsPath = MakePath("assets/assets.h");
@@ -1129,13 +1042,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	gfx.skyTextureH = TextureHandle(gfx, "tex_sky");
 
 	// Pipelines
-	gfx.shadowmapPipelineH = PipelineHandle(gfx, "pipeline_shadowmap");
-	gfx.skyPipelineH = PipelineHandle(gfx, "pipeline_sky");
-	gfx.guiPipelineH = PipelineHandle(gfx, "pipeline_ui");
-
-	// Computes
-	gfx.computeClearH = PipelineHandle(gfx, "compute_clear");
-	gfx.computeUpdateH = PipelineHandle(gfx, "compute_update");
+	LinkPipelineHandles(gfx);
 
 	// Samplers
 	const SamplerDesc materialSamplerDesc = {
@@ -1826,6 +1733,29 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	return true;
 }
 
+void HotReloadAssets(Graphics &gfx, Arena scratch)
+{
+	if ( gfx.reloadQueueSize > 0 )
+	{
+		WaitDeviceIdle(gfx.device);
+
+		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
+		{
+			const u32 pipelineIndex = gfx.reloadQueue[i];
+			const PipelineH pipelineH = pipelineHandles[pipelineIndex];
+			const PipelineDesc &pipelineDesc = pipelineDescs[pipelineIndex];
+
+			DestroyPipeline(gfx.device, pipelineH);
+
+			const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDesc.renderPass);
+			pipelineHandles[pipelineIndex] = CreateGraphicsPipeline(gfx.device, scratch, pipelineDesc, renderPassH, gfx.globalBindGroupLayout);
+		}
+
+		gfx.reloadQueueSize = 0;
+
+		LinkPipelineHandles(gfx);
+	}
+}
 
 
 
@@ -2021,6 +1951,141 @@ void CleanupImGui()
 }
 #endif // USE_IMGUI
 
+#if USE_UI
+
+void UpdateUI(UI &ui, Platform &platform)
+{
+	const Window &window = platform.window;
+	Graphics &gfx = GetPlatformGraphics(platform);
+
+	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
+	UI_SetViewportSize(ui, uint2{window.width, window.height});
+
+	UI_BeginFrame(ui);
+
+	char text[128];
+	sprintf(text, "Debug UI");
+
+	UI_BeginWindow(ui, text);
+
+	if ( UI_Section(ui, "Profiling" ) )
+	{
+		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
+
+		const u32 sceneWidth = gfx.device.swapchain.extent.width;
+		const u32 sceneHeight = gfx.device.swapchain.extent.height;
+		sprintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
+		UI_Label(ui, text);
+
+		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
+		sprintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
+		UI_Label(ui, text);
+		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
+
+		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
+		sprintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
+		UI_Label(ui, text);
+		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
+	}
+
+	if ( UI_Section(ui, "Pipelines") )
+	{
+		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
+		{
+			const char *pipelineName = pipelineDescs[i].name;
+
+			if ( UI_Button(ui, pipelineName) )
+			{
+				ASSERT(gfx.reloadQueueSize < ARRAY_COUNT(gfx.reloadQueue));
+				gfx.reloadQueue[gfx.reloadQueueSize++] = i;
+			}
+		}
+	}
+
+	if ( UI_Section(ui, "Buttons") )
+	{
+		static u32 labelIndex = 0;
+		const char *labels[] = {"Label 1", "Label 2"};
+		const char *label = labels[labelIndex];
+
+		UI_Label(ui, label);
+
+		UI_Separator(ui);
+
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+
+		if ( UI_Button(ui, "Hola") )
+		{
+			labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
+		}
+
+		UI_Button(ui, "Adios");
+
+		UI_Button(ui, "Memory");
+
+		UI_EndLayout(ui);
+
+	}
+
+	if ( UI_Section(ui, "Radio/Check") )
+	{
+		const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
+		static int selectedOption = 0;
+
+		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+		{
+			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+			{
+				selectedOption = i;
+			}
+		}
+
+		UI_Separator(ui);
+
+		static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
+		static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
+
+		for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
+		{
+			UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
+		}
+
+		UI_Separator(ui);
+
+		static const char *comboOptions[] = { "Combo 1", "Combo 2", "Combo 3" };
+		static u32 comboIndex = 0;
+
+		UI_Combo(ui, "Select type", comboOptions, ARRAY_COUNT(comboOptions), &comboIndex);
+	}
+
+	if ( UI_Section(ui, "Images") )
+	{
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		for (u32 i = 0; i < gfx.textureCount; ++i)
+		{
+			UI_Image(ui, gfx.textures[i].image);
+		}
+		UI_EndLayout(ui);
+	}
+
+	if ( UI_Section(ui, "Inputs") )
+	{
+		static char text[128] = "name";
+		static i32 intNumber = 0;
+		static f32 floatNumber = 0.0f;
+
+		UI_InputText(ui, "Input text", text, ARRAY_COUNT(text));
+		UI_InputInt(ui, "Input int", &intNumber);
+		UI_InputFloat(ui, "Input float", &floatNumber);
+	}
+
+	UI_EndWindow(ui);
+
+	UI_EndFrame(ui);
+}
+#endif
+
+
 
 
 
@@ -2120,6 +2185,8 @@ void EngineUpdate(Platform &platform)
 #endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+
+		HotReloadAssets(gfx, platform.frameArena);
 	}
 }
 

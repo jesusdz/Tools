@@ -3009,11 +3009,25 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 	return pipeline;
 }
 
+static PipelineH GetFreePipelineHandle(GraphicsDevice &device)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(device.pipelines); ++i)
+	{
+		if (device.pipelines[i].name == 0)
+		{
+			const PipelineH pipelineHandle = { .index = i };
+			return pipelineHandle;
+		}
+	}
+
+	ASSERT(0 && "No more space for pipelines.");
+	return {};
+}
+
 PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, RenderPassH renderPassH, const BindGroupLayout &globalBindGroupLayout)
 {
-	ASSERT( device.pipelineCount < ARRAY_COUNT(device.pipelines) );
 	const RenderPass &renderPass = GetRenderPass(device, renderPassH);
-	const PipelineH pipelineHandle = { .index = device.pipelineCount++ };
+	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
 	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, renderPass, globalBindGroupLayout);
 	return pipelineHandle;
@@ -3021,8 +3035,7 @@ PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pip
 
 PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
 {
-	ASSERT( device.pipelineCount < ARRAY_COUNT(device.pipelines) );
-	const PipelineH pipelineHandle = { .index = device.pipelineCount++ };
+	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
 	pipeline = CreateComputePipelineInternal(device, arena, desc);
 	return pipelineHandle;
@@ -3045,6 +3058,13 @@ void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 {
 	vkDestroyPipeline( device.handle, pipeline.handle, VULKAN_ALLOCATORS );
 	vkDestroyPipelineLayout( device.handle, pipeline.layout.handle, VULKAN_ALLOCATORS );
+}
+
+void DestroyPipeline(GraphicsDevice &device, PipelineH handle)
+{
+	const Pipeline &pipeline = GetPipeline(device, handle);
+	DestroyPipeline(device, pipeline);
+	device.pipelines[handle.index] = {};
 }
 
 
@@ -3879,7 +3899,7 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 		DestroyRenderPass( device, device.renderPasses[i] );
 	}
 
-	for (u32 i = 0; i < device.pipelineCount; ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(device.pipelines); ++i)
 	{
 		DestroyPipeline( device, device.pipelines[i] );
 	}
