@@ -1,3 +1,4 @@
+#include "defines.hlsl"
 #include "globals.hlsl"
 
 struct VertexInput
@@ -14,6 +15,9 @@ struct Interpolators
 	float3 normalWs : NORMAL0;
 	float2 texCoord : TEXCOORD0;
 	float4 shadowmapCoord : POSITION1;
+#if USE_ENTITY_SELECTION
+	nointerpolation bool isSelected : POSITION2;
+#endif
 };
 
 typedef Interpolators VertexOutput;
@@ -29,6 +33,9 @@ VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 	OUT.normalWs = mul( worldMatrix, float4( IN.normal, 0.0 ) ).xyz;
 	OUT.texCoord = IN.texCoord * material.uvScale;
 	OUT.shadowmapCoord = mul(globals.sunProj, mul(globals.sunView, OUT.positionWs));
+#if USE_ENTITY_SELECTION
+	OUT.isSelected = entityId == globals.selectedEntity;
+#endif
 	return OUT;
 }
 
@@ -97,6 +104,15 @@ float4 PSMain(PixelInput IN) : SV_Target
 	float specular = BlinnPhong(H, N) * Luminance(albedo) * sunVisibility;
 
 	float3 shadedColor = ((ambient + diffuse) * albedo + specular) * attenuationFactor;
+
+#if USE_ENTITY_SELECTION
+	if (IN.isSelected)
+	{
+		float3 orange = float3(1.0, 0.7, 0.0);
+		shadedColor = lerp(shadedColor, orange, sin(globals.time * 2.0) * 0.1f + 0.2f);
+	}
+#endif
+
 #else
 	// Material properties
 	float3 diffColor = albedo;

@@ -12,8 +12,15 @@ struct Globals
 	float4x4 sunProj;
 	float4 sunDir;
 	float4 eyePosition;
+
 	float shadowmapDepthBias;
-	float3 unused;
+	float time;
+	float unused1;
+	float unused2;
+
+	int2 mousePosition;
+	uint selectedEntity;
+	uint unused3;
 };
 
 struct SEntity

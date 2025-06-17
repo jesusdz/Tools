@@ -42,6 +42,8 @@
 
 #define INVALID_HANDLE -1
 
+#define USE_ENTITY_SELECTION 1
+
 
 
 
@@ -79,6 +81,9 @@ struct RenderTargets
 
 	ImageH shadowmapImage;
 	Framebuffer shadowmapFramebuffer;
+
+	ImageH idImage;
+	Framebuffer idFramebuffer;
 };
 
 struct Camera
@@ -131,6 +136,10 @@ struct Graphics
 	BufferH materialBuffer;
 	BufferH computeBufferH;
 	BufferViewH computeBufferViewH;
+#if USE_ENTITY_SELECTION
+	BufferH selectionBufferH;
+	BufferViewH selectionBufferViewH;
+#endif
 
 	SamplerH materialSamplerH;
 	SamplerH shadowmapSamplerH;
@@ -138,6 +147,7 @@ struct Graphics
 
 	RenderPassH litRenderPassH;
 	RenderPassH shadowmapRenderPassH;
+	RenderPassH idRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
 	u32 textureCount;
@@ -167,14 +177,24 @@ struct Graphics
 	Entity entities[MAX_ENTITIES];
 	u32 entityCount;
 
+	bool selectEntity;
+	u32 selectedEntity;
+
 	TextureH skyTextureH;
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
 	PipelineH guiPipelineH;
+#if USE_ENTITY_SELECTION
+	PipelineH idPipelineH;
+#endif
 
+#define USE_COMPUTE_TEST 0
+#if USE_COMPUTE_TEST
 	PipelineH computeClearH;
 	PipelineH computeUpdateH;
+#endif
+	PipelineH computeSelectH;
 
 	bool deviceInitialized;
 
@@ -328,14 +348,36 @@ static const PipelineDesc pipelineDescs[] =
 		.depthTest = false,
 		.blending = true,
 	},
+#if USE_ENTITY_SELECTION
+	{
+		.name = "pipeline_id",
+		.vsFilename = "shaders/vs_id.spv",
+		.fsFilename = "shaders/fs_id.spv",
+		.vsFunction = "VSMain",
+		.fsFunction = "PSMain",
+		.renderPass = "id_renderpass",
+		.vertexBufferCount = 1,
+		.vertexBuffers = { { .stride = 32 }, },
+		.vertexAttributeCount = 3,
+		.vertexAttributes = {
+			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+		},
+		.depthTest = true,
+		.depthWrite = false,
+		.depthCompareOp = CompareOpEqual,
+	},
+#endif // USE_ENTITY_SELECTION
 };
 
 static PipelineH pipelineHandles[ARRAY_COUNT(pipelineDescs)] = {};
 
 static const ComputeDesc computeDescs[] =
 {
-	{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
-	{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
+	//{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
+	//{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
+	{ .name = "compute_select", .filename = "shaders/compute_select.spv", .function = "CSMain" },
 };
 
 static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
@@ -686,10 +728,12 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
 	const Format depthFormat = gfx.device.defaultDepthFormat;
+	const u32 swapchainWidth = gfx.device.swapchain.extent.width;
+	const u32 swapchainHeight = gfx.device.swapchain.extent.height;
 
 	// Depth buffer
 	renderTargets.depthImage = CreateImage(gfx.device,
-			gfx.device.swapchain.extent.width, gfx.device.swapchain.extent.height, 1,
+			swapchainWidth, swapchainHeight, 1,
 			depthFormat,
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
@@ -728,6 +772,24 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		renderTargets.shadowmapFramebuffer = CreateFramebuffer( gfx.device, desc );
 	}
 
+	// ID buffer
+	{
+		renderTargets.idImage = CreateImage(gfx.device,
+			 swapchainWidth, swapchainHeight, 1,
+			 FormatUInt,
+			 ImageUsageColorAttachment | ImageUsageSampled,
+			 HeapType_RTs);
+		TransitionImageLayout(commandList, renderTargets.idImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
+
+		const FramebufferDesc desc = {
+			.renderPass = gfx.idRenderPassH,
+			.attachments = { renderTargets.idImage, renderTargets.depthImage },
+			.attachmentCount = 2,
+		};
+
+		renderTargets.idFramebuffer = CreateFramebuffer( gfx.device, desc );
+	}
+
 	EndTransientCommandList(gfx.device, commandList);
 
 	return renderTargets;
@@ -749,6 +811,9 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	DestroyImageH(gfx.device, renderTargets.shadowmapImage);
 	DestroyFramebuffer( gfx.device, renderTargets.shadowmapFramebuffer );
 
+	DestroyImageH(gfx.device, renderTargets.idImage);
+	DestroyFramebuffer( gfx.device, renderTargets.idFramebuffer );
+
 	renderTargets = {};
 }
 
@@ -767,7 +832,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			.name = "main_renderpass",
 			.colorAttachmentCount = 1,
 			.colorAttachments = {
-				{ .loadOp = LoadOpClear, .storeOp = StoreOpStore },
+				{ .format = FormatBGRA8_SRGB, .loadOp = LoadOpClear, .storeOp = StoreOpStore, .isSwapchain = true },
 			},
 			.hasDepthAttachment = true,
 			.depthAttachment = {
@@ -788,6 +853,22 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			}
 		};
 		gfx.shadowmapRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
+	}
+
+	// ID render pass
+	{
+		const RenderpassDesc renderpassDesc = {
+			.name = "id_renderpass",
+			.colorAttachmentCount = 1,
+			.colorAttachments = {
+				{ .format = FormatUInt, .loadOp = LoadOpClear, .storeOp = StoreOpStore },
+			},
+			.hasDepthAttachment = true,
+			.depthAttachment = {
+				.loadOp = LoadOpLoad, .storeOp = StoreOpStore
+			}
+		};
+		gfx.idRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
 	}
 
 	// Render targets
@@ -843,6 +924,12 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	gfx.computeBufferH = CreateBuffer(gfx.device, computeBufferSize, BufferUsageStorageTexelBuffer, HeapType_General);
 	gfx.computeBufferViewH = CreateBufferView(gfx.device, gfx.computeBufferH, FormatFloat);
 
+#if USE_ENTITY_SELECTION
+	const u32 selectionBufferSize = AlignUp( sizeof(u32), gfx.device.alignment.storageBufferOffset );
+	gfx.selectionBufferH = CreateBuffer(gfx.device, selectionBufferSize, BufferUsageStorageTexelBuffer, HeapType_Readback);
+	gfx.selectionBufferViewH = CreateBufferView(gfx.device, gfx.selectionBufferH, FormatUInt);
+#endif // USE_ENTITY_SELECTION
+
 
 	// Create Global BindGroup allocator
 	{
@@ -894,7 +981,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 
 	// Create global BindGroup layout
 	const ShaderBinding globalShaderBindings[] = {
-		{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit | SpvStageFlagsComputeBit },
 		{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
@@ -909,14 +996,16 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 		LOG(Info, "Creating Graphics Pipeline: %s\n", pipelineDescs[i].name);
 		const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
 		pipelineHandles[i] = pipelineH;
+		SetObjectName(gfx.device, pipelineH, pipelineDescs[i].name);
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
 		LOG(Info, "Creating Compute Pipeline: %s\n", computeDescs[i].name);
-		const PipelineH pipelineH = CreateComputePipeline(gfx.device, scratch, computeDescs[i]);
+		const PipelineH pipelineH = CreateComputePipeline(gfx.device, scratch, computeDescs[i], gfx.globalBindGroupLayout);
 		computeHandles[i] = pipelineH;
+		SetObjectName(gfx.device, pipelineH, computeDescs[i].name);
 	}
 
 #if USE_UI
@@ -982,10 +1071,16 @@ void LinkPipelineHandles(Graphics &gfx)
 	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
+#if USE_ENTITY_SELECTION
+	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
+#endif // USE_ENTITY_SELECTION
 
 	// Compute pipelines
+#if USE_COMPUTE_TEST
 	gfx.computeClearH = FindPipelineHandle(gfx, "compute_clear");
 	gfx.computeUpdateH = FindPipelineHandle(gfx, "compute_update");
+#endif // USE_COMPUTE_TEST
+	gfx.computeSelectH = FindPipelineHandle(gfx, "compute_select");
 
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
@@ -1104,6 +1199,8 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	gfx.camera.orientation = {0, -0.45f};
 
 	gfx.deviceInitialized = true;
+
+	gfx.selectedEntity = U32_MAX;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -1278,6 +1375,35 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, boo
 }
 #endif // USE_CAMERA_MOVEMENT
 
+#if USE_ENTITY_SELECTION
+void BeginEntitySelection(Graphics &gfx, const Mouse &mouse, bool handleInput)
+{
+	static bool mouseMoved = false;
+	if ( handleInput )
+	{
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT)) {
+			mouseMoved = false;
+		}
+		if (mouse.dx != 0 || mouse.dx != 0) {
+			mouseMoved = true;
+		}
+		if (!mouseMoved && MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) {
+			gfx.selectEntity = true;
+		}
+	}
+}
+
+void EndEntitySelection(Graphics &gfx)
+{
+	if ( gfx.selectEntity )
+	{
+		WaitDeviceIdle(gfx.device);
+		gfx.selectedEntity = *(uint*)GetBufferPtr(gfx.device, gfx.selectionBufferH);
+		gfx.selectEntity = false;
+	}
+}
+#endif // USE_ENTITY_SELECTION
+
 uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 {
 	const uint2 size = { framebuffer.extent.width, framebuffer.extent.height };
@@ -1404,6 +1530,9 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 
 bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
 {
+	static f32 totalSeconds = 0.0f;
+	totalSeconds += deltaSeconds;
+
 	u32 frameIndex = gfx.device.currentFrame;
 
 	BeginFrame(gfx.device);
@@ -1493,6 +1622,9 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 		.sunDir = Float4(sunDir, 0.0f),
 		.eyePosition = Float4(gfx.camera.position, 1.0f),
 		.shadowmapDepthBias = 0.005,
+		.time = totalSeconds,
+		.mousePosition = int2{window.mouse.x, window.mouse.y},
+		.selectedEntity = gfx.selectedEntity,
 	};
 
 	// Update globals buffer
@@ -1518,8 +1650,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	ResetTimestampPool(commandList, gfx.timestampPools[frameIndex]);
 	WriteTimestamp(commandList, gfx.timestampPools[frameIndex], PipelineStageTop);
 
-	#define COMPUTE_TEST 0
-	#if COMPUTE_TEST
+	#if USE_COMPUTE_TEST
 	{
 		const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeClearH);
 
@@ -1537,7 +1668,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		Dispatch(commandList, 1, 1, 1);
 	}
-	#endif // COMPUTE_TEST
+	#endif // USE_COMPUTE_TEST
 
 	const BufferH globalsBuffer = gfx.globalsBuffer[frameIndex];
 	const BufferH entityBuffer = gfx.entityBuffer[frameIndex];
@@ -1714,6 +1845,70 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 		EndDebugGroup(commandList);
 	}
+
+#if USE_ENTITY_SELECTION
+	{ // Selection buffer
+		BeginDebugGroup(commandList, "Entity selection");
+
+		{
+			SetClearColor(commandList, 0, U32_MAX);
+
+			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
+
+			const uint2 framebufferSize = GetFramebufferSize(gfx.renderTargets.idFramebuffer);
+			SetViewportAndScissor(commandList, framebufferSize);
+
+			SetPipeline(commandList, gfx.idPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+			{
+				const Entity &entity = gfx.entities[entityIndex];
+
+				if ( !entity.visible || entity.culled ) continue;
+
+				// Draw!!!
+				const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
+				const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+				const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+			}
+
+			EndRenderPass(commandList);
+		}
+
+		{
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeSelectH);
+
+			SetPipeline(commandList, gfx.computeSelectH);
+
+			const BindGroupDesc bindGroupDesc = {
+				.layout = pipeline.layout.bindGroupLayouts[3],
+				.bindings = {
+					{ .index = 0, .bufferView = gfx.selectionBufferViewH },
+					{ .index = 1, .image = gfx.renderTargets.idImage },
+				},
+			};
+			const BindGroup dynamicBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+
+			SetBindGroup(commandList, 0, dynamicBindGroup);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetBindGroup(commandList, 3, dynamicBindGroup);
+
+			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
+
+			Dispatch(commandList, 1, 1, 1);
+
+			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
+		}
+
+		EndDebugGroup(commandList);
+	}
+#endif // USE_ENTITY_SELECTION
+
 
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
 
@@ -1988,6 +2183,16 @@ void UpdateUI(UI &ui, Platform &platform)
 		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
 
+	if ( UI_Section(ui, "Entities") )
+	{
+		if ( gfx.selectedEntity == U32_MAX ) {
+			sprintf(text, "Selected entity: <none>");
+		} else {
+			sprintf(text, "Selected entity: %u", gfx.selectedEntity);
+		}
+		UI_Label(ui, text);
+	}
+
 	if ( UI_Section(ui, "Pipelines") )
 	{
 		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
@@ -2183,8 +2388,15 @@ void EngineUpdate(Platform &platform)
 #if USE_CAMERA_MOVEMENT
 		AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds, handleInput);
 #endif
+#if USE_ENTITY_SELECTION
+		BeginEntitySelection(gfx, platform.window.mouse, handleInput);
+#endif
 
 		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+
+#if USE_ENTITY_SELECTION
+		EndEntitySelection(gfx);
+#endif
 
 		HotReloadAssets(gfx, platform.frameArena);
 	}

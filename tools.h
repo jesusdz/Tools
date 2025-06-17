@@ -1699,7 +1699,7 @@ struct Keyboard
 
 struct Mouse
 {
-	u32 x, y;
+	i32 x, y;
 	i32 dx, dy;
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
 };
@@ -1842,6 +1842,7 @@ struct Platform
 	StringInterning stringInterning;
 	Window window;
 	f32 deltaSeconds;
+	f32 totalSeconds;
 };
 
 
@@ -2661,12 +2662,15 @@ bool PlatformRun(Platform &platform)
 
 	bool windowInitialized = false;
 
+	const Clock firstFrameClock = GetClock();
+
 	while ( 1 )
 	{
 		ResetArena(platform.frameArena);
 
 		const Clock currentFrameClock = GetClock();
 		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
+		platform.totalSeconds = GetSecondsElapsed(firstFrameClock, currentFrameClock);
 		lastFrameClock = currentFrameClock;
 
 		PlatformUpdateEventLoop(platform);

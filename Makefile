@@ -1,4 +1,4 @@
-.PHONY: default main_interpreter main_gfx main_spirv reflex main_reflect_serialize main_clon cast shaders clean
+.PHONY: default build_and_run build_and_debug main_interpreter main_gfx main_spirv reflex main_reflect_serialize main_clon cast shaders clean
 
 CXX=g++
 CXXFLAGS= -g
@@ -8,7 +8,15 @@ DXC=./dxc/linux/bin/dxc
 #DXC_FLAGS=-Od -fspv-extension=SPV_KHR_non_semantic_info -fspv-debug=vulkan-with-source
 DXC_FLAGS=-O3
 
-default: main_gfx
+default: build_and_run
+
+build_and_run: main_gfx
+	i3 workspace run
+	./main_gfx; i3 workspace 2
+
+build_and_debug: main_gfx
+	i3 workspace debug
+	gf2 ./main_gfx; i3 workspace 2
 
 main_interpreter:
 	${CXX} ${CXXFLAGS} -o main_interpreter main_interpreter.cpp
@@ -42,6 +50,9 @@ shaders:
 	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_shadowmap.spv -Fc shaders/fs_shadowmap.dis shaders/shadowmap.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_ui.spv -Fc shaders/vs_ui.dis shaders/ui.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_ui.spv -Fc shaders/fs_ui.dis shaders/ui.hlsl
+	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_id.spv -Fc shaders/vs_id.dis shaders/id.hlsl
+	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo shaders/fs_id.spv -Fc shaders/fs_id.dis shaders/id.hlsl
+	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E CSMain -Fo shaders/compute_select.spv -Fc shaders/compute_select.dis shaders/compute_select.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_clear -Fo shaders/compute_clear.spv -Fc shaders/compute_clear.dis shaders/compute.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_update -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl
 

@@ -246,11 +246,13 @@ enum CompareOp
 	CompareOpLess,
 	CompareOpGreater,
 	CompareOpGreaterOrEqual,
+	CompareOpEqual,
 	CompareOpCount,
 };
 
 enum Format
 {
+	FormatUInt,
 	FormatFloat,
 	FormatFloat2,
 	FormatFloat3,
@@ -467,8 +469,10 @@ struct ComputeDesc
 
 struct AttachmentDesc
 {
+	Format format;
 	LoadOp loadOp;
 	StoreOp storeOp;
+	bool isSwapchain;
 };
 
 struct RenderpassDesc
@@ -534,6 +538,7 @@ struct Swapchain
 struct Alignment
 {
 	u32 uniformBufferOffset;
+	u32 storageBufferOffset;
 	u32 optimalBufferCopyOffset;
 	u32 optimalBufferCopyRowPitch;
 	// u32 nonCoherentAtomSize;
@@ -789,6 +794,7 @@ static VkFormat FormatToVulkan(Format format)
 {
 	ASSERT(format < FormatCount);
 	static VkFormat vkFormats[] = {
+		VK_FORMAT_R32_UINT,
 		VK_FORMAT_R32_SFLOAT,
 		VK_FORMAT_R32G32_SFLOAT,
 		VK_FORMAT_R32G32B32_SFLOAT,
@@ -813,6 +819,7 @@ static VkFormat FormatToVulkan(Format format)
 static Format FormatFromVulkan(VkFormat format)
 {
 	switch (format) {
+		case VK_FORMAT_R32_UINT: return FormatUInt;
 		case VK_FORMAT_R32_SFLOAT: return FormatFloat;
 		case VK_FORMAT_R32G32_SFLOAT: return FormatFloat2;
 		case VK_FORMAT_R32G32B32_SFLOAT: return FormatFloat3;
@@ -838,6 +845,7 @@ static const char *FormatName(Format format)
 {
 	ASSERT(format < FormatCount);
 	static const char *names[] = {
+		"VK_FORMAT_R32_UINT",
 		"VK_FORMAT_R32_SFLOAT",
 		"VK_FORMAT_R32G32_SFLOAT",
 		"VK_FORMAT_R32G32B32_SFLOAT",
@@ -893,6 +901,7 @@ static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
 		VK_COMPARE_OP_LESS,
 		VK_COMPARE_OP_GREATER,
 		VK_COMPARE_OP_GREATER_OR_EQUAL,
+		VK_COMPARE_OP_EQUAL,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkCompareOps) == CompareOpCount);
 	ASSERT(compareOp < CompareOpCount);
@@ -1482,8 +1491,17 @@ void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labe
 	vkCmdInsertDebugUtilsLabelEXT(cmd.handle, &label);
 }
 
-void SetObjectName()
+void SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *name)
 {
+	const Pipeline &pipeline = GetPipeline(device, handle);
+
+	const VkDebugUtilsObjectNameInfoEXT objectName = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		.objectType = VK_OBJECT_TYPE_PIPELINE,
+		.objectHandle = (uint64_t)pipeline.handle,
+		.pObjectName = name,
+	};
+	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
 }
 
 //////////////////////////////
@@ -1988,16 +2006,17 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 		VkPresentModeKHR *surfacePresentModes = PushArray( scratch2, VkPresentModeKHR, surfacePresentModeCount );
 		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, device.surface, &surfacePresentModeCount, surfacePresentModes);
 
+#define USE_SWAPCHAIN_MAILBOX_PRESENT_MODE 0
 #if USE_SWAPCHAIN_MAILBOX_PRESENT_MODE
-		device.swapchainPresentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
+		device.swapchainInfo.presentMode = VK_PRESENT_MODE_MAX_ENUM_KHR;
 		for ( u32 i = 0; i < surfacePresentModeCount; ++i )
 		{
 			if ( surfacePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR )
 			{
-				device.swapchainPresentMode = surfacePresentModes[i];
+				device.swapchainInfo.presentMode = surfacePresentModes[i];
 			}
 		}
-		if ( device.swapchainInfo.presentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+		if ( device.swapchainInfo.presentMode == VK_PRESENT_MODE_MAX_ENUM_KHR )
 			device.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 #else
 		device.swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -2134,6 +2153,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 
 	// Get alignments
 	device.alignment.uniformBufferOffset = properties.limits.minUniformBufferOffsetAlignment;
+	device.alignment.storageBufferOffset = properties.limits.minStorageBufferOffsetAlignment;
 	device.alignment.optimalBufferCopyOffset = properties.limits.optimalBufferCopyOffsetAlignment;
 	device.alignment.optimalBufferCopyRowPitch = properties.limits.optimalBufferCopyRowPitchAlignment;
 
@@ -2158,7 +2178,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	device.heaps[HeapType_RTs] = CreateHeap(device, HeapType_RTs, MB(64), false);
 	device.heaps[HeapType_Staging] = CreateHeap(device, HeapType_Staging, MB(16), true);
 	device.heaps[HeapType_Dynamic] = CreateHeap(device, HeapType_Dynamic, MB(16), true);
-	//device.heaps[HeapType_Readback] = CreateHeap(gfx, HeapType_Readback, 0);
+	device.heaps[HeapType_Readback] = CreateHeap(device, HeapType_Readback, MB(1), true);
 
 
 	// Retrieve queues
@@ -2939,7 +2959,7 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	return pipeline;
 }
 
-Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
+Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	Arena scratch = arena;
 
@@ -2956,7 +2976,7 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 
 	// BindGroup layouts
 	const BindGroupLayout bindGroupLayouts[MAX_BIND_GROUPS] = {
-		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[0], shaderBindings.bindGroupBindingCount[0]),
+		globalBindGroupLayout,
 		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[1], shaderBindings.bindGroupBindingCount[1]),
 		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[2], shaderBindings.bindGroupBindingCount[2]),
 		CreateBindGroupLayout(device, shaderBindings.bindings + shaderBindings.bindGroupBindingBase[3], shaderBindings.bindGroupBindingCount[3]),
@@ -3033,11 +3053,11 @@ PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const Pip
 	return pipelineHandle;
 }
 
-PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc)
+PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
-	pipeline = CreateComputePipelineInternal(device, arena, desc);
+	pipeline = CreateComputePipelineInternal(device, arena, desc, globalBindGroupLayout);
 	return pipelineHandle;
 }
 
@@ -3083,14 +3103,14 @@ RenderPass CreateRenderPassInternal( const GraphicsDevice &device, const Renderp
 
 	for (u8 i = 0; i < desc.colorAttachmentCount; ++i)
 	{
-		attachmentDescs[i].format = device.swapchainInfo.format;
+		attachmentDescs[i].format = FormatToVulkan( desc.colorAttachments[i].format ); //device.swapchainInfo.format;
 		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
 		attachmentDescs[i].loadOp = LoadOpToVulkan( desc.colorAttachments[i].loadOp );
 		attachmentDescs[i].storeOp = StoreOpToVulkan( desc.colorAttachments[i].storeOp );
 		attachmentDescs[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachmentDescs[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		attachmentDescs[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachmentDescs[i].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		attachmentDescs[i].finalLayout = desc.colorAttachments[i].isSwapchain ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 		colorAttachmentRefs[i].attachment = i;
 		colorAttachmentRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -3106,7 +3126,7 @@ RenderPass CreateRenderPassInternal( const GraphicsDevice &device, const Renderp
 		depthAttachmentDesc.storeOp = StoreOpToVulkan(desc.depthAttachment.storeOp);
 		depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachmentDesc.initialLayout = desc.depthAttachment.loadOp == LoadOpLoad ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
 		depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		depthAttachmentRef.attachment = depthAttachmentIndex;;
@@ -3400,6 +3420,8 @@ void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, Imag
 {
 	const Image &image = GetImage(GetDevice(commandBuffer), imageH);
 
+	const bool isDepth = IsDepthFormat(image.format);
+
 	VkAccessFlags srcAccess = 0;
 	VkAccessFlags dstAccess = 0;
 	VkPipelineStageFlags srcStage = 0;
@@ -3413,7 +3435,10 @@ void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, Imag
 		case ImageStateTransferSrc: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
 		case ImageStateTransferDst: oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
 		case ImageStateShaderInput: oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
-		case ImageStateRenderTarget: oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		case ImageStateRenderTarget: oldLayout = isDepth
+			? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+			: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			break;
 		default: INVALID_CODE_PATH();
 	}
 
@@ -3423,7 +3448,10 @@ void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, Imag
 		case ImageStateTransferSrc: newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; break;
 		case ImageStateTransferDst: newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; break;
 		case ImageStateShaderInput: newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; break;
-		case ImageStateRenderTarget: newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; break;
+		case ImageStateRenderTarget: newLayout = isDepth
+			? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+			: VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			break;
 		default: INVALID_CODE_PATH();
 	}
 
@@ -3444,6 +3472,10 @@ void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, Imag
 		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 			srcAccess = VK_ACCESS_SHADER_READ_BIT;
 			srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+			srcAccess = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
 			srcAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -3466,6 +3498,10 @@ void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, Imag
 		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
 			dstAccess = VK_ACCESS_SHADER_READ_BIT;
 			dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+			dstAccess = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
 			dstAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -3561,6 +3597,12 @@ void SetClearColor(CommandList &commandList, u32 renderTargetIndex, float4 color
 	commandList.clearValues[renderTargetIndex].color.float32[1] = color.g;
 	commandList.clearValues[renderTargetIndex].color.float32[2] = color.b;
 	commandList.clearValues[renderTargetIndex].color.float32[3] = color.a;
+}
+
+void SetClearColor(CommandList &commandList, u32 renderTargetIndex, u32 color)
+{
+	ASSERT(renderTargetIndex < MAX_RENDER_TARGETS);
+	commandList.clearValues[renderTargetIndex].color.uint32[0] = color;
 }
 
 void SetClearDepth(CommandList &commandList, u32 renderTargetIndex, float depth)
@@ -3849,6 +3891,7 @@ bool BeginFrame(GraphicsDevice &device)
 
 		// Advance global fence ring tail
 		device.firstFenceIndex = ( device.firstFenceIndex + frameData.usedFenceCount ) % MAX_FENCES;
+		ASSERT(device.usedFenceCount >= frameData.usedFenceCount);
 		device.usedFenceCount -= frameData.usedFenceCount;
 	}
 

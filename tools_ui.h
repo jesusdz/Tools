@@ -875,7 +875,7 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	return id;
 }
 
-void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Background | UIWindowFlag_ClipContents )
+void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents )
 {
 	const u32 windowId = UI_MakeID(ui, caption);
 	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, caption);
