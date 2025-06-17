@@ -828,6 +828,8 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 
 	// Global render pass
 	{
+		const StoreOp storeOp = USE_ENTITY_SELECTION ? StoreOpStore : StoreOpDontCare;
+
 		const RenderpassDesc renderpassDesc = {
 			.name = "main_renderpass",
 			.colorAttachmentCount = 1,
@@ -836,7 +838,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 			},
 			.hasDepthAttachment = true,
 			.depthAttachment = {
-				.loadOp = LoadOpClear, .storeOp = StoreOpDontCare
+				.loadOp = LoadOpClear, .storeOp = storeOp
 			}
 		};
 		gfx.litRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
@@ -1398,7 +1400,7 @@ void EndEntitySelection(Graphics &gfx)
 	if ( gfx.selectEntity )
 	{
 		WaitDeviceIdle(gfx.device);
-		gfx.selectedEntity = *(uint*)GetBufferPtr(gfx.device, gfx.selectionBufferH);
+		gfx.selectedEntity = *(u32*)GetBufferPtr(gfx.device, gfx.selectionBufferH);
 		gfx.selectEntity = false;
 	}
 }

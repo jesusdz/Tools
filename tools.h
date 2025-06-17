@@ -928,6 +928,8 @@ struct rgba
 	byte r, g, b, a;
 };
 
+typedef u32 uint;
+
 struct int2
 {
 	union { i32 x, r; };
