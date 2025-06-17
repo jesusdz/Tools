@@ -1880,6 +1880,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 #if USE_ENTITY_SELECTION
+	if ( gfx.selectEntity )
 	{ // Selection buffer
 		BeginDebugGroup(commandList, "Entity selection");
 
