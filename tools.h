@@ -11,6 +11,7 @@
  * - Hashing
  * - Memory allocators
  * - File reading
+ * - Process execution
  * - Mathematics
  * - Clock / timing
  * - Window creation
@@ -919,6 +920,54 @@ FilePath MakePath(const char *relativePath)
 }
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Process execution
+
+void ExecuteProcess(const char *commandLine)
+{
+#if PLATFORM_WINDOWS
+	char commandLineCopy[MAX_PATH_LENGTH];
+	StrCopyN(commandLineCopy, commandLine, MAX_PATH_LENGTH - 1);
+
+    STARTUPINFO si;
+    ZeroMemory( &si, sizeof(si) );
+    si.cb = sizeof(si);
+
+    PROCESS_INFORMATION pi;
+    ZeroMemory( &pi, sizeof(pi) );
+
+	const BOOL success = CreateProcessA(
+		NULL, // No module name, use command line
+		commandLineCopy, // Command line
+		NULL, // Process handle not inheritable
+		NULL, // Thread handle not inheritable
+		FALSE, // Set handle inheritance to false
+		0, // No creation flags
+		NULL, // Use parent's environment block
+		NULL, // Use parent's starting directory
+		&si, // Pointer to STARTUPINFO structure
+		&pi // Pointer to PROCESS_INFORMATION structure
+	);
+
+	if (success)
+	{
+		// Wait until child process exits.
+		WaitForSingleObject( pi.hProcess, INFINITE );
+
+		// Close process and thread handles.
+		CloseHandle( pi.hProcess );
+		CloseHandle( pi.hThread );
+	}
+	else
+	{
+		LOG(Error, "Create process failed.\n");
+	}
+#else
+	// TODO
+	ASSERT(0 && "Need to implement this method.\n");
+#endif
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math
