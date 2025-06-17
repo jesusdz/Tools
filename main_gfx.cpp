@@ -274,6 +274,37 @@ static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
+enum ShaderType
+{
+	ShaderTypeVertex,
+	ShaderTypeFragment,
+	ShaderTypeCompute
+};
+
+struct ShaderSourceDesc
+{
+	ShaderType type;
+	const char *filename;
+	const char *entryPoint;
+	const char *outputName;
+};
+
+static const ShaderSourceDesc shaderSources[] = {
+	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .outputName = "vs_shading" },
+	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .outputName = "fs_shading" },
+	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .outputName = "vs_sky" },
+	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .outputName = "fs_sky" },
+	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .outputName = "vs_shadowmap" },
+	{ .type = ShaderTypeFragment, .filename = "shadowmap.hlsl",      .entryPoint = "PSMain",      .outputName = "fs_shadowmap" },
+	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .outputName = "vs_ui" },
+	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .outputName = "fs_ui" },
+	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .outputName = "vs_id" },
+	{ .type = ShaderTypeFragment, .filename = "id.hlsl",             .entryPoint = "PSMain",      .outputName = "fs_id" },
+	{ .type = ShaderTypeCompute,  .filename = "compute_select.hlsl", .entryPoint = "CSMain",      .outputName = "compute_select" },
+	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_clear",  .outputName = "compute_clear" },
+	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .outputName = "compute_update" },
+};
+
 static const PipelineDesc pipelineDescs[] =
 {
 	{
@@ -2160,7 +2191,7 @@ void UpdateUI(UI &ui, Platform &platform)
 
 	UI_BeginFrame(ui);
 
-	char text[128];
+	char text[MAX_PATH_LENGTH];
 	sprintf(text, "Debug UI");
 
 	UI_BeginWindow(ui, text);
@@ -2197,15 +2228,46 @@ void UpdateUI(UI &ui, Platform &platform)
 
 	if ( UI_Section(ui, "Pipelines") )
 	{
+		if ( UI_Button(ui, "Recompile shaders") )
+		{
+#if PLATFORM_WINDOWS
+			constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
+#elif PLATFORM_LINUX
+			constexpr const char *dxc = "dxc/linux/bin/dxc'";
+#else
+			constexpr const char *dxc = "<none>";
+#endif
+			constexpr const char *flags = "-spirv -O3";
+
+			for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
+			{
+				const ShaderSourceDesc &desc = shaderSources[i];
+				const char *target =
+					desc.type == ShaderTypeVertex ? "vs_6_7" :
+					desc.type == ShaderTypeFragment ? "ps_6_7" :
+					desc.type == ShaderTypeCompute ? "cs_6_7" :
+					"unknown";
+				const char *entry = desc.entryPoint;
+				const char *output = desc.outputName;
+				const char *filename = desc.filename;
+				sprintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
+
+				ExecuteProcess(text);
+			}
+		}
+
 		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 		{
 			const char *pipelineName = pipelineDescs[i].name;
 
-			if ( UI_Button(ui, pipelineName) )
+			UI_BeginLayout(ui, UiLayoutHorizontal);
+			if ( UI_Button(ui, "Reload") )
 			{
 				ASSERT(gfx.reloadQueueSize < ARRAY_COUNT(gfx.reloadQueue));
 				gfx.reloadQueue[gfx.reloadQueueSize++] = i;
 			}
+			UI_Label(ui, pipelineName);
+			UI_EndLayout(ui);
 		}
 	}
 
