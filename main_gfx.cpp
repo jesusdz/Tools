@@ -2234,7 +2234,7 @@ void UpdateUI(UI &ui, Platform &platform)
 #if PLATFORM_WINDOWS
 			constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
 #elif PLATFORM_LINUX
-			constexpr const char *dxc = "dxc/linux/bin/dxc'";
+			constexpr const char *dxc = "dxc/linux/bin/dxc";
 #else
 			constexpr const char *dxc = "<none>";
 #endif

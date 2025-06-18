@@ -57,6 +57,11 @@
 #include <sys/mman.h> // mmap
 #endif
 
+#if PLATFORM_LINUX
+#include <sys/wait.h>
+#include <spawn.h>
+#endif
+
 #if PLATFORM_ANDROID
 #include <android/sensor.h>
 #include <android/log.h>
@@ -926,10 +931,10 @@ FilePath MakePath(const char *relativePath)
 
 void ExecuteProcess(const char *commandLine)
 {
-#if PLATFORM_WINDOWS
 	char commandLineCopy[MAX_PATH_LENGTH];
 	StrCopyN(commandLineCopy, commandLine, MAX_PATH_LENGTH - 1);
 
+#if PLATFORM_WINDOWS
     STARTUPINFO si;
     ZeroMemory( &si, sizeof(si) );
     si.cb = sizeof(si);
@@ -961,11 +966,40 @@ void ExecuteProcess(const char *commandLine)
 	}
 	else
 	{
-		LOG(Error, "Create process failed.\n");
+		LOG(Error, "CreateProcessA failed.\n");
 	}
-#else
-	// TODO
-	ASSERT(0 && "Need to implement this method.\n");
+#elif PLATFORM_LINUX
+	// Split list of arguments
+	char *ptr = commandLineCopy;
+	int argc = 0;
+	char *argv[128] = {};
+	bool addNextArgument = true;
+	while (*ptr) {
+		if (*ptr == ' ') {
+			addNextArgument = true;
+			*ptr = 0;
+		} else {
+			if ( addNextArgument ) {
+				ASSERT(argc < ARRAY_COUNT(argv) - 1);
+				argv[argc++] = ptr;
+				addNextArgument = false;
+			}
+		}
+		ptr++;
+	}
+
+	// posix_spawn behaves similar to fork/exec
+	pid_t pid;
+	int status = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
+	if (status == 0) {
+		if (waitpid(pid, &status, 0) != -1) {
+			// printf("Child exited with status %i\n", status);
+		} else {
+			perror("waitpid");
+		}
+	} else {
+		LOG(Debug, "posix_spawn failed: %s\n", strerror(status));
+	}
 #endif
 }
 
