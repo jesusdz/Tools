@@ -2356,8 +2356,9 @@ void UpdateUI(UI &ui, Platform &platform)
 #endif
 
 
-#define USE_DYNAMIC_LIB 0
+#define USE_DYNAMIC_LIB 1
 #if USE_DYNAMIC_LIB
+#if PLATFORM_LINUX
 void *dynamicLib;
 
 typedef void (*PFinit)();
@@ -2367,6 +2368,19 @@ typedef void (*PFfinalize)();
 PFinit initialize;
 PFupdate update;
 PFfinalize finalize;
+#elif PLATFORM_WINDOWS
+HINSTANCE dynamicLib;
+
+typedef void (*PFinit)();
+typedef void (*PFupdate)();
+typedef void (*PFfinalize)();
+
+PFinit initialize;
+PFupdate update;
+PFfinalize finalize;
+#else
+#error "Missing implementation"
+#endif
 #endif
 
 
@@ -2393,6 +2407,8 @@ bool EngineInit(Platform &platform)
 	}
 
 #if USE_DYNAMIC_LIB
+
+#if PLATFORM_LINUX
 	constexpr const char * dynamicLibName = "./gamelib.so";
 	dynamicLib = dlopen(dynamicLibName, RTLD_NOW);
 	if (dynamicLib)
@@ -2435,6 +2451,52 @@ bool EngineInit(Platform &platform)
 	{
 		LOG(Warning, "Error opening %s\n", dynamicLibName);
 	}
+#elif PLATFORM_WINDOWS
+	constexpr const char *dynamicLibName = "./build/gamelib.dll";
+	dynamicLib = LoadLibrary(dynamicLibName);
+	if (dynamicLib)
+	{
+		initialize = (PFinit)GetProcAddress(dynamicLib, "initialize");
+		update = (PFinit)GetProcAddress(dynamicLib, "update");
+		finalize = (PFfinalize)GetProcAddress(dynamicLib, "finalize");
+
+		if (initialize)
+		{
+			initialize();
+		}
+		else
+		{
+			LOG(Warning, "initialize not loaded :-(\n");
+		}
+		if (update)
+		{
+			update();
+		}
+		else
+		{
+			LOG(Warning, "update not loaded :-(\n");
+		}
+		if (finalize)
+		{
+			finalize();
+		}
+		else
+		{
+			LOG(Warning, "finalize not loaded :-(\n");
+		}
+
+		if (initialize == nullptr && update == nullptr && finalize == nullptr)
+		{
+			FreeLibrary(dynamicLib);
+		}
+	}
+	else
+	{
+		LOG(Warning, "Error opening %s\n", dynamicLibName);
+	}
+#else
+#error "Missing implementation"
+#endif
 #endif // USE_DYNAMIC_LIB
 
 	return true;
@@ -2538,6 +2600,7 @@ void EngineWindowCleanup(Platform &platform)
 void EngineCleanup(Platform &platform)
 {
 #if USE_DYNAMIC_LIB
+#if PLATFORM_LINUX
 	if (dynamicLib)
 	{
 		if (finalize)
@@ -2551,6 +2614,23 @@ void EngineCleanup(Platform &platform)
 		update = nullptr;
 		finalize = nullptr;
 	}
+#elif PLATFORM_WINDOWS
+	if (dynamicLib)
+	{
+		if (finalize)
+		{
+			finalize();
+		}
+
+		FreeLibrary(dynamicLib);
+		dynamicLib = nullptr;
+		initialize = nullptr;
+		update = nullptr;
+		finalize = nullptr;
+	}
+#else
+#error "Missing implementation"
+#endif
 #endif // USE_DYNAMIC_LIB
 
 	Graphics &gfx = GetPlatformGraphics(platform);

@@ -36,6 +36,7 @@ if [%target%] == [] goto main_gfx
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
 if "%target%" == "main_gfx" goto main_gfx
+if "%target%" == "gamelib" goto gamelib
 if "%target%" == "main_d3d12" goto main_d3d12
 if "%target%" == "main_reflect_serialize" goto main_reflect_serialize
 if "%target%" == "main_interpreter" goto main_interpreter
@@ -75,6 +76,21 @@ set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 cl %CommonCompilerFlags% ..\reflex.cpp /link %CommonLinkerFlags%
 reflex.exe ..\assets\assets.h > ..\assets.reflex.h
 cl %CommonCompilerFlags% ..\main_gfx.cpp /link %CommonLinkerFlags%
+popd
+exit /b 0
+
+
+
+REM ######################################################
+REM gamelib
+REM ######################################################
+: gamelib
+
+call vcenv.bat
+pushd build
+set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
+set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
+cl /LD ..\gamelib.cpp
 popd
 exit /b 0
 
