@@ -2412,7 +2412,7 @@ PFinit initialize;
 PFupdate update;
 PFfinalize finalize;
 
-#endif
+#endif // USE_DYNAMIC_LIB
 
 
 
@@ -2441,6 +2441,10 @@ bool EngineInit(Platform &platform)
 
 #if PLATFORM_LINUX
 	constexpr const char * dynamicLibName = "./gamelib.so";
+#elif PLATFORM_WINDOWS
+	constexpr const char *dynamicLibName = "./build/gamelib.dll";
+#endif
+
 	dynamicLib = OpenLibrary(dynamicLibName);
 	if (dynamicLib)
 	{
@@ -2482,52 +2486,7 @@ bool EngineInit(Platform &platform)
 	{
 		LOG(Warning, "Error opening %s\n", dynamicLibName);
 	}
-#elif PLATFORM_WINDOWS
-	constexpr const char *dynamicLibName = "./build/gamelib.dll";
-	dynamicLib = LoadLibrary(dynamicLibName);
-	if (dynamicLib)
-	{
-		initialize = (PFinit)GetProcAddress(dynamicLib, "initialize");
-		update = (PFinit)GetProcAddress(dynamicLib, "update");
-		finalize = (PFfinalize)GetProcAddress(dynamicLib, "finalize");
 
-		if (initialize)
-		{
-			initialize();
-		}
-		else
-		{
-			LOG(Warning, "initialize not loaded :-(\n");
-		}
-		if (update)
-		{
-			update();
-		}
-		else
-		{
-			LOG(Warning, "update not loaded :-(\n");
-		}
-		if (finalize)
-		{
-			finalize();
-		}
-		else
-		{
-			LOG(Warning, "finalize not loaded :-(\n");
-		}
-
-		if (initialize == nullptr && update == nullptr && finalize == nullptr)
-		{
-			FreeLibrary(dynamicLib);
-		}
-	}
-	else
-	{
-		LOG(Warning, "Error opening %s\n", dynamicLibName);
-	}
-#else
-#error "Missing implementation"
-#endif
 #endif // USE_DYNAMIC_LIB
 
 	return true;
@@ -2631,7 +2590,6 @@ void EngineWindowCleanup(Platform &platform)
 void EngineCleanup(Platform &platform)
 {
 #if USE_DYNAMIC_LIB
-#if PLATFORM_LINUX
 	if (dynamicLib)
 	{
 		if (finalize)
@@ -2645,23 +2603,6 @@ void EngineCleanup(Platform &platform)
 		update = nullptr;
 		finalize = nullptr;
 	}
-#elif PLATFORM_WINDOWS
-	if (dynamicLib)
-	{
-		if (finalize)
-		{
-			finalize();
-		}
-
-		FreeLibrary(dynamicLib);
-		dynamicLib = nullptr;
-		initialize = nullptr;
-		update = nullptr;
-		finalize = nullptr;
-	}
-#else
-#error "Missing implementation"
-#endif
 #endif // USE_DYNAMIC_LIB
 
 	Graphics &gfx = GetPlatformGraphics(platform);
