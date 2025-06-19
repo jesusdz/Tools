@@ -1,4 +1,4 @@
-.PHONY: default build_and_run build_and_debug main_interpreter main_gfx main_spirv reflex main_reflect_serialize main_clon cast shaders clean
+.PHONY: default build_and_run build_and_debug main_interpreter main_gfx gamelib main_spirv reflex main_reflect_serialize main_clon cast shaders clean
 
 CXX=g++
 CXXFLAGS= -g
@@ -24,6 +24,10 @@ main_interpreter:
 main_gfx: reflex
 	./reflex assets/assets.h > assets.reflex.h
 	${CXX} ${CXXFLAGS} -o main_gfx  main_gfx.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
+
+gamelib:
+	${CXX} -fPIC -g -Wall -c gamelib.cpp
+	${CXX} gamelib.o -shared -o gamelib.so
 
 main_spirv:
 	${CXX} ${CXXFLAGS} -o main_spirv main_spirv.cpp

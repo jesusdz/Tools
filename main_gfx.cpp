@@ -2356,6 +2356,19 @@ void UpdateUI(UI &ui, Platform &platform)
 #endif
 
 
+#define USE_DYNAMIC_LIB 0
+#if USE_DYNAMIC_LIB
+void *dynamicLib;
+
+typedef void (*PFinit)();
+typedef void (*PFupdate)();
+typedef void (*PFfinalize)();
+
+PFinit initialize;
+PFupdate update;
+PFfinalize finalize;
+#endif
+
 
 
 
@@ -2378,6 +2391,51 @@ bool EngineInit(Platform &platform)
 		LOG(Error, "InitializeGraphicsDriver failed!\n");
 		return false;
 	}
+
+#if USE_DYNAMIC_LIB
+	constexpr const char * dynamicLibName = "./gamelib.so";
+	dynamicLib = dlopen(dynamicLibName, RTLD_NOW);
+	if (dynamicLib)
+	{
+		initialize = (PFinit)dlsym(dynamicLib, "initialize");
+		update = (PFinit)dlsym(dynamicLib, "update");
+		finalize = (PFfinalize)dlsym(dynamicLib, "finalize");
+
+		if (initialize)
+		{
+			initialize();
+		}
+		else
+		{
+			LOG(Warning, "initialize not loaded :-(\n");
+		}
+		if (update)
+		{
+			update();
+		}
+		else
+		{
+			LOG(Warning, "update not loaded :-(\n");
+		}
+		if (finalize)
+		{
+			finalize();
+		}
+		else
+		{
+			LOG(Warning, "finalize not loaded :-(\n");
+		}
+
+		if (initialize == nullptr && update == nullptr && finalize == nullptr)
+		{
+			dlclose(dynamicLib);
+		}
+	}
+	else
+	{
+		LOG(Warning, "Error opening %s\n", dynamicLibName);
+	}
+#endif // USE_DYNAMIC_LIB
 
 	return true;
 }
@@ -2479,6 +2537,22 @@ void EngineWindowCleanup(Platform &platform)
 
 void EngineCleanup(Platform &platform)
 {
+#if USE_DYNAMIC_LIB
+	if (dynamicLib)
+	{
+		if (finalize)
+		{
+			finalize();
+		}
+
+		dlclose(dynamicLib);
+		dynamicLib = nullptr;
+		initialize = nullptr;
+		update = nullptr;
+		finalize = nullptr;
+	}
+#endif // USE_DYNAMIC_LIB
+
 	Graphics &gfx = GetPlatformGraphics(platform);
 
 	WaitDeviceIdle(gfx);
