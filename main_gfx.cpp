@@ -2357,19 +2357,52 @@ void UpdateUI(UI &ui, Platform &platform)
 
 
 #define USE_DYNAMIC_LIB 1
+
 #if USE_DYNAMIC_LIB
+
 #if PLATFORM_LINUX
-void *dynamicLib;
+	typedef void* DynamicLibrary;
 
-typedef void (*PFinit)();
-typedef void (*PFupdate)();
-typedef void (*PFfinalize)();
+	DynamicLibrary OpenLibrary(const char *filepath)
+	{
+		DynamicLibrary library = dlopen(filepath, RTLD_NOW);
+		return library;
+	}
 
-PFinit initialize;
-PFupdate update;
-PFfinalize finalize;
+	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
+	{
+		void *symbol = dlsym(library, symbolName);
+		return symbol;
+	}
+
+	void CloseLibrary(DynamicLibrary library)
+	{
+		dlclose(library);
+	}
 #elif PLATFORM_WINDOWS
-HINSTANCE dynamicLib;
+	typedef HINSTANCE DynamicLibrary;
+
+	DynamicLibrary OpenLibrary(const char *filepath)
+	{
+		DynamicLibrary library = LoadLibrary(filepath);
+		return library;
+	}
+
+	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
+	{
+		void *symbol = GetProcAddress(library, symbolName);
+		return symbol;
+	}
+
+	void CloseLibrary(DynamicLibrary library)
+	{
+		FreeLibrary(library);
+	}
+#else
+	#error "Missing implementation"
+#endif
+
+static DynamicLibrary dynamicLib = {};
 
 typedef void (*PFinit)();
 typedef void (*PFupdate)();
@@ -2378,9 +2411,7 @@ typedef void (*PFfinalize)();
 PFinit initialize;
 PFupdate update;
 PFfinalize finalize;
-#else
-#error "Missing implementation"
-#endif
+
 #endif
 
 
@@ -2410,12 +2441,12 @@ bool EngineInit(Platform &platform)
 
 #if PLATFORM_LINUX
 	constexpr const char * dynamicLibName = "./gamelib.so";
-	dynamicLib = dlopen(dynamicLibName, RTLD_NOW);
+	dynamicLib = OpenLibrary(dynamicLibName);
 	if (dynamicLib)
 	{
-		initialize = (PFinit)dlsym(dynamicLib, "initialize");
-		update = (PFinit)dlsym(dynamicLib, "update");
-		finalize = (PFfinalize)dlsym(dynamicLib, "finalize");
+		initialize = (PFinit)LoadSymbol(dynamicLib, "initialize");
+		update = (PFinit)LoadSymbol(dynamicLib, "update");
+		finalize = (PFfinalize)LoadSymbol(dynamicLib, "finalize");
 
 		if (initialize)
 		{
@@ -2444,7 +2475,7 @@ bool EngineInit(Platform &platform)
 
 		if (initialize == nullptr && update == nullptr && finalize == nullptr)
 		{
-			dlclose(dynamicLib);
+			CloseLibrary(dynamicLib);
 		}
 	}
 	else
@@ -2608,7 +2639,7 @@ void EngineCleanup(Platform &platform)
 			finalize();
 		}
 
-		dlclose(dynamicLib);
+		CloseLibrary(dynamicLib);
 		dynamicLib = nullptr;
 		initialize = nullptr;
 		update = nullptr;
