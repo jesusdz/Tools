@@ -12,6 +12,7 @@
  * - Memory allocators
  * - File reading
  * - Process execution
+ * - Dynamic library loading
  * - Mathematics
  * - Clock / timing
  * - Window creation
@@ -60,6 +61,7 @@
 #if PLATFORM_LINUX
 #include <sys/wait.h>
 #include <spawn.h>
+#include <dlfcn.h>
 #endif
 
 #if PLATFORM_ANDROID
@@ -1002,6 +1004,61 @@ void ExecuteProcess(const char *commandLine)
 	}
 #endif
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Dynamic library loading
+
+#if PLATFORM_LINUX
+
+	typedef void* DynamicLibrary;
+
+	DynamicLibrary OpenLibrary(const char *filepath)
+	{
+		DynamicLibrary library = dlopen(filepath, RTLD_NOW);
+		return library;
+	}
+
+	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
+	{
+		void *symbol = dlsym(library, symbolName);
+		return symbol;
+	}
+
+	void CloseLibrary(DynamicLibrary library)
+	{
+		dlclose(library);
+	}
+
+#elif PLATFORM_WINDOWS
+
+	typedef HINSTANCE DynamicLibrary;
+
+	DynamicLibrary OpenLibrary(const char *filepath)
+	{
+		DynamicLibrary library = LoadLibrary(filepath);
+		return library;
+	}
+
+	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
+	{
+		void *symbol = GetProcAddress(library, symbolName);
+		return symbol;
+	}
+
+	void CloseLibrary(DynamicLibrary library)
+	{
+		FreeLibrary(library);
+	}
+
+#else
+
+	#error "Missing implementation"
+
+#endif
+
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Math

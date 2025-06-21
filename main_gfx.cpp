@@ -2360,48 +2360,6 @@ void UpdateUI(UI &ui, Platform &platform)
 
 #if USE_DYNAMIC_LIB
 
-#if PLATFORM_LINUX
-	typedef void* DynamicLibrary;
-
-	DynamicLibrary OpenLibrary(const char *filepath)
-	{
-		DynamicLibrary library = dlopen(filepath, RTLD_NOW);
-		return library;
-	}
-
-	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
-	{
-		void *symbol = dlsym(library, symbolName);
-		return symbol;
-	}
-
-	void CloseLibrary(DynamicLibrary library)
-	{
-		dlclose(library);
-	}
-#elif PLATFORM_WINDOWS
-	typedef HINSTANCE DynamicLibrary;
-
-	DynamicLibrary OpenLibrary(const char *filepath)
-	{
-		DynamicLibrary library = LoadLibrary(filepath);
-		return library;
-	}
-
-	void* LoadSymbol(DynamicLibrary library, const char *symbolName)
-	{
-		void *symbol = GetProcAddress(library, symbolName);
-		return symbol;
-	}
-
-	void CloseLibrary(DynamicLibrary library)
-	{
-		FreeLibrary(library);
-	}
-#else
-	#error "Missing implementation"
-#endif
-
 static DynamicLibrary dynamicLib = {};
 
 typedef void (*PFinit)();
