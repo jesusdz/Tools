@@ -72,6 +72,7 @@
 
 
 #include <stdio.h>  // printf
+#include <stdarg.h>
 #include <math.h>
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
@@ -500,6 +501,14 @@ f32 StrToFloat(const String &s)
 {
 	const f32 number = StrToFloat(s.str, s.size);
 	return number;
+}
+
+void SPrintf(char *buffer, const char *format, ...)
+{
+	va_list vaList;
+	va_start(vaList, format);
+	vsprintf(buffer, format, vaList);
+	va_end(vaList);
 }
 
 

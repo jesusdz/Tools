@@ -2193,7 +2193,7 @@ void UpdateUI(UI &ui, Platform &platform)
 	UI_BeginFrame(ui);
 
 	char text[MAX_PATH_LENGTH];
-	sprintf(text, "Debug UI");
+	SPrintf(text, "Debug UI");
 
 	UI_BeginWindow(ui, text);
 
@@ -2203,16 +2203,16 @@ void UpdateUI(UI &ui, Platform &platform)
 
 		const u32 sceneWidth = gfx.device.swapchain.extent.width;
 		const u32 sceneHeight = gfx.device.swapchain.extent.height;
-		sprintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
+		SPrintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
 		UI_Label(ui, text);
 
 		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
-		sprintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
+		SPrintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
 		UI_Label(ui, text);
 		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
 
 		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
-		sprintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
+		SPrintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
 		UI_Label(ui, text);
 		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
@@ -2220,9 +2220,9 @@ void UpdateUI(UI &ui, Platform &platform)
 	if ( UI_Section(ui, "Entities") )
 	{
 		if ( gfx.selectedEntity == U32_MAX ) {
-			sprintf(text, "Selected entity: <none>");
+			SPrintf(text, "Selected entity: <none>");
 		} else {
-			sprintf(text, "Selected entity: %u", gfx.selectedEntity);
+			SPrintf(text, "Selected entity: %u", gfx.selectedEntity);
 		}
 		UI_Label(ui, text);
 	}
@@ -2251,7 +2251,7 @@ void UpdateUI(UI &ui, Platform &platform)
 				const char *entry = desc.entryPoint;
 				const char *output = desc.outputName;
 				const char *filename = desc.filename;
-				sprintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
+				SPrintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
 
 				ExecuteProcess(text);
 			}

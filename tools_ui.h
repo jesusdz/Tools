@@ -1425,7 +1425,7 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 
 	// Number
 	char numberText[TEXT_BOX_BUFER_LEN];
-	sprintf(numberText, "%d", *number);
+	SPrintf(numberText, "%d", *number);
 	const float2 textPos = boxPos + padding;
 	UI_AddText(ui, textPos, numberText);
 
@@ -1488,7 +1488,7 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 
 	// Number
 	char numberText[TEXT_BOX_BUFER_LEN];
-	sprintf(numberText, "%f", *number);
+	SPrintf(numberText, "%f", *number);
 	const float2 textPos = boxPos + padding;
 	UI_AddText(ui, textPos, numberText);
 
