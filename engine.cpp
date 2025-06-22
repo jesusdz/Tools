@@ -2398,9 +2398,9 @@ bool EngineInit(Platform &platform)
 #if USE_DYNAMIC_LIB
 
 #if PLATFORM_LINUX
-	constexpr const char * dynamicLibName = "./gamelib.so";
+	constexpr const char * dynamicLibName = "./game.so";
 #elif PLATFORM_WINDOWS
-	constexpr const char *dynamicLibName = "./build/gamelib.dll";
+	constexpr const char *dynamicLibName = "./build/game.dll";
 #endif
 
 	dynamicLib = OpenLibrary(dynamicLibName);

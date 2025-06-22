@@ -8,16 +8,16 @@
 
 GAMEAPI void initialize()
 {
-	printf("gamelib initialize()\n");
+	printf("game initialize()\n");
 }
 
 GAMEAPI void update()
 {
-	printf("gamelib update()\n");
+	printf("game update()\n");
 }
 
 GAMEAPI void finalize()
 {
-	printf("gamelib finalize()\n");
+	printf("game finalize()\n");
 }
 

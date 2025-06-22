@@ -1,4 +1,4 @@
-.PHONY: default build_and_run build_and_debug main_interpreter main_gfx gamelib main_spirv reflex main_reflect_serialize main_clon cast shaders clean
+.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast shaders clean
 
 CXX=g++
 CXXFLAGS= -g
@@ -10,24 +10,24 @@ DXC_FLAGS=-O3
 
 default: build_and_run
 
-build_and_run: main_gfx
+build_and_run: engine
 	i3 workspace run
-	./main_gfx; i3 workspace 2
+	./engine; i3 workspace 2
 
-build_and_debug: main_gfx
+build_and_debug: engine
 	i3 workspace debug
-	gf2 ./main_gfx; i3 workspace 2
+	gf2 ./engine; i3 workspace 2
 
 main_interpreter:
 	${CXX} ${CXXFLAGS} -o main_interpreter main_interpreter.cpp
 
-main_gfx: reflex
+engine: reflex
 	./reflex assets/assets.h > assets.reflex.h
-	${CXX} ${CXXFLAGS} -o main_gfx  main_gfx.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
+	${CXX} ${CXXFLAGS} -o engine  engine.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
 
-gamelib:
-	${CXX} -fPIC -g -Wall -c gamelib.cpp
-	${CXX} gamelib.o -shared -o gamelib.so
+game:
+	${CXX} -fPIC -g -Wall -c game.cpp
+	${CXX} game.o -shared -o game.so
 
 main_spirv:
 	${CXX} ${CXXFLAGS} -o main_spirv main_spirv.cpp
@@ -61,5 +61,5 @@ shaders:
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_update -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl
 
 clean:
-	rm -f main_interpreter main_gfx main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
+	rm -f main_interpreter engine game main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
 

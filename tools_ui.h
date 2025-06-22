@@ -1529,7 +1529,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	UI_CursorAdvance(ui, histSize);
 }
 
-// TODO: We should depend only on tools_gfx.h while this is a feature in main_gfx.cpp.
+// TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
 struct Graphics;
 ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
