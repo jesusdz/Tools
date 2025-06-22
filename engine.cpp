@@ -201,12 +201,32 @@ struct Graphics
 	TimeSamples cpuFrameTimes;
 	TimeSamples gpuFrameTimes;
 
+	u32 reloadQueue[128];
+	u32 reloadQueueSize;
+};
+
+typedef void (*GameFunctionInitalize)();
+typedef void (*GameFunctionUpdate)();
+typedef void (*GameFunctionFinalize)();
+
+struct Game
+{
+	DynamicLibrary library;
+
+	GameFunctionInitalize initialize;
+	GameFunctionUpdate update;
+	GameFunctionFinalize finalize;
+};
+
+
+struct Engine
+{
+	Platform platform;
+	Graphics gfx;
+	Game game;
 #if USE_UI
 	UI ui;
 #endif
-
-	u32 reloadQueue[128];
-	u32 reloadQueueSize;
 };
 
 
@@ -415,11 +435,21 @@ static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
 
 static StringInterning *gStringInterning;
 
-Graphics &GetPlatformGraphics(Platform &platform)
+Engine &GetEngine(Platform &platform)
 {
-	Graphics *gfx = (Graphics*)platform.userData;
-	ASSERT(gfx != NULL);
-	return *gfx;
+	Engine *engine = (Engine*)platform.userData;
+	ASSERT(engine != NULL);
+	return *engine;
+}
+
+Window &GetWindow(Engine &engine)
+{
+	return engine.platform.window;
+}
+
+UI &GetUI(Engine &engine)
+{
+	return engine.ui;
 }
 
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
@@ -849,8 +879,10 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 }
 
 
-bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
+bool InitializeGraphics(Engine &engine, Arena &arena)
 {
+	Graphics &gfx = engine.gfx;
+	Window &window = engine.platform.window;
 	Arena scratch = MakeSubArena(arena);
 
 	if ( !InitializeGraphicsDevice( gfx.device, scratch, window ) ) {
@@ -1042,7 +1074,7 @@ bool InitializeGraphics(Graphics &gfx, Arena &arena, Window &window)
 	}
 
 #if USE_UI
-	UI_Initialize(gfx.ui, gfx, gfx.device, scratch);
+	UI_Initialize(engine.ui, gfx, gfx.device, scratch);
 #endif
 
 	return true;
@@ -1265,10 +1297,6 @@ void CleanupGraphics(Graphics &gfx)
 	CleanupGraphicsDevice( gfx.device );
 
 	CleanupGraphicsDriver( gfx.device );
-
-#if USE_UI
-	UI_Cleanup(gfx.ui);
-#endif
 
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
@@ -1561,8 +1589,11 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 }
 
 
-bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaSeconds)
+bool RenderGraphics(Engine &engine, Arena &frameArena, f32 deltaSeconds)
 {
+	Graphics &gfx = engine.gfx;
+	Window &window = engine.platform.window;
+
 	static f32 totalSeconds = 0.0f;
 	totalSeconds += deltaSeconds;
 
@@ -1582,7 +1613,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 	}
 
 #if USE_UI
-	UI_UploadVerticesToGPU(gfx.ui);
+	UI_UploadVerticesToGPU(engine.ui);
 #endif
 
 	// Display size
@@ -1827,7 +1858,7 @@ bool RenderGraphics(Graphics &gfx, Window &window, Arena &frameArena, f32 deltaS
 
 #if USE_UI
 		{ // GUI
-			const UI &ui = gfx.ui;
+			const UI &ui = engine.ui;
 
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
 			const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[3];
@@ -2182,10 +2213,11 @@ void CleanupImGui()
 
 #if USE_UI
 
-void UpdateUI(UI &ui, Platform &platform)
+void UpdateUI(Engine &engine)
 {
-	const Window &window = platform.window;
-	Graphics &gfx = GetPlatformGraphics(platform);
+	UI &ui = GetUI(engine);
+	const Window &window = GetWindow(engine);
+	Graphics &gfx = engine.gfx;
 
 	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
@@ -2272,6 +2304,20 @@ void UpdateUI(UI &ui, Platform &platform)
 		}
 	}
 
+	if ( UI_Section(ui, "Camera") )
+	{
+		const char *radioOptions[] = { "Perspective", "Orthographic" };
+		static int selectedOption = 0;
+
+		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+		{
+			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+			{
+				selectedOption = i;
+			}
+		}
+	}
+
 	if ( UI_Section(ui, "Buttons") )
 	{
 		static u32 labelIndex = 0;
@@ -2355,33 +2401,86 @@ void UpdateUI(UI &ui, Platform &platform)
 }
 #endif
 
+void InitializeGameLibrary(Game &game)
+{
+#if PLATFORM_LINUX
+	constexpr const char * dynamicLibName = "./game.so";
+#elif PLATFORM_WINDOWS
+	constexpr const char *dynamicLibName = "./build/game.dll";
+#endif
 
-#define USE_DYNAMIC_LIB 1
+	game.library = OpenLibrary(dynamicLibName);
+	if (game.library)
+	{
+		game.initialize = (GameFunctionInitalize) LoadSymbol(game.library, "initialize");
+		game.update = (GameFunctionUpdate) LoadSymbol(game.library, "update");
+		game.finalize = (GameFunctionFinalize) LoadSymbol(game.library, "finalize");
 
-#if USE_DYNAMIC_LIB
+		if (game.initialize)
+		{
+			game.initialize();
+		}
+		else
+		{
+			LOG(Warning, "initialize not loaded :-(\n");
+		}
+		if (game.update)
+		{
+			game.update();
+		}
+		else
+		{
+			LOG(Warning, "update not loaded :-(\n");
+		}
+		if (game.finalize)
+		{
+			game.finalize();
+		}
+		else
+		{
+			LOG(Warning, "finalize not loaded :-(\n");
+		}
 
-static DynamicLibrary dynamicLib = {};
+		if (game.initialize == nullptr && game.update == nullptr && game.finalize == nullptr)
+		{
+			CloseLibrary(game.library);
+		}
+	}
+	else
+	{
+		LOG(Warning, "Error opening %s\n", dynamicLibName);
+	}
+}
 
-typedef void (*PFinit)();
-typedef void (*PFupdate)();
-typedef void (*PFfinalize)();
+void CleanupGameLibrary(Game &game)
+{
+	if (game.library)
+	{
+		if (game.finalize)
+		{
+			game.finalize();
+		}
 
-PFinit initialize;
-PFupdate update;
-PFfinalize finalize;
+		CloseLibrary(game.library);
+		game.library = nullptr;
+		game.initialize = nullptr;
+		game.update = nullptr;
+		game.finalize = nullptr;
+	}
+}
 
-#endif // USE_DYNAMIC_LIB
 
 
 
-
-bool EngineInit(Platform &platform)
+bool OnPlatformInit(Platform &platform)
 {
 	gStringInterning = &platform.stringInterning;
 
 	SetGraphicsStringInterning(gStringInterning);
 
-	Graphics &gfx = GetPlatformGraphics(platform);
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
+	Game &game = engine.game;
 
 #if USE_IMGUI
 	InitializeImGuiContext();
@@ -2395,64 +2494,15 @@ bool EngineInit(Platform &platform)
 		return false;
 	}
 
-#if USE_DYNAMIC_LIB
-
-#if PLATFORM_LINUX
-	constexpr const char * dynamicLibName = "./game.so";
-#elif PLATFORM_WINDOWS
-	constexpr const char *dynamicLibName = "./build/game.dll";
-#endif
-
-	dynamicLib = OpenLibrary(dynamicLibName);
-	if (dynamicLib)
-	{
-		initialize = (PFinit)LoadSymbol(dynamicLib, "initialize");
-		update = (PFinit)LoadSymbol(dynamicLib, "update");
-		finalize = (PFfinalize)LoadSymbol(dynamicLib, "finalize");
-
-		if (initialize)
-		{
-			initialize();
-		}
-		else
-		{
-			LOG(Warning, "initialize not loaded :-(\n");
-		}
-		if (update)
-		{
-			update();
-		}
-		else
-		{
-			LOG(Warning, "update not loaded :-(\n");
-		}
-		if (finalize)
-		{
-			finalize();
-		}
-		else
-		{
-			LOG(Warning, "finalize not loaded :-(\n");
-		}
-
-		if (initialize == nullptr && update == nullptr && finalize == nullptr)
-		{
-			CloseLibrary(dynamicLib);
-		}
-	}
-	else
-	{
-		LOG(Warning, "Error opening %s\n", dynamicLibName);
-	}
-
-#endif // USE_DYNAMIC_LIB
+	InitializeGameLibrary(game);
 
 	return true;
 }
 
-bool EngineWindowInit(Platform &platform)
+bool OnPlatformWindowInit(Platform &platform)
 {
-	Graphics &gfx = GetPlatformGraphics(platform);
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
 
 	if ( !InitializeGraphicsSurface(gfx.device, platform.window) )
 	{
@@ -2467,7 +2517,7 @@ bool EngineWindowInit(Platform &platform)
 	}
 	else
 	{
-		if ( !InitializeGraphics(gfx, platform.globalArena, platform.window) )
+		if ( !InitializeGraphics(engine, platform.globalArena) )
 		{
 			// TODO: Actually we could throw a system error and exit...
 			LOG(Error, "InitializeGraphics failed!\n");
@@ -2484,9 +2534,10 @@ bool EngineWindowInit(Platform &platform)
 	return true;
 }
 
-void EngineUpdate(Platform &platform)
+void OnPlatformUpdate(Platform &platform)
 {
-	Graphics &gfx = GetPlatformGraphics(platform);
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
 
 	const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
 	AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
@@ -2512,8 +2563,8 @@ void EngineUpdate(Platform &platform)
 #endif
 
 #if USE_UI
-		UpdateUI(gfx.ui, platform);
-		const bool handleInput = !gfx.ui.wantsInput;
+		UpdateUI(engine);
+		const bool handleInput = !engine.ui.wantsInput;
 #else
 		constexpr bool handleInput = true;
 #endif
@@ -2525,7 +2576,7 @@ void EngineUpdate(Platform &platform)
 		BeginEntitySelection(gfx, platform.window.mouse, handleInput);
 #endif
 
-		RenderGraphics(gfx, platform.window, platform.frameArena, platform.deltaSeconds);
+		RenderGraphics(engine, platform.frameArena, platform.deltaSeconds);
 
 #if USE_ENTITY_SELECTION
 		EndEntitySelection(gfx);
@@ -2535,9 +2586,10 @@ void EngineUpdate(Platform &platform)
 	}
 }
 
-void EngineWindowCleanup(Platform &platform)
+void OnPlatformWindowCleanup(Platform &platform)
 {
-	Graphics &gfx = GetPlatformGraphics(platform);
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
 
 	WaitDeviceIdle(gfx);
 	DestroyRenderTargets(gfx, gfx.renderTargets);
@@ -2545,30 +2597,21 @@ void EngineWindowCleanup(Platform &platform)
 	CleanupGraphicsSurface(gfx.device);
 }
 
-void EngineCleanup(Platform &platform)
+void OnPlatformCleanup(Platform &platform)
 {
-#if USE_DYNAMIC_LIB
-	if (dynamicLib)
-	{
-		if (finalize)
-		{
-			finalize();
-		}
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
+	Game &game = engine.game;
 
-		CloseLibrary(dynamicLib);
-		dynamicLib = nullptr;
-		initialize = nullptr;
-		update = nullptr;
-		finalize = nullptr;
-	}
-#endif // USE_DYNAMIC_LIB
-
-	Graphics &gfx = GetPlatformGraphics(platform);
+	CleanupGameLibrary(game);
 
 	WaitDeviceIdle(gfx);
 
 #if USE_IMGUI
 	CleanupImGui();
+#endif
+#if USE_UI
+	UI_Cleanup(engine.ui);
 #endif
 
 	CleanupScene(gfx);
@@ -2582,29 +2625,28 @@ void EngineCleanup(Platform &platform)
 
 void EngineMain( void *userData )
 {
-	Platform platform = {};
+	Engine engine = {};
 
 	// Memory
-	platform.stringMemorySize = KB(16);
-	platform.globalMemorySize = MB(64);
-	platform.frameMemorySize = MB(16);
+	engine.platform.stringMemorySize = KB(16);
+	engine.platform.globalMemorySize = MB(64);
+	engine.platform.frameMemorySize = MB(16);
 
 	// Callbacks
-	platform.InitCallback = EngineInit;
-	platform.UpdateCallback = EngineUpdate;
-	platform.CleanupCallback = EngineCleanup;
-	platform.WindowInitCallback = EngineWindowInit;
-	platform.WindowCleanupCallback = EngineWindowCleanup;
+	engine.platform.InitCallback = OnPlatformInit;
+	engine.platform.UpdateCallback = OnPlatformUpdate;
+	engine.platform.CleanupCallback = OnPlatformCleanup;
+	engine.platform.WindowInitCallback = OnPlatformWindowInit;
+	engine.platform.WindowCleanupCallback = OnPlatformWindowCleanup;
 
 #if PLATFORM_ANDROID
-	platform.androidApp = (android_app*)userData;
+	engine.platform.androidApp = (android_app*)userData;
 #endif
 
 	// User data
-	Graphics gfx = {};
-	platform.userData = &gfx;
+	engine.platform.userData = &engine;
 
-	PlatformRun(platform);
+	PlatformRun(engine.platform);
 }
 
 #if PLATFORM_ANDROID
