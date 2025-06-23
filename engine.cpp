@@ -30,6 +30,9 @@
 #include "assets/assets.h"
 #include "clon.h"
 
+// Engine API
+#include "engine.h"
+
 
 
 
@@ -205,7 +208,7 @@ struct Graphics
 	u32 reloadQueueSize;
 };
 
-typedef void (*GameFunctionInitalize)();
+typedef void (*GameFunctionInitalize)(const EngineAPI &api);
 typedef void (*GameFunctionUpdate)();
 typedef void (*GameFunctionFinalize)();
 
@@ -2418,7 +2421,8 @@ void InitializeGameLibrary(Game &game)
 
 		if (game.initialize)
 		{
-			game.initialize();
+			EngineAPI api = {};
+			game.initialize(api);
 		}
 		else
 		{

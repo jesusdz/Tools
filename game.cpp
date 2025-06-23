@@ -1,4 +1,5 @@
-#include <stdio.h>
+#define ENGINE_FUNCTION_POINTERS 1
+#include "engine.h"
 
 #if _WIN32
 #define GAMEAPI extern "C" __declspec(dllexport)
@@ -6,18 +7,17 @@
 #define GAMEAPI extern "C"
 #endif
 
-GAMEAPI void initialize()
+GAMEAPI void initialize(const EngineAPI &api)
 {
-	printf("game initialize()\n");
+	// Initialize engine global function pointers
+	InitEngineAPI(api);
 }
 
 GAMEAPI void update()
 {
-	printf("game update()\n");
 }
 
 GAMEAPI void finalize()
 {
-	printf("game finalize()\n");
 }
 
