@@ -1589,7 +1589,7 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 }
 
 
-bool RenderGraphics(Engine &engine, Arena &frameArena, f32 deltaSeconds)
+bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 {
 	Graphics &gfx = engine.gfx;
 	Window &window = engine.platform.window;
@@ -2576,7 +2576,7 @@ void OnPlatformUpdate(Platform &platform)
 		BeginEntitySelection(gfx, platform.window.mouse, handleInput);
 #endif
 
-		RenderGraphics(engine, platform.frameArena, platform.deltaSeconds);
+		RenderGraphics(engine, platform.deltaSeconds);
 
 #if USE_ENTITY_SELECTION
 		EndEntitySelection(gfx);
