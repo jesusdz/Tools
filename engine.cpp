@@ -208,17 +208,17 @@ struct Graphics
 	u32 reloadQueueSize;
 };
 
-typedef void (*GameFunctionInitalize)(const EngineAPI &api);
-typedef void (*GameFunctionUpdate)();
-typedef void (*GameFunctionFinalize)();
+typedef void (*GameStartFunction)(const EngineAPI &api);
+typedef void (*GameUpdateFunction)();
+typedef void (*GameStopFunction)();
 
 struct Game
 {
 	DynamicLibrary library;
 
-	GameFunctionInitalize initialize;
-	GameFunctionUpdate update;
-	GameFunctionFinalize finalize;
+	GameStartFunction Start;
+	GameUpdateFunction Update;
+	GameStopFunction Stop;
 };
 
 
@@ -2404,6 +2404,26 @@ void UpdateUI(Engine &engine)
 }
 #endif
 
+void Log(LogChannel channel, const char *format, ...)
+{
+	int finalChannel = 0;
+	switch (channel)
+	{
+		case LogChannelDebug: finalChannel = Debug; break;
+		case LogChannelInfo: finalChannel = Info; break;
+		case LogChannelWarning: finalChannel = Warning; break;
+		case LogChannelError: finalChannel = Error; break;
+		default: ASSERT(0 && "Invalid channel");
+	}
+
+	char buffer[1024];
+	va_list vaList;
+	va_start(vaList, format);
+	SPrintf(buffer, format, vaList);
+	LOG( finalChannel, buffer );
+	va_end(vaList);
+}
+
 void InitializeGameLibrary(Game &game)
 {
 #if PLATFORM_LINUX
@@ -2412,47 +2432,39 @@ void InitializeGameLibrary(Game &game)
 	constexpr const char *dynamicLibName = "./build/game.dll";
 #endif
 
+	LOG(Info, "Loading dynamic library: %s\n", dynamicLibName);
+
 	game.library = OpenLibrary(dynamicLibName);
 	if (game.library)
 	{
-		game.initialize = (GameFunctionInitalize) LoadSymbol(game.library, "initialize");
-		game.update = (GameFunctionUpdate) LoadSymbol(game.library, "update");
-		game.finalize = (GameFunctionFinalize) LoadSymbol(game.library, "finalize");
+		game.Start = (GameStartFunction) LoadSymbol(game.library, "GameStart");
+		game.Update = (GameUpdateFunction) LoadSymbol(game.library, "GameUpdate");
+		game.Stop = (GameStopFunction) LoadSymbol(game.library, "GameStop");
 
-		if (game.initialize)
-		{
-			EngineAPI api = {};
-			game.initialize(api);
+		if (game.Start) {
+			LOG(Info, "- GameStart loaded successfully.\n");
+		} else {
+			LOG(Warning, "- GameStart not loaded :-(\n");
 		}
-		else
-		{
-			LOG(Warning, "initialize not loaded :-(\n");
+		if (game.Update) {
+			LOG(Info, "- GameUpdate loaded successfully.\n");
+		} else {
+			LOG(Warning, "- GameUpdate not loaded :-(\n");
 		}
-		if (game.update)
-		{
-			game.update();
-		}
-		else
-		{
-			LOG(Warning, "update not loaded :-(\n");
-		}
-		if (game.finalize)
-		{
-			game.finalize();
-		}
-		else
-		{
-			LOG(Warning, "finalize not loaded :-(\n");
+		if (game.Stop) {
+			LOG(Info, "- GameStop loaded successfully.\n");
+		} else {
+			LOG(Warning, "- GameStop not loaded :-(\n");
 		}
 
-		if (game.initialize == nullptr && game.update == nullptr && game.finalize == nullptr)
+		if (game.Start == nullptr && game.Update == nullptr && game.Stop == nullptr)
 		{
 			CloseLibrary(game.library);
 		}
 	}
 	else
 	{
-		LOG(Warning, "Error opening %s\n", dynamicLibName);
+		LOG(Warning, "- Error opening %s\n", dynamicLibName);
 	}
 }
 
@@ -2460,16 +2472,11 @@ void CleanupGameLibrary(Game &game)
 {
 	if (game.library)
 	{
-		if (game.finalize)
-		{
-			game.finalize();
-		}
-
 		CloseLibrary(game.library);
 		game.library = nullptr;
-		game.initialize = nullptr;
-		game.update = nullptr;
-		game.finalize = nullptr;
+		game.Start = nullptr;
+		game.Update = nullptr;
+		game.Stop = nullptr;
 	}
 }
 

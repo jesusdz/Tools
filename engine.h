@@ -1,20 +1,38 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
-typedef void (*FP_LOG)(int, const char *format, ...);
+enum LogChannel
+{
+	LogChannelDebug,
+	LogChannelInfo,
+	LogChannelWarning,
+	LogChannelError,
+};
+
+// Function typedefs
+typedef void (*FP_Log)(LogChannel channel, const char *format, ...);
 
 struct EngineAPI
 {
-	FP_LOG LOG;
+	FP_Log Log;
 };
 
 #if ENGINE_FUNCTION_POINTERS
-FP_LOG LOG;
+
+// Function pointers
+FP_Log Log;
+
+// Macros
+#define LogDebug(...) Log(LogChannelDebug, __VA_ARGS__)
+#define LogInfo(...) Log(LogChannelInfo, __VA_ARGS__)
+#define LogWarning(...) Log(LogChannelWarning, __VA_ARGS__)
+#define LogError(...) Log(LogChannelError, __VA_ARGS__)
 
 static void InitEngineAPI(const EngineAPI &api)
 {
-	LOG = api.LOG;
+	Log = api.Log;
 }
+
 #endif // ENGINE_FUNCTION_POINTERS
 
 #endif // ENGINE_H

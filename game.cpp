@@ -7,17 +7,22 @@
 #define GAMEAPI extern "C"
 #endif
 
-GAMEAPI void initialize(const EngineAPI &api)
+GAMEAPI void GameStart(const EngineAPI &api)
 {
 	// Initialize engine global function pointers
 	InitEngineAPI(api);
+
+	LogDebug("- GameStart!\n");
 }
 
-GAMEAPI void update()
+GAMEAPI void GameUpdate()
 {
+
+	LogDebug("- GameUpdate!\n");
 }
 
-GAMEAPI void finalize()
+GAMEAPI void GameStop()
 {
+	LogDebug("- GameStop!\n");
 }
 

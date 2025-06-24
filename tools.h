@@ -96,6 +96,10 @@
 #define Error ANDROID_LOG_ERROR
 #define LOG(channel, fmt, ...) ((void)__android_log_print(channel, "tools", fmt, ##__VA_ARGS__))
 #else
+#define Debug 0
+#define Info 1
+#define Warning 2
+#define Error 3
 #define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
 #endif
 
