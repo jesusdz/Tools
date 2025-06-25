@@ -89,8 +89,15 @@ struct RenderTargets
 	Framebuffer idFramebuffer;
 };
 
+enum ProjectionType
+{
+	ProjectionPerspective,
+	ProjectionOrthographic,
+};
+
 struct Camera
 {
+	ProjectionType projectionType;
 	float3 position;
 	float2 orientation; // yaw and pitch
 };
@@ -175,14 +182,6 @@ struct Graphics
 
 	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
 
-	Camera camera;
-
-	Entity entities[MAX_ENTITIES];
-	u32 entityCount;
-
-	bool selectEntity;
-	u32 selectedEntity;
-
 	TextureH skyTextureH;
 
 	PipelineH shadowmapPipelineH;
@@ -230,6 +229,14 @@ struct Engine
 #if USE_UI
 	UI ui;
 #endif
+
+	Camera camera;
+
+	Entity entities[MAX_ENTITIES];
+	u32 entityCount;
+
+	bool selectEntity;
+	u32 selectedEntity;
 };
 
 
@@ -762,22 +769,22 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 	}
 }
 
-void CreateEntity(Graphics &gfx, const EntityDesc &desc)
+void CreateEntity(Engine &engine, const EntityDesc &desc)
 {
-	ASSERT ( gfx.entityCount < MAX_ENTITIES );
-	if ( gfx.entityCount < MAX_ENTITIES )
+	ASSERT ( engine.entityCount < MAX_ENTITIES );
+	if ( engine.entityCount < MAX_ENTITIES )
 	{
-		BufferChunk vertices = GetVerticesForGeometryType(gfx, desc.geometryType);
-		BufferChunk indices = GetIndicesForGeometryType(gfx, desc.geometryType);
+		BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
+		BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
 
-		const u32 entityIndex = gfx.entityCount++;
-		gfx.entities[entityIndex].name = desc.name;
-		gfx.entities[entityIndex].visible = true;
-		gfx.entities[entityIndex].position = desc.pos;
-		gfx.entities[entityIndex].scale = desc.scale;
-		gfx.entities[entityIndex].vertices = vertices;
-		gfx.entities[entityIndex].indices = indices;
-		gfx.entities[entityIndex].materialIndex = FindMaterialHandle(gfx, desc.materialName);
+		const u32 entityIndex = engine.entityCount++;
+		engine.entities[entityIndex].name = desc.name;
+		engine.entities[entityIndex].visible = true;
+		engine.entities[entityIndex].position = desc.pos;
+		engine.entities[entityIndex].scale = desc.scale;
+		engine.entities[entityIndex].vertices = vertices;
+		engine.entities[entityIndex].indices = indices;
+		engine.entities[entityIndex].materialIndex = FindMaterialHandle(engine.gfx, desc.materialName);
 	}
 	else
 	{
@@ -1157,8 +1164,10 @@ void LinkPipelineHandles(Graphics &gfx)
 	}
 }
 
-void InitializeScene(Arena scratch, Graphics &gfx)
+void InitializeScene(Engine &engine, Arena scratch)
 {
+	Graphics &gfx = engine.gfx;
+
 	FilePath assetsPath = MakePath("assets/assets.h");
 	DataChunk *chunk = PushFile( scratch, assetsPath.str );
 	if (!chunk)
@@ -1193,7 +1202,7 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 
 		for (u32 i = 0; i < gAssets->entitiesCount; ++i)
 		{
-			CreateEntity(gfx, gAssets->entities[i]);
+			CreateEntity(engine, gAssets->entities[i]);
 		}
 	}
 	else
@@ -1263,12 +1272,13 @@ void InitializeScene(Arena scratch, Graphics &gfx)
 	}
 
 	// Camera
-	gfx.camera.position = {0, 1, 2};
-	gfx.camera.orientation = {0, -0.45f};
+	engine.camera.projectionType = ProjectionPerspective;
+	engine.camera.position = {0, 1, 2};
+	engine.camera.orientation = {0, -0.45f};
 
 	gfx.deviceInitialized = true;
 
-	gfx.selectedEntity = U32_MAX;
+	engine.selectedEntity = U32_MAX;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -1440,7 +1450,7 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, boo
 #endif // USE_CAMERA_MOVEMENT
 
 #if USE_ENTITY_SELECTION
-void BeginEntitySelection(Graphics &gfx, const Mouse &mouse, bool handleInput)
+void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 {
 	static bool mouseMoved = false;
 	if ( handleInput )
@@ -1452,18 +1462,18 @@ void BeginEntitySelection(Graphics &gfx, const Mouse &mouse, bool handleInput)
 			mouseMoved = true;
 		}
 		if (!mouseMoved && MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) {
-			gfx.selectEntity = true;
+			engine.selectEntity = true;
 		}
 	}
 }
 
-void EndEntitySelection(Graphics &gfx)
+void EndEntitySelection(Engine &engine)
 {
-	if ( gfx.selectEntity )
+	if ( engine.selectEntity )
 	{
-		WaitDeviceIdle(gfx.device);
-		gfx.selectedEntity = *(u32*)GetBufferPtr(gfx.device, gfx.selectionBufferH);
-		gfx.selectEntity = false;
+		WaitDeviceIdle(engine.gfx.device);
+		engine.selectedEntity = *(u32*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
+		engine.selectEntity = false;
 	}
 }
 #endif // USE_ENTITY_SELECTION
@@ -1628,7 +1638,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
 	const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
 	const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
-	const float4x4 viewMatrix = ViewMatrixFromCamera(gfx.camera);
+	const float4x4 viewMatrix = ViewMatrixFromCamera(engine.camera);
 	const float fovy = 60.0f;
 	const float znear = 0.1f;
 	const float zfar = 1000.0f;
@@ -1647,12 +1657,12 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	const float4 frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
 
 	// CPU Frustum culling
-	const float3 cameraPosition = gfx.camera.position;
-	const float3 cameraForward = ForwardDirectionFromAngles(gfx.camera.orientation);
+	const float3 cameraPosition = engine.camera.position;
+	const float3 cameraForward = ForwardDirectionFromAngles(engine.camera.orientation);
 	const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
-	for (u32 i = 0; i < gfx.entityCount; ++i)
+	for (u32 i = 0; i < engine.entityCount; ++i)
 	{
-		Entity &entity = gfx.entities[i];
+		Entity &entity = engine.entities[i];
 		entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
 	}
 
@@ -1687,11 +1697,11 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.sunView = sunViewMatrix,
 		.sunProj = sunProjMatrix,
 		.sunDir = Float4(sunDir, 0.0f),
-		.eyePosition = Float4(gfx.camera.position, 1.0f),
+		.eyePosition = Float4(engine.camera.position, 1.0f),
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
-		.selectedEntity = gfx.selectedEntity,
+		.selectedEntity = engine.selectedEntity,
 	};
 
 	// Update globals buffer
@@ -1700,9 +1710,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
-	for (u32 i = 0; i < gfx.entityCount; ++i)
+	for (u32 i = 0; i < engine.entityCount; ++i)
 	{
-		const Entity &entity = gfx.entities[i];
+		const Entity &entity = engine.entities[i];
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		entities[i].world = worldMatrix;
 	}
@@ -1759,9 +1769,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
-		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
 		{
-			const Entity &entity = gfx.entities[entityIndex];
+			const Entity &entity = engine.entities[entityIndex];
 
 			if ( !entity.visible ) continue;
 
@@ -1798,9 +1808,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
 
-		for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
 		{
-			const Entity &entity = gfx.entities[entityIndex];
+			const Entity &entity = engine.entities[entityIndex];
 
 			if ( !entity.visible || entity.culled ) continue;
 
@@ -1914,7 +1924,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	}
 
 #if USE_ENTITY_SELECTION
-	if ( gfx.selectEntity )
+	if ( engine.selectEntity )
 	{ // Selection buffer
 		BeginDebugGroup(commandList, "Entity selection");
 
@@ -1932,9 +1942,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
-			for (u32 entityIndex = 0; entityIndex < gfx.entityCount; ++entityIndex)
+			for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
 			{
-				const Entity &entity = gfx.entities[entityIndex];
+				const Entity &entity = engine.entities[entityIndex];
 
 				if ( !entity.visible || entity.culled ) continue;
 
@@ -2174,12 +2184,12 @@ void UpdateImGui(Graphics &gfx)
 	}
 	if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
 	{
-		ImGui::Text("Entity count: %u", gfx.entityCount);
+		ImGui::Text("Entity count: %u", engine.entityCount);
 		ImGui::Separator();
 
-		for ( u32 i = 0; i < gfx.entityCount; ++i )
+		for ( u32 i = 0; i < engine.entityCount; ++i )
 		{
-			const Entity &entity = gfx.entities[i];
+			const Entity &entity = engine.entities[i];
 			const Heap &heap = gfx.device.heaps[i];
 			ImGui::Text("- entity[%u]", i);
 			ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
@@ -2254,10 +2264,10 @@ void UpdateUI(Engine &engine)
 
 	if ( UI_Section(ui, "Entities") )
 	{
-		if ( gfx.selectedEntity == U32_MAX ) {
+		if ( engine.selectedEntity == U32_MAX ) {
 			SPrintf(text, "Selected entity: <none>");
 		} else {
-			SPrintf(text, "Selected entity: %u", gfx.selectedEntity);
+			SPrintf(text, "Selected entity: %u", engine.selectedEntity);
 		}
 		UI_Label(ui, text);
 	}
@@ -2535,7 +2545,7 @@ bool OnPlatformWindowInit(Platform &platform)
 			return false;
 		}
 
-		InitializeScene(platform.globalArena, gfx);
+		InitializeScene(engine, platform.globalArena);
 	}
 
 #if USE_IMGUI
@@ -2581,16 +2591,16 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 
 #if USE_CAMERA_MOVEMENT
-		AnimateCamera(platform.window, gfx.camera, platform.deltaSeconds, handleInput);
+		AnimateCamera(platform.window, engine.camera, platform.deltaSeconds, handleInput);
 #endif
 #if USE_ENTITY_SELECTION
-		BeginEntitySelection(gfx, platform.window.mouse, handleInput);
+		BeginEntitySelection(engine, platform.window.mouse, handleInput);
 #endif
 
 		RenderGraphics(engine, platform.deltaSeconds);
 
 #if USE_ENTITY_SELECTION
-		EndEntitySelection(gfx);
+		EndEntitySelection(engine);
 #endif
 
 		HotReloadAssets(gfx, platform.frameArena);
