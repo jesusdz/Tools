@@ -211,6 +211,15 @@ typedef void (*GameStartFunction)(const EngineAPI &api);
 typedef void (*GameUpdateFunction)();
 typedef void (*GameStopFunction)();
 
+enum GameState
+{
+	GameStateStopped,
+	GameStateStarting,
+	GameStateRunning,
+	GameStateStopping,
+	GameStateCount,
+};
+
 struct Game
 {
 	DynamicLibrary library;
@@ -218,6 +227,8 @@ struct Game
 	GameStartFunction Start;
 	GameUpdateFunction Update;
 	GameStopFunction Stop;
+
+	GameState state;
 };
 
 
@@ -1449,6 +1460,61 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, boo
 }
 #endif // USE_CAMERA_MOVEMENT
 
+
+void Log(LogChannel channel, const char *format, ...)
+{
+	int finalChannel = 0;
+	switch (channel)
+	{
+		case LogChannelDebug: finalChannel = Debug; break;
+		case LogChannelInfo: finalChannel = Info; break;
+		case LogChannelWarning: finalChannel = Warning; break;
+		case LogChannelError: finalChannel = Error; break;
+		default: ASSERT(0 && "Invalid channel");
+	}
+
+	char buffer[1024];
+	va_list vaList;
+	va_start(vaList, format);
+	SPrintf(buffer, format, vaList);
+	LOG( finalChannel, buffer );
+	va_end(vaList);
+}
+
+void GameUpdate(Engine &engine)
+{
+	Game &game = engine.game;
+
+	if (game.state == GameStateStarting)
+	{
+		if ( game.Start )
+		{
+			EngineAPI api = {};
+			api.Log = Log;
+			game.Start(api);
+		}
+		game.state = GameStateRunning;
+	}
+
+	if (game.state == GameStateRunning)
+	{
+		if ( game.Update )
+		{
+			game.Update();
+		}
+	}
+
+	if (game.state == GameStateStopping)
+	{
+		if (game.Stop)
+		{
+			game.Stop();
+		}
+		game.state = GameStateStopped;
+	}
+}
+
+
 #if USE_ENTITY_SELECTION
 void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 {
@@ -2337,6 +2403,33 @@ void UpdateUI(Engine &engine)
 		}
 	}
 
+	if ( UI_Section(ui, "Game") )
+	{
+		const char *labels[] = {"Stopped", "Starting", "Running", "Stopping"};
+		CT_ASSERT(ARRAY_COUNT(labels) == GameStateCount);
+
+		const char *label = labels[engine.game.state];
+		UI_Label(ui, label);
+
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		if ( engine.game.state == GameStateStopped )
+		{
+			if ( UI_Button(ui, "Start") )
+			{
+				engine.game.state = GameStateStarting;
+			}
+		}
+		else
+		{
+			if ( UI_Button(ui, "Stop") )
+			{
+				engine.game.state = GameStateStopping;
+			}
+		}
+		UI_EndLayout(ui);
+	}
+
+#if 0
 	if ( UI_Section(ui, "Buttons") )
 	{
 		static u32 labelIndex = 0;
@@ -2413,6 +2506,7 @@ void UpdateUI(Engine &engine)
 		UI_InputInt(ui, "Input int", &intNumber);
 		UI_InputFloat(ui, "Input float", &floatNumber);
 	}
+#endif
 
 	UI_EndWindow(ui);
 }
@@ -2423,26 +2517,6 @@ void EndFrameUI(Engine &engine)
 	UI_EndFrame(ui);
 }
 #endif
-
-void Log(LogChannel channel, const char *format, ...)
-{
-	int finalChannel = 0;
-	switch (channel)
-	{
-		case LogChannelDebug: finalChannel = Debug; break;
-		case LogChannelInfo: finalChannel = Info; break;
-		case LogChannelWarning: finalChannel = Warning; break;
-		case LogChannelError: finalChannel = Error; break;
-		default: ASSERT(0 && "Invalid channel");
-	}
-
-	char buffer[1024];
-	va_list vaList;
-	va_start(vaList, format);
-	SPrintf(buffer, format, vaList);
-	LOG( finalChannel, buffer );
-	va_end(vaList);
-}
 
 void InitializeGameLibrary(Game &game)
 {
@@ -2604,6 +2678,9 @@ void OnPlatformUpdate(Platform &platform)
 #if USE_CAMERA_MOVEMENT
 		AnimateCamera(platform.window, engine.camera, platform.deltaSeconds, handleInput);
 #endif
+
+		GameUpdate(engine);
+
 #if USE_ENTITY_SELECTION
 		BeginEntitySelection(engine, platform.window.mouse, handleInput);
 #endif

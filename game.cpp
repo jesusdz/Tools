@@ -17,7 +17,6 @@ GAMEAPI void GameStart(const EngineAPI &api)
 
 GAMEAPI void GameUpdate()
 {
-
 	LogDebug("- GameUpdate!\n");
 }
 
