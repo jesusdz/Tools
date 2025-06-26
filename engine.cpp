@@ -229,6 +229,7 @@ struct Game
 	GameStopFunction Stop;
 
 	GameState state;
+	bool shouldRecompile;
 };
 
 struct Scene
@@ -1492,40 +1493,6 @@ void Log(LogChannel channel, const char *format, ...)
 	va_end(vaList);
 }
 
-void GameUpdate(Engine &engine)
-{
-	Game &game = engine.game;
-
-	if (game.state == GameStateStarting)
-	{
-		if ( game.Start )
-		{
-			EngineAPI api = {};
-			api.Log = Log;
-			game.Start(api);
-		}
-		game.state = GameStateRunning;
-	}
-
-	if (game.state == GameStateRunning)
-	{
-		if ( game.Update )
-		{
-			game.Update();
-		}
-	}
-
-	if (game.state == GameStateStopping)
-	{
-		if (game.Stop)
-		{
-			game.Stop();
-		}
-		game.state = GameStateStopped;
-	}
-}
-
-
 #if USE_ENTITY_SELECTION
 void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 {
@@ -2430,13 +2397,9 @@ void UpdateUI(Engine &engine)
 
 	if ( UI_Section(ui, "Game") )
 	{
-		const char *labels[] = {"Stopped", "Starting", "Running", "Stopping"};
-		CT_ASSERT(ARRAY_COUNT(labels) == GameStateCount);
-
-		const char *label = labels[engine.game.state];
-		UI_Label(ui, label);
-
 		UI_BeginLayout(ui, UiLayoutHorizontal);
+
+		// Start/Stop button
 		if ( engine.game.state == GameStateStopped )
 		{
 			if ( UI_Button(ui, "Start") )
@@ -2451,7 +2414,19 @@ void UpdateUI(Engine &engine)
 				engine.game.state = GameStateStopping;
 			}
 		}
+
+		// State label
+		const char *labels[] = {"Stopped", "Starting", "Running", "Stopping"};
+		CT_ASSERT(ARRAY_COUNT(labels) == GameStateCount);
+		const char *label = labels[engine.game.state];
+		UI_Label(ui, label);
+
 		UI_EndLayout(ui);
+
+		if ( UI_Button(ui, "Recompile") )
+		{
+			engine.game.shouldRecompile = true;
+		}
 	}
 
 #if 0
@@ -2543,7 +2518,20 @@ void EndFrameUI(Engine &engine)
 }
 #endif
 
-void InitializeGameLibrary(Game &game)
+
+void CleanupGameLibrary(Game &game)
+{
+	if (game.library)
+	{
+		CloseLibrary(game.library);
+		game.library = nullptr;
+		game.Start = nullptr;
+		game.Update = nullptr;
+		game.Stop = nullptr;
+	}
+}
+
+void LoadGameLibrary(Game &game)
 {
 #if PLATFORM_LINUX
 	constexpr const char * dynamicLibName = "./game.so";
@@ -2576,9 +2564,10 @@ void InitializeGameLibrary(Game &game)
 			LOG(Warning, "- GameStop not loaded :-(\n");
 		}
 
-		if (game.Start == nullptr && game.Update == nullptr && game.Stop == nullptr)
+		if (game.Start == nullptr || game.Update == nullptr || game.Stop == nullptr)
 		{
-			CloseLibrary(game.library);
+			LOG(Warning, "- Could not load all functions in %s\n", dynamicLibName);
+			CleanupGameLibrary(game);
 		}
 	}
 	else
@@ -2587,17 +2576,79 @@ void InitializeGameLibrary(Game &game)
 	}
 }
 
-void CleanupGameLibrary(Game &game)
+void CompileGameLibrary(Game &game)
 {
-	if (game.library)
+	char text[MAX_PATH_LENGTH];
+
+#if PLATFORM_WINDOWS
+	constexpr const char *build = "build.bat";
+#elif PLATFORM_LINUX
+	constexpr const char *build = "TODO";
+#else
+	constexpr const char *build = "<none>";
+#endif
+	constexpr const char *flags = "game";
+	SPrintf(text, "%s game", build);
+	ExecuteProcess(text);
+}
+
+void GameUpdate(Engine &engine)
+{
+	Game &game = engine.game;
+
+	if ( game.shouldRecompile )
 	{
-		CloseLibrary(game.library);
-		game.library = nullptr;
-		game.Start = nullptr;
-		game.Update = nullptr;
-		game.Stop = nullptr;
+		static bool shouldRestart = false;
+
+		if ( game.state == GameStateRunning )
+		{
+			game.state = GameStateStopping;
+			shouldRestart = true;
+		}
+		else if ( game.state == GameStateStopped )
+		{
+			CleanupGameLibrary(game);
+			CompileGameLibrary(game);
+			LoadGameLibrary(game);
+			game.shouldRecompile = false;
+
+			if ( shouldRestart )
+			{
+				game.state = GameStateStarting;
+				shouldRestart = false;
+			}
+		}
+	}
+
+	if (game.state == GameStateStarting)
+	{
+		if ( game.Start )
+		{
+			EngineAPI api = {};
+			api.Log = Log;
+			game.Start(api);
+		}
+		game.state = GameStateRunning;
+	}
+
+	if (game.state == GameStateRunning)
+	{
+		if ( game.Update )
+		{
+			game.Update();
+		}
+	}
+
+	if (game.state == GameStateStopping)
+	{
+		if (game.Stop)
+		{
+			game.Stop();
+		}
+		game.state = GameStateStopped;
 	}
 }
+
 
 
 
@@ -2623,8 +2674,6 @@ bool OnPlatformInit(Platform &platform)
 		LOG(Error, "InitializeGraphicsDriver failed!\n");
 		return false;
 	}
-
-	InitializeGameLibrary(game);
 
 	return true;
 }
