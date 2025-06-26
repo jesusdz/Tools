@@ -231,6 +231,17 @@ struct Game
 	GameState state;
 };
 
+struct Scene
+{
+	Entity entities[MAX_ENTITIES];
+	u32 entityCount;
+};
+
+struct Editor
+{
+	bool selectEntity;
+	u32 selectedEntity;
+};
 
 struct Engine
 {
@@ -243,11 +254,9 @@ struct Engine
 
 	Camera camera;
 
-	Entity entities[MAX_ENTITIES];
-	u32 entityCount;
+	Scene scene;
 
-	bool selectEntity;
-	u32 selectedEntity;
+	Editor editor;
 };
 
 
@@ -782,20 +791,22 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 
 void CreateEntity(Engine &engine, const EntityDesc &desc)
 {
-	ASSERT ( engine.entityCount < MAX_ENTITIES );
-	if ( engine.entityCount < MAX_ENTITIES )
+	Scene &scene = engine.scene;
+
+	ASSERT ( scene.entityCount < MAX_ENTITIES );
+	if ( scene.entityCount < MAX_ENTITIES )
 	{
 		BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
 		BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
 
-		const u32 entityIndex = engine.entityCount++;
-		engine.entities[entityIndex].name = desc.name;
-		engine.entities[entityIndex].visible = true;
-		engine.entities[entityIndex].position = desc.pos;
-		engine.entities[entityIndex].scale = desc.scale;
-		engine.entities[entityIndex].vertices = vertices;
-		engine.entities[entityIndex].indices = indices;
-		engine.entities[entityIndex].materialIndex = FindMaterialHandle(engine.gfx, desc.materialName);
+		const u32 entityIndex = scene.entityCount++;
+		scene.entities[entityIndex].name = desc.name;
+		scene.entities[entityIndex].visible = true;
+		scene.entities[entityIndex].position = desc.pos;
+		scene.entities[entityIndex].scale = desc.scale;
+		scene.entities[entityIndex].vertices = vertices;
+		scene.entities[entityIndex].indices = indices;
+		scene.entities[entityIndex].materialIndex = FindMaterialHandle(engine.gfx, desc.materialName);
 	}
 	else
 	{
@@ -1289,7 +1300,7 @@ void InitializeScene(Engine &engine, Arena scratch)
 
 	gfx.deviceInitialized = true;
 
-	engine.selectedEntity = U32_MAX;
+	engine.editor.selectedEntity = U32_MAX;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -1518,6 +1529,8 @@ void GameUpdate(Engine &engine)
 #if USE_ENTITY_SELECTION
 void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 {
+	Editor &editor = engine.editor;
+
 	static bool mouseMoved = false;
 	if ( handleInput )
 	{
@@ -1528,18 +1541,20 @@ void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 			mouseMoved = true;
 		}
 		if (!mouseMoved && MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) {
-			engine.selectEntity = true;
+			editor.selectEntity = true;
 		}
 	}
 }
 
 void EndEntitySelection(Engine &engine)
 {
-	if ( engine.selectEntity )
+	Editor &editor = engine.editor;
+
+	if ( editor.selectEntity )
 	{
 		WaitDeviceIdle(engine.gfx.device);
-		engine.selectedEntity = *(u32*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
-		engine.selectEntity = false;
+		editor.selectedEntity = *(u32*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
+		editor.selectEntity = false;
 	}
 }
 #endif // USE_ENTITY_SELECTION
@@ -1670,6 +1685,8 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 
 bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 {
+	Editor &editor = engine.editor;
+	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
 	Window &window = engine.platform.window;
 
@@ -1726,9 +1743,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	const float3 cameraPosition = engine.camera.position;
 	const float3 cameraForward = ForwardDirectionFromAngles(engine.camera.orientation);
 	const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
-	for (u32 i = 0; i < engine.entityCount; ++i)
+	for (u32 i = 0; i < scene.entityCount; ++i)
 	{
-		Entity &entity = engine.entities[i];
+		Entity &entity = scene.entities[i];
 		entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
 	}
 
@@ -1767,7 +1784,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
-		.selectedEntity = engine.selectedEntity,
+		.selectedEntity = editor.selectedEntity,
 	};
 
 	// Update globals buffer
@@ -1776,9 +1793,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
-	for (u32 i = 0; i < engine.entityCount; ++i)
+	for (u32 i = 0; i < scene.entityCount; ++i)
 	{
-		const Entity &entity = engine.entities[i];
+		const Entity &entity = scene.entities[i];
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		entities[i].world = worldMatrix;
 	}
@@ -1835,9 +1852,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
-		for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
 		{
-			const Entity &entity = engine.entities[entityIndex];
+			const Entity &entity = scene.entities[entityIndex];
 
 			if ( !entity.visible ) continue;
 
@@ -1874,9 +1891,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
 
-		for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
 		{
-			const Entity &entity = engine.entities[entityIndex];
+			const Entity &entity = scene.entities[entityIndex];
 
 			if ( !entity.visible || entity.culled ) continue;
 
@@ -1990,7 +2007,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	}
 
 #if USE_ENTITY_SELECTION
-	if ( engine.selectEntity )
+	if ( editor.selectEntity )
 	{ // Selection buffer
 		BeginDebugGroup(commandList, "Entity selection");
 
@@ -2008,9 +2025,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
-			for (u32 entityIndex = 0; entityIndex < engine.entityCount; ++entityIndex)
+			for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
 			{
-				const Entity &entity = engine.entities[entityIndex];
+				const Entity &entity = scene.entities[entityIndex];
 
 				if ( !entity.visible || entity.culled ) continue;
 
@@ -2250,12 +2267,12 @@ void UpdateImGui(Graphics &gfx)
 	}
 	if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
 	{
-		ImGui::Text("Entity count: %u", engine.entityCount);
+		ImGui::Text("Entity count: %u", scene.entityCount);
 		ImGui::Separator();
 
-		for ( u32 i = 0; i < engine.entityCount; ++i )
+		for ( u32 i = 0; i < scene.entityCount; ++i )
 		{
-			const Entity &entity = engine.entities[i];
+			const Entity &entity = scene.entities[i];
 			const Heap &heap = gfx.device.heaps[i];
 			ImGui::Text("- entity[%u]", i);
 			ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
@@ -2308,6 +2325,8 @@ void UpdateUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
 	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+	Editor &editor = engine.editor;
 
 	char text[MAX_PATH_LENGTH];
 	SPrintf(text, "Debug UI");
@@ -2334,14 +2353,34 @@ void UpdateUI(Engine &engine)
 		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
 
-	if ( UI_Section(ui, "Entities") )
+	if ( UI_Section(ui, "Scene") )
 	{
-		if ( engine.selectedEntity == U32_MAX ) {
-			SPrintf(text, "Selected entity: <none>");
-		} else {
-			SPrintf(text, "Selected entity: %u", engine.selectedEntity);
+		for (u32 i = 0; i < scene.entityCount; ++i)
+		{
+			Entity &entity = scene.entities[i];
+			if ( UI_Radio(ui, entity.name, editor.selectedEntity == i) )
+			{
+				editor.selectedEntity = i;
+			}
 		}
-		UI_Label(ui, text);
+		if (UI_Button(ui, "Unselect"))
+		{
+			editor.selectedEntity = U32_MAX;
+		}
+	}
+
+	if ( UI_Section(ui, "Camera") )
+	{
+		const char *radioOptions[] = { "Perspective", "Orthographic" };
+		static int selectedOption = 0;
+
+		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+		{
+			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+			{
+				selectedOption = i;
+			}
+		}
 	}
 
 	if ( UI_Section(ui, "Pipelines") )
@@ -2386,20 +2425,6 @@ void UpdateUI(Engine &engine)
 			}
 			UI_Label(ui, pipelineName);
 			UI_EndLayout(ui);
-		}
-	}
-
-	if ( UI_Section(ui, "Camera") )
-	{
-		const char *radioOptions[] = { "Perspective", "Orthographic" };
-		static int selectedOption = 0;
-
-		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
-		{
-			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
-			{
-				selectedOption = i;
-			}
 		}
 	}
 
