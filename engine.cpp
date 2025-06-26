@@ -1928,7 +1928,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	{ // Selection buffer
 		BeginDebugGroup(commandList, "Entity selection");
 
-		{
+		{ // Draw entity IDs
 			SetClearColor(commandList, 0, U32_MAX);
 
 			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
@@ -1958,7 +1958,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 			EndRenderPass(commandList);
 		}
 
-		{
+		{ // Write entity ID under mouse cursor into selection buffer
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeSelectH);
 
 			SetPipeline(commandList, gfx.computeSelectH);
@@ -2226,7 +2226,7 @@ void CleanupImGui()
 
 #if USE_UI
 
-void UpdateUI(Engine &engine)
+void BeginFrameUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
 	const Window &window = GetWindow(engine);
@@ -2236,6 +2236,12 @@ void UpdateUI(Engine &engine)
 	UI_SetViewportSize(ui, uint2{window.width, window.height});
 
 	UI_BeginFrame(ui);
+}
+
+void UpdateUI(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	Graphics &gfx = engine.gfx;
 
 	char text[MAX_PATH_LENGTH];
 	SPrintf(text, "Debug UI");
@@ -2409,7 +2415,11 @@ void UpdateUI(Engine &engine)
 	}
 
 	UI_EndWindow(ui);
+}
 
+void EndFrameUI(Engine &engine)
+{
+	UI &ui = GetUI(engine);
 	UI_EndFrame(ui);
 }
 #endif
@@ -2584,6 +2594,7 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 
 #if USE_UI
+		BeginFrameUI(engine);
 		UpdateUI(engine);
 		const bool handleInput = !engine.ui.wantsInput;
 #else
@@ -2595,6 +2606,10 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 #if USE_ENTITY_SELECTION
 		BeginEntitySelection(engine, platform.window.mouse, handleInput);
+#endif
+
+#if USE_UI
+		EndFrameUI(engine);
 #endif
 
 		RenderGraphics(engine, platform.deltaSeconds);
