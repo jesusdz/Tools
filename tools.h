@@ -1005,15 +1005,16 @@ void ExecuteProcess(const char *commandLine)
 
 	// posix_spawn behaves similar to fork/exec
 	pid_t pid;
-	int status = posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
+	int status = posix_spawnp(&pid, argv[0], NULL, NULL, argv, environ);
 	if (status == 0) {
 		if (waitpid(pid, &status, 0) != -1) {
-			// printf("Child exited with status %i\n", status);
+			// Log(Debug, "Child exited with status %i\n", status);
 		} else {
 			perror("waitpid");
 		}
 	} else {
-		LOG(Debug, "posix_spawn failed: %s\n", strerror(status));
+		LOG(Error, "posix_spawnp failed: %s\n", strerror(status));
+		LOG(Error, "- Command: %s\n", commandLine);
 	}
 #endif
 }

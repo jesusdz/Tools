@@ -28,7 +28,13 @@ FP_Log Log;
 #define LogWarning(...) Log(LogChannelWarning, __VA_ARGS__)
 #define LogError(...) Log(LogChannelError, __VA_ARGS__)
 
-static void InitEngineAPI(const EngineAPI &api)
+#if _WIN32
+#define GAMEAPI extern "C" __declspec(dllexport)
+#else
+#define GAMEAPI extern "C"
+#endif
+
+GAMEAPI void GameInitAPI(const EngineAPI &api)
 {
 	Log = api.Log;
 }

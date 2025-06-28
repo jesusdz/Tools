@@ -207,7 +207,8 @@ struct Graphics
 	u32 reloadQueueSize;
 };
 
-typedef void (*GameStartFunction)(const EngineAPI &api);
+typedef void (*GameInitAPIFunction)(const EngineAPI &api);
+typedef void (*GameStartFunction)();
 typedef void (*GameUpdateFunction)();
 typedef void (*GameStopFunction)();
 
@@ -224,6 +225,7 @@ struct Game
 {
 	DynamicLibrary library;
 
+	GameInitAPIFunction InitAPI;
 	GameStartFunction Start;
 	GameUpdateFunction Update;
 	GameStopFunction Stop;
@@ -2375,7 +2377,7 @@ void UpdateUI(Engine &engine)
 				const char *output = desc.outputName;
 				const char *filename = desc.filename;
 				SPrintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
-
+				LOG(Debug, "%s\n", text);
 				ExecuteProcess(text);
 			}
 		}
@@ -2525,6 +2527,7 @@ void CleanupGameLibrary(Game &game)
 	{
 		CloseLibrary(game.library);
 		game.library = nullptr;
+		game.InitAPI = nullptr;
 		game.Start = nullptr;
 		game.Update = nullptr;
 		game.Stop = nullptr;
@@ -2542,37 +2545,51 @@ void LoadGameLibrary(Game &game)
 	LOG(Info, "Loading dynamic library: %s\n", dynamicLibName);
 
 	game.library = OpenLibrary(dynamicLibName);
+
 	if (game.library)
 	{
+		game.InitAPI = (GameInitAPIFunction) LoadSymbol(game.library, "GameInitAPI");
 		game.Start = (GameStartFunction) LoadSymbol(game.library, "GameStart");
 		game.Update = (GameUpdateFunction) LoadSymbol(game.library, "GameUpdate");
 		game.Stop = (GameStopFunction) LoadSymbol(game.library, "GameStop");
 
+		if (game.InitAPI) {
+			LOG(Info, "- GameInitAPI loaded successfully.\n");
+		} else {
+			LOG(Error, "- GameInitAPI not loaded :-(\n");
+		}
 		if (game.Start) {
 			LOG(Info, "- GameStart loaded successfully.\n");
 		} else {
-			LOG(Warning, "- GameStart not loaded :-(\n");
+			LOG(Error, "- GameStart not loaded :-(\n");
 		}
 		if (game.Update) {
 			LOG(Info, "- GameUpdate loaded successfully.\n");
 		} else {
-			LOG(Warning, "- GameUpdate not loaded :-(\n");
+			LOG(Error, "- GameUpdate not loaded :-(\n");
 		}
 		if (game.Stop) {
 			LOG(Info, "- GameStop loaded successfully.\n");
 		} else {
-			LOG(Warning, "- GameStop not loaded :-(\n");
+			LOG(Error, "- GameStop not loaded :-(\n");
 		}
 
 		if (game.Start == nullptr || game.Update == nullptr || game.Stop == nullptr)
 		{
-			LOG(Warning, "- Could not load all functions in %s\n", dynamicLibName);
+			LOG(Error, "- Could not load all functions in %s\n", dynamicLibName);
 			CleanupGameLibrary(game);
 		}
 	}
 	else
 	{
-		LOG(Warning, "- Error opening %s\n", dynamicLibName);
+		LOG(Error, "- Error opening %s\n", dynamicLibName);
+	}
+
+	if (game.InitAPI)
+	{
+		EngineAPI api = {};
+		api.Log = Log;
+		game.InitAPI(api);
 	}
 }
 
@@ -2583,7 +2600,7 @@ void CompileGameLibrary(Game &game)
 #if PLATFORM_WINDOWS
 	constexpr const char *build = "build.bat";
 #elif PLATFORM_LINUX
-	constexpr const char *build = "TODO";
+	constexpr const char *build = "make";
 #else
 	constexpr const char *build = "<none>";
 #endif
@@ -2598,36 +2615,30 @@ void GameUpdate(Engine &engine)
 
 	if ( game.shouldRecompile )
 	{
-		static bool shouldRestart = false;
+		const bool wasLoaded = game.library;
 
-		if ( game.state == GameStateRunning )
-		{
-			game.state = GameStateStopping;
-			shouldRestart = true;
-		}
-		else if ( game.state == GameStateStopped )
-		{
+		if ( wasLoaded ) {
 			CleanupGameLibrary(game);
-			CompileGameLibrary(game);
-			LoadGameLibrary(game);
-			game.shouldRecompile = false;
-
-			if ( shouldRestart )
-			{
-				game.state = GameStateStarting;
-				shouldRestart = false;
-			}
 		}
+
+		CompileGameLibrary(game);
+
+		if ( wasLoaded ) {
+			LoadGameLibrary(game);
+		}
+
+		game.shouldRecompile = false;
 	}
 
 	if (game.state == GameStateStarting)
 	{
+		LoadGameLibrary(game);
+
 		if ( game.Start )
 		{
-			EngineAPI api = {};
-			api.Log = Log;
-			game.Start(api);
+			game.Start();
 		}
+
 		game.state = GameStateRunning;
 	}
 
@@ -2645,6 +2656,9 @@ void GameUpdate(Engine &engine)
 		{
 			game.Stop();
 		}
+
+		CleanupGameLibrary(game);
+
 		game.state = GameStateStopped;
 	}
 }
