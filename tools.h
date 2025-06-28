@@ -17,6 +17,7 @@
  * - Clock / timing
  * - Window creation
  * - Input handling (mouse and keyboard)
+ * - Audio
  */
 
 #ifndef TOOLS_H
@@ -44,10 +45,13 @@
 
 
 #if PLATFORM_WINDOWS
+
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <WindowsX.h>
+#include <mmsystem.h> // audio
+#include <dsound.h>   // audio
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -1963,6 +1967,16 @@ struct Window
 	Touch touches[2];
 };
 
+typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
+
+struct Audio
+{
+#if PLATFORM_WINDOWS
+	DynamicLibrary library;
+	LPDIRECTSOUNDBUFFER buffer;
+#endif
+};
+
 struct PlatformConfig
 {
 #if PLATFORM_ANDROID
@@ -1997,6 +2011,7 @@ struct Platform
 	Arena stringArena;
 	StringInterning stringInterning;
 	Window window;
+	Audio audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
 };
@@ -2773,6 +2788,164 @@ void PlatformUpdateEventLoop(Platform &platform)
 	}
 }
 
+bool InitializeAudio(Audio &audio, const Window &window)
+{
+#if PLATFORM_WINDOWS
+	audio.library = LoadLibrary("dsound.dll");
+	if (audio.library)
+	{
+		LOG(Info, "Loaded dsound.dll successfully\n");
+		//typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
+		FP_DirectSoundCreate* CreateAudioDevice = (FP_DirectSoundCreate*)LoadSymbol(audio.library, "DirectSoundCreate");
+		LPDIRECTSOUND directSound;
+		if (CreateAudioDevice && SUCCEEDED(CreateAudioDevice(0, &directSound, 0)))
+		{
+			if (SUCCEEDED(directSound->SetCooperativeLevel(window.hWnd, DSSCL_PRIORITY)))
+			{
+				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
+				DSBUFFERDESC primaryBufferDesc = {};
+				primaryBufferDesc.dwSize = sizeof(primaryBufferDesc);
+				primaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+				LPDIRECTSOUNDBUFFER primaryBuffer;
+				if (SUCCEEDED(directSound->CreateSoundBuffer(&primaryBufferDesc, &primaryBuffer, 0)))
+				{
+					const u16 channelCount = 2;
+					const u16 bytesPerSample = 2;
+					const u16 samplesPerSecond = 48000;
+					const u16 bufferSize = channelCount * samplesPerSecond * bytesPerSample;
+					WAVEFORMATEX waveFormat = {};
+					waveFormat.wFormatTag = WAVE_FORMAT_PCM;
+					waveFormat.nChannels = channelCount;
+					waveFormat.nSamplesPerSec = samplesPerSecond;
+					waveFormat.nBlockAlign = channelCount * bytesPerSample;
+					waveFormat.nAvgBytesPerSec = samplesPerSecond * waveFormat.nBlockAlign;
+					waveFormat.wBitsPerSample = bytesPerSample * 8;
+					waveFormat.cbSize = 0;
+					if (SUCCEEDED(primaryBuffer->SetFormat(&waveFormat)))
+					{
+						LOG(Info, "Primary buffer format set successfully.\n");
+					}
+					else
+					{
+						LOG(Error, "Error setting primary buffer format.\n");
+					}
+
+					// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
+					DSBUFFERDESC secondaryBufferDesc = {};
+					secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
+					secondaryBufferDesc.dwFlags = 0;
+					secondaryBufferDesc.dwBufferBytes = bufferSize;
+					secondaryBufferDesc.lpwfxFormat = &waveFormat;
+					LPDIRECTSOUNDBUFFER secondaryBuffer;
+					if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
+					{
+						audio.buffer = secondaryBuffer;
+						LOG(Info, "Secondary buffer created successfully.\n");
+
+						if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
+						{
+							LOG(Info, "Secondary buffer is playing...\n");
+						}
+						else
+						{
+							LOG(Error, "Error playing secondaryBuffer.\n");
+						}
+					}
+					else
+					{
+						LOG(Error, "Error calling CreateSoundBuffer for secondaryBuffer.\n");
+					}
+				}
+				else
+				{
+					LOG(Error, "Error calling CreateSoundBuffer for primaryBuffer.\n");
+				}
+			}
+			else
+			{
+				LOG(Error, "Error setting DirectSound priority cooperative level.\n");
+			}
+		}
+		else
+		{
+			LOG(Error, "Error loading DirectSoundCreate symbol.\n");
+		}
+	}
+	else
+	{
+		LOG(Error, "Error loading dsound.dll\n");
+	}
+#endif
+	return true;
+}
+
+void PlaySound(Audio &audio)
+{
+#if PLATFORM_WINDOWS
+	// Audio stuff
+	const u16 channelCount = 2;
+	const u16 bytesPerSample = 2;
+	const u16 samplesPerSecond = 48000;
+	const u16 bufferSize = channelCount * samplesPerSecond * bytesPerSample;
+	static u32 writeSampleIndex = 0;
+
+	DWORD playCursor;
+	DWORD writeCursor;
+	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
+	{
+		const DWORD lockByteOffset = writeSampleIndex * 2 * bytesPerSample % bufferSize;
+		DWORD lockByteSize = 0;
+		if ( lockByteOffset <= playCursor )
+		{
+			lockByteSize = playCursor - lockByteOffset;
+		}
+		else
+		{
+			lockByteSize = playCursor + bufferSize - lockByteOffset;
+		}
+
+		void *region1;
+		DWORD region1Size;
+		void *region2;
+		DWORD region2Size;
+
+		if (SUCCEEDED(audio.buffer->Lock(lockByteOffset, lockByteSize, &region1, &region1Size, &region2, &region2Size, 0)))
+		{
+			const u32 ToneHz = 256;
+			const i32 ToneVolume = 1000;
+			const u32 SquareWavePeriod = samplesPerSecond / ToneHz;
+
+			i16 *samplePtr = (i16*)region1;
+			const u32 region1SampleCount = region1Size / (bytesPerSample * channelCount);
+			for (u32 i = 0; i < region1SampleCount; ++i)
+			{
+				const i16 sample = (writeSampleIndex++ / (SquareWavePeriod/2)) % 2 ? ToneVolume : -ToneVolume;
+				*samplePtr++ = sample;
+				*samplePtr++ = sample;
+			}
+			samplePtr = (i16*)region2;
+			const u32 region2SampleCount = region2Size / (bytesPerSample * channelCount);
+			for (u32 i = 0; i < region2SampleCount; ++i)
+			{
+				const i16 sample = (writeSampleIndex++ / (SquareWavePeriod/2)) % 2 ? ToneVolume : -ToneVolume;
+				*samplePtr++ = sample;
+				*samplePtr++ = sample;
+			}
+
+			audio.buffer->Unlock(region1, region1Size, region2, region2Size);
+		}
+		else
+		{
+			LOG(Warning, "Failed to Lock sound buffer.\n");
+		}
+	}
+	else
+	{
+		LOG(Warning, "Failed to GetCurrentPosition for sound buffer.\n");
+	}
+#endif
+}
+
 bool PlatformRun(Platform &platform)
 {
 	ASSERT( platform.globalMemorySize > 0 );
@@ -2786,6 +2959,11 @@ bool PlatformRun(Platform &platform)
 	if ( !InitializeWindow(platform.window) )
 	{
 		return false;
+	}
+
+	if ( !InitializeAudio(platform.audio, platform.window) )
+	{
+		LOG(Error, "Could not load sound system.\n");
 	}
 
 	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
@@ -2853,6 +3031,8 @@ bool PlatformRun(Platform &platform)
 		}
 
 		platform.window.flags = 0;
+
+		PlaySound(platform.audio);
 	}
 
 	platform.CleanupCallback(platform);
