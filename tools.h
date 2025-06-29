@@ -2895,15 +2895,19 @@ void PlaySound(Audio &audio)
 	DWORD writeCursor;
 	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
 	{
-		const DWORD lockByteOffset = writeSampleIndex * 2 * bytesPerSample % bufferSize;
-		DWORD lockByteSize = 0;
-		if ( lockByteOffset <= playCursor )
+		const DWORD writeOffset = writeSampleIndex * channelCount * bytesPerSample % bufferSize;
+		DWORD writeSize = 0;
+		if ( writeOffset == playCursor )
 		{
-			lockByteSize = playCursor - lockByteOffset;
+			writeSize = bufferSize;
+		}
+		else if ( writeOffset < playCursor )
+		{
+			writeSize = playCursor - writeOffset;
 		}
 		else
 		{
-			lockByteSize = playCursor + bufferSize - lockByteOffset;
+			writeSize = playCursor + bufferSize - writeOffset;
 		}
 
 		void *region1;
@@ -2911,17 +2915,18 @@ void PlaySound(Audio &audio)
 		void *region2;
 		DWORD region2Size;
 
-		if (SUCCEEDED(audio.buffer->Lock(lockByteOffset, lockByteSize, &region1, &region1Size, &region2, &region2Size, 0)))
+		if (SUCCEEDED(audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0)))
 		{
 			const u32 ToneHz = 256;
 			const i32 ToneVolume = 1000;
-			const u32 SquareWavePeriod = samplesPerSecond / ToneHz;
+			const u32 WavePeriod = samplesPerSecond / ToneHz;
+			const u32 HalfWavePeriod = WavePeriod / 2;
 
 			i16 *samplePtr = (i16*)region1;
 			const u32 region1SampleCount = region1Size / (bytesPerSample * channelCount);
 			for (u32 i = 0; i < region1SampleCount; ++i)
 			{
-				const i16 sample = (writeSampleIndex++ / (SquareWavePeriod/2)) % 2 ? ToneVolume : -ToneVolume;
+				const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
 				*samplePtr++ = sample;
 				*samplePtr++ = sample;
 			}
@@ -2929,7 +2934,7 @@ void PlaySound(Audio &audio)
 			const u32 region2SampleCount = region2Size / (bytesPerSample * channelCount);
 			for (u32 i = 0; i < region2SampleCount; ++i)
 			{
-				const i16 sample = (writeSampleIndex++ / (SquareWavePeriod/2)) % 2 ? ToneVolume : -ToneVolume;
+				const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
 				*samplePtr++ = sample;
 				*samplePtr++ = sample;
 			}
