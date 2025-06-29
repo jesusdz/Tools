@@ -2460,6 +2460,36 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 }
 
 
+
+//////////////////////////////
+// Heap allocation
+//////////////////////////////
+
+Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
+{
+	const VkDeviceSize offset = AlignUp( heap.used, alignment );
+
+	ASSERT( offset + size <= heap.size );
+	heap.used = offset + size;
+
+	const Alloc alloc = {
+		.heap = heap.type,
+		.offset = offset,
+		.size = size,
+	};
+
+	return alloc;
+}
+
+void HeapFree(Alloc alloc)
+{
+	// TODO: Missing implementation
+	// Ideally we would want to have to possibility to associate a different allocator
+	// for each heap so that we can use it to alloc/free chunks of memory on it.
+}
+
+
+
 //////////////////////////////
 // Buffer
 //////////////////////////////
@@ -2478,21 +2508,13 @@ Buffer CreateBufferInternal(GraphicsDevice &device, u32 size, BufferUsageFlags b
 	VK_CALL( vkCreateBuffer(device.handle, &bufferCreateInfo, VULKAN_ALLOCATORS, &bufferHandle) );
 
 	// Memory
-	Heap &memoryHeap = device.heaps[heapType];
-	VkDeviceMemory memory = memoryHeap.memory;
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetBufferMemoryRequirements(device.handle, bufferHandle, &memoryRequirements);
-	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
-	ASSERT( offset + memoryRequirements.size <= memoryHeap.size );
-	memoryHeap.used = offset + memoryRequirements.size;
 
-	VK_CALL( vkBindBufferMemory(device.handle, bufferHandle, memory, offset) );
+	Heap &heap = device.heaps[heapType];
+	const Alloc alloc = HeapAlloc(heap, memoryRequirements.size, memoryRequirements.alignment);
 
-	Alloc alloc = {
-		heapType,
-		offset,
-		memoryRequirements.size,
-	};
+	VK_CALL( vkBindBufferMemory(device.handle, bufferHandle, heap.memory, alloc.offset) );
 
 	const Buffer buffer = {
 		.handle = bufferHandle,
@@ -2528,7 +2550,7 @@ void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer)
 {
 	vkDestroyBuffer( device.handle, buffer.handle, VULKAN_ALLOCATORS );
 
-	// TODO: We should somehow deallocate memory when destroying buffers at runtime
+	HeapFree(buffer.alloc);
 }
 
 
@@ -2606,15 +2628,13 @@ Image CreateImageInternal(GraphicsDevice &device, u32 width, u32 height, u32 mip
 	VK_CALL( vkCreateImage(device.handle, &imageCreateInfo, VULKAN_ALLOCATORS, &imageHandle) );
 
 	// Memory
-	Heap &memoryHeap = device.heaps[heapType];
 	VkMemoryRequirements memoryRequirements = {};
 	vkGetImageMemoryRequirements(device.handle, imageHandle, &memoryRequirements);
-	VkDeviceMemory memory = memoryHeap.memory;
-	VkDeviceSize offset = AlignUp( memoryHeap.used, memoryRequirements.alignment );
-	ASSERT( offset + memoryRequirements.size < memoryHeap.size );
-	memoryHeap.used = offset + memoryRequirements.size;
 
-	VK_CALL( vkBindImageMemory(device.handle, imageHandle, memory, offset) );
+	Heap &heap = device.heaps[heapType];
+	const Alloc alloc = HeapAlloc(heap, memoryRequirements.size, memoryRequirements.alignment);
+
+	VK_CALL( vkBindImageMemory(device.handle, imageHandle, heap.memory, alloc.offset) );
 
 	const VkImageView imageViewHandle = CreateImageView(device, imageHandle, FormatToVulkan(format), FormatToVulkanAspect(format), mipLevels);
 
@@ -2625,11 +2645,7 @@ Image CreateImageInternal(GraphicsDevice &device, u32 width, u32 height, u32 mip
 		.width = width,
 		.height = height,
 		.mipLevels = mipLevels,
-		.alloc = {
-			.heap = memoryHeap.type,
-			.offset = offset,
-			.size = memoryRequirements.size,
-		},
+		.alloc = alloc,
 	};
 	return image;
 }
@@ -2674,7 +2690,7 @@ void DestroyImage(const GraphicsDevice &device, const Image &image)
 		DestroyImageView( device, image.imageViewHandle );
 	}
 
-	// TODO: We should somehow deallocate memory when destroying images at runtime
+	HeapFree(image.alloc);
 }
 
 void DestroyImageH(GraphicsDevice &device, ImageH imageH)
