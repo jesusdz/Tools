@@ -1,4 +1,4 @@
-.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast shaders clean
+.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast shaders clean main_alsa
 
 CXX=g++
 CXXFLAGS= -g
@@ -44,6 +44,9 @@ main_clon:
 
 cast:
 	${CXX} ${CXXFLAGS} -o cast cast.cpp
+
+main_alsa:
+	${CXX} ${CXXFLAGS} -o main_alsa main_alsa.cpp
 
 shaders:
 	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo shaders/vs_shading.spv -Fc shaders/vs_shading.dis -Fi shaders/vs_shading.pp shaders/shading.hlsl

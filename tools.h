@@ -1967,7 +1967,9 @@ struct Window
 	Touch touches[2];
 };
 
+#if PLATFORM_WINDOWS
 typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
+#endif
 
 struct Audio
 {
