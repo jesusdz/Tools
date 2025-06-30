@@ -6,7 +6,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-#define USE_UI 1
+#define USE_UI PLATFORM_WINDOWS || PLATFORM_LINUX
 
 #if USE_UI && !USE_IMGUI
 
@@ -480,10 +480,12 @@ Window &GetWindow(Engine &engine)
 	return engine.platform.window;
 }
 
+#if USE_UI
 UI &GetUI(Engine &engine)
 {
 	return engine.ui;
 }
+#endif
 
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
@@ -1491,7 +1493,7 @@ void Log(LogChannel channel, const char *format, ...)
 	va_list vaList;
 	va_start(vaList, format);
 	SPrintf(buffer, format, vaList);
-	LOG( finalChannel, buffer );
+	LOG( finalChannel, "%s", buffer );
 	va_end(vaList);
 }
 
@@ -1754,6 +1756,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
 		.selectedEntity = editor.selectedEntity,
+		.flipRB = gfx.device.swapchainInfo.flipRB,
 	};
 
 	// Update globals buffer
@@ -2536,10 +2539,12 @@ void CleanupGameLibrary(Game &game)
 
 void LoadGameLibrary(Game &game)
 {
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_ANDROID
 	constexpr const char * dynamicLibName = "./game.so";
 #elif PLATFORM_WINDOWS
 	constexpr const char *dynamicLibName = "./build/game.dll";
+#else
+#error "Missing implementation"
 #endif
 
 	LOG(Info, "Loading dynamic library: %s\n", dynamicLibName);

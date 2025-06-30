@@ -62,7 +62,7 @@
 #include <sys/mman.h> // mmap
 #endif
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_ANDROID
 #include <sys/wait.h>
 #include <spawn.h>
 #include <dlfcn.h>
@@ -987,7 +987,7 @@ void ExecuteProcess(const char *commandLine)
 	{
 		LOG(Error, "CreateProcessA failed.\n");
 	}
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
 	// Split list of arguments
 	char *ptr = commandLineCopy;
 	int argc = 0;
@@ -1028,7 +1028,7 @@ void ExecuteProcess(const char *commandLine)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Dynamic library loading
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_ANDROID
 
 	typedef void* DynamicLibrary;
 

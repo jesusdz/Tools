@@ -20,7 +20,7 @@ struct Globals
 
 	int2 mousePosition;
 	uint selectedEntity;
-	uint unused3;
+	uint flipRB;
 };
 
 struct SEntity

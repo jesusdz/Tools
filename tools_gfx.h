@@ -264,11 +264,13 @@ enum Format
 	FormatRGB8_SRGB,
 	FormatRGBA8,
 	FormatRGBA8_SRGB,
+	FormatBGRA8,
 	FormatBGRA8_SRGB,
 	FormatD32,
 	FormatD32S1,
 	FormatD24S1,
 	FormatCount,
+	FormatInvalid = FormatCount,
 };
 
 struct BufferH { u32 index; };
@@ -522,6 +524,7 @@ struct SwapchainInfo
 	VkFormat format;
 	VkColorSpaceKHR colorSpace;
 	VkPresentModeKHR presentMode;
+	bool flipRB;
 };
 
 struct Swapchain
@@ -806,13 +809,14 @@ static VkFormat FormatToVulkan(Format format)
 		VK_FORMAT_R8G8B8_SRGB,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_R8G8B8A8_SRGB,
+		VK_FORMAT_B8G8R8A8_UNORM,
 		VK_FORMAT_B8G8R8A8_SRGB,
 		VK_FORMAT_D32_SFLOAT,
 		VK_FORMAT_D32_SFLOAT_S8_UINT,
 		VK_FORMAT_D24_UNORM_S8_UINT,
 	};
 	CT_ASSERT(ARRAY_COUNT(vkFormats) == FormatCount);
-	const VkFormat vkFormat = vkFormats[format];
+	const VkFormat vkFormat = format < FormatCount ? vkFormats[format] : VK_FORMAT_MAX_ENUM;
 	return vkFormat;
 }
 
@@ -831,19 +835,18 @@ static Format FormatFromVulkan(VkFormat format)
 		case VK_FORMAT_R8G8B8_SRGB: return FormatRGB8_SRGB;
 		case VK_FORMAT_R8G8B8A8_UNORM: return FormatRGBA8;
 		case VK_FORMAT_R8G8B8A8_SRGB: return FormatRGBA8_SRGB;
+		case VK_FORMAT_B8G8R8A8_UNORM: return FormatBGRA8;
 		case VK_FORMAT_B8G8R8A8_SRGB: return FormatBGRA8_SRGB;
 		case VK_FORMAT_D32_SFLOAT: return FormatD32;
 		case VK_FORMAT_D32_SFLOAT_S8_UINT: return FormatD32S1;
 		case VK_FORMAT_D24_UNORM_S8_UINT: return FormatD24S1;
 		default:;
 	};
-	INVALID_CODE_PATH();
-	return FormatCount;
+	return FormatInvalid;
 }
 
 static const char *FormatName(Format format)
 {
-	ASSERT(format < FormatCount);
 	static const char *names[] = {
 		"VK_FORMAT_R32_UINT",
 		"VK_FORMAT_R32_SFLOAT",
@@ -857,13 +860,14 @@ static const char *FormatName(Format format)
 		"VK_FORMAT_R8G8B8_SRGB",
 		"VK_FORMAT_R8G8B8A8_UNORM",
 		"VK_FORMAT_R8G8B8A8_SRGB",
+		"VK_FORMAT_B8G8R8A8_UNORM",
 		"VK_FORMAT_B8G8R8A8_SRGB",
 		"VK_FORMAT_D32_SFLOAT",
 		"VK_FORMAT_D32_SFLOAT_S8_UINT",
 		"VK_FORMAT_D24_UNORM_S8_UINT",
 	};
 	CT_ASSERT(ARRAY_COUNT(names) == FormatCount);
-	const char *name = names[format];
+	const char *name = format < FormatCount ? names[format] : "VK_FORMAT_INVALID";
 	return name;
 }
 
@@ -1536,15 +1540,14 @@ Swapchain CreateSwapchain(GraphicsDevice &device, Window &window, const Swapchai
 #if PLATFORM_ANDROID
 	const u32 baseWidth = swapchain.extent.width;
 	const u32 baseHeight = swapchain.extent.height;
-	const u32 reducedWidth = Max(baseWidth/2, surfaceCapabilities.minImageExtent.width);
-	const u32 reducedHeight = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
-	swapchain.extent.width = reducedWidth;
-	swapchain.extent.height = reducedHeight;
+	swapchain.extent.width = Max(baseWidth/2, surfaceCapabilities.minImageExtent.width);
+	swapchain.extent.height = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
 	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
 	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
 	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
 #endif
 	LOG(Info, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
+	LOG(Info, "- format %s\n", FormatName(FormatFromVulkan(swapchainInfo.format)));
 
 
 	// Pre transform
@@ -1981,22 +1984,50 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 		VkSurfaceFormatKHR *surfaceFormats = PushArray( scratch2, VkSurfaceFormatKHR, surfaceFormatCount );
 		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, device.surface, &surfaceFormatCount, surfaceFormats);
 
+		struct FormatPriorityEntry
+		{
+			VkFormat format;
+			VkColorSpaceKHR colorSpace;
+		};
+		const FormatPriorityEntry formatPriorityArray[] = {
+			{ VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+			{ VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+		};
+		u32 selectedEntryIndex = U32_MAX;
+		u32 surfaceFormatIndex = 0;
+
 		device.swapchainInfo.format = VK_FORMAT_MAX_ENUM;
+		LOG(Info, "Available surface formats:\n");
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
-			if ( ( surfaceFormats[i].format == VK_FORMAT_R8G8B8A8_SRGB || surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB ) &&
-					surfaceFormats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR )
+			bool supported = false;
+			const VkFormat format = surfaceFormats[i].format;
+			const VkColorSpaceKHR colorSpace = surfaceFormats[i].colorSpace;
+
+			for (u32 entryIndex = 0; entryIndex < ARRAY_COUNT(formatPriorityArray); ++entryIndex)
 			{
-				device.swapchainInfo.format = surfaceFormats[i].format;
-				device.swapchainInfo.colorSpace = surfaceFormats[i].colorSpace;
-				break;
+				if ( entryIndex < selectedEntryIndex &&
+					format == formatPriorityArray[entryIndex].format &&
+					colorSpace == formatPriorityArray[entryIndex].colorSpace )
+				{
+					selectedEntryIndex = entryIndex;
+					surfaceFormatIndex = i;
+					supported = true;
+				}
 			}
+
+			LOG(Info, "- %d. %s (%d) / colorSpace: %d %s\n", i, FormatName(FormatFromVulkan(format)), format, colorSpace, supported ? "" : "(unsupported)");
 		}
-		if ( device.swapchainInfo.format == VK_FORMAT_MAX_ENUM )
+
+		if ( selectedEntryIndex == U32_MAX )
 		{
-			device.swapchainInfo.format = surfaceFormats[0].format;
-			device.swapchainInfo.colorSpace = surfaceFormats[0].colorSpace;
+			LOG(Warning, "Could not find a supported surface format\n");
 		}
+
+		LOG(Info, "Selected surface format: %d\n", surfaceFormatIndex);
+		device.swapchainInfo.format = surfaceFormats[surfaceFormatIndex].format;
+		device.swapchainInfo.colorSpace = surfaceFormats[surfaceFormatIndex].colorSpace;
+		device.swapchainInfo.flipRB = (device.swapchainInfo.format == VK_FORMAT_R8G8B8A8_SRGB);
 
 		// Swapchain present mode
 		u32 surfacePresentModeCount = 0;
@@ -3119,7 +3150,7 @@ RenderPass CreateRenderPassInternal( const GraphicsDevice &device, const Renderp
 
 	for (u8 i = 0; i < desc.colorAttachmentCount; ++i)
 	{
-		attachmentDescs[i].format = FormatToVulkan( desc.colorAttachments[i].format ); //device.swapchainInfo.format;
+		attachmentDescs[i].format = FormatToVulkan( desc.colorAttachments[i].format );
 		attachmentDescs[i].samples = VK_SAMPLE_COUNT_1_BIT;
 		attachmentDescs[i].loadOp = LoadOpToVulkan( desc.colorAttachments[i].loadOp );
 		attachmentDescs[i].storeOp = StoreOpToVulkan( desc.colorAttachments[i].storeOp );
