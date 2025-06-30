@@ -45,8 +45,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "main.o:"
-	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/main_vulkan.cpp -o main.o
-	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/main_vulkan.cpp -o main.o
+	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/engine.cpp -o main.o
+	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/engine.cpp -o main.o
 	echo ""
 
 	echo "libgame.so:"
@@ -132,8 +132,11 @@ if [[ ${target} = "install" ]]; then
 	${ADB} uninstall com.tools.game
 	${ADB} install -r bin/NativeActivity.apk
 	${ADB} shell mkdir -p /sdcard/Android/data/com.tools.game/files/
+	${ADB} shell chmod o+rwx /sdcard/Android/data/com.tools.game/files
 	${ADB} push ../shaders/ /sdcard/Android/data/com.tools.game/files/
+	${ADB} shell chmod o+rwx /sdcard/Android/data/com.tools.game/files/shaders
 	${ADB} push ../assets/ /sdcard/Android/data/com.tools.game/files/
+	${ADB} shell chmod o+rwx /sdcard/Android/data/com.tools.game/files/assets
 fi
 
 
