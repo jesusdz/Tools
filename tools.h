@@ -52,6 +52,7 @@
 #include <WindowsX.h>
 #include <mmsystem.h> // audio
 #include <dsound.h>   // audio
+#include <direct.h>  // _getcwd
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -317,7 +318,6 @@ void StrCopy(char *dst, const char *src)
 
 void StrCopyN(char *dst, const char *src, u32 size)
 {
-	ASSERT(size > 0);
 	while (*src && size-- > 0) *dst++ = *src++;
 	*dst = 0;
 }
@@ -889,6 +889,8 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 		ok = (bytesToRead == 0);
 		close(fd);
 	}
+#else
+#error "Missing implementation"
 #endif
 	return ok;
 }
@@ -977,7 +979,7 @@ struct FilePath
 FilePath MakePath(const char *relativePath)
 {
 	FilePath path = {};
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_WINDOWS
 	StrCopy(path.str, sRootDirectory);
 	StrCat(path.str, "/");
 #elif PLATFORM_ANDROID
@@ -1065,6 +1067,8 @@ void ExecuteProcess(const char *commandLine)
 		LOG(Error, "posix_spawnp failed: %s\n", strerror(status));
 		LOG(Error, "- Command: %s\n", commandLine);
 	}
+#else
+#error "Missing implementation"
 #endif
 }
 
@@ -2066,6 +2070,19 @@ struct Platform
 };
 
 
+bool IsAbsolutePath(const char *path)
+{
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	const bool res = *path == '/';
+	return res;
+#elif PLATFORM_WINDOWS
+	const bool res = path[1] == ':' && path[0] >= 'A' && path[0] <= 'Z';
+	return res;
+#else
+#error "Missing implementation"
+#endif
+}
+
 void CanonicalizePath(char *path)
 {
 	struct PathPart
@@ -2077,12 +2094,15 @@ void CanonicalizePath(char *path)
 	PathPart parts[32] = {};
 	u32 partCount = 0;
 
-	PathPart *currentPart = &parts[partCount++];
 	char *ptr = path;
+
+	PathPart *currentPart = &parts[partCount++];
+	currentPart->str = ptr;
+
+	const bool addRootSeparator = (*ptr == '/');
 
 	// Split path in parts
 	// NOTE: This replaces separators by '\0' for easier string comparisons later
-	ASSERT(*ptr == '/');
 	while (*ptr) {
 		if (*ptr == '/') {
 			*ptr = 0;
@@ -2125,7 +2145,9 @@ void CanonicalizePath(char *path)
 	{
 		const u32 partIndex = finalParts[i];
 		const PathPart &part = parts[partIndex];
-		*ptr++ = '/';
+		if ( i > 0 || addRootSeparator ) {
+			*ptr++ = '/';
+		}
 		for (u32 c = 0; c < part.len; ++c) {
 			*ptr++ = part.str[c];
 		}
@@ -2140,8 +2162,10 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 	char buffer[MAX_PATH_LENGTH];
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	char *workingDir = getcwd(buffer, ARRAY_COUNT(buffer));
-#else
+#elif PLATFORM_WINDOWS
 	char *workingDir = _getcwd(buffer, ARRAY_COUNT(buffer));
+#else
+#error "Missing implementation"
 #endif
 	StrReplace(workingDir, '\\', '/'); // Make all separators '/'
 
@@ -2149,15 +2173,18 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 	if (argc > 0)
 	{
 		StrReplace(argv[0], '\\', '/'); // Make all separators '/'
-		const char *executable = argv[0];
-		const char *lastSeparator = StrCharR(executable, '/');
-		const u32 length = lastSeparator - executable;
-		StrCopyN(exeDir, executable, length);
+		const char *exePath = argv[0];
+		const char *lastSeparator = StrCharR(exePath, '/');
+		const u32 length = lastSeparator ? lastSeparator - exePath : 0;
+		StrCopyN(exeDir, exePath, length);
 	}
 
 	char rootDirectory[MAX_PATH_LENGTH];
-	StrCopy(rootDirectory, workingDir);
-	StrCat(rootDirectory, "/");
+	if ( !IsAbsolutePath(exeDir) )
+	{
+		StrCopy(rootDirectory, workingDir);
+		StrCat(rootDirectory, "/");
+	}
 	StrCat(rootDirectory, exeDir);
 	CanonicalizePath(rootDirectory);
 

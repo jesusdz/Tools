@@ -5,10 +5,18 @@ setlocal
 
 REM Prepare the VC compiler environment
 
-IF NOT EXIST build mkdir build
-
 set RootDir=%~dp0
 set RootDir=%RootDir:~0,-1%
+
+IF NOT EXIST %RootDir%\build mkdir %RootDir%\build
+set BuildDir=%RootDir%\build
+set DataDir=%BuildDir%
+
+IF NOT EXIST %DataDir%\shaders mkdir %DataDir%\shaders
+set DataShadersDir=%DataDir%\shaders
+
+IF NOT EXIST %DataDir%\assets mkdir %DataDir%\assets
+set DataAssetsDir=%DataDir%\assets
 
 set DXC=%RootDir%\dxc\windows\bin\x64\dxc.exe
 
@@ -41,7 +49,7 @@ if "%target%" == "main_d3d12" goto main_d3d12
 if "%target%" == "main_reflect_serialize" goto main_reflect_serialize
 if "%target%" == "main_interpreter" goto main_interpreter
 if "%target%" == "main_atof" goto main_atof
-if "%target%" == "shaders" goto shaders
+if "%target%" == "data" goto data
 if "%target%" == "reflection" goto reflection
 if "%target%" == "clean" goto clean
 echo Invalid target
@@ -189,31 +197,33 @@ exit /b 0
 REM ######################################################
 REM Shaders
 REM ######################################################
-: shaders
+: data
 
 pushd shaders
 
-del /Q *.spv *.dxil *.pdb *.cso *.dis 2>nul
-
-%DXC% -spirv -T vs_6_7 -Fo vs_shading.spv -Fc vs_shading.dis shading.hlsl -E VSMain
-%DXC% -spirv -T ps_6_7 -Fo fs_shading.spv -Fc fs_shading.dis shading.hlsl -E PSMain
-%DXC% -spirv -T vs_6_7 -Fo vs_sky.spv -Fc vs_sky.dis sky.hlsl -E VSMain
-%DXC% -spirv -T ps_6_7 -Fo fs_sky.spv -Fc fs_sky.dis sky.hlsl -E PSMain
-%DXC% -spirv -T vs_6_7 -Fo vs_shadowmap.spv -Fc vs_shadowmap.dis shadowmap.hlsl -E VSMain
-%DXC% -spirv -T ps_6_7 -Fo fs_shadowmap.spv -Fc fs_shadowmap.dis shadowmap.hlsl -E PSMain
-%DXC% -spirv -T vs_6_7 -Fo vs_ui.spv -Fc vs_ui.dis ui.hlsl -E VSMain
-%DXC% -spirv -T ps_6_7 -Fo fs_ui.spv -Fc fs_ui.dis ui.hlsl -E PSMain
-%DXC% -spirv -T vs_6_7 -Fo vs_id.spv -Fc vs_id.dis id.hlsl -E VSMain
-%DXC% -spirv -T ps_6_7 -Fo fs_id.spv -Fc fs_id.dis id.hlsl -E PSMain
-%DXC% -spirv -T cs_6_7 -Fo compute_select.spv -Fc compute_select.dis compute_select.hlsl -E CSMain
-%DXC% -spirv -T cs_6_7 -Fo compute_clear.spv -Fc compute_clear.dis compute.hlsl -E main_clear
-%DXC% -spirv -T cs_6_7 -Fo compute_update.spv -Fc compute_update.dis compute.hlsl -E main_update
+%DXC% -spirv -T vs_6_7 -Fo %DataShadersDir%\vs_shading.spv     -Fc %DataShadersDir%\vs_shading.dis     shading.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo %DataShadersDir%\fs_shading.spv     -Fc %DataShadersDir%\fs_shading.dis     shading.hlsl -E PSMain
+%DXC% -spirv -T vs_6_7 -Fo %DataShadersDir%\vs_sky.spv         -Fc %DataShadersDir%\vs_sky.dis         sky.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo %DataShadersDir%\fs_sky.spv         -Fc %DataShadersDir%\fs_sky.dis         sky.hlsl -E PSMain
+%DXC% -spirv -T vs_6_7 -Fo %DataShadersDir%\vs_shadowmap.spv   -Fc %DataShadersDir%\vs_shadowmap.dis   shadowmap.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo %DataShadersDir%\fs_shadowmap.spv   -Fc %DataShadersDir%\fs_shadowmap.dis   shadowmap.hlsl -E PSMain
+%DXC% -spirv -T vs_6_7 -Fo %DataShadersDir%\vs_ui.spv          -Fc %DataShadersDir%\vs_ui.dis          ui.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo %DataShadersDir%\fs_ui.spv          -Fc %DataShadersDir%\fs_ui.dis          ui.hlsl -E PSMain
+%DXC% -spirv -T vs_6_7 -Fo %DataShadersDir%\vs_id.spv          -Fc %DataShadersDir%\vs_id.dis          id.hlsl -E VSMain
+%DXC% -spirv -T ps_6_7 -Fo %DataShadersDir%\fs_id.spv          -Fc %DataShadersDir%\fs_id.dis          id.hlsl -E PSMain
+%DXC% -spirv -T cs_6_7 -Fo %DataShadersDir%\compute_select.spv -Fc %DataShadersDir%\compute_select.dis compute_select.hlsl -E CSMain
+%DXC% -spirv -T cs_6_7 -Fo %DataShadersDir%\compute_clear.spv  -Fc %DataShadersDir%\compute_clear.dis  compute.hlsl -E main_clear
+%DXC% -spirv -T cs_6_7 -Fo %DataShadersDir%\compute_update.spv -Fc %DataShadersDir%\compute_update.dis compute.hlsl -E main_update
 
 REM if "%target%"=="main_d3d12.cpp" (
 REM 	%DXC% -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hlsl
 REM 	%DXC% -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.cso fragment.hlsl
 REM )
 
+popd
+
+pushd assets
+copy *.* %DataAssetsDir%
 popd
 
 exit /b 0
@@ -236,10 +246,7 @@ REM Clean
 REM ######################################################
 : clean
 
-del /Q build\
-pushd shaders
-del /Q *.spv *.dxil *.pdb *.cso *.dis 2>nul
-popd
+rmdir /S /Q build\
 exit /b 0
 
 
