@@ -1255,7 +1255,7 @@ static ShaderSource GetShaderSource(Arena &arena, const char *filename)
 	FilePath shaderPath = MakePath(filename);
 	DataChunk *chunk = PushFile( arena, shaderPath.str );
 	if ( !chunk ) {
-		LOG( Error, "Could not open shader file %s.\n", shaderPath.str );
+		LOG( Error, "Could not open shader file %s\n", shaderPath.str );
 		QUIT_ABNORMALLY();
 	}
 	ShaderSource shaderSource = { chunk->bytes, chunk->size };

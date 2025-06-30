@@ -64,5 +64,5 @@ shaders:
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_update -Fo shaders/compute_update.spv -Fc shaders/compute_update.dis shaders/compute.hlsl
 
 clean:
-	rm -f main_interpreter engine game main_atof main_spirv reflex main_reflect_serialize main_clon cast shaders/*.spv shaders/*.dis
+	rm -f main_interpreter engine game main_atof main_spirv reflex main_reflect_serialize main_clon cast main_alsa *.so *.o shaders/*.spv shaders/*.dis
 

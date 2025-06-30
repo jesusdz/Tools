@@ -1,4 +1,4 @@
-#define TOOLS_WINDOW
+#define TOOLS_PLATFORM
 #include "tools.h"
 
 #include "tools_gfx.h"
@@ -486,6 +486,36 @@ UI &GetUI(Engine &engine)
 	return engine.ui;
 }
 #endif
+
+void CompileShaders()
+{
+	char text[MAX_PATH_LENGTH];
+
+#if PLATFORM_WINDOWS
+	constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
+#elif PLATFORM_LINUX
+	constexpr const char *dxc = "dxc/linux/bin/dxc";
+#else
+	constexpr const char *dxc = "<none>";
+#endif
+	constexpr const char *flags = "-spirv -O3";
+
+	for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
+	{
+		const ShaderSourceDesc &desc = shaderSources[i];
+		const char *target =
+			desc.type == ShaderTypeVertex ? "vs_6_7" :
+			desc.type == ShaderTypeFragment ? "ps_6_7" :
+			desc.type == ShaderTypeCompute ? "cs_6_7" :
+			"unknown";
+		const char *entry = desc.entryPoint;
+		const char *output = desc.outputName;
+		const char *filename = desc.filename;
+		SPrintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
+		LOG(Debug, "%s\n", text);
+		ExecuteProcess(text);
+	}
+}
 
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
@@ -2359,30 +2389,7 @@ void UpdateUI(Engine &engine)
 	{
 		if ( UI_Button(ui, "Recompile shaders") )
 		{
-#if PLATFORM_WINDOWS
-			constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
-#elif PLATFORM_LINUX
-			constexpr const char *dxc = "dxc/linux/bin/dxc";
-#else
-			constexpr const char *dxc = "<none>";
-#endif
-			constexpr const char *flags = "-spirv -O3";
-
-			for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
-			{
-				const ShaderSourceDesc &desc = shaderSources[i];
-				const char *target =
-					desc.type == ShaderTypeVertex ? "vs_6_7" :
-					desc.type == ShaderTypeFragment ? "ps_6_7" :
-					desc.type == ShaderTypeCompute ? "cs_6_7" :
-					"unknown";
-				const char *entry = desc.entryPoint;
-				const char *output = desc.outputName;
-				const char *filename = desc.filename;
-				SPrintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
-				LOG(Debug, "%s\n", text);
-				ExecuteProcess(text);
-			}
+			CompileShaders();
 		}
 
 		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
@@ -2671,7 +2678,6 @@ void GameUpdate(Engine &engine)
 
 
 
-
 bool OnPlatformInit(Platform &platform)
 {
 	gStringInterning = &platform.stringInterning;
@@ -2829,7 +2835,7 @@ void OnPlatformCleanup(Platform &platform)
 	CleanupGraphics(gfx);
 }
 
-void EngineMain( void *userData )
+void EngineMain( int argc, char **argv,  void *userData )
 {
 	Engine engine = {};
 
@@ -2852,18 +2858,18 @@ void EngineMain( void *userData )
 	// User data
 	engine.platform.userData = &engine;
 
-	PlatformRun(engine.platform);
+	PlatformRun(argc, argv, engine.platform);
 }
 
 #if PLATFORM_ANDROID
 void android_main(struct android_app* app)
 {
-	EngineMain(app);
+	EngineMain(0, nullptr, app);
 }
 #else
 int main(int argc, char **argv)
 {
-	EngineMain(NULL);
+	EngineMain(argc, argv, NULL);
 	return 1;
 }
 #endif

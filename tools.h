@@ -56,7 +56,7 @@
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
 #include <fcntl.h>    // open
-#include <unistd.h>   // read, close
+#include <unistd.h>   // read, close, getcwd
 #include <string.h>   // strerror_r
 #include <errno.h>    // errno
 #include <sys/mman.h> // mmap
@@ -317,6 +317,7 @@ void StrCopy(char *dst, const char *src)
 
 void StrCopyN(char *dst, const char *src, u32 size)
 {
+	ASSERT(size > 0);
 	while (*src && size-- > 0) *dst++ = *src++;
 	*dst = 0;
 }
@@ -407,15 +408,43 @@ bool StrToBool(const String &s)
 	return value;
 }
 
-bool StrToChar(const char *str, u32 len = U32_MAX)
+char StrToChar(const char *str, u32 len = U32_MAX)
 {
 	return len > 0 ? *str : '?';
 }
 
-bool StrToChar(const String &s)
+char StrToChar(const String &s)
 {
 	const char value = StrToChar(s.str, s.size);
 	return value;
+}
+
+const char *StrChar(const char *str, char c)
+{
+	while (*str && *str != c) {
+		str++;
+	}
+	return *str ? str : nullptr;
+}
+
+void StrReplace(char *str, char a, char b)
+{
+	while (*str) {
+		if (*str == a) {
+			*str = b;
+		}
+		str++;
+	}
+}
+
+const char *StrCharR(const char *str, char c)
+{
+	const char *res = nullptr;
+	while ( (str = StrChar(str, c)) != 0 ) {
+		res = str;
+		str++;
+	}
+	return res;
 }
 
 i32 StrToInt(const char *str, u32 len = U32_MAX)
@@ -664,6 +693,13 @@ char *PushStringN(Arena &arena, const char *str, u32 len)
 	char *bytes = (char*)PushSize(arena, len+1);
 	MemCopy(bytes, str, len);
 	bytes[len] = 0;
+	return bytes;
+}
+
+char *PushString(Arena &arena, const char *str)
+{
+	u32 len = StrLen(str);
+	char *bytes = PushStringN(arena, str, len);
 	return bytes;
 }
 
@@ -927,6 +963,12 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 
 #define MAX_PATH_LENGTH 512
 
+#if defined(TOOLS_PLATFORM)
+extern const char *sRootDirectory;
+#else
+const char *sRootDirectory = "";
+#endif
+
 struct FilePath
 {
 	char str[MAX_PATH_LENGTH];
@@ -935,9 +977,12 @@ struct FilePath
 FilePath MakePath(const char *relativePath)
 {
 	FilePath path = {};
-#if PLATFORM_ANDROID
+#if PLATFORM_LINUX
+	StrCopy(path.str, sRootDirectory);
+	StrCat(path.str, "/");
+#elif PLATFORM_ANDROID
 	// TODO: Don't hardcode this path here and get it from Android API.
-	StrCat(path.str, "/sdcard/Android/data/com.tools.game/files/");
+	StrCopy(path.str, "/sdcard/Android/data/com.tools.game/files/");
 #endif
 	StrCat(path.str, relativePath);
 	return path;
@@ -1754,7 +1799,7 @@ float GetSecondsElapsed(Clock start, Clock end)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Window and input
 
-#if defined(TOOLS_WINDOW)
+#if defined(TOOLS_PLATFORM)
 
 #if PLATFORM_LINUX
 #	define USE_XCB 1
@@ -2016,7 +2061,113 @@ struct Platform
 	Audio audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
+
+	const char *rootDirectory;
 };
+
+
+void CanonicalizePath(char *path)
+{
+	struct PathPart
+	{
+		char *str;
+		int len;
+	};
+
+	PathPart parts[32] = {};
+	u32 partCount = 0;
+
+	PathPart *currentPart = &parts[partCount++];
+	char *ptr = path;
+
+	// Split path in parts
+	// NOTE: This replaces separators by '\0' for easier string comparisons later
+	ASSERT(*ptr == '/');
+	while (*ptr) {
+		if (*ptr == '/') {
+			*ptr = 0;
+			if (currentPart->len > 0) {
+				ASSERT(partCount < ARRAY_COUNT(parts));
+				currentPart = &parts[partCount++];
+			}
+			currentPart->str = ptr + 1;
+		} else {
+			currentPart->len++;
+		}
+		ptr++;
+	}
+
+	//LOG(Debug, "Directory parts:\n");
+	//for (u32 i = 0; i < partCount; ++i) {
+	//	LOG(Debug, "- %.*s\n", parts[i].len,  parts[i].str);
+	//}
+
+	// Canonicalize
+	u32 finalParts[32] = {};
+	u32 finalPartCount = 0;
+	for (u32 partIndex = 0; partIndex < partCount; ++partIndex)
+	{
+		const PathPart &part = parts[partIndex];
+		if ( StrEq(part.str, ".") ) {
+			// Do nothing
+		} else if ( StrEq(part.str, "..") ) {
+			// Remove previous part
+			ASSERT(finalPartCount > 0);
+			finalPartCount--;
+		} else if ( part.len > 0 ) {
+			finalParts[finalPartCount++] = partIndex;
+		}
+	}
+
+	// Copy string back to buffer
+	ptr = path;
+	for (u32 i = 0; i < finalPartCount; ++i)
+	{
+		const u32 partIndex = finalParts[i];
+		const PathPart &part = parts[partIndex];
+		*ptr++ = '/';
+		for (u32 c = 0; c < part.len; ++c) {
+			*ptr++ = part.str[c];
+		}
+	}
+	*ptr = 0;
+}
+
+const char *sRootDirectory = "";
+
+void InitializeDirectories(Platform &platform, int argc, char **argv)
+{
+	char buffer[MAX_PATH_LENGTH];
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	char *workingDir = getcwd(buffer, ARRAY_COUNT(buffer));
+#else
+	char *workingDir = _getcwd(buffer, ARRAY_COUNT(buffer));
+#endif
+	StrReplace(workingDir, '\\', '/'); // Make all separators '/'
+
+	char exeDir[MAX_PATH_LENGTH] = {};
+	if (argc > 0)
+	{
+		StrReplace(argv[0], '\\', '/'); // Make all separators '/'
+		const char *executable = argv[0];
+		const char *lastSeparator = StrCharR(executable, '/');
+		const u32 length = lastSeparator - executable;
+		StrCopyN(exeDir, executable, length);
+	}
+
+	char rootDirectory[MAX_PATH_LENGTH];
+	StrCopy(rootDirectory, workingDir);
+	StrCat(rootDirectory, "/");
+	StrCat(rootDirectory, exeDir);
+	CanonicalizePath(rootDirectory);
+
+	platform.rootDirectory = PushString(platform.stringArena, rootDirectory);
+	sRootDirectory = platform.rootDirectory;
+
+	LOG(Info, "Directories:\n");
+	LOG(Info, "- Working directory: %s\n", workingDir);
+	LOG(Info, "- Root directory: %s\n", rootDirectory);
+}
 
 
 
@@ -2953,7 +3104,7 @@ void PlaySound(Audio &audio)
 #endif
 }
 
-bool PlatformRun(Platform &platform)
+bool PlatformRun(int argc, char **argv, Platform &platform)
 {
 	ASSERT( platform.globalMemorySize > 0 );
 	ASSERT( platform.frameMemorySize > 0 );
@@ -2962,16 +3113,6 @@ bool PlatformRun(Platform &platform)
 	ASSERT( platform.CleanupCallback );
 	ASSERT( platform.WindowInitCallback );
 	ASSERT( platform.WindowCleanupCallback );
-
-	if ( !InitializeWindow(platform.window) )
-	{
-		return false;
-	}
-
-	if ( !InitializeAudio(platform.audio, platform.window) )
-	{
-		LOG(Error, "Could not load sound system.\n");
-	}
 
 	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
 	platform.globalArena = MakeArena(baseMemory, platform.globalMemorySize);
@@ -2990,6 +3131,18 @@ bool PlatformRun(Platform &platform)
 	platform.androidApp->onInputEvent = AndroidHandleInputEvent;
 	platform.androidApp->userData = &platform;
 #endif // PLATFORM_ANDROID
+
+	InitializeDirectories(platform, argc, argv);
+
+	if ( !InitializeWindow(platform.window) )
+	{
+		return false;
+	}
+
+	if ( !InitializeAudio(platform.audio, platform.window) )
+	{
+		LOG(Error, "Could not load sound system.\n");
+	}
 
 	if ( !platform.InitCallback(platform) )
 	{
@@ -3049,7 +3202,7 @@ bool PlatformRun(Platform &platform)
 	return false;
 }
 
-#endif // #if defined(TOOLS_WINDOW)
+#endif // #if defined(TOOLS_PLATFORM)
 
 #endif // #ifndef TOOLS_H
 

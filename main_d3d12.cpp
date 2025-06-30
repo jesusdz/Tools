@@ -1,4 +1,4 @@
-#define TOOLS_WINDOW
+#define TOOLS_PLATFORM
 #include "tools.h"
 
 // The min/max macros conflict with like-named member functions.
