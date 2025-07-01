@@ -1436,6 +1436,23 @@ static void DestroyImageView(const GraphicsDevice &device, const VkImageView &im
 ////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////
+// Handles
+//////////////////////////////
+
+bool IsValid(const Pipeline &pipeline)
+{
+	bool res = pipeline.handle != VK_NULL_HANDLE;
+	return res;
+}
+
+bool IsValid(PipelineH pipeline)
+{
+	bool res = pipeline.index != 0;
+	return res;
+}
+
+
+//////////////////////////////
 // WaitIdle
 //////////////////////////////
 
@@ -3066,7 +3083,7 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 
 static PipelineH GetFreePipelineHandle(GraphicsDevice &device)
 {
-	for (u32 i = 0; i < ARRAY_COUNT(device.pipelines); ++i)
+	for (u32 i = 1; i < ARRAY_COUNT(device.pipelines); ++i)
 	{
 		if (device.pipelines[i].name == 0)
 		{
@@ -3110,6 +3127,8 @@ bool IsSamePipeline(PipelineH a, PipelineH b)
 
 void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline)
 {
+	ASSERT( pipeline.handle != VK_NULL_HANDLE );
+	ASSERT( pipeline.layout.handle != VK_NULL_HANDLE );
 	vkDestroyPipeline( device.handle, pipeline.handle, VULKAN_ALLOCATORS );
 	vkDestroyPipelineLayout( device.handle, pipeline.layout.handle, VULKAN_ALLOCATORS );
 }
@@ -3976,9 +3995,12 @@ void CleanupGraphicsDevice(const GraphicsDevice &device)
 		DestroyRenderPass( device, device.renderPasses[i] );
 	}
 
-	for (u32 i = 0; i < ARRAY_COUNT(device.pipelines); ++i)
+	for (u32 i = 1; i < ARRAY_COUNT(device.pipelines); ++i)
 	{
-		DestroyPipeline( device, device.pipelines[i] );
+		if ( IsValid( device.pipelines[i] ) )
+		{
+			DestroyPipeline( device, device.pipelines[i] );
+		}
 	}
 
 	for (u32 i = 0; i < device.bufferCount; ++i)

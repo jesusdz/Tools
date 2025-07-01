@@ -987,6 +987,40 @@ static ShaderSource GetShaderSource(Arena &arena, const char *filename)
 	return shaderSource;
 }
 
+static void CompileGraphicsPipeline(Graphics &gfx, Arena scratch, u32 pipelineIndex)
+{
+	const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[pipelineIndex].renderPass);
+
+	PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
+	desc.renderPass = GetRenderPass(gfx.device, renderPassH);
+	desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsFilename);
+	desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsFilename);
+
+	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
+	PipelineH pipelineH = pipelineHandles[pipelineIndex];
+	if ( IsValid(pipelineH) ) {
+		DestroyPipeline( gfx.device, pipelineH );
+	}
+	pipelineH = CreateGraphicsPipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
+	SetObjectName(gfx.device, pipelineH, desc.name);
+	pipelineHandles[pipelineIndex] = pipelineH;
+}
+
+static void CompileComputePipeline(Graphics &gfx, Arena scratch, u32 pipelineIndex)
+{
+	ComputeDesc desc = computeDescs[pipelineIndex].desc;
+	desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csFilename);
+
+	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
+	PipelineH pipelineH = computeHandles[pipelineIndex];
+	if ( IsValid(pipelineH) ) {
+		DestroyPipeline( gfx.device, pipelineH );
+	}
+	pipelineH = CreateComputePipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
+	SetObjectName(gfx.device, pipelineH, desc.name);
+	computeHandles[pipelineIndex] = pipelineH;
+}
+
 bool InitializeGraphics(Engine &engine, Arena &arena)
 {
 	Graphics &gfx = engine.gfx;
@@ -1165,30 +1199,13 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
-		Arena pipelineScratch = MakeSubArena(scratch);
-
-		PipelineDesc desc = pipelineDescs[i].desc;
-		const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[i].renderPass);
-		desc.renderPass = GetRenderPass(gfx.device, renderPassH);
-		desc.vertexShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[i].vsFilename);
-		desc.fragmentShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[i].fsFilename);
-
-		LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
-		const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
-		pipelineHandles[i] = pipelineH;
-		SetObjectName(gfx.device, pipelineH, desc.name);
+		CompileGraphicsPipeline(gfx, scratch, i);
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
-		Arena pipelineScratch = MakeSubArena(scratch);
-		ComputeDesc desc = computeDescs[i].desc;
-		desc.computeShaderSource = GetShaderSource(pipelineScratch, computeDescs[i].csFilename);
-		LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
-		const PipelineH pipelineH = CreateComputePipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
-		computeHandles[i] = pipelineH;
-		SetObjectName(gfx.device, pipelineH, desc.name);
+		CompileComputePipeline(gfx, scratch, i);
 	}
 
 #if USE_UI
@@ -2150,22 +2167,7 @@ void HotReloadAssets(Graphics &gfx, Arena scratch)
 
 		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
 		{
-			const u32 pipelineIndex = gfx.reloadQueue[i];
-			PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
-
-			DestroyPipeline(gfx.device, pipelineHandles[pipelineIndex]);
-
-			Arena pipelineScratch = MakeSubArena(scratch);
-
-			const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[pipelineIndex].renderPass);
-			desc.renderPass = GetRenderPass(gfx.device, renderPassH);
-			desc.vertexShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[pipelineIndex].vsFilename);
-			desc.fragmentShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[pipelineIndex].fsFilename);
-
-			LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
-			const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
-			pipelineHandles[pipelineIndex] = pipelineH;
-			SetObjectName(gfx.device, pipelineH, desc.name);
+			CompileGraphicsPipeline(gfx, scratch, i);
 		}
 
 		gfx.reloadQueueSize = 0;
