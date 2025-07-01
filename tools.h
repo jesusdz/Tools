@@ -10,7 +10,7 @@
  * - Strings
  * - Hashing
  * - Memory allocators
- * - File reading
+ * - File/directory/path management
  * - Process execution
  * - Dynamic library loading
  * - Mathematics
@@ -815,7 +815,7 @@ struct DataChunk
 	u64 size;
 };
 
-bool GetFileSize(const char *filename, u64 &size)
+bool GetFileSize(const char *filename, u64 &size, bool reportError = true)
 {
 	bool ok = true;
 #if PLATFORM_WINDOWS
@@ -827,7 +827,7 @@ bool GetFileSize(const char *filename, u64 &size)
 	}
 	else
 	{
-		Win32ReportError();
+		if ( reportError ) Win32ReportError();
 		ok = false;
 	}
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
@@ -838,11 +838,18 @@ bool GetFileSize(const char *filename, u64 &size)
 	}
 	else
 	{
-		LinuxReportError("stat");
+		if ( reportError ) LinuxReportError("stat");
 		ok = false;
 	}
 #endif
 	return ok;
+}
+
+bool ExistsFile(const char *filename)
+{
+	u64 size = 0;
+	const bool res = GetFileSize(filename, size, false);
+	return res;
 }
 
 bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
@@ -955,6 +962,26 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	}
 #endif
 
+	return ok;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Directories
+
+bool CreateDirectory(const char *path)
+{
+	bool ok = false;
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	int res = mkdir(path, S_IRWXU | S_IRWXG | S_IXOTH );
+	if ( res != 0 ) {
+		perror("mkdir");
+		ok = false;
+	}
+#else
+#error "Missing implementation"
+#endif
 	return ok;
 }
 

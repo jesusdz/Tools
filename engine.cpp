@@ -7,6 +7,7 @@
 #include "stb/stb_image.h"
 
 #define USE_UI PLATFORM_WINDOWS || PLATFORM_LINUX
+#define USE_DATA_BUILD ( PLATFORM_LINUX || PLATFORM_WINDOWS )
 
 #if USE_UI && !USE_IMGUI
 
@@ -2896,8 +2897,36 @@ void OnPlatformCleanup(Platform &platform)
 	CleanupGraphics(gfx);
 }
 
+#if USE_DATA_BUILD
+void BuildData()
+{
+	LOG(Info, "Building data\n");
+	CreateDirectory("build");
+	CreateDirectory("build/shaders");
+	CreateDirectory("build/assets");
+	CompileShaders();
+}
+#endif // USE_DATA_BUILD
+
 void EngineMain( int argc, char **argv,  void *userData )
 {
+#if USE_DATA_BUILD
+	bool buildData = false;
+	for ( u32 i = 0; i < argc; ++i ) {
+		if ( StrEq(argv[i], "--build-data") ) {
+			buildData = true;
+		}
+	}
+
+	if ( !ExistsFile("build/shaders.dat") ) {
+		buildData = true;
+	}
+
+	if ( buildData ) {
+		BuildData();
+	}
+#endif // USE_DATA_BUILD
+
 	Engine engine = {};
 
 	// Memory
