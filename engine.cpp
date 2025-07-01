@@ -358,110 +358,140 @@ static const ShaderSourceDesc shaderSources[] = {
 	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .outputName = "compute_update" },
 };
 
-static const PipelineDesc pipelineDescs[] =
+struct ShaderAndPipelineDesc
+{
+	const char *vsFilename;
+	const char *fsFilename;
+	const char *renderPass;
+	PipelineDesc desc;
+};
+
+struct ShaderAndComputeDesc
+{
+	const char *csFilename;
+	ComputeDesc desc;
+};
+
+static const ShaderAndPipelineDesc pipelineDescs[] =
 {
 	{
-		.name = "pipeline_shading",
 		.vsFilename = "shaders/vs_shading.spv",
 		.fsFilename = "shaders/fs_shading.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 3,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
-		},
-		.depthTest = true,
-		.depthWrite = true,
-		.depthCompareOp = CompareOpGreater,
+		.desc = {
+			.name = "pipeline_shading",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = true,
+			.depthCompareOp = CompareOpGreater,
+		}
 	},
 	{
-		.name = "pipeline_shadowmap",
 		.vsFilename = "shaders/vs_shadowmap.spv",
 		.fsFilename = "shaders/fs_shadowmap.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
 		.renderPass = "shadowmap_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 1,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-		},
-		.depthTest = true,
-		.depthWrite = true,
-		.depthCompareOp = CompareOpGreater,
+		.desc = {
+			.name = "pipeline_shadowmap",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 1,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+			},
+			.depthTest = true,
+			.depthWrite = true,
+			.depthCompareOp = CompareOpGreater,
+		}
 	},
 	{
-		.name = "pipeline_sky",
 		.vsFilename = "shaders/vs_sky.spv",
 		.fsFilename = "shaders/fs_sky.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 2,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
-		},
-		.depthTest = true,
-		.depthWrite = false,
-		.depthCompareOp = CompareOpGreaterOrEqual,
+		.desc = {
+			.name = "pipeline_sky",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 2,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = false,
+			.depthCompareOp = CompareOpGreaterOrEqual,
+		}
 	},
 	{
-		.name = "pipeline_ui",
 		.vsFilename = "shaders/vs_ui.spv",
 		.fsFilename = "shaders/fs_ui.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
 		.renderPass = "main_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 20 }, },
-		.vertexAttributeCount = 3,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
-			{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatFloat2, },
-			{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
-		},
-		.depthTest = false,
-		.blending = true,
+		.desc = {
+			.name = "pipeline_ui",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 20 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
+			},
+			.depthTest = false,
+			.blending = true,
+		}
 	},
 #if USE_ENTITY_SELECTION
 	{
-		.name = "pipeline_id",
 		.vsFilename = "shaders/vs_id.spv",
 		.fsFilename = "shaders/fs_id.spv",
-		.vsFunction = "VSMain",
-		.fsFunction = "PSMain",
 		.renderPass = "id_renderpass",
-		.vertexBufferCount = 1,
-		.vertexBuffers = { { .stride = 32 }, },
-		.vertexAttributeCount = 3,
-		.vertexAttributes = {
-			{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
-			{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
-		},
-		.depthTest = true,
-		.depthWrite = false,
-		.depthCompareOp = CompareOpEqual,
+		.desc = {
+			.name = "pipeline_id",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = false,
+			.depthCompareOp = CompareOpEqual,
+		}
 	},
 #endif // USE_ENTITY_SELECTION
 };
 
 static PipelineH pipelineHandles[ARRAY_COUNT(pipelineDescs)] = {};
 
-static const ComputeDesc computeDescs[] =
+static const ShaderAndComputeDesc computeDescs[] =
 {
 	//{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
 	//{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
-	{ .name = "compute_select", .filename = "shaders/compute_select.spv", .function = "CSMain" },
+	{
+		.csFilename = "shaders/compute_select.spv",
+		.desc = {
+			.name = "compute_select",
+			.function = "CSMain"
+		},
+	},
 };
 
 static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
@@ -511,7 +541,7 @@ void CompileShaders()
 		const char *entry = desc.entryPoint;
 		const char *output = desc.outputName;
 		const char *filename = desc.filename;
-		SPrintf(text, "%s %s -T %s -E %s -Fo shaders/%s.spv -Fc shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
+		SPrintf(text, "%s %s -T %s -E %s -Fo build/shaders/%s.spv -Fc build/shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
 		LOG(Debug, "%s\n", text);
 		ExecuteProcess(text);
 	}
@@ -544,12 +574,12 @@ RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 PipelineH FindPipelineHandle(const Graphics &gfx, const char *name)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i) {
-		if ( StrEq(pipelineDescs[i].name, name) ) {
+		if ( StrEq(pipelineDescs[i].desc.name, name) ) {
 			return pipelineHandles[i];
 		}
 	}
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i) {
-		if ( StrEq(computeDescs[i].name, name) ) {
+		if ( StrEq(computeDescs[i].desc.name, name) ) {
 			return computeHandles[i];
 		}
 	}
@@ -945,6 +975,17 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	renderTargets = {};
 }
 
+static ShaderSource GetShaderSource(Arena &arena, const char *filename)
+{
+	FilePath shaderPath = MakePath(filename);
+	DataChunk *chunk = PushFile( arena, shaderPath.str );
+	if ( !chunk ) {
+		LOG( Error, "Could not open shader file %s\n", shaderPath.str );
+		QUIT_ABNORMALLY();
+	}
+	ShaderSource shaderSource = { chunk->bytes, chunk->size };
+	return shaderSource;
+}
 
 bool InitializeGraphics(Engine &engine, Arena &arena)
 {
@@ -1124,20 +1165,30 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
+		Arena pipelineScratch = MakeSubArena(scratch);
+
+		PipelineDesc desc = pipelineDescs[i].desc;
 		const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[i].renderPass);
-		LOG(Info, "Creating Graphics Pipeline: %s\n", pipelineDescs[i].name);
-		const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, scratch, pipelineDescs[i], renderPassH, gfx.globalBindGroupLayout);
+		desc.renderPass = GetRenderPass(gfx.device, renderPassH);
+		desc.vertexShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[i].vsFilename);
+		desc.fragmentShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[i].fsFilename);
+
+		LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
+		const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
 		pipelineHandles[i] = pipelineH;
-		SetObjectName(gfx.device, pipelineH, pipelineDescs[i].name);
+		SetObjectName(gfx.device, pipelineH, desc.name);
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
-		LOG(Info, "Creating Compute Pipeline: %s\n", computeDescs[i].name);
-		const PipelineH pipelineH = CreateComputePipeline(gfx.device, scratch, computeDescs[i], gfx.globalBindGroupLayout);
+		Arena pipelineScratch = MakeSubArena(scratch);
+		ComputeDesc desc = computeDescs[i].desc;
+		desc.computeShaderSource = GetShaderSource(pipelineScratch, computeDescs[i].csFilename);
+		LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
+		const PipelineH pipelineH = CreateComputePipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
 		computeHandles[i] = pipelineH;
-		SetObjectName(gfx.device, pipelineH, computeDescs[i].name);
+		SetObjectName(gfx.device, pipelineH, desc.name);
 	}
 
 #if USE_UI
@@ -2100,13 +2151,21 @@ void HotReloadAssets(Graphics &gfx, Arena scratch)
 		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
 		{
 			const u32 pipelineIndex = gfx.reloadQueue[i];
-			const PipelineH pipelineH = pipelineHandles[pipelineIndex];
-			const PipelineDesc &pipelineDesc = pipelineDescs[pipelineIndex];
+			PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
 
-			DestroyPipeline(gfx.device, pipelineH);
+			DestroyPipeline(gfx.device, pipelineHandles[pipelineIndex]);
 
-			const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDesc.renderPass);
-			pipelineHandles[pipelineIndex] = CreateGraphicsPipeline(gfx.device, scratch, pipelineDesc, renderPassH, gfx.globalBindGroupLayout);
+			Arena pipelineScratch = MakeSubArena(scratch);
+
+			const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[pipelineIndex].renderPass);
+			desc.renderPass = GetRenderPass(gfx.device, renderPassH);
+			desc.vertexShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[pipelineIndex].vsFilename);
+			desc.fragmentShaderSource = GetShaderSource(pipelineScratch, pipelineDescs[pipelineIndex].fsFilename);
+
+			LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
+			const PipelineH pipelineH = CreateGraphicsPipeline(gfx.device, pipelineScratch, desc, gfx.globalBindGroupLayout);
+			pipelineHandles[pipelineIndex] = pipelineH;
+			SetObjectName(gfx.device, pipelineH, desc.name);
 		}
 
 		gfx.reloadQueueSize = 0;
@@ -2394,7 +2453,7 @@ void UpdateUI(Engine &engine)
 
 		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 		{
-			const char *pipelineName = pipelineDescs[i].name;
+			const char *pipelineName = pipelineDescs[i].desc.name;
 
 			UI_BeginLayout(ui, UiLayoutHorizontal);
 			if ( UI_Button(ui, "Reload") )

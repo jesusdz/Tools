@@ -420,55 +420,6 @@ struct Image
 	Alloc alloc;
 };
 
-struct ShaderSource
-{
-	u8 *data;
-	u64 dataSize;
-};
-
-struct ShaderModule
-{
-	VkShaderModule handle;
-};
-
-struct VertexBufferDesc
-{
-	unsigned int stride;
-};
-
-struct VertexAttributeDesc
-{
-	unsigned int bufferIndex;
-	unsigned int location;
-	unsigned int offset;
-	Format format;
-};
-
-struct PipelineDesc
-{
-	const char *name;
-	const char *vsFilename;
-	const char *fsFilename;
-	const char *vsFunction;
-	const char *fsFunction;
-	const char *renderPass;
-	unsigned int vertexBufferCount;
-	VertexBufferDesc vertexBuffers[4];
-	unsigned int vertexAttributeCount;
-	VertexAttributeDesc vertexAttributes[4];
-	bool depthTest;
-	bool depthWrite;
-	CompareOp depthCompareOp;
-	bool blending;
-};
-
-struct ComputeDesc
-{
-	const char *name;
-	const char *filename;
-	const char *function;
-};
-
 struct AttachmentDesc
 {
 	Format format;
@@ -536,6 +487,55 @@ struct Swapchain
 	float preRotationDegrees;
 	bool outdated;
 	u32 currentImageIndex;
+};
+
+struct ShaderSource
+{
+	u8 *data;
+	u64 dataSize;
+};
+
+struct ShaderModule
+{
+	VkShaderModule handle;
+};
+
+struct VertexBufferDesc
+{
+	unsigned int stride;
+};
+
+struct VertexAttributeDesc
+{
+	unsigned int bufferIndex;
+	unsigned int location;
+	unsigned int offset;
+	Format format;
+};
+
+struct PipelineDesc
+{
+	const char *name;
+	ShaderSource vertexShaderSource;
+	ShaderSource fragmentShaderSource;
+	const char *vsFunction;
+	const char *fsFunction;
+	unsigned int vertexBufferCount;
+	VertexBufferDesc vertexBuffers[4];
+	unsigned int vertexAttributeCount;
+	VertexAttributeDesc vertexAttributes[4];
+	bool depthTest;
+	bool depthWrite;
+	CompareOp depthCompareOp;
+	bool blending;
+	RenderPass renderPass;
+};
+
+struct ComputeDesc
+{
+	const char *name;
+	ShaderSource computeShaderSource;
+	const char *function;
 };
 
 struct Alignment
@@ -1248,18 +1248,6 @@ static bool AddDescriptorWrite(const GraphicsDevice &device, const ResourceBindi
 	descriptorWrite->pImageInfo = imageInfo;
 	descriptorWrite->pTexelBufferView = bufferViewPtr;
 	return true;
-}
-
-static ShaderSource GetShaderSource(Arena &arena, const char *filename)
-{
-	FilePath shaderPath = MakePath(filename);
-	DataChunk *chunk = PushFile( arena, shaderPath.str );
-	if ( !chunk ) {
-		LOG( Error, "Could not open shader file %s\n", shaderPath.str );
-		QUIT_ABNORMALLY();
-	}
-	ShaderSource shaderSource = { chunk->bytes, chunk->size };
-	return shaderSource;
 }
 
 static VkFormat FindSupportedFormat(const GraphicsDevice &device, const VkFormat candidates[], u32 candidateCount, VkImageTiling tiling, VkFormatFeatureFlags features)
@@ -2804,13 +2792,13 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 //////////////////////////////
 
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
-Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const RenderPass &renderPass, const BindGroupLayout &globalBindGroupLayout)
+Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	Arena scratch = MakeSubArena(arena);
 
 	// Create pipeline
-	const ShaderSource vertexShaderSource = GetShaderSource(scratch, desc.vsFilename);
-	const ShaderSource fragmentShaderSource = GetShaderSource(scratch, desc.fsFilename);
+	const ShaderSource vertexShaderSource = desc.vertexShaderSource;
+	const ShaderSource fragmentShaderSource = desc.fragmentShaderSource;
 	const ShaderModule vertexShaderModule = CreateShaderModule(device, vertexShaderSource);
 	const ShaderModule fragmentShaderModule = CreateShaderModule(device, fragmentShaderSource);
 	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, vertexShaderSource, fragmentShaderSource);
@@ -2976,7 +2964,7 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 		.pColorBlendState = &colorBlendingCreateInfo,
 		.pDynamicState = &dynamicStateCreateInfo,
 		.layout = pipelineLayout,
-		.renderPass = renderPass.handle,
+		.renderPass = desc.renderPass.handle,
 		.subpass = 0,
 		.basePipelineHandle = VK_NULL_HANDLE, // Optional
 		.basePipelineIndex = -1, // Optional
@@ -3010,7 +2998,7 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 {
 	Arena scratch = arena;
 
-	const ShaderSource shaderSource = GetShaderSource(scratch, desc.filename);
+	const ShaderSource shaderSource = desc.computeShaderSource;
 	const ShaderModule shaderModule = CreateShaderModule(device, shaderSource);
 	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, shaderSource);
 
@@ -3091,12 +3079,11 @@ static PipelineH GetFreePipelineHandle(GraphicsDevice &device)
 	return {};
 }
 
-PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, RenderPassH renderPassH, const BindGroupLayout &globalBindGroupLayout)
+PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
-	const RenderPass &renderPass = GetRenderPass(device, renderPassH);
 	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
-	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, renderPass, globalBindGroupLayout);
+	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, globalBindGroupLayout);
 	return pipelineHandle;
 }
 
