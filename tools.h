@@ -979,6 +979,11 @@ bool CreateDirectory(const char *path)
 		perror("mkdir");
 		ok = false;
 	}
+#elif PLATFORM_WINDOWS
+	ok = CreateDirectoryA(path, nullptr);
+	if ( !ok ) {
+		Win32ReportError();
+	}
 #else
 #error "Missing implementation"
 #endif
@@ -3049,6 +3054,7 @@ bool InitializeAudio(Audio &audio, const Window &window)
 						audio.buffer = secondaryBuffer;
 						LOG(Info, "Secondary buffer created successfully.\n");
 
+						#if 0
 						if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
 						{
 							LOG(Info, "Secondary buffer is playing...\n");
@@ -3057,6 +3063,7 @@ bool InitializeAudio(Audio &audio, const Window &window)
 						{
 							LOG(Error, "Error playing secondaryBuffer.\n");
 						}
+						#endif
 					}
 					else
 					{
