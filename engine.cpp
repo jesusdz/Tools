@@ -27,10 +27,6 @@
 #include "shaders/types.hlsl"
 #include "shaders/bindings.hlsl"
 
-// Assets
-#include "assets/assets.h"
-#include "clon.h"
-
 // Engine API
 #include "engine.h"
 
@@ -50,6 +46,37 @@
 
 
 
+
+struct TextureDesc
+{
+	const char *name;
+	const char *filename;
+	int mipmap;
+};
+
+struct MaterialDesc
+{
+	const char *name;
+	const char *textureName;
+	const char *pipelineName;
+	float uvScale;
+};
+
+enum GeometryType
+{
+	GeometryTypeCube,
+	GeometryTypePlane,
+	GeometryTypeScreen,
+};
+
+struct EntityDesc
+{
+	const char *name;
+	const char *materialName;
+	float3 pos;
+	float scale;
+	GeometryType geometryType;
+};
 
 struct Vertex
 {
@@ -264,6 +291,30 @@ struct Engine
 };
 
 
+
+static const TextureDesc textures[] =
+{
+	{ .name = "tex_diamond", .filename = "assets/diamond.png", .mipmap = 1 },
+	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg",    .mipmap = 1 },
+	{ .name = "tex_grass",   .filename = "assets/grass.jpg",   .mipmap = 1 },
+	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
+};
+
+static const MaterialDesc materials[] =
+{
+	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
+	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_shading", .uvScale = 1.0f },
+	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_shading", .uvScale = 11.0f },
+};
+
+static const EntityDesc entities[] =
+{
+	{ .name = "ent_cube0", .materialName = "mat_diamond", .pos = { 1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube1", .materialName = "mat_diamond", .pos = { 1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube2", .materialName = "mat_dirt",    .pos = {-1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_cube3", .materialName = "mat_dirt",    .pos = {-1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
+	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
+};
 
 static const Vertex cubeVertices[] = {
 	// front
@@ -548,6 +599,19 @@ void CompileShaders()
 	}
 }
 
+void CopyAssets()
+{
+	char text[MAX_PATH_LENGTH];
+
+	for (u32 i = 0; i < ARRAY_COUNT(textures); ++i)
+	{
+		const FilePath srcPath = MakePath(ProjectDir, textures[i].filename);
+		const FilePath dstPath = MakePath(DataDir, textures[i].filename);
+		LOG(Debug, "CopyFile %s to %s\n", srcPath.str, dstPath.str);
+		CopyFile(srcPath.str, dstPath.str);
+	}
+}
+
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
 	timeSamples.samples[timeSamples.sampleCount] = sample;
@@ -752,7 +816,7 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	int texWidth, texHeight, texChannels;
-	FilePath imagePath = MakePath(desc.filename);
+	FilePath imagePath = MakePath(DataDir, desc.filename);
 	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	texChannels = 4; // Because we use STBI_rgb_alpha
 	stbi_uc* pixels = originalPixels;
@@ -978,7 +1042,7 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 static ShaderSource GetShaderSource(Arena &arena, const char *filename)
 {
-	FilePath shaderPath = MakePath(filename);
+	FilePath shaderPath = MakePath(DataDir, filename);
 	DataChunk *chunk = PushFile( arena, shaderPath.str );
 	if ( !chunk ) {
 		LOG( Error, "Could not open shader file %s\n", shaderPath.str );
@@ -1294,46 +1358,19 @@ void InitializeScene(Engine &engine, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
 
-	FilePath assetsPath = MakePath("assets/assets.h");
-	DataChunk *chunk = PushFile( scratch, assetsPath.str );
-	if (!chunk)
+	for (u32 i = 0; i < ARRAY_COUNT(textures); ++i)
 	{
-		LOG(Error, "Error reading file: %s\n", assetsPath.str);
-		return;
+		CreateTexture(gfx, textures[i]);
 	}
 
-	Clon clon = {};
-	const bool clonOk = ClonParse(&clon, &scratch, chunk->chars, chunk->size);
-	if (!clonOk)
+	for (u32 i = 0; i < ARRAY_COUNT(materials); ++i)
 	{
-		LOG(Error, "Error in ClonParse file: %s\n", assetsPath.str);
-		return;
+		CreateMaterial(gfx, materials[i]);
 	}
 
-	const ClonGlobal *clonGlobal = ClonGetGlobal(&clon, "Assets", "gAssets");
-
-	if (clonGlobal)
+	for (u32 i = 0; i < ARRAY_COUNT(entities); ++i)
 	{
-		const Assets *gAssets = (const Assets *)clonGlobal->data;
-
-		for (u32 i = 0; i < gAssets->texturesCount; ++i)
-		{
-			CreateTexture(gfx, gAssets->textures[i]);
-		}
-
-		for (u32 i = 0; i < gAssets->materialsCount; ++i)
-		{
-			CreateMaterial(gfx, gAssets->materials[i]);
-		}
-
-		for (u32 i = 0; i < gAssets->entitiesCount; ++i)
-		{
-			CreateEntity(engine, gAssets->entities[i]);
-		}
-	}
-	else
-	{
-		LOG(Error, "Could not get the global 'gAssets' from Clon object.\n");
+		CreateEntity(engine, entities[i]);
 	}
 
 	// Textures
@@ -2905,28 +2942,12 @@ void BuildData()
 	CreateDirectory("build/shaders");
 	CreateDirectory("build/assets");
 	CompileShaders();
+	CopyAssets();
 }
 #endif // USE_DATA_BUILD
 
 void EngineMain( int argc, char **argv,  void *userData )
 {
-#if USE_DATA_BUILD
-	bool buildData = false;
-	for ( u32 i = 0; i < argc; ++i ) {
-		if ( StrEq(argv[i], "--build-data") ) {
-			buildData = true;
-		}
-	}
-
-	if ( !ExistsFile("build/shaders.dat") ) {
-		buildData = true;
-	}
-
-	if ( buildData ) {
-		BuildData();
-	}
-#endif // USE_DATA_BUILD
-
 	Engine engine = {};
 
 	// Memory
@@ -2948,7 +2969,26 @@ void EngineMain( int argc, char **argv,  void *userData )
 	// User data
 	engine.platform.userData = &engine;
 
-	PlatformRun(argc, argv, engine.platform);
+	PlatformInitialize(engine.platform, argc, argv);
+
+#if USE_DATA_BUILD
+	bool buildData = false;
+	for ( u32 i = 0; i < argc; ++i ) {
+		if ( StrEq(argv[i], "--build-data") ) {
+			buildData = true;
+		}
+	}
+
+	if ( !ExistsFile("build/shaders.dat") ) {
+		buildData = true;
+	}
+
+	if ( buildData ) {
+		BuildData();
+	}
+#endif // USE_DATA_BUILD
+
+	PlatformRun(engine.platform);
 }
 
 #if PLATFORM_ANDROID

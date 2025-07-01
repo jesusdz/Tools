@@ -1555,7 +1555,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	UI_PushColor(ui, UiColorWidget);
 
 	// Load TTF font texture
-	FilePath fontPath = MakePath("assets/ProggyClean.ttf");
+	FilePath fontPath = MakePath(ProjectDir, "assets/ProggyClean.ttf");
 	DataChunk *chunk = PushFile( scratch, fontPath.str );
 	if ( !chunk )
 	{

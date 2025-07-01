@@ -965,6 +965,21 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	return ok;
 }
 
+bool CopyFile(const char *srcPath, const char *dstPath)
+{
+	bool ok = false;
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+#elif PLATFORM_WINDOWS
+	ok = CopyFile(srcPath, dstPath, false);
+	if ( !ok ) {
+		Win32ReportError();
+	}
+#else
+#error "Missing implementation"
+#endif
+	return ok;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -997,10 +1012,12 @@ bool CreateDirectory(const char *path)
 
 #define MAX_PATH_LENGTH 512
 
-#if defined(TOOLS_PLATFORM)
-extern const char *sRootDirectory;
+const char *ProjectDir = "";
+#if PLATFORM_ANDROID
+// TODO: Don't hardcode this path here and get it from Android API.
+const char *DataDir = "/sdcard/Android/data/com.tools.game/files";
 #else
-const char *sRootDirectory = "";
+const char *DataDir = "";
 #endif
 
 struct FilePath
@@ -1008,16 +1025,11 @@ struct FilePath
 	char str[MAX_PATH_LENGTH];
 };
 
-FilePath MakePath(const char *relativePath)
+FilePath MakePath(const char *basePath, const char *relativePath)
 {
 	FilePath path = {};
-#if PLATFORM_LINUX || PLATFORM_WINDOWS
-	StrCopy(path.str, sRootDirectory);
+	StrCopy(path.str, basePath);
 	StrCat(path.str, "/");
-#elif PLATFORM_ANDROID
-	// TODO: Don't hardcode this path here and get it from Android API.
-	StrCopy(path.str, "/sdcard/Android/data/com.tools.game/files/");
-#endif
 	StrCat(path.str, relativePath);
 	return path;
 }
@@ -2097,8 +2109,6 @@ struct Platform
 	Audio audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
-
-	const char *rootDirectory;
 };
 
 
@@ -2187,8 +2197,6 @@ void CanonicalizePath(char *path)
 	*ptr = 0;
 }
 
-const char *sRootDirectory = "";
-
 void InitializeDirectories(Platform &platform, int argc, char **argv)
 {
 	char buffer[MAX_PATH_LENGTH];
@@ -2211,21 +2219,24 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 		StrCopyN(exeDir, exePath, length);
 	}
 
-	char rootDirectory[MAX_PATH_LENGTH];
+	char directory[MAX_PATH_LENGTH];
 	if ( !IsAbsolutePath(exeDir) )
 	{
-		StrCopy(rootDirectory, workingDir);
-		StrCat(rootDirectory, "/");
+		StrCopy(directory, workingDir);
+		StrCat(directory, "/");
 	}
-	StrCat(rootDirectory, exeDir);
-	CanonicalizePath(rootDirectory);
+	StrCat(directory, exeDir);
+	CanonicalizePath(directory);
 
-	platform.rootDirectory = PushString(platform.stringArena, rootDirectory);
-	sRootDirectory = platform.rootDirectory;
+	DataDir = PushString(platform.stringArena, directory);
+
+	StrCat(directory, "/..");
+	CanonicalizePath(directory);
+	ProjectDir = PushString(platform.stringArena, directory);
 
 	LOG(Info, "Directories:\n");
-	LOG(Info, "- Working directory: %s\n", workingDir);
-	LOG(Info, "- Root directory: %s\n", rootDirectory);
+	LOG(Info, "- DataDir: %s\n", DataDir);
+	LOG(Info, "- ProjectDir: %s\n", ProjectDir);
 }
 
 
@@ -3165,7 +3176,7 @@ void PlaySound(Audio &audio)
 #endif
 }
 
-bool PlatformRun(int argc, char **argv, Platform &platform)
+bool PlatformInitialize(Platform &platform, int argc, char **argv)
 {
 	ASSERT( platform.globalMemorySize > 0 );
 	ASSERT( platform.frameMemorySize > 0 );
@@ -3195,6 +3206,11 @@ bool PlatformRun(int argc, char **argv, Platform &platform)
 
 	InitializeDirectories(platform, argc, argv);
 
+	return true;
+}
+
+bool PlatformRun(Platform &platform)
+{
 	if ( !InitializeWindow(platform.window) )
 	{
 		return false;
