@@ -169,7 +169,7 @@ CT_ASSERT(sizeof(byte) == 1);
 
 #if PLATFORM_WINDOWS
 
-void Win32ReportError()
+void Win32ReportError(const char *context)
 {
 	DWORD errorCode = ::GetLastError();
 	if ( errorCode != ERROR_SUCCESS )
@@ -185,7 +185,7 @@ void Win32ReportError()
 				(LPTSTR)&messageBuffer,
 				0, NULL );
 
-		LOG(Error, "Error: %s\n", (char*)messageBuffer);
+		LOG(Error, "Error (%s): %s\n", context, (char*)messageBuffer);
 		LocalFree( messageBuffer );
 	}
 }
@@ -827,7 +827,7 @@ bool GetFileSize(const char *filename, u64 &size, bool reportError = true)
 	}
 	else
 	{
-		if ( reportError ) Win32ReportError();
+		if ( reportError ) Win32ReportError("GetFileSize");
 		ok = false;
 	}
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
@@ -859,7 +859,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	HANDLE file = CreateFileA( filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
 	if ( file == INVALID_HANDLE_VALUE  )
 	{
-		Win32ReportError();
+		Win32ReportError("ReadEntireFile - CreateFileA");
 	}
 	else
 	{
@@ -867,7 +867,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 		ok = ReadFile( file, buffer, bytesToRead, &bytesRead, NULL );
 		if ( !ok && bytesToRead == bytesRead )
 		{
-			Win32ReportError();
+			Win32ReportError("ReadEntireFile - ReadFile");
 		}
 		CloseHandle( file );
 	}
@@ -946,7 +946,7 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	}
 	else
 	{
-		Win32ReportError();
+		Win32ReportError("GetFileLastWriteTimestamp");
 		ok = false;
 	}
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
@@ -969,10 +969,41 @@ bool CopyFile(const char *srcPath, const char *dstPath)
 {
 	bool ok = false;
 #if PLATFORM_LINUX || PLATFORM_ANDROID
+	int fd_rd = open(srcPath, O_RDONLY);
+	if ( fd_rd == -1 ) {
+		LinuxReportError("CopyFile open O_RDONLY");
+	} else {
+		int fd_wr = open(dstPath, O_WRONLY | O_CREAT | O_EXCL, 0666);
+		if ( fd_wr == -1 ) {
+			LinuxReportError("CopyFile open O_WRONLY | O_CREAT | O_EXCL");
+		} else {
+			char buffer[4096];
+			ssize_t nread;
+			while (nread = read(fd_rd, buffer, sizeof(buffer)), nread > 0) {
+				char *out_ptr = buffer;
+				ssize_t nwritten;
+				do {
+					nwritten = write(fd_wr, out_ptr, nread);
+					if (nwritten >= 0) {
+						nread -= nwritten;
+						out_ptr += nwritten;
+					} else if (errno != EINTR) {
+						LinuxReportError("CopyFile write");
+						close(fd_rd);
+						close(fd_wr);
+						return false;
+					}
+				} while (nread > 0);
+			}
+			ok = true;
+			close(fd_wr);
+		}
+		close(fd_rd);
+	}
 #elif PLATFORM_WINDOWS
 	ok = CopyFile(srcPath, dstPath, false);
 	if ( !ok ) {
-		Win32ReportError();
+		Win32ReportError("CopyFile");
 	}
 #else
 #error "Missing implementation"
@@ -997,7 +1028,7 @@ bool CreateDirectory(const char *path)
 #elif PLATFORM_WINDOWS
 	ok = CreateDirectoryA(path, nullptr);
 	if ( !ok ) {
-		Win32ReportError();
+		Win32ReportError("CreateDirectory");
 	}
 #else
 #error "Missing implementation"
@@ -2835,7 +2866,7 @@ bool InitializeWindow(
 
 	if (classAtom == 0)
 	{
-		Win32ReportError();
+		Win32ReportError("InitializeWindow - RegisterClassA");
 		return false;
 	}
 
@@ -2860,13 +2891,13 @@ bool InitializeWindow(
 
 	if (hWnd == NULL)
 	{
-		Win32ReportError();
+		Win32ReportError("InitializeWindow - CreateWindowExA");
 		return false;
 	}
 
 	if ( !SetPropA(hWnd, "WindowPtr", &window) )
 	{
-		Win32ReportError();
+		Win32ReportError("InitializeWindow - SetPropA");
 		return false;
 	}
 

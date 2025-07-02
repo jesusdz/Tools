@@ -25,8 +25,7 @@ build_and_debug: engine
 main_interpreter: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter main_interpreter.cpp
 
-engine: reflex
-	./build/reflex assets/assets.h > assets.reflex.h
+engine: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine  engine.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb
 
 game:
@@ -40,7 +39,7 @@ reflex: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/reflex reflex.cpp
 
 main_reflect_serialize: reflex
-	./build/reflex assets.h > assets.reflex.h
+	./build/reflex assets/assets.h > assets.reflex.h
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_reflect_serialize main_reflect_serialize.cpp
 
 main_clon: directories
