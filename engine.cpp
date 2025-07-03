@@ -1106,13 +1106,14 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 
 	// Global render pass
 	{
+		const Format format = FormatFromVulkan(gfx.device.swapchainInfo.format);
 		const StoreOp storeOp = USE_ENTITY_SELECTION ? StoreOpStore : StoreOpDontCare;
 
 		const RenderpassDesc renderpassDesc = {
 			.name = "main_renderpass",
 			.colorAttachmentCount = 1,
 			.colorAttachments = {
-				{ .format = FormatBGRA8_SRGB, .loadOp = LoadOpClear, .storeOp = StoreOpStore, .isSwapchain = true },
+				{ .format = format, .loadOp = LoadOpClear, .storeOp = StoreOpStore, .isSwapchain = true },
 			},
 			.hasDepthAttachment = true,
 			.depthAttachment = {
