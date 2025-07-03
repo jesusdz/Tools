@@ -1044,13 +1044,8 @@ bool CreateDirectory(const char *path)
 #define MAX_PATH_LENGTH 512
 
 const char *BinDir = "";
-const char *ProjectDir = "";
-#if PLATFORM_ANDROID
-// TODO: Don't hardcode this path here and get it from Android API.
-const char *DataDir = "/sdcard/Android/data/com.tools.game/files";
-#else
 const char *DataDir = "";
-#endif
+const char *ProjectDir = "";
 
 struct FilePath
 {
@@ -2237,13 +2232,24 @@ void CanonicalizePath(char *path)
 void InitializeDirectories(Platform &platform, int argc, char **argv)
 {
 	char buffer[MAX_PATH_LENGTH];
-#if PLATFORM_LINUX || PLATFORM_ANDROID
+
+#if PLATFORM_ANDROID
+
+	// TODO: Don't hardcode this path here and get it from Android API.
+	DataDir = "/sdcard/Android/data/com.tools.game/files";
+	BinDir = DataDir;
+	ProjectDir = "";
+
+#else
+
+#if PLATFORM_LINUX
 	char *workingDir = getcwd(buffer, ARRAY_COUNT(buffer));
 #elif PLATFORM_WINDOWS
 	char *workingDir = _getcwd(buffer, ARRAY_COUNT(buffer));
 #else
 #error "Missing implementation"
 #endif
+
 	StrReplace(workingDir, '\\', '/'); // Make all separators '/'
 
 	char exeDir[MAX_PATH_LENGTH] = {};
@@ -2271,6 +2277,8 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 	StrCat(directory, "/..");
 	CanonicalizePath(directory);
 	ProjectDir = PushString(platform.stringArena, directory);
+
+#endif
 
 	LOG(Info, "Directories:\n");
 	LOG(Info, "- BinDir: %s\n", BinDir);
