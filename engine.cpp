@@ -121,6 +121,7 @@ enum ProjectionType
 {
 	ProjectionPerspective,
 	ProjectionOrthographic,
+	ProjectionTypeCount,
 };
 
 struct Camera
@@ -272,6 +273,9 @@ struct Editor
 {
 	bool selectEntity;
 	u32 selectedEntity;
+
+	ProjectionType cameraType;
+	Camera camera[ProjectionTypeCount];
 };
 
 struct Engine
@@ -282,8 +286,6 @@ struct Engine
 #if USE_UI
 	UI ui;
 #endif
-
-	Camera camera;
 
 	Scene scene;
 
@@ -1444,9 +1446,15 @@ void InitializeScene(Engine &engine, Arena scratch)
 	}
 
 	// Camera
-	engine.camera.projectionType = ProjectionPerspective;
-	engine.camera.position = {0, 1, 2};
-	engine.camera.orientation = {0, -0.45f};
+	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
+	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
+	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
+
+	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionPerspective;
+	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
+	engine.editor.camera[ProjectionOrthographic].orientation = {};
+
+	engine.editor.cameraType = ProjectionPerspective;
 
 	gfx.deviceInitialized = true;
 
@@ -1555,7 +1563,7 @@ bool GetMovementTouchId(const Window &window, u32 *touchId)
 }
 #endif
 
-void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
+void AnimateCamera3D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	float3 dir = { 0, 0, 0 };
 
@@ -1618,6 +1626,10 @@ void AnimateCamera(const Window &window, Camera &camera, float deltaSeconds, boo
 
 	// Apply deceleration
 	speed = Mul(speed, 0.9);
+}
+
+void AnimateCamera2D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
+{
 }
 #endif // USE_CAMERA_MOVEMENT
 
@@ -1832,37 +1844,80 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
 	const f32 displayHeight = static_cast<f32>(gfx.device.swapchain.extent.height);
 
-	// Calculate camera matrices
-	const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
-	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
-	const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-	const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
-	const float4x4 viewMatrix = ViewMatrixFromCamera(engine.camera);
-	const float fovy = 60.0f;
-	const float znear = 0.1f;
-	const float zfar = 1000.0f;
-	const float4x4 viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
-	//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
-	const float4x4 perspectiveMatrix = Perspective(fovy, ar, znear, zfar);
-	const float4x4 projectionMatrix = Mul(viewportRotationMatrix, perspectiveMatrix);
+	// Camera setup
+	float4x4 viewMatrix = Eye();
+	float4x4 viewportRotationMatrix = Eye();
+	float4x4 projectionMatrix = Eye();
+	float4 frustumTopLeft = {};
+	float4 frustumBottomRight = {};
+	float3 cameraPosition = {};
 
-	// Frustum vectors
-	const float hypotenuse  = znear / Cos( 0.5f * fovy * ToRadians );
-	const float top = hypotenuse * Sin( 0.5f * fovy * ToRadians );
-	const float bottom = -top;
-	const float right = top * ar;
-	const float left = -right;
-	const float4 frustumTopLeft = Float4( Float3(left, top, -znear), 0.0f );
-	const float4 frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
-
-	// CPU Frustum culling
-	const float3 cameraPosition = engine.camera.position;
-	const float3 cameraForward = ForwardDirectionFromAngles(engine.camera.orientation);
-	const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
-	for (u32 i = 0; i < scene.entityCount; ++i)
+	if (editor.cameraType == ProjectionPerspective)
 	{
-		Entity &entity = scene.entities[i];
-		entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
+		Camera &camera = engine.editor.camera[ProjectionPerspective];
+
+		// Calculate camera matrices
+		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
+		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
+		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
+		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
+		viewMatrix = ViewMatrixFromCamera(camera);
+		const float fovy = 60.0f;
+		const float znear = 0.1f;
+		const float zfar = 1000.0f;
+		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
+		//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
+		const float4x4 perspectiveMatrix = Perspective(fovy, ar, znear, zfar);
+		projectionMatrix = Mul(viewportRotationMatrix, perspectiveMatrix);
+
+		// Frustum vectors
+		const float hypotenuse  = znear / Cos( 0.5f * fovy * ToRadians );
+		const float top = hypotenuse * Sin( 0.5f * fovy * ToRadians );
+		const float bottom = -top;
+		const float right = top * ar;
+		const float left = -right;
+		frustumTopLeft = Float4( Float3(left, top, -znear), 0.0f );
+		frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
+
+		cameraPosition = camera.position;
+
+		// CPU Frustum culling
+		const float3 cameraPosition = camera.position;
+		const float3 cameraForward = ForwardDirectionFromAngles(camera.orientation);
+		const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
+		for (u32 i = 0; i < scene.entityCount; ++i)
+		{
+			Entity &entity = scene.entities[i];
+			entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
+		}
+	}
+	else
+	{
+		Camera &camera = engine.editor.camera[ProjectionOrthographic];
+
+		// Calculate camera matrices
+		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
+		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
+		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
+		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
+		viewMatrix = Eye();//ViewMatrixFromCamera(camera);
+		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
+		//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
+		const float4x4 orthographicMatrix = Orthogonal(-10*ar, 10*ar, -10, 10, -10.0, 10.0);
+		projectionMatrix = Mul(viewportRotationMatrix, orthographicMatrix);
+
+		// Frustum vectors
+		frustumTopLeft = Float4( Float3(-10*ar, 10, -10), 0.0f );
+		frustumBottomRight = Float4( Float3(10*ar, -10, 10), 0.0f );
+
+		cameraPosition = camera.position;
+
+		// CPU Frustum culling
+		for (u32 i = 0; i < scene.entityCount; ++i)
+		{
+			Entity &entity = scene.entities[i];
+			entity.culled = false; // TODO: Frustum culling with a 2D camera
+		}
 	}
 
 	// Sun matrices
@@ -1896,7 +1951,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.sunView = sunViewMatrix,
 		.sunProj = sunProjMatrix,
 		.sunDir = Float4(sunDir, 0.0f),
-		.eyePosition = Float4(engine.camera.position, 1.0f),
+		.eyePosition = Float4(cameraPosition, 1.0f),
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
@@ -2483,13 +2538,13 @@ void UpdateUI(Engine &engine)
 	if ( UI_Section(ui, "Camera") )
 	{
 		const char *radioOptions[] = { "Perspective", "Orthographic" };
-		static int selectedOption = 0;
+		CT_ASSERT(ARRAY_COUNT(radioOptions) == ProjectionTypeCount);
 
-		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+		for (u32 i = 0; i < ProjectionTypeCount; ++i)
 		{
-			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
+			if ( UI_Radio(ui, radioOptions[i], editor.cameraType == i) )
 			{
-				selectedOption = i;
+				editor.cameraType = (ProjectionType)i;
 			}
 		}
 	}
@@ -2890,7 +2945,14 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 
 #if USE_CAMERA_MOVEMENT
-		AnimateCamera(platform.window, engine.camera, platform.deltaSeconds, handleInput);
+		if (engine.editor.cameraType == ProjectionPerspective)
+		{
+			AnimateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
+		}
+		else if (engine.editor.cameraType == ProjectionOrthographic)
+		{
+			AnimateCamera2D(platform.window, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
+		}
 #endif
 
 		GameUpdate(engine);
