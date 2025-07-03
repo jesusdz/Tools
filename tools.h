@@ -2429,6 +2429,14 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				break;
 			}
 
+		case XCB_MAP_NOTIFY:
+			// TODO: Handle this event
+			break;
+
+		case XCB_REPARENT_NOTIFY:
+			// TODO: Handle this event
+			break;
+
 		default:
 			/* Unknown event type, ignore it */
 			LOG(Info, "Unknown window event: %d\n", event->response_type);

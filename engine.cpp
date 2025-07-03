@@ -3189,6 +3189,12 @@ static void LoadData(Engine &engine)
 	byte *bytes =  chunk->bytes;
 	DataHeader *dataHeader = (DataHeader*)bytes;
 
+	if (dataHeader->magicNumber != U32FromChars('I', 'R', 'I', 'S'))
+	{
+		LOG( Error, "Wrong magic number in file %s\n", filepath.str );
+		QUIT_ABNORMALLY();
+	}
+
 	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
 
 	engine.data.header = dataHeader;
@@ -3200,8 +3206,6 @@ static void LoadData(Engine &engine)
 		shader.header = shaderHeaders + i;
 		shader.spirv = bytes + shader.header->spirvOffset;
 	}
-
-	LOG(Debug, "Hola\n");
 }
 
 void EngineMain( int argc, char **argv,  void *userData )

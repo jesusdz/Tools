@@ -1745,7 +1745,7 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 			}
 		}
 
-		LOG(Info, "%c %s\n", enabled?'*':' ', instanceLayers[i].layerName);
+		LOG(Info, "%c %s\n", enabled?'*':'-', instanceLayers[i].layerName);
 	}
 
 	u32 availableInstanceExtensionCount;
@@ -2026,10 +2026,10 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 
 		if ( selectedEntryIndex == U32_MAX )
 		{
-			LOG(Warning, "Could not find a supported surface format\n");
+			LOG(Warning, "- Could not find a supported surface format :-(\n");
 		}
 
-		LOG(Info, "Selected surface format: %d\n", surfaceFormatIndex);
+		LOG(Info, "- Selected surface format: %d\n", surfaceFormatIndex);
 		device.swapchainInfo.format = surfaceFormats[surfaceFormatIndex].format;
 		device.swapchainInfo.colorSpace = surfaceFormats[surfaceFormatIndex].colorSpace;
 		device.swapchainInfo.flipRB = (device.swapchainInfo.format == VK_FORMAT_B8G8R8A8_SRGB);
