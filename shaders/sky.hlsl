@@ -58,9 +58,9 @@ float4 PSMain(PixelInput IN) : SV_Target
 	float groundFactor = smoothstep(1.0, 1.02, skyTexCoord.y);
 	float4 finalColor = float4(lerp(skyColor, groundColor, groundFactor), 1.0);
 
-	if (globals.flipRB) {
-		finalColor.rb = finalColor.br;
-	}
+	//if (globals.flipRB) {
+	//	finalColor.rb = finalColor.br;
+	//}
 
 	return finalColor;
 }

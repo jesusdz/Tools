@@ -113,9 +113,9 @@ float4 PSMain(PixelInput IN) : SV_Target
 	}
 #endif
 
-	if (globals.flipRB) {
-		shadedColor.rb = shadedColor.br;
-	}
+	//if (globals.flipRB) {
+	//	shadedColor.rb = shadedColor.br;
+	//}
 
 #else
 	// Material properties

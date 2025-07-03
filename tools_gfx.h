@@ -2032,7 +2032,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 		LOG(Info, "Selected surface format: %d\n", surfaceFormatIndex);
 		device.swapchainInfo.format = surfaceFormats[surfaceFormatIndex].format;
 		device.swapchainInfo.colorSpace = surfaceFormats[surfaceFormatIndex].colorSpace;
-		device.swapchainInfo.flipRB = (device.swapchainInfo.format != VK_FORMAT_R8G8B8A8_SRGB);
+		device.swapchainInfo.flipRB = (device.swapchainInfo.format == VK_FORMAT_B8G8R8A8_SRGB);
 
 		// Swapchain present mode
 		u32 surfacePresentModeCount = 0;
