@@ -2137,6 +2137,7 @@ struct Platform
 	u32 globalMemorySize = MB(64);
 	u32 frameMemorySize = MB(16);
 	u32 stringMemorySize = KB(16);
+	u32 dataMemorySize = MB(16);
 
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
@@ -2155,6 +2156,7 @@ struct Platform
 	Arena globalArena;
 	Arena frameArena;
 	Arena stringArena;
+	Arena dataArena;
 	StringInterning stringInterning;
 	Window window;
 	Audio audio;
@@ -3252,8 +3254,8 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	ASSERT( platform.WindowInitCallback );
 	ASSERT( platform.WindowCleanupCallback );
 
-	byte *baseMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
-	platform.globalArena = MakeArena(baseMemory, platform.globalMemorySize);
+	byte *globalMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
+	platform.globalArena = MakeArena(globalMemory, platform.globalMemorySize);
 
 	byte *frameMemory = (byte*)AllocateVirtualMemory(platform.frameMemorySize);
 	platform.frameArena = MakeArena(frameMemory, platform.frameMemorySize);
@@ -3261,6 +3263,9 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	byte *stringMemory = (byte*)AllocateVirtualMemory(platform.stringMemorySize);
 	platform.stringArena = MakeArena(stringMemory, platform.stringMemorySize);
 	platform.stringInterning = StringInterningCreate(&platform.stringArena);
+
+	byte *dataMemory = (byte*)AllocateVirtualMemory(platform.dataMemorySize);
+	platform.dataArena = MakeArena(dataMemory, platform.dataMemorySize);
 
 #if PLATFORM_ANDROID
 	ASSERT( platform.androidApp );
