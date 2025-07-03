@@ -151,6 +151,21 @@ struct TimeSamples
 	f32 average;
 };
 
+enum ReloadEntryType
+{
+	ReloadEntryGraphicsPipeline,
+	ReloadEntryTypeCount,
+};
+
+struct ReloadEntry
+{
+	ReloadEntryType type;
+	union
+	{
+		u32 pipelineIndex;
+	};
+};
+
 struct Graphics
 {
 	GraphicsDevice device;
@@ -232,7 +247,7 @@ struct Graphics
 	TimeSamples cpuFrameTimes;
 	TimeSamples gpuFrameTimes;
 
-	u32 reloadQueue[128];
+	ReloadEntry reloadQueue[128];
 	u32 reloadQueueSize;
 };
 
@@ -2044,7 +2059,6 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
 		.selectedEntity = editor.selectedEntity,
-		.flipRB = gfx.device.swapchainInfo.flipRB,
 	};
 
 	// Update globals buffer
@@ -2359,8 +2373,19 @@ void HotReloadAssets(Engine &engine, Arena scratch)
 
 		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
 		{
-			const u32 pipelineIndex = gfx.reloadQueue[i];
-			CompileGraphicsPipeline(engine, scratch, pipelineIndex);
+			const ReloadEntry &reloadEntry = gfx.reloadQueue[i];
+
+			switch (reloadEntry.type)
+			{
+				case ReloadEntryGraphicsPipeline:
+				{
+					const u32 pipelineIndex = reloadEntry.pipelineIndex;
+					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
+					break;
+				}
+
+				default:;
+			}
 		}
 
 		gfx.reloadQueueSize = 0;
@@ -2654,7 +2679,11 @@ void UpdateUI(Engine &engine)
 			if ( UI_Button(ui, "Reload") )
 			{
 				ASSERT(gfx.reloadQueueSize < ARRAY_COUNT(gfx.reloadQueue));
-				gfx.reloadQueue[gfx.reloadQueueSize++] = i;
+				const ReloadEntry reloadEntry = {
+					.type = ReloadEntryGraphicsPipeline,
+					.pipelineIndex = i,
+				};
+				gfx.reloadQueue[gfx.reloadQueueSize++] = reloadEntry;
 			}
 			UI_Label(ui, pipelineName);
 			UI_EndLayout(ui);
