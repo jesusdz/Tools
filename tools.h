@@ -94,6 +94,8 @@
 #define GB(x) (1024ul * MB(x))
 #define TB(x) (1024ul * GB(x))
 
+#define MAX_PATH_LENGTH 512
+
 #if PLATFORM_ANDROID
 #define Debug ANDROID_LOG_DEBUG
 #define Info ANDROID_LOG_INFO
@@ -161,6 +163,18 @@ CT_ASSERT(sizeof(byte) == 1);
 #define U16_MAX 65535
 #define I32_MAX 2147483647
 #define U32_MAX 4294967295
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Truncations
+
+u32 U64ToU32(u64 value)
+{
+	ASSERT(value <= U32_MAX);
+	u32 res = (u64)value;
+	return res;
+}
 
 
 
@@ -838,7 +852,12 @@ bool GetFileSize(const char *filename, u64 &size, bool reportError = true)
 	}
 	else
 	{
-		if ( reportError ) LinuxReportError("stat");
+		if ( reportError )
+		{
+			char text[MAX_PATH_LENGTH];
+			SPrintf(text, "stat %s", filename);
+			LinuxReportError(text);
+		}
 		ok = false;
 	}
 #endif
@@ -957,7 +976,9 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	}
 	else
 	{
-		LinuxReportError("stat");
+		char text[MAX_PATH_LENGTH];
+		SPrintf(text, "stat %s", filename);
+		LinuxReportError(text);
 		ok = false;
 	}
 #endif
@@ -1040,8 +1061,6 @@ bool CreateDirectory(const char *path)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // File paths
-
-#define MAX_PATH_LENGTH 512
 
 const char *BinDir = "";
 const char *DataDir = "";
