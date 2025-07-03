@@ -593,7 +593,15 @@ void CompileShaders()
 		const char *entry = desc.entryPoint;
 		const char *output = desc.outputName;
 		const char *filename = desc.filename;
-		SPrintf(text, "%s %s -T %s -E %s -Fo build/shaders/%s.spv -Fc build/shaders/%s.dis shaders/%s", dxc, flags, target, entry, output, output, filename );
+		SPrintf(text,
+			"%s/%s "
+			"%s -T %s -E %s "
+			"-Fo %s/shaders/%s.spv -Fc %s/shaders/%s.dis "
+			"%s/shaders/%s",
+			ProjectDir, dxc,
+			flags, target, entry,
+			DataDir, output, DataDir, output,
+			ProjectDir, filename );
 		LOG(Debug, "%s\n", text);
 		ExecuteProcess(text);
 	}
@@ -2205,7 +2213,8 @@ void HotReloadAssets(Graphics &gfx, Arena scratch)
 
 		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
 		{
-			CompileGraphicsPipeline(gfx, scratch, i);
+			const u32 pipelineIndex = gfx.reloadQueue[i];
+			CompileGraphicsPipeline(gfx, scratch, pipelineIndex);
 		}
 
 		gfx.reloadQueueSize = 0;
@@ -2646,16 +2655,17 @@ void CleanupGameLibrary(Game &game)
 void LoadGameLibrary(Game &game)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
-	constexpr const char * dynamicLibName = "./game.so";
+	constexpr const char * dynamicLibName = "game.so";
 #elif PLATFORM_WINDOWS
-	constexpr const char *dynamicLibName = "./build/game.dll";
+	constexpr const char * dynamicLibName = "game.dll";
 #else
 #error "Missing implementation"
 #endif
 
-	LOG(Info, "Loading dynamic library: %s\n", dynamicLibName);
+	FilePath dynamicLibPath = MakePath(BinDir, dynamicLibName);
+	LOG(Info, "Loading dynamic library: %s\n", dynamicLibPath.str);
 
-	game.library = OpenLibrary(dynamicLibName);
+	game.library = OpenLibrary(dynamicLibPath.str);
 
 	if (game.library)
 	{
@@ -2715,9 +2725,14 @@ void CompileGameLibrary(Game &game)
 #else
 	constexpr const char *build = "<none>";
 #endif
-	constexpr const char *flags = "game";
 	SPrintf(text, "%s game", build);
-	ExecuteProcess(text);
+
+	if ( !ExecuteProcess(text) )
+	{
+		LOG(Warning,
+			"Could not compile game library. "
+			"Have you tried to launch the app from the project directory?");
+	}
 }
 
 void GameUpdate(Engine &engine)

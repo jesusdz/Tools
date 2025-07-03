@@ -1043,6 +1043,7 @@ bool CreateDirectory(const char *path)
 
 #define MAX_PATH_LENGTH 512
 
+const char *BinDir = "";
 const char *ProjectDir = "";
 #if PLATFORM_ANDROID
 // TODO: Don't hardcode this path here and get it from Android API.
@@ -1070,8 +1071,10 @@ FilePath MakePath(const char *basePath, const char *relativePath)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Process execution
 
-void ExecuteProcess(const char *commandLine)
+bool ExecuteProcess(const char *commandLine)
 {
+	bool success = false;
+
 	char commandLineCopy[MAX_PATH_LENGTH];
 	StrCopyN(commandLineCopy, commandLine, MAX_PATH_LENGTH - 1);
 
@@ -1083,7 +1086,7 @@ void ExecuteProcess(const char *commandLine)
     PROCESS_INFORMATION pi;
     ZeroMemory( &pi, sizeof(pi) );
 
-	const BOOL success = CreateProcessA(
+	success = CreateProcessA(
 		NULL, // No module name, use command line
 		commandLineCopy, // Command line
 		NULL, // Process handle not inheritable
@@ -1135,6 +1138,7 @@ void ExecuteProcess(const char *commandLine)
 	if (status == 0) {
 		if (waitpid(pid, &status, 0) != -1) {
 			// Log(Debug, "Child exited with status %i\n", status);
+			success = true;
 		} else {
 			perror("waitpid");
 		}
@@ -1145,6 +1149,8 @@ void ExecuteProcess(const char *commandLine)
 #else
 #error "Missing implementation"
 #endif
+
+	return success;
 }
 
 
@@ -2260,12 +2266,14 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 	CanonicalizePath(directory);
 
 	DataDir = PushString(platform.stringArena, directory);
+	BinDir = DataDir;
 
 	StrCat(directory, "/..");
 	CanonicalizePath(directory);
 	ProjectDir = PushString(platform.stringArena, directory);
 
 	LOG(Info, "Directories:\n");
+	LOG(Info, "- BinDir: %s\n", BinDir);
 	LOG(Info, "- DataDir: %s\n", DataDir);
 	LOG(Info, "- ProjectDir: %s\n", ProjectDir);
 }
