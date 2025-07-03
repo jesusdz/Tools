@@ -269,6 +269,64 @@ struct Scene
 	u32 entityCount;
 };
 
+enum ShaderType
+{
+	ShaderTypeVertex,
+	ShaderTypeFragment,
+	ShaderTypeCompute
+};
+
+#pragma pack(push, 1)
+struct ShaderSourceDesc
+{
+	ShaderType type;
+	const char filename[32];
+	const char entryPoint[32];
+	const char name[32];
+};
+
+struct ShaderAndPipelineDesc
+{
+	const char *vsName;
+	const char *fsName;
+	const char *renderPass;
+	PipelineDesc desc;
+};
+
+struct ShaderAndComputeDesc
+{
+	const char *csName;
+	ComputeDesc desc;
+};
+
+struct ShaderHeader
+{
+	ShaderSourceDesc desc;
+	u32 spirvOffset;
+	u32 spirvSize;
+};
+
+struct DataHeader
+{
+	u32 magicNumber;
+	u32 shadersOffset;
+	u32 shaderCount;
+};
+#pragma pack(pop)
+
+struct LoadedShader
+{
+	ShaderHeader *header;
+	byte *spirv;
+};
+
+struct LoadedData
+{
+	DataHeader *header;
+	LoadedShader *shaders;
+};
+
+
 struct Editor
 {
 	bool selectEntity;
@@ -290,9 +348,9 @@ struct Engine
 	Scene scene;
 
 	Editor editor;
+
+	LoadedData data;
 };
-
-
 
 static const TextureDesc textures[] =
 {
@@ -381,56 +439,27 @@ static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
-enum ShaderType
-{
-	ShaderTypeVertex,
-	ShaderTypeFragment,
-	ShaderTypeCompute
-};
-
-struct ShaderSourceDesc
-{
-	ShaderType type;
-	const char *filename;
-	const char *entryPoint;
-	const char *outputName;
-};
-
 static const ShaderSourceDesc shaderSources[] = {
-	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .outputName = "vs_shading" },
-	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .outputName = "fs_shading" },
-	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .outputName = "vs_sky" },
-	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .outputName = "fs_sky" },
-	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .outputName = "vs_shadowmap" },
-	{ .type = ShaderTypeFragment, .filename = "shadowmap.hlsl",      .entryPoint = "PSMain",      .outputName = "fs_shadowmap" },
-	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .outputName = "vs_ui" },
-	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .outputName = "fs_ui" },
-	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .outputName = "vs_id" },
-	{ .type = ShaderTypeFragment, .filename = "id.hlsl",             .entryPoint = "PSMain",      .outputName = "fs_id" },
-	{ .type = ShaderTypeCompute,  .filename = "compute_select.hlsl", .entryPoint = "CSMain",      .outputName = "compute_select" },
-	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_clear",  .outputName = "compute_clear" },
-	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .outputName = "compute_update" },
-};
-
-struct ShaderAndPipelineDesc
-{
-	const char *vsFilename;
-	const char *fsFilename;
-	const char *renderPass;
-	PipelineDesc desc;
-};
-
-struct ShaderAndComputeDesc
-{
-	const char *csFilename;
-	ComputeDesc desc;
+	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .name = "vs_shading" },
+	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .name = "fs_shading" },
+	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .name = "vs_sky" },
+	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .name = "fs_sky" },
+	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .name = "vs_shadowmap" },
+	{ .type = ShaderTypeFragment, .filename = "shadowmap.hlsl",      .entryPoint = "PSMain",      .name = "fs_shadowmap" },
+	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .name = "vs_ui" },
+	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .name = "fs_ui" },
+	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .name = "vs_id" },
+	{ .type = ShaderTypeFragment, .filename = "id.hlsl",             .entryPoint = "PSMain",      .name = "fs_id" },
+	{ .type = ShaderTypeCompute,  .filename = "compute_select.hlsl", .entryPoint = "CSMain",      .name = "compute_select" },
+	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_clear",  .name = "compute_clear" },
+	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .name = "compute_update" },
 };
 
 static const ShaderAndPipelineDesc pipelineDescs[] =
 {
 	{
-		.vsFilename = "shaders/vs_shading.spv",
-		.fsFilename = "shaders/fs_shading.spv",
+		.vsName = "vs_shading",
+		.fsName = "fs_shading",
 		.renderPass = "main_renderpass",
 		.desc = {
 			.name = "pipeline_shading",
@@ -450,8 +479,8 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 	{
-		.vsFilename = "shaders/vs_shadowmap.spv",
-		.fsFilename = "shaders/fs_shadowmap.spv",
+		.vsName = "vs_shadowmap",
+		.fsName = "fs_shadowmap",
 		.renderPass = "shadowmap_renderpass",
 		.desc = {
 			.name = "pipeline_shadowmap",
@@ -469,8 +498,8 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 	{
-		.vsFilename = "shaders/vs_sky.spv",
-		.fsFilename = "shaders/fs_sky.spv",
+		.vsName = "vs_sky",
+		.fsName = "fs_sky",
 		.renderPass = "main_renderpass",
 		.desc = {
 			.name = "pipeline_sky",
@@ -489,8 +518,8 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 	{
-		.vsFilename = "shaders/vs_ui.spv",
-		.fsFilename = "shaders/fs_ui.spv",
+		.vsName = "vs_ui",
+		.fsName = "fs_ui",
 		.renderPass = "main_renderpass",
 		.desc = {
 			.name = "pipeline_ui",
@@ -510,8 +539,8 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	},
 #if USE_ENTITY_SELECTION
 	{
-		.vsFilename = "shaders/vs_id.spv",
-		.fsFilename = "shaders/fs_id.spv",
+		.vsName = "vs_id",
+		.fsName = "fs_id",
 		.renderPass = "id_renderpass",
 		.desc = {
 			.name = "pipeline_id",
@@ -540,7 +569,7 @@ static const ShaderAndComputeDesc computeDescs[] =
 	//{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
 	//{ .name = "compute_update", .filename = "shaders/compute_update.spv", .function = "main_update" },
 	{
-		.csFilename = "shaders/compute_select.spv",
+		.csName = "compute_select",
 		.desc = {
 			.name = "compute_select",
 			.function = "CSMain"
@@ -551,6 +580,16 @@ static const ShaderAndComputeDesc computeDescs[] =
 static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
 
 static StringInterning *gStringInterning;
+
+u32 U32FromChars(char a, char b, char c, char d)
+{
+	const u32 res =
+		(u32)a << 0 |
+		(u32)b << 8 |
+		(u32)c << 16 |
+		(u32)d << 24 ;
+	return res;
+}
 
 Engine &GetEngine(Platform &platform)
 {
@@ -593,7 +632,7 @@ void CompileShaders()
 			desc.type == ShaderTypeCompute ? "cs_6_7" :
 			"unknown";
 		const char *entry = desc.entryPoint;
-		const char *output = desc.outputName;
+		const char *output = desc.name;
 		const char *filename = desc.filename;
 		SPrintf(text,
 			"%s/%s "
@@ -609,7 +648,7 @@ void CompileShaders()
 	}
 }
 
-void CopyAssets()
+void CopyTextures()
 {
 	char text[MAX_PATH_LENGTH];
 
@@ -1050,8 +1089,12 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	renderTargets = {};
 }
 
-static ShaderSource GetShaderSource(Arena &arena, const char *filename)
+#define LOAD_FROM_SOURCE_FILES 1
+#if LOAD_FROM_SOURCE_FILES
+static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 {
+	char filename[MAX_PATH_LENGTH];
+	SPrintf(filename, "shaders/%s.spv", shaderName);
 	FilePath shaderPath = MakePath(DataDir, filename);
 	DataChunk *chunk = PushFile( arena, shaderPath.str );
 	if ( !chunk ) {
@@ -1061,15 +1104,50 @@ static ShaderSource GetShaderSource(Arena &arena, const char *filename)
 	ShaderSource shaderSource = { chunk->bytes, chunk->size };
 	return shaderSource;
 }
-
-static void CompileGraphicsPipeline(Graphics &gfx, Arena scratch, u32 pipelineIndex)
+#else
+static ShaderSource GetShaderSource(LoadedData &data, const char *shaderName)
 {
+	byte *bytes = 0;
+	u32 size = 0;
+	for (u32 i = 0; i < data.header->shaderCount; ++i)
+	{
+		LoadedShader &loadedShader = data.shaders[i];
+		if ( StrEq( loadedShader.header->desc.name, shaderName) )
+		{
+			bytes = loadedShader.spirv;
+			size = loadedShader.header->spirvSize;
+		}
+	}
+	if ( !bytes ) {
+		LOG( Error, "Could not find shader in data: %s\n", shaderName );
+		LOG( Error, "Shaders in data:\n");
+		for (u32 i = 0; i < data.header->shaderCount; ++i)
+		{
+			LoadedShader &loadedShader = data.shaders[i];
+			LOG( Error, "- %s\n", loadedShader.header->desc.name);
+		}
+		QUIT_ABNORMALLY();
+	}
+	const ShaderSource shaderSource = { .data = bytes, .dataSize = size };
+	return shaderSource;
+}
+#endif
+
+static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineIndex)
+{
+	Graphics &gfx = engine.gfx;
+
 	const RenderPassH renderPassH = FindRenderPassHandle(gfx, pipelineDescs[pipelineIndex].renderPass);
 
 	PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
 	desc.renderPass = GetRenderPass(gfx.device, renderPassH);
-	desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsFilename);
-	desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsFilename);
+#if LOAD_FROM_SOURCE_FILES
+	desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsName);
+	desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsName);
+#else
+	desc.vertexShaderSource = GetShaderSource(engine.data, pipelineDescs[pipelineIndex].vsName);
+	desc.fragmentShaderSource = GetShaderSource(engine.data, pipelineDescs[pipelineIndex].fsName);
+#endif
 
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = pipelineHandles[pipelineIndex];
@@ -1081,10 +1159,18 @@ static void CompileGraphicsPipeline(Graphics &gfx, Arena scratch, u32 pipelineIn
 	pipelineHandles[pipelineIndex] = pipelineH;
 }
 
-static void CompileComputePipeline(Graphics &gfx, Arena scratch, u32 pipelineIndex)
+static void LoadData(Engine &engine);
+
+static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIndex)
 {
+	Graphics &gfx = engine.gfx;
+
 	ComputeDesc desc = computeDescs[pipelineIndex].desc;
-	desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csFilename);
+#if LOAD_FROM_SOURCE_FILES
+	desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csName);
+#else
+	desc.computeShaderSource = GetShaderSource(engine.data, computeDescs[pipelineIndex].csName);
+#endif
 
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = computeHandles[pipelineIndex];
@@ -1272,16 +1358,18 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	};
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
+	LoadData(engine);
+
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
-		CompileGraphicsPipeline(gfx, scratch, i);
+		CompileGraphicsPipeline(engine, scratch, i);
 	}
 
 	// Compute pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
 	{
-		CompileComputePipeline(gfx, scratch, i);
+		CompileComputePipeline(engine, scratch, i);
 	}
 
 #if USE_UI
@@ -2261,8 +2349,10 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	return true;
 }
 
-void HotReloadAssets(Graphics &gfx, Arena scratch)
+void HotReloadAssets(Engine &engine, Arena scratch)
 {
+	Graphics &gfx = engine.gfx;
+
 	if ( gfx.reloadQueueSize > 0 )
 	{
 		WaitDeviceIdle(gfx.device);
@@ -2270,7 +2360,7 @@ void HotReloadAssets(Graphics &gfx, Arena scratch)
 		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
 		{
 			const u32 pipelineIndex = gfx.reloadQueue[i];
-			CompileGraphicsPipeline(gfx, scratch, pipelineIndex);
+			CompileGraphicsPipeline(engine, scratch, pipelineIndex);
 		}
 
 		gfx.reloadQueueSize = 0;
@@ -2971,7 +3061,7 @@ void OnPlatformUpdate(Platform &platform)
 		EndEntitySelection(engine);
 #endif
 
-		HotReloadAssets(gfx, platform.frameArena);
+		HotReloadAssets(engine, platform.frameArena);
 	}
 }
 
@@ -3013,16 +3103,106 @@ void OnPlatformCleanup(Platform &platform)
 }
 
 #if USE_DATA_BUILD
-void BuildData()
+static void BuildData(Arena frameArena)
 {
 	LOG(Info, "Building data\n");
 	CreateDirectory("build");
 	CreateDirectory("build/shaders");
 	CreateDirectory("build/assets");
 	CompileShaders();
-	CopyAssets();
+	CopyTextures();
+
+	FilePath filepath =  MakePath(DataDir, "shaders.dat");
+	FILE *file = fopen(filepath.str, "wb");
+	if ( file )
+	{
+		const u32 shaderCount = ARRAY_COUNT(shaderSources);
+		const u32 shadersOffset = sizeof( DataHeader );
+
+		// Write file header
+		const DataHeader dataHeader = {
+			.magicNumber = U32FromChars('I', 'R', 'I', 'S'),
+			.shadersOffset = shadersOffset,
+			.shaderCount = shaderCount,
+		};
+		fwrite(&dataHeader, sizeof(dataHeader), 1, file);
+
+		u32 shaderPayloadOffset = shadersOffset + shaderCount * sizeof(ShaderHeader);
+
+		// Write asset headers
+		for (u32 i = 0; i < shaderCount; ++i)
+		{
+			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
+
+			char filepath[MAX_PATH_LENGTH];
+			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
+
+			u64 payloadSize = 0;
+			GetFileSize(filepath, payloadSize);
+
+			const ShaderHeader shaderHeader = {
+				.desc = shaderSources[i],
+				.spirvOffset = shaderPayloadOffset,
+				.spirvSize = U64ToU32(payloadSize),
+			};
+			fwrite(&shaderHeader, sizeof(shaderHeader), 1, file);
+
+			shaderPayloadOffset += payloadSize;
+		}
+
+		// Write asset payload
+		for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
+		{
+			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
+
+			char filepath[MAX_PATH_LENGTH];
+			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
+
+			u64 payloadSize = 0;
+			GetFileSize(filepath, payloadSize);
+
+			Arena scratch = MakeSubArena(frameArena);
+			void *shaderPayload = PushSize(scratch, payloadSize);
+			ReadEntireFile(filepath, shaderPayload, payloadSize);
+
+			fwrite(shaderPayload, payloadSize, 1, file);
+		}
+
+		fclose(file);
+	}
 }
 #endif // USE_DATA_BUILD
+
+static void LoadData(Engine &engine)
+{
+	Arena &dataArena = engine.platform.dataArena;
+	ResetArena(dataArena);
+
+	const FilePath filepath = MakePath(DataDir, "shaders.dat");
+
+	DataChunk *chunk = PushFile( dataArena, filepath.str );
+	if ( !chunk ) {
+		LOG( Error, "Could not open file %s\n", filepath.str );
+		QUIT_ABNORMALLY();
+	}
+
+	byte *bytes =  chunk->bytes;
+	DataHeader *dataHeader = (DataHeader*)bytes;
+
+	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
+
+	engine.data.header = dataHeader;
+	engine.data.shaders = PushArray(dataArena, LoadedShader, dataHeader->shaderCount);
+
+	for (u32 i = 0; i < dataHeader->shaderCount; ++i)
+	{
+		LoadedShader &shader = engine.data.shaders[i];
+		shader.header = shaderHeaders + i;
+		shader.spirv = bytes + shader.header->spirvOffset;
+	}
+
+	LOG(Debug, "Hola\n");
+}
 
 void EngineMain( int argc, char **argv,  void *userData )
 {
@@ -3030,6 +3210,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	// Memory
 	engine.platform.stringMemorySize = KB(16);
+	engine.platform.dataMemorySize = MB(16);
 	engine.platform.globalMemorySize = MB(64);
 	engine.platform.frameMemorySize = MB(16);
 
@@ -3057,12 +3238,13 @@ void EngineMain( int argc, char **argv,  void *userData )
 		}
 	}
 
-	if ( !ExistsFile("build/shaders.dat") ) {
+	FilePath dataFilepath =  MakePath(DataDir, "shaders.dat");
+	if ( !ExistsFile(dataFilepath.str) ) {
 		buildData = true;
 	}
 
 	if ( buildData ) {
-		BuildData();
+		BuildData(engine.platform.frameArena);
 	}
 #endif // USE_DATA_BUILD
 
