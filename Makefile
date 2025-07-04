@@ -5,7 +5,6 @@ CXXFLAGS= -g
 BUILD_DIR=build
 DATA_DIR=${BUILD_DIR}
 DATA_SHADERS_DIR=${DATA_DIR}/shaders
-DATA_ASSETS_DIR=${DATA_DIR}/assets
 DXC=./dxc/linux/bin/dxc
 
 # Requires Vulkan 1.3
@@ -54,7 +53,6 @@ main_alsa: directories
 directories:
 	mkdir -p build
 	mkdir -p build/shaders
-	mkdir -p build/assets
 
 data: directories
 	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_shading.spv -Fc ${DATA_SHADERS_DIR}/vs_shading.dis -Fi shaders/vs_shading.pp shaders/shading.hlsl
@@ -70,7 +68,6 @@ data: directories
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E CSMain -Fo ${DATA_SHADERS_DIR}/compute_select.spv -Fc ${DATA_SHADERS_DIR}/compute_select.dis shaders/compute_select.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_clear -Fo ${DATA_SHADERS_DIR}/compute_clear.spv -Fc ${DATA_SHADERS_DIR}/compute_clear.dis shaders/compute.hlsl
 	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_update -Fo ${DATA_SHADERS_DIR}/compute_update.spv -Fc ${DATA_SHADERS_DIR}/compute_update.dis shaders/compute.hlsl
-	cp -R assets/* ${DATA_ASSETS_DIR}
 
 clean:
 	rm -rf build

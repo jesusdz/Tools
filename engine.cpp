@@ -43,16 +43,10 @@
 #define INVALID_HANDLE -1
 
 #define USE_ENTITY_SELECTION 1
+#define LOAD_FROM_SOURCE_FILES 1
 
 
 
-
-struct TextureDesc
-{
-	const char *name;
-	const char *filename;
-	int mipmap;
-};
 
 struct MaterialDesc
 {
@@ -292,6 +286,13 @@ enum ShaderType
 };
 
 #pragma pack(push, 1)
+struct TextureDesc
+{
+	const char name[32];
+	const char filename[32];
+	int mipmap;
+};
+
 struct ShaderSourceDesc
 {
 	ShaderType type;
@@ -321,11 +322,23 @@ struct ShaderHeader
 	u32 spirvSize;
 };
 
+struct ImageHeader
+{
+	TextureDesc desc;
+	u16 width;
+	u16 height;
+	u8  channels;
+	u32 pixelsOffset;
+	u32 pixelsSize;
+};
+
 struct DataHeader
 {
 	u32 magicNumber;
 	u32 shadersOffset;
 	u32 shaderCount;
+	u32 imagesOffset;
+	u32 imageCount;
 };
 #pragma pack(pop)
 
@@ -335,10 +348,17 @@ struct LoadedShader
 	byte *spirv;
 };
 
+struct LoadedImage
+{
+	ImageHeader *header;
+	byte *pixels;
+};
+
 struct LoadedData
 {
 	DataHeader *header;
 	LoadedShader *shaders;
+	LoadedImage *images;
 };
 
 
@@ -877,10 +897,11 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
+#if LOAD_FROM_SOURCE_FILES
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	int texWidth, texHeight, texChannels;
-	FilePath imagePath = MakePath(DataDir, desc.filename);
+	FilePath imagePath = MakePath(ProjectDir, desc.filename);
 	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	texChannels = 4; // Because we use STBI_rgb_alpha
 	stbi_uc* pixels = originalPixels;
@@ -904,6 +925,25 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	{
 		stbi_image_free(originalPixels);
 	}
+
+	return textureHandle;
+}
+#endif
+
+TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
+{
+	const TextureDesc &desc = image.header->desc;
+	const u32 width = image.header->width;
+	const u32 height = image.header->height;
+	const u32 channels = image.header->channels;
+	const u8 *pixels = image.pixels;
+
+	const ImageH imageHandle = CreateImage(gfx, desc.name, width, height, channels, desc.mipmap, pixels);
+
+	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
+	const TextureH textureHandle = gfx.textureCount++;
+	gfx.textures[textureHandle].name = desc.name;
+	gfx.textures[textureHandle].image = imageHandle;
 
 	return textureHandle;
 }
@@ -1104,7 +1144,6 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	renderTargets = {};
 }
 
-#define LOAD_FROM_SOURCE_FILES 1
 #if LOAD_FROM_SOURCE_FILES
 static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 {
@@ -1472,10 +1511,12 @@ void InitializeScene(Engine &engine, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
 
+#if LOAD_FROM_SOURCE_FILES
 	for (u32 i = 0; i < ARRAY_COUNT(textures); ++i)
 	{
 		CreateTexture(gfx, textures[i]);
 	}
+#endif
 
 	for (u32 i = 0; i < ARRAY_COUNT(materials); ++i)
 	{
@@ -3135,30 +3176,40 @@ void OnPlatformCleanup(Platform &platform)
 static void BuildData(Arena frameArena)
 {
 	LOG(Info, "Building data\n");
-	CreateDirectory("build");
-	CreateDirectory("build/shaders");
-	CreateDirectory("build/assets");
-	CompileShaders();
-	CopyTextures();
 
-	FilePath filepath =  MakePath(DataDir, "shaders.dat");
+	FilePath dir;
+	CreateDirectory( MakePath(ProjectDir, "build").str );
+	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
+
+	CompileShaders();
+
+	FilePath filepath =  MakePath(DataDir, "assets.dat");
 	FILE *file = fopen(filepath.str, "wb");
 	if ( file )
 	{
 		const u32 shaderCount = ARRAY_COUNT(shaderSources);
 		const u32 shadersOffset = sizeof( DataHeader );
+		const u32 shadersSize = shaderCount * sizeof(ShaderHeader);
+		const u32 imageCount = ARRAY_COUNT(textures);
+		const u32 imagesOffset = shadersOffset + shadersSize;
+		const u32 imagesSize = imageCount * sizeof(ImageHeader);
+		const u32 basePayloadOffset = imagesOffset + imagesSize;
 
 		// Write file header
 		const DataHeader dataHeader = {
 			.magicNumber = U32FromChars('I', 'R', 'I', 'S'),
 			.shadersOffset = shadersOffset,
 			.shaderCount = shaderCount,
+			.imagesOffset = imagesOffset,
+			.imageCount = imageCount,
 		};
 		fwrite(&dataHeader, sizeof(dataHeader), 1, file);
 
-		u32 shaderPayloadOffset = shadersOffset + shaderCount * sizeof(ShaderHeader);
+		u32 payloadOffset = basePayloadOffset;
 
 		// Write asset headers
+
+		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
 		{
 			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
@@ -3171,15 +3222,49 @@ static void BuildData(Arena frameArena)
 
 			const ShaderHeader shaderHeader = {
 				.desc = shaderSources[i],
-				.spirvOffset = shaderPayloadOffset,
+				.spirvOffset = payloadOffset,
 				.spirvSize = U64ToU32(payloadSize),
 			};
 			fwrite(&shaderHeader, sizeof(shaderHeader), 1, file);
 
-			shaderPayloadOffset += payloadSize;
+			payloadOffset += payloadSize;
 		}
 
-		// Write asset payload
+		// Images
+		for (u32 i = 0; i < imageCount; ++i)
+		{
+			const TextureDesc &texture = textures[i];
+
+			const FilePath imagePath = MakePath(ProjectDir, texture.filename);
+
+			int texWidth, texHeight, texChannels;
+			int ok = stbi_info(imagePath.str, &texWidth, &texHeight, &texChannels);
+			texChannels = 4; // Because we use STBI_rgb_alpha
+			if ( !ok )
+			{
+				LOG(Error, "stbi_info failed to load %s\n", imagePath.str);
+				texWidth = texHeight = 1;
+				texChannels = 4;
+			}
+
+			const u64 payloadSize = texWidth * texHeight * texChannels;
+
+			const ImageHeader imageHeader = {
+				.desc = texture,
+				.width = I32ToU16(texWidth),
+				.height = I32ToU16(texHeight),
+				.channels = I32ToU8(texChannels),
+				.pixelsOffset = payloadOffset,
+				.pixelsSize = U64ToU32(payloadSize),
+			};
+			fwrite(&imageHeader, sizeof(imageHeader), 1, file);
+
+			payloadOffset += payloadSize;
+		}
+
+		// Write assets payload
+
+		// Shaders
 		for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
 		{
 			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
@@ -3197,6 +3282,37 @@ static void BuildData(Arena frameArena)
 			fwrite(shaderPayload, payloadSize, 1, file);
 		}
 
+		// Images
+		for (u32 i = 0; i < imageCount; ++i)
+		{
+			const TextureDesc &texture = textures[i];
+
+			const FilePath imagePath = MakePath(ProjectDir, texture.filename);
+
+			int texWidth, texHeight, texChannels;
+			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+			texChannels = 4; // Because we use STBI_rgb_alpha
+			stbi_uc* pixels = originalPixels;
+			if ( !pixels )
+			{
+				LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
+				static stbi_uc constPixels[] = {255, 0, 255, 255};
+				pixels = constPixels;
+				texWidth = texHeight = 1;
+				texChannels = 4;
+			}
+
+			const u64 payloadSize = texWidth * texHeight * texChannels;
+
+			fwrite(pixels, payloadSize, 1, file);
+
+			if ( originalPixels ) {
+				stbi_image_free(originalPixels);
+			}
+
+			payloadOffset += payloadSize;
+		}
+
 		fclose(file);
 	}
 }
@@ -3207,7 +3323,7 @@ static void LoadData(Engine &engine)
 	Arena &dataArena = engine.platform.dataArena;
 	ResetArena(dataArena);
 
-	const FilePath filepath = MakePath(DataDir, "shaders.dat");
+	const FilePath filepath = MakePath(DataDir, "assets.dat");
 
 	DataChunk *chunk = PushFile( dataArena, filepath.str );
 	if ( !chunk ) {
@@ -3224,16 +3340,28 @@ static void LoadData(Engine &engine)
 		QUIT_ABNORMALLY();
 	}
 
-	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
-
 	engine.data.header = dataHeader;
 	engine.data.shaders = PushArray(dataArena, LoadedShader, dataHeader->shaderCount);
+	engine.data.images = PushArray(dataArena, LoadedImage, dataHeader->imageCount);
+
+	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
 
 	for (u32 i = 0; i < dataHeader->shaderCount; ++i)
 	{
 		LoadedShader &shader = engine.data.shaders[i];
 		shader.header = shaderHeaders + i;
 		shader.spirv = bytes + shader.header->spirvOffset;
+	}
+
+	ImageHeader *imageHeaders = (ImageHeader*)(bytes + dataHeader->imagesOffset);
+
+	for (u32 i = 0; i < dataHeader->imageCount; ++i)
+	{
+		LoadedImage &image = engine.data.images[i];
+		image.header = imageHeaders + i;
+		image.pixels = bytes + image.header->pixelsOffset;
+
+		CreateTexture(engine.gfx, image);
 	}
 }
 
@@ -3271,7 +3399,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 		}
 	}
 
-	FilePath dataFilepath =  MakePath(DataDir, "shaders.dat");
+	FilePath dataFilepath =  MakePath(DataDir, "assets.dat");
 	if ( !ExistsFile(dataFilepath.str) ) {
 		buildData = true;
 	}

@@ -15,9 +15,6 @@ set DataDir=%BuildDir%
 IF NOT EXIST %DataDir%\shaders mkdir %DataDir%\shaders
 set DataShadersDir=%DataDir%\shaders
 
-IF NOT EXIST %DataDir%\assets mkdir %DataDir%\assets
-set DataAssetsDir=%DataDir%\assets
-
 set DXC=%RootDir%\dxc\windows\bin\x64\dxc.exe
 
 REM set CommonCompilerFlags=-diagnostics:column -WL -O2 -nologo -fp:fast -fp:except- -Gm- -GR- -EHa- -Zo -Oi -WX -W4 -wd4201 -wd4100 -wd4189 -wd4505 -wd4127 -FC -Z7 -GS- -Gs9999999
@@ -220,10 +217,6 @@ REM 	%DXC% -nologo -E main -T vs_6_0 -Zi -Fd vertex.pdb -Fo vertex.cso vertex.hl
 REM 	%DXC% -nologo -E main -T ps_6_0 -Zi -Fd fragment.pdb -Fo fragment.cso fragment.hlsl
 REM )
 
-popd
-
-pushd assets
-copy *.* %DataAssetsDir%
 popd
 
 exit /b 0
