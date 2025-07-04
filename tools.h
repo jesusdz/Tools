@@ -172,7 +172,21 @@ CT_ASSERT(sizeof(byte) == 1);
 u32 U64ToU32(u64 value)
 {
 	ASSERT(value <= U32_MAX);
-	u32 res = (u64)value;
+	const u32 res = (u64)value;
+	return res;
+}
+
+u16 I32ToU16(i32 value)
+{
+	ASSERT( value >= 0 && value < U16_MAX );
+	const u16 res = (u16)value;
+	return res;
+}
+
+u8 I32ToU8(i32 value)
+{
+	ASSERT( value >= 0 && value < U8_MAX );
+	const u8 res = (u8)value;
 	return res;
 }
 
