@@ -111,19 +111,21 @@
 #include "imgui/imgui_impl_xcb.cpp"
 #else
 #error "Missing ImGui implementation file"
-
-#endif // #if USE_IMGUI
+#endif
 
 // Undefining VK_NO_PROTOTYPES here to avoid ImGui to retrieve Vulkan functions again.
 #undef VK_NO_PROTOTYPES
 #include "imgui/imgui_impl_vulkan.cpp"
-#endif
+
+#endif // USE_IMGUI
 
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
 #define SPV_IMPLEMENTATION
 #define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
+
+#include "offset_allocator/offsetAllocator.cpp"
 
 #define MAX_BIND_GROUPS 4
 #define MAX_SHADER_BINDINGS 16
@@ -304,6 +306,7 @@ struct Alloc
 	HeapType heap;
 	u64 offset;
 	u64 size;
+	OffsetAllocator::Allocation allocation;
 };
 
 struct ShaderBinding
@@ -662,6 +665,8 @@ struct GraphicsDevice
 	RenderPass renderPasses[MAX_RENDERPASSES];
 	u32 renderPassCount;
 };
+
+static OffsetAllocator::Allocator generalAllocator(MB(16));
 
 
 
@@ -2190,6 +2195,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	device.alignment.storageBufferOffset = properties.limits.minStorageBufferOffsetAlignment;
 	device.alignment.optimalBufferCopyOffset = properties.limits.optimalBufferCopyOffsetAlignment;
 	device.alignment.optimalBufferCopyRowPitch = properties.limits.optimalBufferCopyRowPitchAlignment;
+	// TODO: We should get `bufferImageGranularity` to avoid aliasing between adjacent resources with linear vs. tiled layouts
 
 
 	// Timestamp queries support
@@ -2501,18 +2507,39 @@ BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &des
 
 Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
 {
-	const VkDeviceSize offset = AlignUp( heap.used, alignment );
+	if ( heap.type == HeapType_General )
+	{
+		ASSERT( heap.used == 0 ); // Check only this code path allocates from the general heap
 
-	ASSERT( offset + size <= heap.size );
-	heap.used = offset + size;
+		const u32 totalSize = size + alignment;
+		const OffsetAllocator::Allocation allocation = generalAllocator.allocate(totalSize);
 
-	const Alloc alloc = {
-		.heap = heap.type,
-		.offset = offset,
-		.size = size,
-	};
+		const VkDeviceSize offset = AlignUp( allocation.offset, alignment );
 
-	return alloc;
+		const Alloc alloc = {
+			.heap = heap.type,
+			.offset = offset,
+			.size = size,
+			.allocation = allocation,
+		};
+
+		return alloc;
+	}
+	else
+	{
+		const VkDeviceSize offset = AlignUp( heap.used, alignment );
+
+		ASSERT( offset + size <= heap.size );
+		heap.used = offset + size;
+
+		const Alloc alloc = {
+			.heap = heap.type,
+			.offset = offset,
+			.size = size,
+		};
+
+		return alloc;
+	}
 }
 
 void HeapFree(Alloc alloc)
@@ -2520,6 +2547,10 @@ void HeapFree(Alloc alloc)
 	// TODO: Missing implementation
 	// Ideally we would want to have to possibility to associate a different allocator
 	// for each heap so that we can use it to alloc/free chunks of memory on it.
+	if ( alloc.heap == HeapType_General )
+	{
+		generalAllocator.free(alloc.allocation);
+	}
 }
 
 
@@ -2714,17 +2745,16 @@ bool IsSwapchainImage(ImageH image)
 
 void DestroyImage(const GraphicsDevice &device, const Image &image)
 {
-	if ( image.handle != VK_NULL_HANDLE )
-	{
-		vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
-	}
-
 	if ( image.imageViewHandle != VK_NULL_HANDLE )
 	{
 		DestroyImageView( device, image.imageViewHandle );
 	}
 
-	HeapFree(image.alloc);
+	if ( image.handle != VK_NULL_HANDLE )
+	{
+		vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
+		HeapFree(image.alloc);
+	}
 }
 
 void DestroyImageH(GraphicsDevice &device, ImageH imageH)
