@@ -3378,6 +3378,7 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
     char sPath[2048];
 
     //Specify a file mask. *.* = We want everything!
+	constexpr const char * sDir = "assets";
     sprintf(sPath, "%s\\*.*", sDir);
 
     if((hFind = FindFirstFile(sPath, &fdFile)) == INVALID_HANDLE_VALUE)
@@ -3401,7 +3402,7 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
             if(fdFile.dwFileAttributes &FILE_ATTRIBUTE_DIRECTORY)
             {
                 printf("Directory: %s\n", sPath);
-                ListDirectoryContents(sPath); //Recursion, I love it!
+                //ListDirectoryContents(sPath); //Recursion, I love it!
             }
             else{
                 printf("File: %s\n", sPath);
