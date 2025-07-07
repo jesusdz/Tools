@@ -1050,7 +1050,45 @@ bool CopyFile(const char *srcPath, const char *dstPath)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// File paths
+
+const char *BinDir = "";
+const char *DataDir = "";
+const char *ProjectDir = "";
+
+struct FilePath
+{
+	char str[MAX_PATH_LENGTH];
+};
+
+FilePath MakePath(const char *basePath, const char *relativePath)
+{
+	FilePath path = {};
+	StrCopy(path.str, basePath);
+	StrCat(path.str, "/");
+	StrCat(path.str, relativePath);
+	return path;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Directories
+
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+struct Dir
+{
+	DIR *handle;
+};
+
+struct DirEntry
+{
+	dirent *handle;
+	const char *name;
+};
+#elif PLATFORM_WINDOWS
+#error "Missing implementation"
+#endif
 
 bool CreateDirectory(const char *path)
 {
@@ -1072,27 +1110,46 @@ bool CreateDirectory(const char *path)
 	return ok;
 }
 
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// File paths
-
-const char *BinDir = "";
-const char *DataDir = "";
-const char *ProjectDir = "";
-
-struct FilePath
+bool OpenDir(Dir &dir, const char *path) 
 {
-	char str[MAX_PATH_LENGTH];
-};
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	dir.handle = opendir(path);
+	return dir.handle != nullptr;
+#elif PLATFORM_WINDOWS
+	// TODO
+#else
+#error "Missing implementation"
+#endif
+}
 
-FilePath MakePath(const char *basePath, const char *relativePath)
+bool ReadDir(Dir &dir, DirEntry &entry)
 {
-	FilePath path = {};
-	StrCopy(path.str, basePath);
-	StrCat(path.str, "/");
-	StrCat(path.str, relativePath);
-	return path;
+	bool res = false;
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	if ( dir.handle )
+	{
+		entry.handle = readdir(dir.handle);
+		entry.name = entry.handle->d_name;
+		res = entry.handle != nullptr;
+	}
+#else
+	// TODO
+#error "Missing implementation"
+#endif
+	return res;
+}
+
+void CloseDir(Dir &dir)
+{
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	if ( dir.handle )
+	{
+		closedir(dir.handle);
+	}
+#else
+	// TODO
+#error "Missing implementation"
+#endif
 }
 
 
@@ -3301,17 +3358,19 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	InitializeDirectories(platform, argc, argv);
 
 #if 0 // Read directory test
-#if PLATFORM_LINUX
-	FilePath filepath = MakePath(ProjectDir, "assets");
-	DIR *d;
-	struct dirent *dir;
-	d = opendir(filepath.str);
-	if (d) {
-		while ((dir = readdir(d)) != NULL) {
-			LOG(Debug, "%s\n", dir->d_name);
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	Dir dir = {};
+	FilePath path = MakePath(ProjectDir, "assets");
+	if ( OpenDir(dir, path.str) )
+	{
+		DirEntry entry;
+		while ( ReadDir(dir, entry) )
+		{
+			LOG(Debug, "%s\n", entry.name);
 		}
-		closedir(d);
+		CloseDir(dir);
 	}
+
 #elif PLATFORM_WINDOWS
 	    WIN32_FIND_DATA fdFile;
     HANDLE hFind = NULL;
