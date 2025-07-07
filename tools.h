@@ -1155,9 +1155,14 @@ bool ReadDir(Dir &dir, DirEntry &entry)
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	if ( dir.handle )
 	{
-		entry.data = readdir(dir.handle);
-		entry.name = entry.data->d_name;
-		res = entry.data != nullptr;
+		do
+		{
+			entry.data = readdir(dir.handle);
+			entry.name = entry.data->d_name;
+			res = entry.data != nullptr;
+		}
+		// We skip . and .. directories
+		while ( res && ( StrEq(entry.name, ".") || StrEq(entry.name, "..") ) );
 	}
 #elif PLATFORM_WINDOWS
 	if ( dir.handle != INVALID_HANDLE_VALUE )
@@ -1177,11 +1182,13 @@ void CloseDir(Dir &dir)
 	if ( dir.handle )
 	{
 		closedir(dir.handle);
+		dir.handle = nullptr;
 	}
 #elif PLATFORM_WINDOWS
 	if ( dir.handle != INVALID_HANDLE_VALUE )
 	{
 		FindClose(dir.handle);
+		dir.handle = INVALID_HANDLE_VALUE;
 	}
 #else
 #error "Missing implementation"
@@ -3392,64 +3399,6 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 #endif // PLATFORM_ANDROID
 
 	InitializeDirectories(platform, argc, argv);
-
-#if 1 // Read directory test
-#if 1
-	Dir dir = {};
-	FilePath path = MakePath(ProjectDir, "assets");
-	if ( OpenDir(dir, path.str) )
-	{
-		DirEntry entry;
-		while ( ReadDir(dir, entry) )
-		{
-			LOG(Debug, "%s\n", entry.name);
-		}
-		CloseDir(dir);
-	}
-
-#elif PLATFORM_WINDOWS
-	WIN32_FIND_DATA fdFile;
-    HANDLE hFind = NULL;
-
-    char sPath[2048];
-
-    //Specify a file mask. *.* = We want everything!
-	constexpr const char * sDir = "assets";
-    sprintf(sPath, "%s\\*.*", sDir);
-
-    if((hFind = FindFirstFile(sPath, &fdFile)) == INVALID_HANDLE_VALUE)
-    {
-        printf("Path not found: [%s]\n", sDir);
-        return false;
-    }
-
-    do
-    {
-        //Find first file will always return "."
-        //    and ".." as the first two directories.
-        if(strcmp(fdFile.cFileName, ".") != 0
-                && strcmp(fdFile.cFileName, "..") != 0)
-        {
-            //Build up our file path using the passed in
-            //  [sDir] and the file/foldername we just found:
-            sprintf(sPath, "%s\\%s", sDir, fdFile.cFileName);
-
-            //Is the entity a File or Folder?
-            if(fdFile.dwFileAttributes &FILE_ATTRIBUTE_DIRECTORY)
-            {
-                printf("Directory: %s\n", sPath);
-                //ListDirectoryContents(sPath); //Recursion, I love it!
-            }
-            else{
-                printf("File: %s\n", sPath);
-            }
-        }
-    }
-    while(FindNextFile(hFind, &fdFile)); //Find the next file.
-
-    FindClose(hFind); //Always, Always, clean things up!
-#endif
-#endif
 
 	return true;
 }
