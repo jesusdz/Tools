@@ -14,6 +14,7 @@
 
 // Colors
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
+constexpr float4 UiColorOrange = {1.0, 0.6, 0.0, 1.0};
 constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
 constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
@@ -76,6 +77,12 @@ struct UIWindow
 
 	UISection sections[16];
 	u32 sectionCount;
+};
+
+enum UIWidgetFlags
+{
+	UIWidgetFlag_None = 0,
+	UIWidgetFlag_Outline = (1<<0),
 };
 
 struct UIWidget
@@ -1197,18 +1204,33 @@ void UI_Separator(UI &ui)
 	UI_CursorAdvance(ui, size);
 }
 
-void UI_Image(UI &ui, ImageH image)
+bool UI_Image(UI &ui, ImageH image, UIWidgetFlags flags = UIWidgetFlag_None)
 {
-	const float2 pos = ui.currentPos;
-	const float2 size = { 50.0f, 50.0f };
+	const float2 framePos = ui.currentPos;
+	const float2 frameSize = { 50.0f, 50.0f };
+
+	const float2 borderSize = { 1, 1 };
+	const float2 pos = framePos + borderSize;
+	const float2 size = frameSize - 2 * borderSize;
+
 	const float2 uvPos = {0.0f, 0.0f};
 	const float2 uvSize = {1.0f, 1.0f};
 	UI_PushDrawList(ui, image);
 	UI_BeginWidget(ui, pos, size);
 	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
+	const bool clicked = UI_WidgetClicked(ui);
 	UI_EndWidget(ui);
 	UI_CursorAdvance(ui, size);
 	UI_PopDrawList(ui);
+
+	if (flags & UIWidgetFlag_Outline )
+	{
+		UI_PushColor(ui, UiColorOrange);
+		UI_AddBorder(ui, framePos, frameSize, 1);
+		UI_PopColor(ui);
+	}
+
+	return clicked;
 }
 
 void UI_SetActiveWidget(UI &ui, u32 widgetId)
@@ -1512,8 +1534,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	const f32 barWidth = histogramWidth / valueCount;
 	const float2 barBase = histPos + float2{0.0f, histSize.y};
 
-	const float4 colorOrange = {1.0, 0.6, 0.0, 1.0};
-	UI_PushColor(ui, colorOrange);
+	UI_PushColor(ui, UiColorOrange);
 	for (u32 i = 0; i < valueCount; ++i)
 	{
 		const float heightRatio = values[i] / maxValue;

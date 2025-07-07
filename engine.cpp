@@ -43,7 +43,7 @@
 #define INVALID_HANDLE -1
 
 #define USE_ENTITY_SELECTION 1
-#define LOAD_FROM_SOURCE_FILES 1
+#define LOAD_FROM_SOURCE_FILES 0
 
 
 
@@ -2728,6 +2728,35 @@ void UpdateUI(Engine &engine)
 			}
 			UI_Label(ui, pipelineName);
 			UI_EndLayout(ui);
+		}
+	}
+
+	if ( UI_Section( ui, "Textures" ) )
+	{
+		static u32 selectedTexture = -1;
+		constexpr u32 imagesPerRow = 3;
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		for (u32 i = 0; i < gfx.textureCount; ++i)
+		{
+			const UIWidgetFlags flags = selectedTexture == i ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+			if (UI_Image(ui, gfx.textures[i].image, flags))
+			{
+				selectedTexture = i;
+			}
+
+			if ( (i + 1) % imagesPerRow == 0 ) {
+				UI_EndLayout(ui);
+				UI_BeginLayout(ui, UiLayoutHorizontal);
+			}
+		}
+		UI_EndLayout(ui);
+
+		if (selectedTexture != -1)
+		{
+			if (UI_Button(ui, "Remove"))
+			{
+				LOG(Debug, "Remove texture!\n");
+			}
 		}
 	}
 
