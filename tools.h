@@ -1083,10 +1083,21 @@ struct Dir
 
 struct DirEntry
 {
-	dirent *handle;
+	dirent *data;
 	const char *name;
 };
 #elif PLATFORM_WINDOWS
+struct Dir
+{
+    HANDLE handle;
+};
+
+struct DirEntry
+{
+	WIN32_FIND_DATA data;
+	const char *name;
+};
+#else
 #error "Missing implementation"
 #endif
 
@@ -1112,14 +1123,30 @@ bool CreateDirectory(const char *path)
 
 bool OpenDir(Dir &dir, const char *path) 
 {
+	bool res = false;
+
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	dir.handle = opendir(path);
+	res = dir.handle != nullptr;
 	return dir.handle != nullptr;
 #elif PLATFORM_WINDOWS
-	// TODO
+	char wildcardPath[MAX_PATH_LENGTH];
+    SPrintf(wildcardPath, "%s/*.*", path);
+
+	// NOTE: FindFirstFile/FindNextFile called here to skip . and .. directories
+	WIN32_FIND_DATA entryData;
+    dir.handle = FindFirstFile(wildcardPath, &entryData);
+	if (dir.handle != INVALID_HANDLE_VALUE && FindNextFile(dir.handle, &entryData) ) {
+		res = true;
+	} else {
+		LOG(Warning, "Path not found: %s\n", wildcardPath);
+		Win32ReportError("FindFirstFile");
+    }
 #else
 #error "Missing implementation"
 #endif
+
+	return res;
 }
 
 bool ReadDir(Dir &dir, DirEntry &entry)
@@ -1128,12 +1155,17 @@ bool ReadDir(Dir &dir, DirEntry &entry)
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	if ( dir.handle )
 	{
-		entry.handle = readdir(dir.handle);
-		entry.name = entry.handle->d_name;
-		res = entry.handle != nullptr;
+		entry.data = readdir(dir.handle);
+		entry.name = entry.data->d_name;
+		res = entry.data != nullptr;
+	}
+#elif PLATFORM_WINDOWS
+	if ( dir.handle != INVALID_HANDLE_VALUE )
+	{
+		res = FindNextFile(dir.handle, &entry.data);
+		entry.name = entry.data.cFileName;
 	}
 #else
-	// TODO
 #error "Missing implementation"
 #endif
 	return res;
@@ -1146,8 +1178,12 @@ void CloseDir(Dir &dir)
 	{
 		closedir(dir.handle);
 	}
+#elif PLATFORM_WINDOWS
+	if ( dir.handle != INVALID_HANDLE_VALUE )
+	{
+		FindClose(dir.handle);
+	}
 #else
-	// TODO
 #error "Missing implementation"
 #endif
 }
@@ -3357,8 +3393,8 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 
 	InitializeDirectories(platform, argc, argv);
 
-#if 0 // Read directory test
-#if PLATFORM_LINUX || PLATFORM_ANDROID
+#if 1 // Read directory test
+#if 1
 	Dir dir = {};
 	FilePath path = MakePath(ProjectDir, "assets");
 	if ( OpenDir(dir, path.str) )
@@ -3372,7 +3408,7 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	}
 
 #elif PLATFORM_WINDOWS
-	    WIN32_FIND_DATA fdFile;
+	WIN32_FIND_DATA fdFile;
     HANDLE hFind = NULL;
 
     char sPath[2048];
