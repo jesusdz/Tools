@@ -198,7 +198,6 @@ struct Graphics
 	RenderPassH idRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
-	u32 textureCount;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -214,9 +213,11 @@ struct Graphics
 
 	// Updated each frame so we need MAX_FRAMES_IN_FLIGHT elements
 	BindGroup globalBindGroups[MAX_FRAMES_IN_FLIGHT];
+	bool shouldUpdateGlobalBindGroups;
 
 	// Updated once at the beginning for each material
 	BindGroup materialBindGroups[MAX_MATERIALS];
+	bool shouldUpdateMaterialBindGroups;
 
 	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
 
@@ -897,6 +898,28 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
+bool IsNull(const Texture &texture)
+{
+	const bool res = texture.name == nullptr;
+	return res;
+}
+
+TextureH NewTextureHandle(Graphics &gfx)
+{
+	TextureH textureHandle = MAX_TEXTURES;
+	for (u32 i = 0; i < MAX_TEXTURES; ++i)
+	{
+		if (IsNull(gfx.textures[i]))
+		{
+			textureHandle = i;
+			break;
+		}
+	}
+
+	ASSERT(textureHandle != MAX_TEXTURES);
+	return textureHandle;
+}
+
 #if LOAD_FROM_SOURCE_FILES
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
@@ -916,8 +939,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const ImageH imageHandle = CreateImage(gfx, desc.name, texWidth, texHeight, texChannels, desc.mipmap, pixels);
 
-	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
-	const TextureH textureHandle = gfx.textureCount++;
+	const TextureH textureHandle = NewTextureHandle(gfx);
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = imageHandle;
 
@@ -940,23 +962,22 @@ TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
 
 	const ImageH imageHandle = CreateImage(gfx, desc.name, width, height, channels, desc.mipmap, pixels);
 
-	ASSERT( gfx.textureCount < ARRAY_COUNT(gfx.textures) );
-	const TextureH textureHandle = gfx.textureCount++;
+	const TextureH textureHandle = NewTextureHandle(gfx);
 	gfx.textures[textureHandle].name = desc.name;
 	gfx.textures[textureHandle].image = imageHandle;
 
 	return textureHandle;
 }
 
-const Texture &GetTexture(const Graphics &gfx, TextureH handle)
+Texture &GetTexture(Graphics &gfx, TextureH handle)
 {
-	const Texture &texture = gfx.textures[handle];
+	Texture &texture = gfx.textures[handle];
 	return texture;
 }
 
-TextureH TextureHandle(const Graphics &gfx, const char *name)
+TextureH FindTextureHandle(const Graphics &gfx, const char *name)
 {
-	for (u32 i = 0; i < gfx.textureCount; ++i) {
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.textures); ++i) {
 		if ( StrEq(gfx.textures[i].name, name) ) {
 			return i;
 		}
@@ -966,9 +987,20 @@ TextureH TextureHandle(const Graphics &gfx, const char *name)
 	return INVALID_HANDLE;
 }
 
+void RemoveTexture(Graphics &gfx, TextureH textureH)
+{
+	Texture &texture = GetTexture(gfx, textureH);
+	DestroyImageH(gfx.device, texture.image);
+
+	gfx.textures[textureH] = {};
+	gfx.shouldUpdateMaterialBindGroups = true;
+
+	// TODO: Destroy the texture image using the graphics API
+}
+
 MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 {
-	TextureH textureHandle = TextureHandle(gfx, desc.textureName);
+	TextureH textureHandle = FindTextureHandle(gfx, desc.textureName);
 	PipelineH pipelineHandle = FindPipelineHandle(gfx, desc.pipelineName);
 
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
@@ -1457,7 +1489,7 @@ void UpdateGlobalBindGroups(Graphics &gfx)
 	}
 }
 
-BindGroupDesc MaterialBindGroupDesc(const Graphics &gfx, const Material &material)
+BindGroupDesc MaterialBindGroupDesc(Graphics &gfx, const Material &material)
 {
 	const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
 	const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL];
@@ -1529,7 +1561,7 @@ void InitializeScene(Engine &engine, Arena scratch)
 	}
 
 	// Textures
-	gfx.skyTextureH = TextureHandle(gfx, "tex_sky");
+	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
 
 	// Pipelines
 	LinkPipelineHandles(gfx);
@@ -1570,6 +1602,8 @@ void InitializeScene(Engine &engine, Arena scratch)
 		gfx.globalBindGroups[i] = CreateBindGroup(gfx.device, gfx.globalBindGroupLayout, gfx.globalBindGroupAllocator);
 	}
 
+	gfx.shouldUpdateGlobalBindGroups = true;
+
 	// BindGroups for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
@@ -1578,9 +1612,7 @@ void InitializeScene(Engine &engine, Arena scratch)
 		gfx.materialBindGroups[i] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
 	}
 
-	// Update bind groups
-	UpdateGlobalBindGroups(gfx);
-	UpdateMaterialBindGroups(gfx);
+	gfx.shouldUpdateMaterialBindGroups = true;
 
 	// Timestamp queries
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
@@ -2113,6 +2145,19 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		const Entity &entity = scene.entities[i];
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		entities[i].world = worldMatrix;
+	}
+
+	// Update bind groups
+	if (gfx.shouldUpdateGlobalBindGroups)
+	{
+		gfx.shouldUpdateGlobalBindGroups = false;
+		UpdateGlobalBindGroups(gfx);
+	}
+
+	if (gfx.shouldUpdateMaterialBindGroups)
+	{
+		gfx.shouldUpdateMaterialBindGroups = false;
+		UpdateMaterialBindGroups(gfx);
 	}
 
 	// Reset per-frame bind group allocators
@@ -2736,17 +2781,17 @@ void UpdateUI(Engine &engine)
 		static u32 selectedTexture = -1;
 		constexpr u32 imagesPerRow = 3;
 		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < gfx.textureCount; ++i)
+		for (u32 i = 0; i < MAX_TEXTURES; ++i)
 		{
-			const UIWidgetFlags flags = selectedTexture == i ? UIWidgetFlag_Outline : UIWidgetFlag_None;
-			if (UI_Image(ui, gfx.textures[i].image, flags))
-			{
-				selectedTexture = i;
-			}
+			const Texture &texture = gfx.textures[i];
 
-			if ( (i + 1) % imagesPerRow == 0 ) {
-				UI_EndLayout(ui);
-				UI_BeginLayout(ui, UiLayoutHorizontal);
+			if ( !IsNull(texture) )
+			{
+				const UIWidgetFlags flags = selectedTexture == i ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+				if (UI_Image(ui, texture.image, flags))
+				{
+					selectedTexture = i;
+				}
 			}
 		}
 		UI_EndLayout(ui);
@@ -2755,7 +2800,8 @@ void UpdateUI(Engine &engine)
 		{
 			if (UI_Button(ui, "Remove"))
 			{
-				LOG(Debug, "Remove texture!\n");
+				TextureH textureH = selectedTexture;
+				RemoveTexture(gfx, textureH);
 			}
 		}
 	}
@@ -3114,7 +3160,7 @@ void OnPlatformUpdate(Platform &platform)
 		{
 			gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
 			gfx.renderTargets = CreateRenderTargets(gfx);
-			UpdateGlobalBindGroups(gfx);
+			gfx.shouldUpdateGlobalBindGroups = true;
 		}
 		gfx.device.swapchain.outdated = false;
 	}

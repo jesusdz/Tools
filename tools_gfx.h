@@ -660,7 +660,7 @@ struct GraphicsDevice
 	u32 samplerCount;
 
 	Pipeline pipelines[MAX_PIPELINES];
-	u32 pipelineCount;
+	u32 pipelineCount; // TODO: Remove or do the same as we do for images?
 
 	RenderPass renderPasses[MAX_RENDERPASSES];
 	u32 renderPassCount;
@@ -1452,6 +1452,18 @@ bool IsValid(const Pipeline &pipeline)
 bool IsValid(PipelineH pipeline)
 {
 	bool res = pipeline.index != 0;
+	return res;
+}
+
+bool IsValid(const Image &image)
+{
+	bool res = image.handle != VK_NULL_HANDLE;
+	return res;
+}
+
+bool IsValid(ImageH image)
+{
+	bool res = image.index != 0;
 	return res;
 }
 
@@ -2261,7 +2273,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 
 
 	// Initialize image list
-	for ( u32 i = 0; i < MAX_IMAGES; ++i ) {
+	for ( u32 i = 1; i < MAX_IMAGES; ++i ) {
 		device.freeImages[i] = i;
 	}
 
