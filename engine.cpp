@@ -145,18 +145,20 @@ struct TimeSamples
 	f32 average;
 };
 
-enum ReloadEntryType
+enum EndFrameCommandType
 {
-	ReloadEntryGraphicsPipeline,
-	ReloadEntryTypeCount,
+	EndFrameCommandReloadGraphicsPipeline,
+	EndFrameCommandRemoveTexture,
+	EndFrameCommandCount,
 };
 
-struct ReloadEntry
+struct EndFrameCommand
 {
-	ReloadEntryType type;
+	EndFrameCommandType type;
 	union
 	{
 		u32 pipelineIndex;
+		TextureH textureH;
 	};
 };
 
@@ -223,6 +225,8 @@ struct Graphics
 
 	TextureH skyTextureH;
 
+	ImageH pinkImageH;
+
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
 	PipelineH guiPipelineH;
@@ -242,8 +246,8 @@ struct Graphics
 	TimeSamples cpuFrameTimes;
 	TimeSamples gpuFrameTimes;
 
-	ReloadEntry reloadQueue[128];
-	u32 reloadQueueSize;
+	EndFrameCommand endFrameCommands[128];
+	u32 endFrameCommandCount;
 };
 
 typedef void (*GameInitAPIFunction)(const EngineAPI &api);
@@ -904,6 +908,12 @@ bool IsNull(const Texture &texture)
 	return res;
 }
 
+bool IsValid(Graphics &gfx, TextureH textureH)
+{
+	const bool valid = gfx.textures[textureH].name != nullptr;
+	return valid;
+}
+
 TextureH NewTextureHandle(Graphics &gfx)
 {
 	TextureH textureHandle = MAX_TEXTURES;
@@ -971,8 +981,21 @@ TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
 
 Texture &GetTexture(Graphics &gfx, TextureH handle)
 {
+	ASSERT( IsValid(gfx, handle) );
 	Texture &texture = gfx.textures[handle];
 	return texture;
+}
+
+ImageH GetTextureImage(Graphics &gfx, TextureH textureH, ImageH imageH)
+{
+	ImageH res = imageH;
+
+	if ( IsValid(gfx, textureH) ) {
+		const Texture &texture = GetTexture(gfx, textureH);
+		res = texture.image;
+	}
+
+	return res;
 }
 
 TextureH FindTextureHandle(const Graphics &gfx, const char *name)
@@ -994,8 +1017,6 @@ void RemoveTexture(Graphics &gfx, TextureH textureH)
 
 	gfx.textures[textureH] = {};
 	gfx.shouldUpdateMaterialBindGroups = true;
-
-	// TODO: Destroy the texture image using the graphics API
 }
 
 MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
@@ -1493,13 +1514,13 @@ BindGroupDesc MaterialBindGroupDesc(Graphics &gfx, const Material &material)
 {
 	const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
 	const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[BIND_GROUP_MATERIAL];
-	const Texture &albedoTexture = GetTexture(gfx, material.albedoTexture);
+	const ImageH &albedoImage = GetTextureImage(gfx, material.albedoTexture, gfx.pinkImageH );
 
 	const BindGroupDesc bindGroupDesc = {
 		.layout = bindGroupLayout,
 		.bindings = {
 			{ .index = BINDING_MATERIAL, .buffer = gfx.materialBuffer, .offset = material.bufferOffset, .range = sizeof(SMaterial) },
-			{ .index = BINDING_ALBEDO, .image = albedoTexture.image },
+			{ .index = BINDING_ALBEDO, .image = albedoImage },
 		},
 	};
 	return bindGroupDesc;
@@ -1562,6 +1583,10 @@ void InitializeScene(Engine &engine, Arena scratch)
 
 	// Textures
 	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
+
+	// Images
+	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
+	gfx.pinkImageH = CreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
 
 	// Pipelines
 	LinkPipelineHandles(gfx);
@@ -2283,7 +2308,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		}
 
 		{ // Sky
-			const Texture &texture = GetTexture(gfx, gfx.skyTextureH);
+			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.pinkImageH);
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
@@ -2295,7 +2320,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 				.layout = pipeline.layout.bindGroupLayouts[3],
 				.bindings = {
 					{ .index = 0, .sampler = gfx.skySamplerH },
-					{ .index = 1, .image = texture.image },
+					{ .index = 1, .image = skyImage },
 				},
 			};
 			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
@@ -2449,24 +2474,35 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	return true;
 }
 
-void HotReloadAssets(Engine &engine, Arena scratch)
+void AddEndFrameCommand(Graphics &gfx, const EndFrameCommand &command)
+{
+	ASSERT(gfx.endFrameCommandCount < ARRAY_COUNT(gfx.endFrameCommands));
+	gfx.endFrameCommands[gfx.endFrameCommandCount++] = command;
+}
+
+void ProcessEndFrameCommands(Engine &engine, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
 
-	if ( gfx.reloadQueueSize > 0 )
+	if ( gfx.endFrameCommandCount > 0 )
 	{
 		WaitDeviceIdle(gfx.device);
 
-		for (u32 i = 0; i < gfx.reloadQueueSize; ++i)
+		for (u32 i = 0; i < gfx.endFrameCommandCount; ++i)
 		{
-			const ReloadEntry &reloadEntry = gfx.reloadQueue[i];
+			const EndFrameCommand &command = gfx.endFrameCommands[i];
 
-			switch (reloadEntry.type)
+			switch (command.type)
 			{
-				case ReloadEntryGraphicsPipeline:
+				case EndFrameCommandReloadGraphicsPipeline:
 				{
-					const u32 pipelineIndex = reloadEntry.pipelineIndex;
+					const u32 pipelineIndex = command.pipelineIndex;
 					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
+					break;
+				}
+				case EndFrameCommandRemoveTexture:
+				{
+					RemoveTexture(engine.gfx, command.textureH);
 					break;
 				}
 
@@ -2474,7 +2510,7 @@ void HotReloadAssets(Engine &engine, Arena scratch)
 			}
 		}
 
-		gfx.reloadQueueSize = 0;
+		gfx.endFrameCommandCount = 0;
 
 		LinkPipelineHandles(gfx);
 	}
@@ -2764,12 +2800,11 @@ void UpdateUI(Engine &engine)
 			UI_BeginLayout(ui, UiLayoutHorizontal);
 			if ( UI_Button(ui, "Reload") )
 			{
-				ASSERT(gfx.reloadQueueSize < ARRAY_COUNT(gfx.reloadQueue));
-				const ReloadEntry reloadEntry = {
-					.type = ReloadEntryGraphicsPipeline,
+				const EndFrameCommand command = {
+					.type = EndFrameCommandReloadGraphicsPipeline,
 					.pipelineIndex = i,
 				};
-				gfx.reloadQueue[gfx.reloadQueueSize++] = reloadEntry;
+				AddEndFrameCommand(gfx, command);
 			}
 			UI_Label(ui, pipelineName);
 			UI_EndLayout(ui);
@@ -2800,8 +2835,11 @@ void UpdateUI(Engine &engine)
 		{
 			if (UI_Button(ui, "Remove"))
 			{
-				TextureH textureH = selectedTexture;
-				RemoveTexture(gfx, textureH);
+				const EndFrameCommand command = {
+					.type = EndFrameCommandRemoveTexture,
+					.textureH = selectedTexture,
+				};
+				AddEndFrameCommand(gfx, command);
 			}
 		}
 	}
@@ -3206,7 +3244,7 @@ void OnPlatformUpdate(Platform &platform)
 		EndEntitySelection(engine);
 #endif
 
-		HotReloadAssets(engine, platform.frameArena);
+		ProcessEndFrameCommands(engine, platform.frameArena);
 	}
 }
 
