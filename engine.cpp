@@ -935,19 +935,21 @@ TextureH NewTextureHandle(Graphics &gfx)
 
 void FreeTextureHandle(Graphics &gfx, TextureH handle)
 {
-	ASSERT(gfx.textureCount > 0);
+	ASSERT(IsValidHandle(gfx, handle));
+	gfx.textureHandles[handle.idx].gen++;
 
+	ASSERT(gfx.textureCount > 0);
+	gfx.textureCount--;
+	bool found = false;
 	for (u16 i = 0; i < gfx.textureCount; ++i) {
-		u16 index = gfx.textureIndices[i];
-		if (handle.idx == index) {
-			u16 lastValidIndex = gfx.textureIndices[gfx.textureCount - 1];
-			gfx.textureIndices[gfx.textureCount - 1] = index;
-			gfx.textureIndices[i] = lastValidIndex;
-			gfx.textureHandles[index].gen++;
+		found = found || handle.idx == gfx.textureIndices[i];
+		if (found) { // compact indices from found index onwards
+			gfx.textureIndices[i] = gfx.textureIndices[i+1];
 		}
 	}
+	// Insert the freed index at the end
+	gfx.textureIndices[gfx.textureCount] = handle.idx;
 
-	gfx.textureCount--;
 }
 
 #if LOAD_FROM_SOURCE_FILES
