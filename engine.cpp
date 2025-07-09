@@ -85,7 +85,13 @@ struct Texture
 	ImageH image;
 };
 
-typedef u32 TextureH;
+struct TextureH
+{
+	u16 gen;
+	u16 idx;
+};
+
+constexpr TextureH InvalidTextureH = {};
 
 struct Material
 {
@@ -200,6 +206,9 @@ struct Graphics
 	RenderPassH idRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
+	TextureH textureHandles[MAX_TEXTURES];
+	u16 textureIndices[MAX_TEXTURES]; // First all used indices, then all free indices
+	u16 textureCount;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -902,32 +911,43 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
-bool IsNull(const Texture &texture)
+inline bool operator==(TextureH a, TextureH b)
 {
-	const bool res = texture.name == nullptr;
-	return res;
+	const bool equal = ( a.idx == b.idx ) && ( a.gen == b.gen );
+	return equal;
 }
 
-bool IsValid(Graphics &gfx, TextureH textureH)
+bool IsValidHandle(Graphics &gfx, TextureH handle)
 {
-	const bool valid = gfx.textures[textureH].name != nullptr;
+	TextureH storedHandle = gfx.textureHandles[handle.idx];
+	const bool valid = handle == storedHandle;
 	return valid;
 }
 
 TextureH NewTextureHandle(Graphics &gfx)
 {
-	TextureH textureHandle = MAX_TEXTURES;
-	for (u32 i = 0; i < MAX_TEXTURES; ++i)
-	{
-		if (IsNull(gfx.textures[i]))
-		{
-			textureHandle = i;
-			break;
+	ASSERT(gfx.textureCount < MAX_TEXTURES);
+	u16 index = gfx.textureIndices[gfx.textureCount++];
+	TextureH &handle = gfx.textureHandles[index];
+	ASSERT(handle.idx == index);
+	return handle;
+}
+
+void FreeTextureHandle(Graphics &gfx, TextureH handle)
+{
+	ASSERT(gfx.textureCount > 0);
+
+	for (u16 i = 0; i < gfx.textureCount; ++i) {
+		u16 index = gfx.textureIndices[i];
+		if (handle.idx == index) {
+			u16 lastValidIndex = gfx.textureIndices[gfx.textureCount - 1];
+			gfx.textureIndices[gfx.textureCount - 1] = index;
+			gfx.textureIndices[i] = lastValidIndex;
+			gfx.textureHandles[index].gen++;
 		}
 	}
 
-	ASSERT(textureHandle != MAX_TEXTURES);
-	return textureHandle;
+	gfx.textureCount--;
 }
 
 #if LOAD_FROM_SOURCE_FILES
@@ -962,6 +982,13 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 }
 #endif
 
+Texture &GetTexture(Graphics &gfx, TextureH handle)
+{
+	ASSERT( IsValidHandle(gfx, handle) );
+	Texture &texture = gfx.textures[handle.idx];
+	return texture;
+}
+
 TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
 {
 	const TextureDesc &desc = image.header->desc;
@@ -973,24 +1000,18 @@ TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
 	const ImageH imageHandle = CreateImage(gfx, desc.name, width, height, channels, desc.mipmap, pixels);
 
 	const TextureH textureHandle = NewTextureHandle(gfx);
-	gfx.textures[textureHandle].name = desc.name;
-	gfx.textures[textureHandle].image = imageHandle;
+	Texture &texture = GetTexture(gfx, textureHandle);
+	texture.name = desc.name;
+	texture.image = imageHandle;
 
 	return textureHandle;
-}
-
-Texture &GetTexture(Graphics &gfx, TextureH handle)
-{
-	ASSERT( IsValid(gfx, handle) );
-	Texture &texture = gfx.textures[handle];
-	return texture;
 }
 
 ImageH GetTextureImage(Graphics &gfx, TextureH textureH, ImageH imageH)
 {
 	ImageH res = imageH;
 
-	if ( IsValid(gfx, textureH) ) {
+	if ( IsValidHandle(gfx, textureH) ) {
 		const Texture &texture = GetTexture(gfx, textureH);
 		res = texture.image;
 	}
@@ -998,24 +1019,32 @@ ImageH GetTextureImage(Graphics &gfx, TextureH textureH, ImageH imageH)
 	return res;
 }
 
-TextureH FindTextureHandle(const Graphics &gfx, const char *name)
+TextureH FindTextureHandle(Graphics &gfx, const char *name)
 {
-	for (u32 i = 0; i < ARRAY_COUNT(gfx.textures); ++i) {
-		if ( StrEq(gfx.textures[i].name, name) ) {
-			return i;
+	for (u32 i = 0; i < gfx.textureCount; ++i)
+	{
+		u16 index = gfx.textureIndices[i];
+		TextureH handle = gfx.textureHandles[index];
+		const Texture &texture = GetTexture(gfx, handle);
+		if ( StrEq(texture.name, name) ) {
+			return handle;
 		}
 	}
 	LOG(Warning, "Could not find texture <%s> handle.\n", name);
 	INVALID_CODE_PATH();
-	return INVALID_HANDLE;
+	return InvalidTextureH;
 }
 
 void RemoveTexture(Graphics &gfx, TextureH textureH)
 {
+	ASSERT(IsValidHandle(gfx, textureH));
+
 	Texture &texture = GetTexture(gfx, textureH);
 	DestroyImageH(gfx.device, texture.image);
+	texture = {};
 
-	gfx.textures[textureH] = {};
+	FreeTextureHandle(gfx, textureH);
+
 	gfx.shouldUpdateMaterialBindGroups = true;
 }
 
@@ -1464,6 +1493,12 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 		{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
 	};
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
+
+	// Texture handles
+	for (u32 i = 0; i < MAX_TEXTURES; ++i) {
+		gfx.textureIndices[i] = i;
+		gfx.textureHandles[i].idx = i;
+	}
 
 	LoadData(engine);
 
@@ -2813,31 +2848,30 @@ void UpdateUI(Engine &engine)
 
 	if ( UI_Section( ui, "Textures" ) )
 	{
-		static u32 selectedTexture = -1;
+		static TextureH selectedHandle = {};
 		constexpr u32 imagesPerRow = 3;
 		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < MAX_TEXTURES; ++i)
+		for (u32 i = 0; i < gfx.textureCount; ++i)
 		{
-			const Texture &texture = gfx.textures[i];
+			u16 index = gfx.textureIndices[i];
+			TextureH handle = gfx.textureHandles[index];
+			const Texture &texture = GetTexture(gfx, handle);
 
-			if ( !IsNull(texture) )
+			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+			if (UI_Image(ui, texture.image, flags))
 			{
-				const UIWidgetFlags flags = selectedTexture == i ? UIWidgetFlag_Outline : UIWidgetFlag_None;
-				if (UI_Image(ui, texture.image, flags))
-				{
-					selectedTexture = i;
-				}
+				selectedHandle = handle;
 			}
 		}
 		UI_EndLayout(ui);
 
-		if (selectedTexture != -1)
+		if (IsValidHandle(gfx, selectedHandle))
 		{
 			if (UI_Button(ui, "Remove"))
 			{
 				const EndFrameCommand command = {
 					.type = EndFrameCommandRemoveTexture,
-					.textureH = selectedTexture,
+					.textureH = selectedHandle,
 				};
 				AddEndFrameCommand(gfx, command);
 			}
