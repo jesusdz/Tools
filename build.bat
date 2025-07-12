@@ -22,7 +22,7 @@ REM set CommonCompilerFlags=-DHANDMADE_INTERNAL=1 -DHANDMADE_SLOW=1 -DHANDMADE_W
 REM set CommonLinkerFlags=-STACK:0x100000,0x100000 -incremental:no -opt:ref user32.lib gdi32.lib winmm.lib bcrypt.lib kernel32.lib
 
 REM Flags
-set CommonCompilerFlags=-Zi -D_CRT_SECURE_NO_WARNINGS /std:c++20
+set CommonCompilerFlags=-Zi -D_CRT_SECURE_NO_WARNINGS /std:c++20 -nologo
 set CommonLinkerFlags=-incremental:no -opt:ref -nologo
 
 REM Flags for preprocessor pass
@@ -93,9 +93,7 @@ REM ######################################################
 
 call vcenv.bat
 pushd build
-set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
-set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-cl /LD ..\game.cpp
+cl %CommonCompilerFlags% /LD ..\game.cpp
 popd
 exit /b 0
 
