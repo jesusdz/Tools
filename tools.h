@@ -2237,6 +2237,7 @@ struct Audio
 	u16 bytesPerSample;
 	u16 samplesPerSecond;
 	u16 bufferSize;
+	u16 latencyFrameCount;
 	u16 latencySampleCount;
 	u32 runningSampleIndex;
 
@@ -2248,6 +2249,7 @@ struct Audio
 	bool initialized;
 
 	i16 *outputSamples;
+	u16 outputSampleSize;
 };
 
 struct PlatformConfig
@@ -2892,6 +2894,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				{
 					if ( sPlatform->audio.initialized ) {
 						sPlatform->audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
+						sPlatform->audio.runningSampleIndex = 0;
 					}
 				}
 
@@ -3236,16 +3239,21 @@ void PlatformUpdateEventLoop(Platform &platform)
 	}
 }
 
+void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize);
+
 bool InitializeAudio(Audio &audio, const Window &window)
 {
 	LOG(Info, "Sound system initialization:\n");
+
+	const u16 targetFramesPerSecond = 30;
 
 	// Audio configuration
 	audio.channelCount = 2;
 	audio.bytesPerSample = 2; // 4 in HH
 	audio.samplesPerSecond = 48000; // per channel
 	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
-	audio.latencySampleCount = audio.samplesPerSecond / 15;
+	audio.latencyFrameCount = 2;
+	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / targetFramesPerSecond;
 	audio.runningSampleIndex = 0;
 
 #if PLATFORM_WINDOWS
@@ -3297,12 +3305,17 @@ bool InitializeAudio(Audio &audio, const Window &window)
 							LOG(Info, "- Secondary buffer created successfully\n");
 
 							audio.buffer = secondaryBuffer;
-							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
+							audio.outputSampleSize = audio.bufferSize;
+							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.outputSampleSize);
+
+							MemSet(audio.outputSamples, audio.outputSampleSize, 0);
+							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize);
 
 							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
 							{
 								LOG(Info, "- Secondary buffer is playing...\n");
-								//audio.initialized = true;
+								audio.initialized = true;
+								audio.runningSampleIndex = 0;
 							}
 							else
 							{
@@ -3345,6 +3358,8 @@ bool InitializeAudio(Audio &audio, const Window &window)
 
 void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize)
 {
+	ASSERT(writeSize <= audio.outputSampleSize);
+
 	void *region1;
 	DWORD region1Size;
 	void *region2;
@@ -3374,10 +3389,11 @@ void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize)
 
 		audio.buffer->Unlock(region1, region1Size, region2, region2Size);
 	}
-	//else
-	//{
-	//	LOG(Warning, "Failed to Lock sound buffer.\n");
-	//}
+	else
+	{
+		LOG(Warning, "Failed to Lock sound buffer.\n");
+		audio.runningSampleIndex = 0;
+	}
 }
 
 void UpdateAudio(Audio &audio)
@@ -3385,9 +3401,13 @@ void UpdateAudio(Audio &audio)
 #if PLATFORM_WINDOWS
 	DWORD playCursor;
 	DWORD writeCursor;
+	static DWORD writeOffset = 0;
 	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
 	{
-		const DWORD writeOffset = (audio.runningSampleIndex * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
+		// If audio just started playing, start writing at writeCursor
+		if (audio.runningSampleIndex == 0) {
+			writeOffset = writeCursor;
+		}
 
 		const DWORD targetCursor = (playCursor + audio.latencySampleCount * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
 		DWORD writeSize = 0;
@@ -3401,7 +3421,12 @@ void UpdateAudio(Audio &audio)
 			writeSize = targetCursor + audio.bufferSize - writeOffset;
 		}
 
+		//LOG(Debug, "PC:%u, WC:%u, WO:%u, TC:%u / writeSize:%u, latencySize:%u\n", playCursor, writeCursor, writeOffset, targetCursor, writeSize, audio.latencySampleCount * audio.channelCount * audio.bytesPerSample );
+		//ASSERT( writeSize / (audio.channelCount * audio.bytesPerSample) <= audio.latencySampleCount );
+
 		Win32FillAudioBuffer(audio, writeOffset, writeSize);
+
+		writeOffset = (writeOffset + writeSize) % audio.bufferSize;
 	}
 	else
 	{
