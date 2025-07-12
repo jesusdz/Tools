@@ -2238,6 +2238,7 @@ struct Audio
 	u16 samplesPerSecond;
 	u16 bufferSize;
 	u16 latencySampleCount;
+	u32 runningSampleIndex;
 
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
@@ -2245,7 +2246,8 @@ struct Audio
 #endif
 
 	bool initialized;
-	bool playing;
+
+	i16 *outputSamples;
 };
 
 struct PlatformConfig
@@ -2288,6 +2290,8 @@ struct Platform
 	f32 deltaSeconds;
 	f32 totalSeconds;
 };
+
+static Platform *sPlatform = nullptr;
 
 
 bool IsAbsolutePath(const char *path)
@@ -2874,6 +2878,26 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				break;
 			}
 
+		case WM_SYSCOMMAND:
+			{
+				WPARAM param = ( wParam & 0xFFF0 );
+
+				if (param == SC_MINIMIZE)
+				{
+					if ( sPlatform->audio.initialized ) {
+						sPlatform->audio.buffer->Stop();
+					}
+				}
+				else if (param == SC_RESTORE)
+				{
+					if ( sPlatform->audio.initialized ) {
+						sPlatform->audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
+					}
+				}
+
+				return DefWindowProc(hWnd, uMsg, wParam, lParam);
+			};
+
 		case WM_CLOSE:
 			{
 				// If we want to show a dialog to ask the user for confirmation before
@@ -3222,6 +3246,7 @@ bool InitializeAudio(Audio &audio, const Window &window)
 	audio.samplesPerSecond = 48000; // per channel
 	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
 	audio.latencySampleCount = audio.samplesPerSecond / 15;
+	audio.runningSampleIndex = 0;
 
 #if PLATFORM_WINDOWS
 	audio.library = LoadLibrary("dsound.dll");
@@ -3272,7 +3297,17 @@ bool InitializeAudio(Audio &audio, const Window &window)
 							LOG(Info, "- Secondary buffer created successfully\n");
 
 							audio.buffer = secondaryBuffer;
-							audio.initialized = true;
+							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
+
+							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
+							{
+								LOG(Info, "- Secondary buffer is playing...\n");
+								//audio.initialized = true;
+							}
+							else
+							{
+								LOG(Error, "- Error playing secondaryBuffer.\n");
+							}
 						}
 						else
 						{
@@ -3308,17 +3343,53 @@ bool InitializeAudio(Audio &audio, const Window &window)
 	return audio.initialized;
 }
 
+void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize)
+{
+	void *region1;
+	DWORD region1Size;
+	void *region2;
+	DWORD region2Size;
+
+	if (SUCCEEDED(audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0)))
+	{
+		i16 *srcSample = audio.outputSamples;
+
+		i16 *dstSample = (i16*)region1;
+		const u32 region1SampleCount = region1Size / (audio.bytesPerSample * audio.channelCount);
+		for (u32 i = 0; i < region1SampleCount; ++i)
+		{
+			*dstSample++ = *srcSample++;
+			*dstSample++ = *srcSample++;
+			audio.runningSampleIndex++;
+		}
+
+		dstSample = (i16*)region2;
+		const u32 region2SampleCount = region2Size / (audio.bytesPerSample * audio.channelCount);
+		for (u32 i = 0; i < region2SampleCount; ++i)
+		{
+			*dstSample++ = *srcSample++;
+			*dstSample++ = *srcSample++;
+			audio.runningSampleIndex++;
+		}
+
+		audio.buffer->Unlock(region1, region1Size, region2, region2Size);
+	}
+	//else
+	//{
+	//	LOG(Warning, "Failed to Lock sound buffer.\n");
+	//}
+}
+
 void UpdateAudio(Audio &audio)
 {
 #if PLATFORM_WINDOWS
-	static u32 writeSampleIndex = 0;
-
 	DWORD playCursor;
 	DWORD writeCursor;
 	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
 	{
+		const DWORD writeOffset = (audio.runningSampleIndex * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
+
 		const DWORD targetCursor = (playCursor + audio.latencySampleCount * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
-		const DWORD writeOffset = (writeSampleIndex * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
 		DWORD writeSize = 0;
 
 		if ( writeOffset < targetCursor )
@@ -3330,78 +3401,12 @@ void UpdateAudio(Audio &audio)
 			writeSize = targetCursor + audio.bufferSize - writeOffset;
 		}
 
-		void *region1;
-		DWORD region1Size;
-		void *region2;
-		DWORD region2Size;
-
-		if (SUCCEEDED(audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0)))
-		{
-			// Wave parameters
-			const u32 ToneHz = 256;
-			const i32 ToneVolume = 4000;
-			const u32 WavePeriod = audio.samplesPerSecond / ToneHz;
-			const u32 HalfWavePeriod = WavePeriod / 2;
-
-			i16 *samplePtr = (i16*)region1;
-			const u32 region1SampleCount = region1Size / (audio.bytesPerSample * audio.channelCount);
-			for (u32 i = 0; i < region1SampleCount; ++i)
-			{
-				// Sine wave
-				const f32 t = 2.0f * Pi * (f32)writeSampleIndex / (f32)WavePeriod;
-				const f32 sinValue = Sin(t);
-				const i16 sample = (i16)(sinValue * ToneVolume);
-				++writeSampleIndex;
-
-				// Square wave
-				//const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
-
-				*samplePtr++ = sample;
-				*samplePtr++ = sample;
-			}
-			samplePtr = (i16*)region2;
-			const u32 region2SampleCount = region2Size / (audio.bytesPerSample * audio.channelCount);
-			for (u32 i = 0; i < region2SampleCount; ++i)
-			{
-				// Sine wave
-				const f32 t = 2.0f * Pi * (f32)writeSampleIndex / (f32)WavePeriod;
-				const f32 sinValue = Sin(t);
-				const i16 sample = (i16)(sinValue * ToneVolume);
-				++writeSampleIndex;
-
-				// Square wave
-				//const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
-
-				*samplePtr++ = sample;
-				*samplePtr++ = sample;
-			}
-
-			audio.buffer->Unlock(region1, region1Size, region2, region2Size);
-		}
-		//else
-		//{
-		//	LOG(Warning, "Failed to Lock sound buffer.\n");
-		//}
+		Win32FillAudioBuffer(audio, writeOffset, writeSize);
 	}
 	else
 	{
 		LOG(Warning, "Failed to GetCurrentPosition for sound buffer.\n");
 	}
-
-#if 1
-	if (!audio.playing)
-	{
-		if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
-		{
-			LOG(Info, "Secondary buffer is playing...\n");
-			audio.playing = true;
-		}
-		else
-		{
-			LOG(Error, "Error playing secondaryBuffer.\n");
-		}
-	}
-#endif
 #endif
 }
 
@@ -3437,6 +3442,8 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 #endif // PLATFORM_ANDROID
 
 	InitializeDirectories(platform, argc, argv);
+
+	sPlatform = &platform;
 
 	return true;
 }
@@ -3503,7 +3510,7 @@ bool PlatformRun(Platform &platform)
 
 		if ( platform.audio.initialized )
 		{
-			//UpdateAudio(platform.audio);
+			UpdateAudio(platform.audio);
 		}
 	}
 

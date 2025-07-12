@@ -655,6 +655,34 @@ UI &GetUI(Engine &engine)
 }
 #endif
 
+void RenderAudio(Engine &engine)
+{
+	const Audio &audio = engine.platform.audio;
+
+	// Wave parameters
+	const u32 ToneHz = 256;
+	const i32 ToneVolume = 4000;
+	const u32 WavePeriod = audio.samplesPerSecond / ToneHz;
+	const u32 HalfWavePeriod = WavePeriod / 2;
+
+	i16 *samplePtr = audio.outputSamples;
+	for (u32 i = 0; i < audio.latencySampleCount; ++i)
+	{
+		const u32 sampleIndex = audio.runningSampleIndex + i;
+
+		// Sine wave
+		const f32 t = 2.0f * Pi * (f32)sampleIndex / (f32)WavePeriod;
+		const f32 sinValue = Sin(t);
+		const i16 sample = (i16)(sinValue * ToneVolume);
+
+		// Square wave
+		//const i16 sample = (sampleIndex / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
+
+		*samplePtr++ = sample;
+		*samplePtr++ = sample;
+	}
+}
+
 void CompileShaders()
 {
 	char text[MAX_PATH_LENGTH];
@@ -2900,6 +2928,8 @@ void OnPlatformUpdate(Platform &platform)
 #if USE_UI
 		UIEndFrameRecording(engine);
 #endif
+
+		RenderAudio(engine);
 
 		RenderGraphics(engine, platform.deltaSeconds);
 
