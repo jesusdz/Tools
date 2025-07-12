@@ -2237,6 +2237,7 @@ struct Audio
 	u16 bytesPerSample;
 	u16 samplesPerSecond;
 	u16 bufferSize;
+	u16 latencySampleCount;
 
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
@@ -3217,9 +3218,10 @@ bool InitializeAudio(Audio &audio, const Window &window)
 
 	// Audio configuration
 	audio.channelCount = 2;
-	audio.bytesPerSample = 2;
-	audio.samplesPerSecond = 48000;
+	audio.bytesPerSample = 2; // 4 in HH
+	audio.samplesPerSecond = 48000; // per channel
 	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
+	audio.latencySampleCount = audio.samplesPerSecond / 15;
 
 #if PLATFORM_WINDOWS
 	audio.library = LoadLibrary("dsound.dll");
@@ -3315,16 +3317,17 @@ void UpdateAudio(Audio &audio)
 	DWORD writeCursor;
 	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
 	{
+		const DWORD targetCursor = (playCursor + audio.latencySampleCount * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
 		const DWORD writeOffset = (writeSampleIndex * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
 		DWORD writeSize = 0;
 
-		if ( writeOffset < playCursor )
+		if ( writeOffset < targetCursor )
 		{
-			writeSize = playCursor - writeOffset;
+			writeSize = targetCursor - writeOffset;
 		}
-		else if ( writeOffset > playCursor )
+		else if ( writeOffset > targetCursor )
 		{
-			writeSize = playCursor + audio.bufferSize - writeOffset;
+			writeSize = targetCursor + audio.bufferSize - writeOffset;
 		}
 
 		void *region1;
