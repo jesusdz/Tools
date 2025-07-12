@@ -2232,10 +2232,19 @@ typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKN
 
 struct Audio
 {
+	// Config
+	u16 channelCount;
+	u16 bytesPerSample;
+	u16 samplesPerSecond;
+	u16 bufferSize;
+
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
 	LPDIRECTSOUNDBUFFER buffer;
 #endif
+
+	bool initialized;
+	bool playing;
 };
 
 struct PlatformConfig
@@ -3204,16 +3213,28 @@ void PlatformUpdateEventLoop(Platform &platform)
 
 bool InitializeAudio(Audio &audio, const Window &window)
 {
+	LOG(Info, "Sound system initialization:\n");
+
+	// Audio configuration
+	audio.channelCount = 2;
+	audio.bytesPerSample = 2;
+	audio.samplesPerSecond = 48000;
+	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
+
 #if PLATFORM_WINDOWS
 	audio.library = LoadLibrary("dsound.dll");
+
 	if (audio.library)
 	{
-		LOG(Info, "Loaded dsound.dll successfully\n");
-		//typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
+		LOG(Info, "- Loaded dsound.dll successfully\n");
+
 		FP_DirectSoundCreate* CreateAudioDevice = (FP_DirectSoundCreate*)LoadSymbol(audio.library, "DirectSoundCreate");
+
 		LPDIRECTSOUND directSound;
 		if (CreateAudioDevice && SUCCEEDED(CreateAudioDevice(0, &directSound, 0)))
 		{
+			LOG(Info, "- Audio device created successfully\n");
+
 			if (SUCCEEDED(directSound->SetCooperativeLevel(window.hWnd, DSSCL_PRIORITY)))
 			{
 				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
@@ -3223,105 +3244,87 @@ bool InitializeAudio(Audio &audio, const Window &window)
 				LPDIRECTSOUNDBUFFER primaryBuffer;
 				if (SUCCEEDED(directSound->CreateSoundBuffer(&primaryBufferDesc, &primaryBuffer, 0)))
 				{
-					const u16 channelCount = 2;
-					const u16 bytesPerSample = 2;
-					const u16 samplesPerSecond = 48000;
-					const u16 bufferSize = channelCount * samplesPerSecond * bytesPerSample;
+					LOG(Info, "- Primary buffer created successfully\n");
+
 					WAVEFORMATEX waveFormat = {};
 					waveFormat.wFormatTag = WAVE_FORMAT_PCM;
-					waveFormat.nChannels = channelCount;
-					waveFormat.nSamplesPerSec = samplesPerSecond;
-					waveFormat.nBlockAlign = channelCount * bytesPerSample;
-					waveFormat.nAvgBytesPerSec = samplesPerSecond * waveFormat.nBlockAlign;
-					waveFormat.wBitsPerSample = bytesPerSample * 8;
+					waveFormat.nChannels = audio.channelCount;
+					waveFormat.nSamplesPerSec = audio.samplesPerSecond;
+					waveFormat.nBlockAlign = audio.channelCount * audio.bytesPerSample;
+					waveFormat.nAvgBytesPerSec = audio.samplesPerSecond * waveFormat.nBlockAlign;
+					waveFormat.wBitsPerSample = audio.bytesPerSample * 8;
 					waveFormat.cbSize = 0;
 					if (SUCCEEDED(primaryBuffer->SetFormat(&waveFormat)))
 					{
-						LOG(Info, "Primary buffer format set successfully.\n");
-					}
-					else
-					{
-						LOG(Error, "Error setting primary buffer format.\n");
-					}
+						LOG(Info, "- Primary buffer format set successfully\n");
 
-					// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
-					DSBUFFERDESC secondaryBufferDesc = {};
-					secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
-					secondaryBufferDesc.dwFlags = 0;
-					secondaryBufferDesc.dwBufferBytes = bufferSize;
-					secondaryBufferDesc.lpwfxFormat = &waveFormat;
-					LPDIRECTSOUNDBUFFER secondaryBuffer;
-					if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
-					{
-						audio.buffer = secondaryBuffer;
-						LOG(Info, "Secondary buffer created successfully.\n");
-
-						#if 0
-						if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
+						// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
+						DSBUFFERDESC secondaryBufferDesc = {};
+						secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
+						secondaryBufferDesc.dwFlags = 0;
+						secondaryBufferDesc.dwBufferBytes = audio.bufferSize;
+						secondaryBufferDesc.lpwfxFormat = &waveFormat;
+						LPDIRECTSOUNDBUFFER secondaryBuffer;
+						if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
 						{
-							LOG(Info, "Secondary buffer is playing...\n");
+							LOG(Info, "- Secondary buffer created successfully\n");
+
+							audio.buffer = secondaryBuffer;
+							audio.initialized = true;
 						}
 						else
 						{
-							LOG(Error, "Error playing secondaryBuffer.\n");
+							LOG(Error, "- Error calling CreateSoundBuffer for secondaryBuffer\n");
 						}
-						#endif
 					}
 					else
 					{
-						LOG(Error, "Error calling CreateSoundBuffer for secondaryBuffer.\n");
+						LOG(Error, "- Error setting primary buffer format\n");
 					}
 				}
 				else
 				{
-					LOG(Error, "Error calling CreateSoundBuffer for primaryBuffer.\n");
+					LOG(Error, "- Error calling CreateSoundBuffer for primaryBuffer\n");
 				}
 			}
 			else
 			{
-				LOG(Error, "Error setting DirectSound priority cooperative level.\n");
+				LOG(Error, "- Error setting DirectSound priority cooperative level\n");
 			}
 		}
 		else
 		{
-			LOG(Error, "Error loading DirectSoundCreate symbol.\n");
+			LOG(Error, "- Error loading DirectSoundCreate symbol\n");
 		}
 	}
 	else
 	{
-		LOG(Error, "Error loading dsound.dll\n");
+		LOG(Error, "- Error loading dsound.dll\n");
 	}
 #endif
-	return true;
+
+	return audio.initialized;
 }
 
-void PlaySound(Audio &audio)
+void UpdateAudio(Audio &audio)
 {
 #if PLATFORM_WINDOWS
-	// Audio stuff
-	const u16 channelCount = 2;
-	const u16 bytesPerSample = 2;
-	const u16 samplesPerSecond = 48000;
-	const u16 bufferSize = channelCount * samplesPerSecond * bytesPerSample;
 	static u32 writeSampleIndex = 0;
 
 	DWORD playCursor;
 	DWORD writeCursor;
 	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
 	{
-		const DWORD writeOffset = writeSampleIndex * channelCount * bytesPerSample % bufferSize;
+		const DWORD writeOffset = (writeSampleIndex * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
 		DWORD writeSize = 0;
-		if ( writeOffset == playCursor )
-		{
-			writeSize = bufferSize;
-		}
-		else if ( writeOffset < playCursor )
+
+		if ( writeOffset < playCursor )
 		{
 			writeSize = playCursor - writeOffset;
 		}
-		else
+		else if ( writeOffset > playCursor )
 		{
-			writeSize = playCursor + bufferSize - writeOffset;
+			writeSize = playCursor + audio.bufferSize - writeOffset;
 		}
 
 		void *region1;
@@ -3331,39 +3334,71 @@ void PlaySound(Audio &audio)
 
 		if (SUCCEEDED(audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0)))
 		{
+			// Wave parameters
 			const u32 ToneHz = 256;
-			const i32 ToneVolume = 1000;
-			const u32 WavePeriod = samplesPerSecond / ToneHz;
+			const i32 ToneVolume = 4000;
+			const u32 WavePeriod = audio.samplesPerSecond / ToneHz;
 			const u32 HalfWavePeriod = WavePeriod / 2;
 
 			i16 *samplePtr = (i16*)region1;
-			const u32 region1SampleCount = region1Size / (bytesPerSample * channelCount);
+			const u32 region1SampleCount = region1Size / (audio.bytesPerSample * audio.channelCount);
 			for (u32 i = 0; i < region1SampleCount; ++i)
 			{
-				const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
+				// Sine wave
+				const f32 t = 2.0f * Pi * (f32)writeSampleIndex / (f32)WavePeriod;
+				const f32 sinValue = Sin(t);
+				const i16 sample = (i16)(sinValue * ToneVolume);
+				++writeSampleIndex;
+
+				// Square wave
+				//const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
+
 				*samplePtr++ = sample;
 				*samplePtr++ = sample;
 			}
 			samplePtr = (i16*)region2;
-			const u32 region2SampleCount = region2Size / (bytesPerSample * channelCount);
+			const u32 region2SampleCount = region2Size / (audio.bytesPerSample * audio.channelCount);
 			for (u32 i = 0; i < region2SampleCount; ++i)
 			{
-				const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
+				// Sine wave
+				const f32 t = 2.0f * Pi * (f32)writeSampleIndex / (f32)WavePeriod;
+				const f32 sinValue = Sin(t);
+				const i16 sample = (i16)(sinValue * ToneVolume);
+				++writeSampleIndex;
+
+				// Square wave
+				//const i16 sample = (writeSampleIndex++ / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
+
 				*samplePtr++ = sample;
 				*samplePtr++ = sample;
 			}
 
 			audio.buffer->Unlock(region1, region1Size, region2, region2Size);
 		}
-		else
-		{
-			LOG(Warning, "Failed to Lock sound buffer.\n");
-		}
+		//else
+		//{
+		//	LOG(Warning, "Failed to Lock sound buffer.\n");
+		//}
 	}
 	else
 	{
 		LOG(Warning, "Failed to GetCurrentPosition for sound buffer.\n");
 	}
+
+#if 1
+	if (!audio.playing)
+	{
+		if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
+		{
+			LOG(Info, "Secondary buffer is playing...\n");
+			audio.playing = true;
+		}
+		else
+		{
+			LOG(Error, "Error playing secondaryBuffer.\n");
+		}
+	}
+#endif
 #endif
 }
 
@@ -3463,7 +3498,10 @@ bool PlatformRun(Platform &platform)
 
 		platform.window.flags = 0;
 
-		PlaySound(platform.audio);
+		if ( platform.audio.initialized )
+		{
+			//UpdateAudio(platform.audio);
+		}
 	}
 
 	platform.CleanupCallback(platform);
