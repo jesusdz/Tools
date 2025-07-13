@@ -1477,6 +1477,7 @@ int2 Max(int2 a, int2 b) { return { Max(a.x, b.x), Max(a.y, b.y) }; }
 uint2 Max(uint2 a, uint2 b) { return { Max(a.x, b.x), Max(a.y, b.y) }; }
 float2 Max(float2 a, float2 b) { return { .x = Max(a.x, b.x), .y = Max(a.y, b.y) }; }
 
+i32 Min(i16 a, i16 b) { return a < b ? a : b; }
 i32 Min(i32 a, i32 b) { return a < b ? a : b; }
 u32 Min(u32 a, u32 b) { return a < b ? a : b; }
 f32 Min(f32 a, f32 b) { return a < b ? a : b; }
@@ -2279,7 +2280,7 @@ struct Platform
 
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
-	void (*RenderSoundCallback)(Platform &, SoundBuffer &soundBuffer);
+	void (*RenderAudioCallback)(Platform &, SoundBuffer &soundBuffer);
 	void (*CleanupCallback)(Platform &);
 	bool (*WindowInitCallback)(Platform &);
 	void (*WindowCleanupCallback)(Platform &);
@@ -3258,9 +3259,9 @@ bool InitializeAudio(Platform &platform)
 {
 	LOG(Info, "Sound system initialization:\n");
 
-	if ( platform.RenderSoundCallback == nullptr )
+	if ( platform.RenderAudioCallback == nullptr )
 	{
-		LOG(Info, "- RenderSoundCallback not provided, sound system not required\n");
+		LOG(Info, "- RenderAudioCallback not provided, sound system not required\n");
 		return true;
 	}
 
@@ -3482,7 +3483,7 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 		soundBuffer.samplesPerSecond = audio.samplesPerSecond;
 		soundBuffer.sampleCount = bytesToWrite / (audio.bytesPerSample * audio.channelCount);
 		soundBuffer.samples = audio.outputSamples;
-		platform.RenderSoundCallback(platform, soundBuffer);
+		platform.RenderAudioCallback(platform, soundBuffer);
 
 		Win32FillAudioBuffer(audio, byteToLock, bytesToWrite, soundBuffer.samples);
 	}

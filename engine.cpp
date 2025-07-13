@@ -655,7 +655,145 @@ UI &GetUI(Engine &engine)
 }
 #endif
 
-void OnPlatformRenderSound(Platform &platform, SoundBuffer &soundBuffer)
+#define QUAD_CHAR(a,b,c,d) (a) | (b<<8) | (c<<16) | (d<<24)
+
+enum RIFFCode
+{
+	RIFF_RIFF = QUAD_CHAR('R', 'I', 'F', 'F'),
+	RIFF_WAVE = QUAD_CHAR('W', 'A', 'V', 'E'),
+	RIFF_fmt  = QUAD_CHAR('f', 'm', 't', ' '),
+	RIFF_data = QUAD_CHAR('d', 'a', 't', 'a'),
+};
+
+#pragma pack(push, 1)
+
+struct WAVE_header
+{
+	u32 ChunkID;
+	u32 ChunkSize;
+	u32 Format;
+};
+
+struct WAVE_chunk
+{
+	u32 ID;
+	u32 Size;
+};
+
+struct WAVE_fmt
+{
+	u16 AudioFormat;
+	u16 NumChannels;
+	u32 SampleRate;
+	u32 ByteRate;
+	u16 BlockAlign;
+	u16 BitsPerSample;
+	u16 cbSize;
+	u16 ValidBitsPerSample;
+	u32 ChannelMask;
+	u8  SubFormat[16];
+};
+
+#pragma pack(pop)
+
+struct AudioClip
+{
+	void *samples;
+	u32 sampleCount;
+	u32 samplingRate;
+	u16 bitsPerSample;
+	u16 channelCount;
+};
+
+enum AudioSourceFlags
+{
+	AUDIO_SOURCE_START_BIT = 1<<0,
+	AUDIO_SOURCE_LOOPS_BIT = 1<<1
+};
+
+struct AudioSource
+{
+	const AudioClip *clip = nullptr;
+	u32 lastWriteSampleIndex = 0;
+	u8 flags = 0;
+};
+
+struct AudioClipDesc
+{
+	const char *filename;
+};
+
+static AudioClipDesc audioClipDescs[] = {
+	{ .filename = "assets/sound.wav" },
+};
+
+static AudioClip audioClips[16] = {};
+u32 audioClipCount = 0;
+
+static AudioSource audioSources[16] = {};
+
+bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip)
+{
+	FILE *file = fopen(filename, "rb");
+	if (file != nullptr)
+	{
+		WAVE_header Header;
+		WAVE_chunk Chunk;
+		WAVE_fmt Fmt;
+		u32 dataSize;
+		void *data = nullptr;
+
+		fread(&Header, sizeof(Header), 1, file);
+		ASSERT(Header.ChunkID == RIFF_RIFF); // "RIFF"
+		ASSERT(Header.Format == RIFF_WAVE); // "WAVE"
+
+		while (1)
+		{
+			fread(&Chunk, sizeof(Chunk), 1, file);
+			if (feof(file))
+			{
+				break;
+			}
+
+			switch (Chunk.ID)
+			{
+				case RIFF_fmt:
+					fread(&Fmt, Chunk.Size, 1, file);
+					ASSERT(Fmt.AudioFormat == 1); // 1 means PCM
+					ASSERT(Fmt.SampleRate == 48000);
+					ASSERT(Fmt.NumChannels == 2);
+					ASSERT(Fmt.BitsPerSample == 16);
+					break;
+				case RIFF_data:
+					ASSERT(data == nullptr);
+					dataSize = Chunk.Size;
+					data = PushSize(arena, dataSize);
+					fread(data, dataSize, 1, file);
+					ASSERT(data != nullptr);
+					break;
+				default:
+					fseek(file, Chunk.Size, SEEK_CUR);
+					break;
+			}
+		}
+
+		audioClip.bitsPerSample = Fmt.BitsPerSample;
+		audioClip.samplingRate = Fmt.SampleRate;
+		audioClip.channelCount = Fmt.NumChannels;
+		audioClip.sampleCount = dataSize / (Fmt.BitsPerSample / 8);
+		audioClip.samples = data;
+
+		fclose(file);
+		return true;
+	}
+	else
+	{
+		LOG(Warning, "Could not load sound file %s\n", filename);
+		return false;
+	}
+}
+
+void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 {
 	// Wave parameters
 	const u32 ToneHz = 256;
@@ -666,7 +804,44 @@ void OnPlatformRenderSound(Platform &platform, SoundBuffer &soundBuffer)
 
 	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
 
+#if 1
+	// Clear sound buffer
 	i16 *samplePtr = soundBuffer.samples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
+	{
+		*samplePtr++ = 0;
+		*samplePtr++ = 0;
+	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
+	{
+		AudioSource &audioSource = audioSources[i];
+		if (audioSource.clip)
+		{
+			const i16 *srcSample = (i16*)audioSource.clip->samples + audioSource.lastWriteSampleIndex;
+			i16 *dstSample = soundBuffer.samples;
+
+			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+			const u32 maxSampleCount = soundBuffer.sampleCount * 2;
+			const u32 remainingClipSampleCount = audioSource.clip->sampleCount - audioSource.lastWriteSampleIndex;
+			const u32 sampleCount = Min(remainingClipSampleCount, maxSampleCount);
+			for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+			{
+				// TODO: Make some audio mixing with sense and not this...
+				*dstSample = (i16)(0.5f * (*dstSample) + 0.5f * (*srcSample));
+				dstSample++;
+				srcSample++;
+			}
+
+			audioSource.lastWriteSampleIndex += sampleCount;
+			if (audioSource.lastWriteSampleIndex >= audioSource.clip->sampleCount)
+			{
+				audioSource.clip = nullptr;
+			}
+		}
+	}
+#else
+	samplePtr = soundBuffer.samples;
 	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
 	{
 		// Sine wave
@@ -677,6 +852,41 @@ void OnPlatformRenderSound(Platform &platform, SoundBuffer &soundBuffer)
 
 		*samplePtr++ = sample;
 		*samplePtr++ = sample;
+	}
+#endif
+}
+
+void CreateAudioClips(Engine &engine, Arena &arena, const AudioClipDesc &audioClipDesc)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(audioClips); ++i)
+	{
+		AudioClip &audioClip = audioClips[i];
+		if ( !audioClip.samples )
+		{
+			LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
+			return;
+		}
+	}
+
+	LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", audioClipDesc.filename);
+}
+
+void PlayAudioClip(Engine &engine)
+{
+	const AudioClip &audioClip = audioClips[0];
+	if (!audioClip.samples) {
+		return;
+	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
+	{
+		AudioSource &audioSource = audioSources[i];
+		if (audioSource.clip == nullptr)
+		{
+			audioSource.clip = &audioClip;
+			audioSource.lastWriteSampleIndex = 0;
+			break;
+		}
 	}
 }
 
@@ -1622,7 +1832,7 @@ void LinkPipelineHandles(Graphics &gfx)
 	}
 }
 
-void InitializeScene(Engine &engine, Arena scratch)
+void InitializeScene(Engine &engine, Arena &globalArena)
 {
 	Graphics &gfx = engine.gfx;
 
@@ -1632,6 +1842,11 @@ void InitializeScene(Engine &engine, Arena scratch)
 		CreateTexture(gfx, textures[i]);
 	}
 #endif
+
+	for (u32 i = 0; i < ARRAY_COUNT(audioClipDescs); ++i)
+	{
+		CreateAudioClips(engine, globalArena, audioClipDescs[i]);
+	}
 
 	for (u32 i = 0; i < ARRAY_COUNT(materials); ++i)
 	{
@@ -3179,7 +3394,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 	// Callbacks
 	engine.platform.InitCallback = OnPlatformInit;
 	engine.platform.UpdateCallback = OnPlatformUpdate;
-	engine.platform.RenderSoundCallback = OnPlatformRenderSound;
+	engine.platform.RenderAudioCallback = OnPlatformRenderAudio;
 	engine.platform.CleanupCallback = OnPlatformCleanup;
 	engine.platform.WindowInitCallback = OnPlatformWindowInit;
 	engine.platform.WindowCleanupCallback = OnPlatformWindowCleanup;

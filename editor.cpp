@@ -11,6 +11,11 @@ static void UpdateUI(Engine &engine)
 
 	UI_BeginWindow(ui, text);
 
+	if ( UI_Button(ui, "Play sound") )
+	{
+		PlayAudioClip(engine);
+	}
+
 	if ( UI_Section(ui, "Profiling" ) )
 	{
 		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
