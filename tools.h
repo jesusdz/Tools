@@ -2239,6 +2239,7 @@ struct Audio
 	u16 bufferSize;
 	u16 latencyFrameCount;
 	u16 latencySampleCount;
+	u16 safetyBytes;
 	u32 runningSampleIndex;
 
 #if PLATFORM_WINDOWS
@@ -2247,9 +2248,17 @@ struct Audio
 #endif
 
 	bool initialized;
+	bool isPlaying;
+	bool soundIsValid;
 
 	i16 *outputSamples;
-	u16 outputSampleSize;
+};
+
+struct SoundBuffer
+{
+	u16 samplesPerSecond;
+	u16 sampleCount;
+	i16* samples;
 };
 
 struct PlatformConfig
@@ -2270,6 +2279,7 @@ struct Platform
 
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
+	void (*RenderSoundCallback)(Platform &, SoundBuffer &soundBuffer);
 	void (*CleanupCallback)(Platform &);
 	bool (*WindowInitCallback)(Platform &);
 	void (*WindowCleanupCallback)(Platform &);
@@ -2883,18 +2893,21 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_SYSCOMMAND:
 			{
 				WPARAM param = ( wParam & 0xFFF0 );
+				Audio &audio = sPlatform->audio;
 
 				if (param == SC_MINIMIZE)
 				{
-					if ( sPlatform->audio.initialized ) {
+					if ( audio.initialized && audio.isPlaying ) {
 						sPlatform->audio.buffer->Stop();
+						audio.isPlaying = false;
 					}
 				}
 				else if (param == SC_RESTORE)
 				{
-					if ( sPlatform->audio.initialized ) {
+					if ( audio.initialized && !audio.isPlaying ) {
 						sPlatform->audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
-						sPlatform->audio.runningSampleIndex = 0;
+						audio.isPlaying = true;
+						sPlatform->audio.soundIsValid = false;
 					}
 				}
 
@@ -3239,22 +3252,31 @@ void PlatformUpdateEventLoop(Platform &platform)
 	}
 }
 
-void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize);
+void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
 
-bool InitializeAudio(Audio &audio, const Window &window)
+bool InitializeAudio(Platform &platform)
 {
 	LOG(Info, "Sound system initialization:\n");
 
-	const u16 targetFramesPerSecond = 30;
+	if ( platform.RenderSoundCallback == nullptr )
+	{
+		LOG(Info, "- RenderSoundCallback not provided, sound system not required\n");
+		return true;
+	}
+
+	Audio &audio = platform.audio;
+	const Window &window = platform.window;
+
+	const u16 gameUpdateHz = 30;
 
 	// Audio configuration
 	audio.channelCount = 2;
 	audio.bytesPerSample = 2; // 4 in HH
 	audio.samplesPerSecond = 48000; // per channel
 	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
-	audio.latencyFrameCount = 2;
-	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / targetFramesPerSecond;
-	audio.runningSampleIndex = 0;
+	audio.latencyFrameCount = 3;
+	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / gameUpdateHz;
+	audio.safetyBytes = (audio.samplesPerSecond * audio.bytesPerSample * audio.channelCount)/audio.latencyFrameCount;
 
 #if PLATFORM_WINDOWS
 	audio.library = LoadLibrary("dsound.dll");
@@ -3305,17 +3327,17 @@ bool InitializeAudio(Audio &audio, const Window &window)
 							LOG(Info, "- Secondary buffer created successfully\n");
 
 							audio.buffer = secondaryBuffer;
-							audio.outputSampleSize = audio.bufferSize;
-							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.outputSampleSize);
+							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
 
-							MemSet(audio.outputSamples, audio.outputSampleSize, 0);
-							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize);
+							MemSet(audio.outputSamples, audio.bufferSize, 0);
+							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize, audio.outputSamples);
 
 							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
 							{
 								LOG(Info, "- Secondary buffer is playing...\n");
 								audio.initialized = true;
-								audio.runningSampleIndex = 0;
+								audio.isPlaying = true;
+								audio.soundIsValid = false;
 							}
 							else
 							{
@@ -3356,18 +3378,18 @@ bool InitializeAudio(Audio &audio, const Window &window)
 	return audio.initialized;
 }
 
-void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize)
+void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
 {
-	ASSERT(writeSize <= audio.outputSampleSize);
+	ASSERT(writeSize <= audio.bufferSize);
 
 	void *region1;
 	DWORD region1Size;
 	void *region2;
 	DWORD region2Size;
 
-	if (SUCCEEDED(audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0)))
+	if (audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0) == DS_OK)
 	{
-		i16 *srcSample = audio.outputSamples;
+		const i16 *srcSample = audioSamples;
 
 		i16 *dstSample = (i16*)region1;
 		const u32 region1SampleCount = region1Size / (audio.bytesPerSample * audio.channelCount);
@@ -3392,41 +3414,77 @@ void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize)
 	else
 	{
 		LOG(Warning, "Failed to Lock sound buffer.\n");
-		audio.runningSampleIndex = 0;
+		audio.soundIsValid = false;
 	}
 }
 
-void UpdateAudio(Audio &audio)
+void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 {
+	Audio &audio = platform.audio;
+
 #if PLATFORM_WINDOWS
 	DWORD playCursor;
 	DWORD writeCursor;
-	static DWORD writeOffset = 0;
-	if (SUCCEEDED(audio.buffer->GetCurrentPosition(&playCursor, &writeCursor)))
+	if (audio.buffer->GetCurrentPosition(&playCursor, &writeCursor) == DS_OK)
 	{
-		// If audio just started playing, start writing at writeCursor
-		if (audio.runningSampleIndex == 0) {
-			writeOffset = writeCursor;
+		// Audio just started playing
+		if (!audio.soundIsValid) {
+			audio.runningSampleIndex = writeCursor / (audio.bytesPerSample * audio.channelCount);
+			audio.soundIsValid = true;
 		}
 
-		const DWORD targetCursor = (playCursor + audio.latencySampleCount * audio.channelCount * audio.bytesPerSample) % audio.bufferSize;
-		DWORD writeSize = 0;
+		const DWORD byteToLock = (audio.runningSampleIndex * audio.bytesPerSample * audio.channelCount) % audio.bufferSize;
 
-		if ( writeOffset < targetCursor )
-		{
-			writeSize = targetCursor - writeOffset;
+		const u32 gameUpdateHz = 30;
+		const f32 targetSecondsPerFrame = 1.0f / (f32)gameUpdateHz;
+
+		const DWORD expectedBytesPerFrame = (audio.samplesPerSecond * audio.channelCount * audio.bytesPerSample) / gameUpdateHz;
+		const f32 secondsLeftUntilFlip = targetSecondsPerFrame - secondsSinceFrameBegin;
+		const DWORD expectedBytesUntilFlip = (DWORD)((secondsLeftUntilFlip/targetSecondsPerFrame)*(f32)expectedBytesPerFrame);
+		const DWORD expectedFrameBoundaryByte = playCursor + expectedBytesPerFrame;
+
+		DWORD safeWriteCursor = writeCursor;
+		if (safeWriteCursor < playCursor) {
+			safeWriteCursor += audio.bufferSize;
 		}
-		else if ( writeOffset > targetCursor )
-		{
-			writeSize = targetCursor + audio.bufferSize - writeOffset;
+		ASSERT(safeWriteCursor >= playCursor);
+
+		const bool audioCardIsLowLatency = safeWriteCursor < expectedFrameBoundaryByte;
+
+		DWORD targetCursor = 0;
+		if (audioCardIsLowLatency) {
+			targetCursor = expectedFrameBoundaryByte + expectedBytesPerFrame;
+		} else {
+			targetCursor = writeCursor + expectedBytesPerFrame + audio.safetyBytes;
+		}
+		targetCursor = targetCursor % audio.bufferSize;
+
+		DWORD bytesToWrite = 0;
+		if (byteToLock > targetCursor) {
+			bytesToWrite = targetCursor + (audio.bufferSize - byteToLock);
+		} else {
+			bytesToWrite = targetCursor - byteToLock;
 		}
 
-		//LOG(Debug, "PC:%u, WC:%u, WO:%u, TC:%u / writeSize:%u, latencySize:%u\n", playCursor, writeCursor, writeOffset, targetCursor, writeSize, audio.latencySampleCount * audio.channelCount * audio.bytesPerSample );
-		//ASSERT( writeSize / (audio.channelCount * audio.bytesPerSample) <= audio.latencySampleCount );
+		#if 0 // Debug code to print audio latency
+		// Latency calculation
+		DWORD unwrappedWriteCursor = writeCursor;
+		if (writeCursor < playCursor) {
+			unwrappedWriteCursor += audio.bufferSize;
+		}
+		const DWORD latencySize = unwrappedWriteCursor - playCursor;
+		const DWORD latencySamples = latencySize / ( audio.bytesPerSample * audio.channelCount );
+		const f32 latencySeconds = (f32)latencySamples / (f32)audio.samplesPerSecond;
+		LOG(Debug, "latency: %u bytes (%fs)\n", latencySize, latencySeconds);
+		#endif
 
-		Win32FillAudioBuffer(audio, writeOffset, writeSize);
+		SoundBuffer soundBuffer = {};
+		soundBuffer.samplesPerSecond = audio.samplesPerSecond;
+		soundBuffer.sampleCount = bytesToWrite / (audio.bytesPerSample * audio.channelCount);
+		soundBuffer.samples = audio.outputSamples;
+		platform.RenderSoundCallback(platform, soundBuffer);
 
-		writeOffset = (writeOffset + writeSize) % audio.bufferSize;
+		Win32FillAudioBuffer(audio, byteToLock, bytesToWrite, soundBuffer.samples);
 	}
 	else
 	{
@@ -3480,9 +3538,9 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
-	if ( !InitializeAudio(platform.audio, platform.window) )
+	if ( !InitializeAudio(platform) )
 	{
-		LOG(Error, "Could not load sound system.\n");
+		return false;
 	}
 
 	if ( !platform.InitCallback(platform) )
@@ -3503,10 +3561,10 @@ bool PlatformRun(Platform &platform)
 	{
 		ResetArena(platform.frameArena);
 
-		const Clock currentFrameClock = GetClock();
-		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameClock);
-		platform.totalSeconds = GetSecondsElapsed(firstFrameClock, currentFrameClock);
-		lastFrameClock = currentFrameClock;
+		const Clock currentFrameBeginClock = GetClock();
+		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameBeginClock);
+		platform.totalSeconds = GetSecondsElapsed(firstFrameClock, currentFrameBeginClock);
+		lastFrameClock = currentFrameBeginClock;
 
 		PlatformUpdateEventLoop(platform);
 
@@ -3533,10 +3591,13 @@ bool PlatformRun(Platform &platform)
 
 		platform.window.flags = 0;
 
-		if ( platform.audio.initialized )
+		if ( platform.audio.isPlaying )
 		{
-			UpdateAudio(platform.audio);
+			const f32 secondsSinceFrameBegin = GetSecondsElapsed(currentFrameBeginClock, GetClock());
+			UpdateAudio(platform, secondsSinceFrameBegin);
 		}
+
+		// TODO: Potentially use a separate RenderCallback here instead of using UpdateCallback for that.
 	}
 
 	platform.CleanupCallback(platform);

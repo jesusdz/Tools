@@ -655,28 +655,25 @@ UI &GetUI(Engine &engine)
 }
 #endif
 
-void RenderAudio(Engine &engine)
+void OnPlatformRenderSound(Platform &platform, SoundBuffer &soundBuffer)
 {
-	const Audio &audio = engine.platform.audio;
-
 	// Wave parameters
 	const u32 ToneHz = 256;
 	const i32 ToneVolume = 4000;
-	const u32 WavePeriod = audio.samplesPerSecond / ToneHz;
+	const u32 WavePeriod = soundBuffer.samplesPerSecond / ToneHz;
 	const u32 HalfWavePeriod = WavePeriod / 2;
+	static f32 tSine = 0.0f;
 
-	i16 *samplePtr = audio.outputSamples;
-	for (u32 i = 0; i < audio.latencySampleCount; ++i)
+	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
+
+	i16 *samplePtr = soundBuffer.samples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
 	{
-		const u32 sampleIndex = audio.runningSampleIndex + i;
-
 		// Sine wave
-		const f32 t = 2.0f * Pi * (f32)sampleIndex / (f32)WavePeriod;
-		const f32 sinValue = Sin(t);
+		tSine += TwoPi/(f32)WavePeriod;
+		while ( tSine >= TwoPi ) { tSine -= TwoPi; }
+		const f32 sinValue = Sin(tSine);
 		const i16 sample = (i16)(sinValue * ToneVolume);
-
-		// Square wave
-		//const i16 sample = (sampleIndex / HalfWavePeriod) % 2 ? ToneVolume : -ToneVolume;
 
 		*samplePtr++ = sample;
 		*samplePtr++ = sample;
@@ -2929,8 +2926,6 @@ void OnPlatformUpdate(Platform &platform)
 		UIEndFrameRecording(engine);
 #endif
 
-		RenderAudio(engine);
-
 		RenderGraphics(engine, platform.deltaSeconds);
 
 #if USE_EDITOR
@@ -3184,6 +3179,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 	// Callbacks
 	engine.platform.InitCallback = OnPlatformInit;
 	engine.platform.UpdateCallback = OnPlatformUpdate;
+	engine.platform.RenderSoundCallback = OnPlatformRenderSound;
 	engine.platform.CleanupCallback = OnPlatformCleanup;
 	engine.platform.WindowInitCallback = OnPlatformWindowInit;
 	engine.platform.WindowCleanupCallback = OnPlatformWindowCleanup;
