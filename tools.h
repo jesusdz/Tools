@@ -3253,7 +3253,9 @@ void PlatformUpdateEventLoop(Platform &platform)
 	}
 }
 
+#if PLATFORM_WINDOWS
 void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
+#endif
 
 bool InitializeAudio(Platform &platform)
 {
@@ -3374,11 +3376,14 @@ bool InitializeAudio(Platform &platform)
 	{
 		LOG(Error, "- Error loading dsound.dll\n");
 	}
-#endif
 
 	return audio.initialized;
+#else
+	return true;
+#endif // PLATFORM_WINDOWS
 }
 
+#if PLATFORM_WINDOWS
 void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
 {
 	ASSERT(writeSize <= audio.bufferSize);
@@ -3418,6 +3423,7 @@ void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, cons
 		audio.soundIsValid = false;
 	}
 }
+#endif // PLATFORM_WINDOWS
 
 void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 {
