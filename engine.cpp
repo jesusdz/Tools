@@ -799,7 +799,6 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 	const u32 ToneHz = 256;
 	const i32 ToneVolume = 4000;
 	const u32 WavePeriod = soundBuffer.samplesPerSecond / ToneHz;
-	const u32 HalfWavePeriod = WavePeriod / 2;
 	static f32 tSine = 0.0f;
 
 	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
