@@ -724,7 +724,7 @@ struct AudioClipDesc
 };
 
 static AudioClipDesc audioClipDescs[] = {
-	{ .filename = "assets/sound.wav" },
+	{ .filename = "assets/bell.wav" },
 };
 
 static AudioClip audioClips[16] = {};

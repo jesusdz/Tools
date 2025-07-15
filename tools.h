@@ -70,6 +70,11 @@
 #include <dlfcn.h>
 #endif
 
+#if PLATFORM_LINUX
+#define ALSA_PCM_NEW_HW_PARAMS_API
+#include <alsa/asoundlib.h>
+#endif
+
 #if PLATFORM_ANDROID
 #include <android/sensor.h>
 #include <android/log.h>
@@ -2246,6 +2251,9 @@ struct Audio
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
 	LPDIRECTSOUNDBUFFER buffer;
+#elif PLATFORM_LINUX
+	DynamicLibrary library;
+	snd_pcm_t *pcm;
 #endif
 
 	bool initialized;
@@ -3257,6 +3265,54 @@ void PlatformUpdateEventLoop(Platform &platform)
 void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
 #endif
 
+#if PLATFORM_LINUX
+
+typedef const char * SND_STRERROR (int errnum);
+typedef int SND_PCM_OPEN(snd_pcm_t **pcmp, const char * name, snd_pcm_stream_t stream, int	mode );
+typedef int SND_PCM_HW_PARAMS_MALLOC(snd_pcm_hw_params_t **ptr);
+typedef int SND_PCM_HW_PARAMS_ANY(snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
+typedef int SND_PCM_HW_PARAMS_SET_ACCESS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_access_t _access);
+typedef int SND_PCM_HW_PARAMS_SET_FORMAT(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t val);
+typedef int SND_PCM_HW_PARAMS_SET_CHANNELS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int val);
+typedef int SND_PCM_HW_PARAMS_SET_RATE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val, int *dir);
+typedef int SND_PCM_HW_PARAMS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
+typedef int SND_PCM_HW_PARAMS_GET_CHANNELS(const snd_pcm_hw_params_t *params, unsigned int *channelCount);
+typedef int SND_PCM_HW_PARAMS_GET_RATE(const snd_pcm_hw_params_t *params, unsigned int *sampleRate, int *dir);
+typedef int SND_PCM_HW_PARAMS_GET_FORMAT(const snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
+typedef int SND_PCM_HW_PARAMS_GET_ACCESS(const snd_pcm_hw_params_t *params, snd_pcm_access_t *access);
+typedef int SND_PCM_HW_PARAMS_GET_PERIOD_TIME(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int SND_PCM_HW_PARAMS_GET_PERIOD_SIZE(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *frames, int *dir);
+typedef int SND_PCM_AVAIL_DELAY(snd_pcm_t *pcm, snd_pcm_sframes_t *availp, snd_pcm_sframes_t *delayp);
+typedef snd_pcm_sframes_t SND_PCM_WRITEI(snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
+typedef int SND_PCM_PREPARE(snd_pcm_t *pcm);
+typedef int SND_PCM_CLOSE(snd_pcm_t *pcm);
+typedef int SND_PCM_DRAIN(snd_pcm_t *pcm);
+
+SND_STRERROR* FP_snd_strerror;
+SND_PCM_OPEN* FP_snd_pcm_open;
+SND_PCM_HW_PARAMS_MALLOC* FP_snd_pcm_hw_params_malloc;
+SND_PCM_HW_PARAMS_ANY* FP_snd_pcm_hw_params_any;
+SND_PCM_HW_PARAMS_SET_ACCESS* FP_snd_pcm_hw_params_set_access;
+SND_PCM_HW_PARAMS_SET_FORMAT* FP_snd_pcm_hw_params_set_format;
+SND_PCM_HW_PARAMS_SET_CHANNELS* FP_snd_pcm_hw_params_set_channels;
+SND_PCM_HW_PARAMS_SET_RATE_NEAR* FP_snd_pcm_hw_params_set_rate_near;
+SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR* FP_snd_pcm_hw_params_set_period_size_near;
+SND_PCM_HW_PARAMS* FP_snd_pcm_hw_params;
+SND_PCM_HW_PARAMS_GET_CHANNELS* FP_snd_pcm_hw_params_get_channels;
+SND_PCM_HW_PARAMS_GET_RATE* FP_snd_pcm_hw_params_get_rate;
+SND_PCM_HW_PARAMS_GET_FORMAT* FP_snd_pcm_hw_params_get_format;
+SND_PCM_HW_PARAMS_GET_ACCESS* FP_snd_pcm_hw_params_get_access;
+SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
+SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
+SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
+SND_PCM_WRITEI* FP_snd_pcm_writei;
+SND_PCM_PREPARE* FP_snd_pcm_prepare;
+SND_PCM_CLOSE* FP_snd_pcm_close;
+SND_PCM_DRAIN* FP_snd_pcm_drain;
+
+#endif // PLATFORM_LINUX
+
 bool InitializeAudio(Platform &platform)
 {
 	LOG(Info, "Sound system initialization:\n");
@@ -3281,8 +3337,11 @@ bool InitializeAudio(Platform &platform)
 	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / gameUpdateHz;
 	audio.safetyBytes = (audio.samplesPerSecond * audio.bytesPerSample * audio.channelCount)/audio.latencyFrameCount;
 
+	// Allocate buffer to output samples from the engine
+	audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
+
 #if PLATFORM_WINDOWS
-	audio.library = LoadLibrary("dsound.dll");
+	audio.library = OpenLibrary("dsound.dll");
 
 	if (audio.library)
 	{
@@ -3330,7 +3389,6 @@ bool InitializeAudio(Platform &platform)
 							LOG(Info, "- Secondary buffer created successfully\n");
 
 							audio.buffer = secondaryBuffer;
-							audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
 
 							MemSet(audio.outputSamples, audio.bufferSize, 0);
 							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize, audio.outputSamples);
@@ -3375,6 +3433,87 @@ bool InitializeAudio(Platform &platform)
 	else
 	{
 		LOG(Error, "- Error loading dsound.dll\n");
+	}
+
+	return audio.initialized;
+
+#elif PLATFORM_LINUX
+
+	audio.library = OpenLibrary("libasound.so");
+
+	if (audio.library)
+	{
+		DynamicLibrary alsa = audio.library;
+
+		// Load functions
+		FP_snd_strerror = (SND_STRERROR*) LoadSymbol(alsa, "snd_strerror");
+		FP_snd_pcm_open = (SND_PCM_OPEN*) LoadSymbol(alsa, "snd_pcm_open");
+		FP_snd_pcm_hw_params_malloc = (SND_PCM_HW_PARAMS_MALLOC*) LoadSymbol(alsa, "snd_pcm_hw_params_malloc");
+		FP_snd_pcm_hw_params_any = (SND_PCM_HW_PARAMS_ANY*) LoadSymbol(alsa, "snd_pcm_hw_params_any");
+		FP_snd_pcm_hw_params_set_access = (SND_PCM_HW_PARAMS_SET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_access");
+		FP_snd_pcm_hw_params_set_format = (SND_PCM_HW_PARAMS_SET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_set_format");
+		FP_snd_pcm_hw_params_set_channels = (SND_PCM_HW_PARAMS_SET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_channels");
+		FP_snd_pcm_hw_params_set_rate_near = (SND_PCM_HW_PARAMS_SET_RATE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_rate_near");
+		FP_snd_pcm_hw_params_set_period_size_near = (SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_period_size_near");
+		FP_snd_pcm_hw_params = (SND_PCM_HW_PARAMS*) LoadSymbol(alsa, "snd_pcm_hw_params");
+		FP_snd_pcm_hw_params_get_channels = (SND_PCM_HW_PARAMS_GET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_channels");
+		FP_snd_pcm_hw_params_get_rate = (SND_PCM_HW_PARAMS_GET_RATE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_rate");
+		FP_snd_pcm_hw_params_get_format = (SND_PCM_HW_PARAMS_GET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_get_format");
+		FP_snd_pcm_hw_params_get_access = (SND_PCM_HW_PARAMS_GET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_access");
+		FP_snd_pcm_hw_params_get_period_time = (SND_PCM_HW_PARAMS_GET_PERIOD_TIME*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_time");
+		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
+		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
+		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
+		FP_snd_pcm_prepare = (SND_PCM_PREPARE*) LoadSymbol(alsa, "snd_pcm_prepare");
+		FP_snd_pcm_close = (SND_PCM_CLOSE*) LoadSymbol(alsa, "snd_pcm_close");
+		FP_snd_pcm_drain = (SND_PCM_DRAIN*) LoadSymbol(alsa, "snd_pcm_drain");
+
+		// Open PCM device
+		int res = FP_snd_pcm_open(&audio.pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+		if (res == 0)
+		{
+			int dir = 0; // direction of approximate values
+			unsigned int sampleRate = 48000; // frames/second (CD quality)
+			unsigned int channelCount = 2;
+			unsigned int bytesPerSample = 2;
+			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
+
+			// Allocate and configure hardware parameters
+			snd_pcm_hw_params_t *params;
+			FP_snd_pcm_hw_params_malloc(&params);
+			FP_snd_pcm_hw_params_any(audio.pcm, params); // default values
+			FP_snd_pcm_hw_params_set_channels(audio.pcm, params, channelCount);
+			FP_snd_pcm_hw_params_set_rate_near(audio.pcm, params, &sampleRate, &dir);
+			FP_snd_pcm_hw_params_set_format(audio.pcm, params, SND_PCM_FORMAT_S16_LE); // 16 bit little endian
+			FP_snd_pcm_hw_params_set_access(audio.pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+			FP_snd_pcm_hw_params_set_period_size_near(audio.pcm, params, &frames, &dir);
+
+			// Write the parameters to the driver
+			res = FP_snd_pcm_hw_params(audio.pcm, params);
+			if (res == 0)
+			{
+				LOG(Info, "- PCM is playing...\n");
+				audio.initialized = true;
+				audio.isPlaying = true;
+				audio.soundIsValid = false;
+			}
+			else
+			{
+				LOG(Error, "- Error setting PCM HW parameters: %s\n", FP_snd_strerror(res));
+			}
+
+			unsigned int finalSampleRate = 0;
+			FP_snd_pcm_hw_params_get_rate(params, &finalSampleRate, &dir);
+		}
+		else
+		{
+			LOG(Error, "- Error opening PCM device: %s\n", FP_snd_strerror(res));
+			return 1;
+		}
+	}
+	else
+	{
+		LOG(Error, "- Error loading libasound.so\n");
 	}
 
 	return audio.initialized;
@@ -3497,6 +3636,46 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 	{
 		LOG(Warning, "Failed to GetCurrentPosition for sound buffer.\n");
 	}
+#elif PLATFORM_LINUX
+
+	snd_pcm_sframes_t availableFrames;
+	snd_pcm_sframes_t delayFrames;
+	if ( FP_snd_pcm_avail_delay(audio.pcm, &availableFrames, &delayFrames) == 0 )
+	{
+		const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
+		const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
+
+		snd_pcm_uframes_t framesToRender = maxFramesToRender - delayFrames;
+
+		framesToRender = framesToRender < availableFrames ? framesToRender : availableFrames;
+
+		if ( framesToRender > 0 )
+		{
+			//LOG(Debug, "avail:%u / delay:%u\n", availableFrames, delayFrames);
+			SoundBuffer soundBuffer = {};
+			soundBuffer.samplesPerSecond = audio.samplesPerSecond;
+			soundBuffer.sampleCount = framesToRender;
+			soundBuffer.samples = audio.outputSamples;
+			platform.RenderAudioCallback(platform, soundBuffer);
+
+			const int res = FP_snd_pcm_writei(audio.pcm, soundBuffer.samples, framesToRender);
+
+			if ( res >= 0 ) {
+				//LOG(Info, "%u frames written\n", res);
+			} else if (res == -EPIPE) {
+				LOG(Error, "An underrun occurred: %s\n", FP_snd_strerror(res));
+				FP_snd_pcm_prepare(audio.pcm);
+			} else if (res == -EBADFD) {
+				LOG(Error, "PCM is not in the right state (PREPARED or RUNNING): %s\n", FP_snd_strerror(res));
+			} else if (res == -ESTRPIPE) {
+				LOG(Error, "Underrun error: %s\n", FP_snd_strerror(res));
+			} else {
+				LOG(Error, "Unknown error: %s\n", FP_snd_strerror(res));
+			}
+		}
+	}
+
+
 #endif
 }
 
@@ -3610,6 +3789,8 @@ bool PlatformRun(Platform &platform)
 	platform.CleanupCallback(platform);
 
 	PrintArenaUsage(platform.globalArena);
+
+	// TODO: Cleanup window and audio
 
 	return false;
 }
