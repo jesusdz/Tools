@@ -50,6 +50,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <WindowsX.h>
+#include <xinput.h>
 #include <mmsystem.h> // audio
 #include <dsound.h>   // audio
 #include <direct.h>  // _getcwd
@@ -2232,6 +2233,13 @@ struct Window
 	Touch touches[2];
 };
 
+struct Input
+{
+#if PLATFORM_WINDOWS
+	DynamicLibrary library;
+#endif
+};
+
 #if PLATFORM_WINDOWS
 typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
 #endif
@@ -2307,6 +2315,7 @@ struct Platform
 	Arena dataArena;
 	StringInterning stringInterning;
 	Window window;
+	Input input;
 	Audio audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
@@ -3262,6 +3271,113 @@ void PlatformUpdateEventLoop(Platform &platform)
 }
 
 #if PLATFORM_WINDOWS
+
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD userIndex, XINPUT_STATE *state)
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD userIndex, XINPUT_VIBRATION *vibration)
+
+typedef X_INPUT_GET_STATE(XInputGetState_t);
+typedef X_INPUT_SET_STATE(XInputSetState_t);
+
+X_INPUT_GET_STATE(XInputGetStateStub)
+{
+	return ERROR_INVALID_FUNCTION;
+}
+
+X_INPUT_SET_STATE(XInputSetStateStub)
+{
+	return ERROR_INVALID_FUNCTION;
+}
+
+XInputGetState_t *FP_XInputGetState = XInputGetStateStub;
+XInputSetState_t *FP_XInputSetState = XInputSetStateStub;
+
+#endif // PLATFORM_WINDOWS
+
+bool InitializeGamepad(Platform &platform)
+{
+	LOG(Info, "Input system initialization:\n");
+
+	Input &input = platform.input;
+
+#if PLATFORM_WINDOWS
+
+	const char *libraryNames[] = {
+		"xinput1_4.dll",
+		"xinput9_1_0.dll",
+		"xinput1_3.dll",
+	};
+
+	const char *libraryName = nullptr;
+	for (u32 i = 0; i < ARRAY_COUNT(libraryNames); ++i) {
+		libraryName = libraryNames[i];
+		input.library = OpenLibrary(libraryName);
+		if (input.library) {
+			break;
+		}
+	}
+
+	if (input.library)
+	{
+		LOG(Info, "- Loaded %s successfully\n", libraryName);
+
+		XInputGetState_t* getState = (XInputGetState_t*)LoadSymbol(input.library, "XInputGetState");
+		XInputSetState_t* setState = (XInputSetState_t*)LoadSymbol(input.library, "XInputSetState");
+
+		if ( getState != nullptr ) {
+			LOG(Info, "- XInputGetState symbol loaded successfully\n");
+			FP_XInputGetState = getState;
+		} else {
+			LOG(Warning, "- Error loading XInputGetState symbol\n");
+			FP_XInputGetState = XInputGetStateStub;
+		}
+		if ( setState != nullptr ) {
+			LOG(Info, "- XInputSetState symbol loaded successfully\n");
+			FP_XInputSetState = setState;
+		} else {
+			LOG(Warning, "- Error loading XInputSetState\n");
+			FP_XInputSetState = XInputSetStateStub;
+		}
+	}
+
+#endif
+	return false;
+}
+
+void UpdateGamepad(Platform &platform)
+{
+#if PLATFORM_WINDOWS
+	for ( DWORD i = 0; i < XUSER_MAX_COUNT; ++i )
+	{
+		XINPUT_STATE controllerState;
+		if (FP_XInputGetState(i, &controllerState) == ERROR_SUCCESS)
+		{
+			//int packetNumber = controllerState.dwPacketNumber;
+			const XINPUT_GAMEPAD &xpad = controllerState.Gamepad;
+			const bool up = xpad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
+			const bool down = xpad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+			const bool left = xpad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+			const bool right = xpad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+			const bool start = xpad.wButtons & XINPUT_GAMEPAD_START;
+			const bool back = xpad.wButtons & XINPUT_GAMEPAD_BACK;
+			const bool leftShoulder = xpad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
+			const bool rightShoulder = xpad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
+			const bool aButton = xpad.wButtons & XINPUT_GAMEPAD_A;
+			const bool bButton = xpad.wButtons & XINPUT_GAMEPAD_B;
+			const bool xButton = xpad.wButtons & XINPUT_GAMEPAD_X;
+			const bool yButton = xpad.wButtons & XINPUT_GAMEPAD_Y;
+
+			const i16 xAxis = xpad.sThumbLX;
+			const i16 yAxis = xpad.sThumbLY;
+		}
+		else
+		{
+			// Controller not available
+		}
+	}
+#endif
+}
+
+#if PLATFORM_WINDOWS
 void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
 #endif
 
@@ -3724,6 +3840,11 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
+	if ( InitializeGamepad(platform) )
+	{
+		// Do nothing
+	}
+
 	if ( !InitializeAudio(platform) )
 	{
 		return false;
@@ -3776,6 +3897,8 @@ bool PlatformRun(Platform &platform)
 		}
 
 		platform.window.flags = 0;
+
+		UpdateGamepad(platform);
 
 		if ( platform.audio.isPlaying )
 		{
