@@ -1440,6 +1440,12 @@ float2 operator+(float2 a, float2 b)
 	return res;
 }
 
+float3 operator+(float3 a, float3 b)
+{
+	const float3 res = { .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+	return res;
+}
+
 float2 operator+=(float2& a, float2 b)
 {
 	a = { .x = a.x + b.x, .y = a.y + b.y };
@@ -1455,6 +1461,12 @@ float2 operator-(float2 a, float2 b)
 float2 operator*(float a, float2 b)
 {
 	const float2 res = { .x = a * b.x, .y = a * b.y };
+	return res;
+}
+
+float3 operator*(float a, float3 b)
+{
+	const float3 res = { .x = a * b.x, .y = a * b.y, .z = a * b.z };
 	return res;
 }
 
@@ -2167,6 +2179,21 @@ bool KeyRelease(const Keyboard &keyboard, Key key)
 	return keyboard.keys[key] == KEY_STATE_RELEASE;
 }
 
+bool ButtonPress(ButtonState state)
+{
+	return state == BUTTON_STATE_PRESS;
+}
+
+bool ButtonPressed(ButtonState state)
+{
+	return state == BUTTON_STATE_PRESSED;
+}
+
+bool ButtonRelease(ButtonState state)
+{
+	return state == BUTTON_STATE_RELEASE;
+}
+
 bool MouseMoved(const Mouse &mouse)
 {
 	return mouse.dx != 0 || mouse.dy != 0;
@@ -2175,19 +2202,19 @@ bool MouseMoved(const Mouse &mouse)
 bool MouseButtonPress(const Mouse &mouse, MouseButton button)
 {
 	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return mouse.buttons[button] == BUTTON_STATE_PRESS;
+	return ButtonPress(mouse.buttons[button]);
 }
 
 bool MouseButtonPressed(const Mouse &mouse, MouseButton button)
 {
 	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return mouse.buttons[button] == BUTTON_STATE_PRESSED;
+	return ButtonPressed(mouse.buttons[button]);
 }
 
 bool MouseButtonRelease(const Mouse &mouse, MouseButton button)
 {
 	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return mouse.buttons[button] == BUTTON_STATE_RELEASE;
+	return ButtonRelease(mouse.buttons[button]);
 }
 
 bool MouseButtonChanged(const Mouse &mouse, MouseButton button)
@@ -2233,11 +2260,38 @@ struct Window
 	Touch touches[2];
 };
 
+struct Gamepad
+{
+	union {
+		struct {
+			ButtonState start;
+			ButtonState back;
+			ButtonState up;
+			ButtonState down;
+			ButtonState left;
+			ButtonState right;
+			ButtonState a;
+			ButtonState b;
+			ButtonState x;
+			ButtonState y;
+			ButtonState leftShoulder;
+			ButtonState rightShoulder;
+		};
+		ButtonState buttons[12];
+	};
+	float leftTrigger;
+	float rightTrigger;
+	float2 leftAxis;
+	float2 rightAxis;
+};
+
 struct Input
 {
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
 #endif
+
+	Gamepad gamepad;
 };
 
 #if PLATFORM_WINDOWS
@@ -3343,31 +3397,78 @@ bool InitializeGamepad(Platform &platform)
 	return false;
 }
 
+#if PLATFORM_WINDOWS
+
+static ButtonState ButtonStateFromXInput(WORD prevButtonMask, WORD currButtonMask, WORD buttonBit)
+{
+	const u32 wasDown = ( prevButtonMask & buttonBit ) ? 1 : 0;
+	const u32 isDown = ( currButtonMask & buttonBit ) ? 1 : 0;
+	constexpr ButtonState stateMatrix[2][2] = {
+		// isUp,  isDown
+		{ BUTTON_STATE_IDLE , BUTTON_STATE_PRESS }, // wasUp
+		{ BUTTON_STATE_RELEASE ,BUTTON_STATE_PRESSED }, // wasDown
+	};
+	const ButtonState state = stateMatrix[wasDown][isDown];
+	return state;
+}
+
+static f32 TriggerFromXInput(BYTE trigger)
+{
+	const f32 res = (f32)trigger/255.0f;
+	return res;
+}
+
+static f32 AxisFromXInput(SHORT axis, SHORT deadzoneThreshold)
+{
+	f32 normalizedAxis = 0.0f;
+	if (axis < -deadzoneThreshold) {
+		normalizedAxis = (f32)(axis + deadzoneThreshold)/(32768.0f - deadzoneThreshold);
+	} else if (axis > deadzoneThreshold) {
+		normalizedAxis = (f32)(axis - deadzoneThreshold)/(32767.0f - deadzoneThreshold);
+	}
+	return normalizedAxis;
+}
+
+#endif // PLATFORM_WINDOWS
+
 void UpdateGamepad(Platform &platform)
 {
+	Gamepad &gamepad = platform.input.gamepad;
+
 #if PLATFORM_WINDOWS
 	for ( DWORD i = 0; i < XUSER_MAX_COUNT; ++i )
 	{
 		XINPUT_STATE controllerState;
 		if (FP_XInputGetState(i, &controllerState) == ERROR_SUCCESS)
 		{
+			static XINPUT_GAMEPAD prevXPad = {};
+
 			//int packetNumber = controllerState.dwPacketNumber;
 			const XINPUT_GAMEPAD &xpad = controllerState.Gamepad;
-			const bool up = xpad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
-			const bool down = xpad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-			const bool left = xpad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-			const bool right = xpad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-			const bool start = xpad.wButtons & XINPUT_GAMEPAD_START;
-			const bool back = xpad.wButtons & XINPUT_GAMEPAD_BACK;
-			const bool leftShoulder = xpad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
-			const bool rightShoulder = xpad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
-			const bool aButton = xpad.wButtons & XINPUT_GAMEPAD_A;
-			const bool bButton = xpad.wButtons & XINPUT_GAMEPAD_B;
-			const bool xButton = xpad.wButtons & XINPUT_GAMEPAD_X;
-			const bool yButton = xpad.wButtons & XINPUT_GAMEPAD_Y;
 
-			const i16 xAxis = xpad.sThumbLX;
-			const i16 yAxis = xpad.sThumbLY;
+			gamepad.start = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_START);
+			gamepad.back = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_BACK);
+			gamepad.up = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_UP);
+			gamepad.down = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_DOWN);
+			gamepad.left = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_LEFT);
+			gamepad.right = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_RIGHT);
+			gamepad.a = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_A);
+			gamepad.b = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_B);
+			gamepad.x = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_X);
+			gamepad.y = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_Y);
+			gamepad.leftShoulder = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_LEFT_SHOULDER);
+			gamepad.rightShoulder = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_RIGHT_SHOULDER);
+			gamepad.leftTrigger = TriggerFromXInput(xpad.bLeftTrigger);
+			gamepad.rightTrigger = TriggerFromXInput(xpad.bRightTrigger);
+			gamepad.leftAxis.x = AxisFromXInput(xpad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+			gamepad.leftAxis.y = AxisFromXInput(xpad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+			gamepad.rightAxis.x = AxisFromXInput(xpad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+			gamepad.rightAxis.y = AxisFromXInput(xpad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+
+			prevXPad = xpad;
+
+			// Only one gamepad supported
+			break;
 		}
 		else
 		{

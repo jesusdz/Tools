@@ -336,8 +336,10 @@ static void AnimateCamera3D(const Window &window, Camera &camera, float deltaSec
 	speed = Mul(speed, 0.9);
 }
 
-static void AnimateCamera2D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
+static void AnimateCamera2D(const Window &window, const Input &input, Camera &camera, float deltaSeconds, bool handleInput)
 {
+	const Gamepad &gamepad = input.gamepad;
+
 	float3 dir = { 0, 0, 0 };
 
 	if ( handleInput )
@@ -381,6 +383,9 @@ static void AnimateCamera2D(const Window &window, Camera &camera, float deltaSec
 		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( UpDirectionFromAngles(angles) )); }
 		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
 		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+
+		dir = dir + gamepad.leftAxis.x * RightDirectionFromAngles(angles);
+		dir = dir + gamepad.leftAxis.y * UpDirectionFromAngles(angles);
 #endif
 		dir = NormalizeIfNotZero(dir);
 	}
@@ -448,7 +453,7 @@ void EditorUpdate(Engine &engine)
 	}
 	else if (engine.editor.cameraType == ProjectionOrthographic)
 	{
-		AnimateCamera2D(platform.window, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
+		AnimateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
 	}
 
 	BeginEntitySelection(engine, platform.window.mouse, handleInput);
