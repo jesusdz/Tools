@@ -3,15 +3,66 @@
 #include <fcntl.h> // open
 #include <unistd.h> // read
 #include <linux/input.h> // input_event
+#include <linux/ioctl.h> // ioctl
 
 // Docs:
 // https://www.kernel.org/doc/Documentation/input/input.txt
 
+const char *selectFirstDevicePath(char path[MAX_PATH_LENGTH])
+{
+	char name[256];
+	const char *basedir = "/dev/input";
+
+	Dir dir = {};
+
+	if ( OpenDir(dir, basedir) )
+	{
+		DirEntry entry = {};
+
+		while ( ReadDir(dir, entry) )
+		{
+			SPrintf(path, "%s/%s", basedir, entry.name);
+
+			if (StrEqN(entry.name, "event", 5))
+			{
+				int fd = open(path, O_RDONLY);
+				if (fd < 0) {
+					continue;
+				}
+
+				if ( ioctl(fd, EVIOCGNAME(sizeof(name)), name) != -1 )
+				{
+					LOG(Info, "Device info:\n");
+					LOG(Info, "- path: %s\n", path);
+					LOG(Info, "- name: %s\n", name);
+					return path;
+				}
+
+				close(fd);
+			}
+		}
+
+		CloseDir(dir);
+	}
+
+	return nullptr;
+}
+
 int main(int argc, char **argv)
 {
-	int fd = open("/dev/input/event9", O_RDONLY);
+	char path[MAX_PATH_LENGTH] = {};
+	const char *devicePath = selectFirstDevicePath(path);
+
+	if (devicePath == nullptr)
+	{
+		LOG(Error, "Could not find any gamepad device\n");
+		return -1;
+	}
+
+	int fd = open(devicePath, O_RDONLY);
 	if (fd >= 0)
 	{
+		LOG(Info, "Reading events from: %s\n", devicePath);
 		while (1)
 		{
 			input_event event;
@@ -61,14 +112,14 @@ int main(int argc, char **argv)
 			}
 			else if ( size == -1 )
 			{
-				LOG(Warning, "Could not read from input device\n");
+				LOG(Warning, "Could not read from input device: %s\n", devicePath);
 			}
 		}
 	}
 	else
 	{
-		LOG(Error, "Could not open input device\n");
-		perror("Could not open input device");
+		LOG(Error, "Could not open input device: %s\n", devicePath);
+		perror("open() failed");
 	}
 	return 0;
 }
