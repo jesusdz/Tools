@@ -1,4 +1,4 @@
-.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast data clean main_alsa directories
+.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast data clean main_alsa main_gamepad directories
 
 CXX=g++
 CXXFLAGS= -g
@@ -49,6 +49,9 @@ cast: directories
 
 main_alsa: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_alsa main_alsa.cpp
+
+main_gamepad: directories
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_gamepad main_gamepad.cpp
 
 directories:
 	mkdir -p build
