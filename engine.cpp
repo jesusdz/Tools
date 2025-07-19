@@ -2172,7 +2172,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	static f32 totalSeconds = 0.0f;
 	totalSeconds += deltaSeconds;
 
-	u32 frameIndex = gfx.device.currentFrame;
+	u32 frameIndex = gfx.device.frameIndex;
 
 	BeginFrame(gfx.device);
 
@@ -2837,7 +2837,7 @@ void UpdateImGui(Graphics &gfx)
 	const ImGuiIO& io = ImGui::GetIO();
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
-	const TimestampPool &timestampPool = gfx.timestampPools[gfx.device.currentFrame];
+	const TimestampPool &timestampPool = gfx.timestampPools[gfx.device.frameIndex];
 	const Timestamp t0 = ReadTimestamp(timestampPool, 0);
 	const Timestamp t1 = ReadTimestamp(timestampPool, 1);
 	ImGui::Text("Application graphics frame time (ms): %f", t1.millis - t0.millis);
