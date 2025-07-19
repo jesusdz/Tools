@@ -154,6 +154,22 @@ void DataSaveToTextFile(const char *path, const AssetData &assets)
 		NewLine(ctx);
 	}
 
+	WriteSectionLine(ctx, "Audio clips");
+
+	for (u32 i = 0; i < assets.audioClipDescCount; ++i)
+	{
+		const AudioClipDesc &desc = assets.audioClipDescs[i];
+
+		WriteLine(ctx, "AudioClip %s {", desc.name);
+
+		PushIndent(ctx);
+		WriteLine(ctx, ".filename = \"%s\",", desc.filename);
+		PopIndent(ctx);
+
+		WriteLine(ctx, "}");
+		NewLine(ctx);
+	}
+
 	if ( !WriteEntireFile(path, ctx.arena.base, ctx.arena.used) )
 	{
 		LOG(Warning, "Could not write data file: %s\n", path);

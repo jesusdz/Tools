@@ -314,6 +314,16 @@ struct ShaderAndComputeDesc
 	ComputeDesc desc;
 };
 
+struct AudioClipDesc
+{
+	const char *name;
+	const char *filename;
+};
+
+static AudioClipDesc audioClipDescs[] = {
+	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
+};
+
 struct AssetData
 {
 	const TextureDesc *textureDescs;
@@ -324,6 +334,9 @@ struct AssetData
 
 	const EntityDesc *entityDescs;
 	u32 entityDescCount;
+
+	const AudioClipDesc *audioClipDescs;
+	u32 audioClipDescCount;
 };
 
 #include "data.h"
@@ -713,15 +726,6 @@ struct AudioSource
 	const AudioClip *clip = nullptr;
 	u32 lastWriteSampleIndex = 0;
 	u8 flags = 0;
-};
-
-struct AudioClipDesc
-{
-	const char *filename;
-};
-
-static AudioClipDesc audioClipDescs[] = {
-	{ .filename = "assets/bell.wav" },
 };
 
 static AudioClip audioClips[16] = {};
@@ -1975,6 +1979,8 @@ void Save(Engine &engine)
 		.materialDescCount = ARRAY_COUNT(materials),
 		.entityDescs = entities,
 		.entityDescCount = ARRAY_COUNT(entities),
+		.audioClipDescs = audioClipDescs,
+		.audioClipDescCount = ARRAY_COUNT(audioClipDescs),
 	};
 
 	FilePath path = MakePath(AssetDir, "assets.txt");

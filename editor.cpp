@@ -500,7 +500,7 @@ void EditorInitialize(Engine &engine)
 	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
 	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
 
-	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionPerspective;
+	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionOrthographic;
 	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
 	engine.editor.camera[ProjectionOrthographic].orientation = {};
 
