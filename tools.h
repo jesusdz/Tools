@@ -2291,6 +2291,8 @@ struct Input
 {
 #if PLATFORM_WINDOWS
 	DynamicLibrary library;
+#elif PLATFORM_LINUX
+	int fd; // file descriptor
 #endif
 
 	Gamepad gamepad;
@@ -3397,6 +3399,8 @@ bool InitializeGamepad(Platform &platform)
 
 #elif PLATFORM_LINUX
 
+	input.fd = -1;
+
 	char path[MAX_PATH_LENGTH] = {};
 	char name[MAX_PATH_LENGTH] = {};
 	const char *dirName = "/dev/input";
@@ -3414,7 +3418,7 @@ bool InitializeGamepad(Platform &platform)
 
 			if (StrEqN(entry.name, "event", 5))
 			{
-				int fd = open(path, O_RDONLY);
+				int fd = open(path, O_RDONLY | O_NONBLOCK);
 				if (fd < 0) {
 					continue;
 				}
@@ -3423,10 +3427,13 @@ bool InitializeGamepad(Platform &platform)
 				{
 					LOG(Info, "- Device path: %s\n", path);
 					LOG(Info, "- Device name: %s\n", name);
+					input.fd = fd;
 					found = true;
 				}
-
-				close(fd);
+				else
+				{
+					close(fd);
+				}
 			}
 		}
 
@@ -3478,11 +3485,52 @@ static f32 AxisFromXInput(SHORT axis, SHORT deadzoneThreshold)
 
 #endif // PLATFORM_WINDOWS
 
+#if PLATFORM_LINUX
+static ButtonState ButtonStateFromEvent(i32 value)
+{
+	const ButtonState res = (value == 1) ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
+	return res;
+}
+
+#define GAMEPAD_LEFT_THUMB_DEADZONE  7849
+#define GAMEPAD_RIGHT_THUMB_DEADZONE 8689
+
+static f32 AxisFromEvent(i32 axis, i32 deadzoneThreshold)
+{
+	f32 normalizedAxis = 0.0f;
+	if (axis < -deadzoneThreshold) {
+		normalizedAxis = (f32)(axis + deadzoneThreshold)/(32768.0f - deadzoneThreshold);
+	} else if (axis > deadzoneThreshold) {
+		normalizedAxis = (f32)(axis - deadzoneThreshold)/(32767.0f - deadzoneThreshold);
+	}
+	return normalizedAxis;
+}
+
+static f32 TriggerFromEvent(i32 value)
+{
+	ASSERT(value >= 0 && value < 256);
+	const f32 res = (f32)value/255.0f;
+	return res;
+}
+
+static ButtonState DPadStateFromEvent(ButtonState prevState, i32 expectedValue, i32 value)
+{
+	ButtonState state = prevState;
+	if (expectedValue == value) {
+		state = BUTTON_STATE_PRESS;
+	} else if (prevState != BUTTON_STATE_IDLE) {
+		state = BUTTON_STATE_RELEASE;
+	}
+	return state;
+}
+#endif // PLATFORM_LINUX
+
 void UpdateGamepad(Platform &platform)
 {
 	Gamepad &gamepad = platform.input.gamepad;
 
 #if PLATFORM_WINDOWS
+
 	for ( DWORD i = 0; i < XUSER_MAX_COUNT; ++i )
 	{
 		XINPUT_STATE controllerState;
@@ -3522,6 +3570,75 @@ void UpdateGamepad(Platform &platform)
 			// Controller not available
 		}
 	}
+
+#elif PLATFORM_LINUX
+
+	if (platform.input.fd != -1)
+	{
+		// Update button states
+		for (u32 i = 0; i < ARRAY_COUNT(gamepad.buttons); ++i) {
+			if (gamepad.buttons[i] == BUTTON_STATE_PRESS) {
+				gamepad.buttons[i] = BUTTON_STATE_PRESSED;
+			} else if (gamepad.buttons[i] == BUTTON_STATE_RELEASE) {
+			}
+		}
+
+		ssize_t size = 0;
+		input_event event;
+
+		while ( (size = read(platform.input.fd, &event, sizeof(event))) != -1 )
+		{
+			const u32 type = event.type;
+			const u32 code = event.code;
+			const i32 value = event.value;
+
+			if (type == EV_KEY) {
+				switch (code) {
+					case BTN_START: gamepad.start = ButtonStateFromEvent(value); break;
+					case BTN_SELECT: gamepad.back = ButtonStateFromEvent(value); break;
+					//case BTN_MODE: codeStr = ButtonStateFromEvent(value); break;
+					case BTN_TL: gamepad.leftShoulder = ButtonStateFromEvent(value); break;
+					case BTN_TR: gamepad.rightShoulder = ButtonStateFromEvent(value); break;
+					case BTN_A: gamepad.a = ButtonStateFromEvent(value); break;
+					case BTN_B: gamepad.b = ButtonStateFromEvent(value); break;
+					case BTN_X: gamepad.x = ButtonStateFromEvent(value); break;
+					case BTN_Y: gamepad.y = ButtonStateFromEvent(value); break;
+					//case BTN_THUMBL: codeStr = ButtonStateFromEvent(gamepad., value); break;
+					//case BTN_THUMBR: codeStr = ButtonStateFromEvent(gamepad., value); break;
+					default:;
+				}
+			} else if (type == EV_ABS) {
+				switch (code) {
+					case ABS_X: gamepad.leftAxis.x = AxisFromEvent(value, GAMEPAD_LEFT_THUMB_DEADZONE); break;
+					case ABS_Y: gamepad.leftAxis.y = AxisFromEvent(-value, GAMEPAD_LEFT_THUMB_DEADZONE); break;
+					case ABS_RX: gamepad.rightAxis.x = AxisFromEvent(value, GAMEPAD_RIGHT_THUMB_DEADZONE); break;
+					case ABS_RY: gamepad.rightAxis.y = AxisFromEvent(-value, GAMEPAD_RIGHT_THUMB_DEADZONE); break;
+					case ABS_Z: gamepad.leftTrigger = TriggerFromEvent(value); break;
+					case ABS_RZ: gamepad.rightTrigger = TriggerFromEvent(value); break;
+					case ABS_HAT0X:
+						gamepad.left = DPadStateFromEvent(gamepad.left, -1, value);
+						gamepad.right = DPadStateFromEvent(gamepad.right, 1, value);
+						break;
+					case ABS_HAT0Y:
+						gamepad.up = DPadStateFromEvent(gamepad.up, -1, value);
+						gamepad.down = DPadStateFromEvent(gamepad.down, 1, value);
+						break;
+				}
+			} else if (type == EV_MSC) {
+				// MSC event (not sure what this is)
+			} else if (type == EV_SYN) {
+				// Synchronization event (not sure what this is)
+			} else {
+				LOG(Warning, "- Unknown event type\n");
+			}
+		}
+
+		if (errno != EAGAIN)
+		{
+			LOG(Warning, "Error reading gamepad input\n");
+		}
+	}
+
 #endif
 }
 
