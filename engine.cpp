@@ -320,7 +320,7 @@ struct AssetData
 	u32 textureDescCount;
 };
 
-#include "data.h"
+//#include "data.h"
 
 #pragma pack(push, 1)
 struct ShaderHeader
@@ -1968,7 +1968,7 @@ void Save(Engine &engine)
 	};
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
-	DataSaveToText(path.str, assetData);
+	//DataSaveToText(path.str, assetData);
 }
 
 float3 UpDirectionFromAngles(const float2 &angles)
@@ -3340,7 +3340,7 @@ int main(int argc, char **argv)
 
 // Implementations
 
-#include "data.cpp"
+//#include "data.cpp"
 
 #if USE_EDITOR
 #include "editor.cpp"
