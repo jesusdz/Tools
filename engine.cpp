@@ -318,6 +318,12 @@ struct AssetData
 {
 	const TextureDesc *textureDescs;
 	u32 textureDescCount;
+
+	const MaterialDesc *materialDescs;
+	u32 materialDescCount;
+
+	const EntityDesc *entityDescs;
+	u32 entityDescCount;
 };
 
 #include "data.h"
@@ -1965,10 +1971,14 @@ void Save(Engine &engine)
 	const AssetData assetData = {
 		.textureDescs = textures,
 		.textureDescCount = ARRAY_COUNT(textures),
+		.materialDescs = materials,
+		.materialDescCount = ARRAY_COUNT(materials),
+		.entityDescs = entities,
+		.entityDescCount = ARRAY_COUNT(entities),
 	};
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
-	//DataSaveToText(path.str, assetData);
+	DataSaveToTextFile(path.str, assetData);
 }
 
 float3 UpDirectionFromAngles(const float2 &angles)

@@ -2,6 +2,6 @@
 #define DATA_H
 
 
-void DataSaveToText(const char *path, const AssetData &assets);
+void DataSaveToTextFile(const char *path, const AssetData &assets);
 
 #endif // DATA_H
