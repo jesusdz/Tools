@@ -74,6 +74,8 @@
 #if PLATFORM_LINUX
 #define ALSA_PCM_NEW_HW_PARAMS_API
 #include <alsa/asoundlib.h>
+#include <linux/ioctl.h> // ioctl
+#include <linux/input.h> // input_event
 #endif
 
 #if PLATFORM_ANDROID
@@ -2074,28 +2076,28 @@ void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, co
 
 enum Key
 {
-	KEY_NULL,
-	KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN,
-	KEY_ESCAPE,
-	KEY_SPACE,
-	KEY_BACKSPACE,
-	KEY_DELETE,
-	KEY_RETURN,
-	KEY_TAB,
-	KEY_CONTROL,
-	KEY_SHIFT,
-	KEY_ALT,
-	KEY_0, KEY_1, KEY_2,
-	KEY_3, KEY_4, KEY_5,
-	KEY_6, KEY_7, KEY_8, KEY_9,
-	KEY_A, KEY_B, KEY_C, KEY_D,
-	KEY_E, KEY_F, KEY_G, KEY_H,
-	KEY_I, KEY_J, KEY_K, KEY_L,
-	KEY_M, KEY_N, KEY_O, KEY_P,
-	KEY_Q, KEY_R, KEY_S, KEY_T,
-	KEY_U, KEY_V, KEY_W, KEY_X,
-	KEY_Y, KEY_Z,
-	KEY_COUNT,
+	K_NULL,
+	K_LEFT, K_RIGHT, K_UP, K_DOWN,
+	K_ESCAPE,
+	K_SPACE,
+	K_BACKSPACE,
+	K_DELETE,
+	K_RETURN,
+	K_TAB,
+	K_CONTROL,
+	K_SHIFT,
+	K_ALT,
+	K_0, K_1, K_2,
+	K_3, K_4, K_5,
+	K_6, K_7, K_8, K_9,
+	K_A, K_B, K_C, K_D,
+	K_E, K_F, K_G, K_H,
+	K_I, K_J, K_K, K_L,
+	K_M, K_N, K_O, K_P,
+	K_Q, K_R, K_S, K_T,
+	K_U, K_V, K_W, K_X,
+	K_Y, K_Z,
+	K_COUNT,
 };
 
 enum MouseButton
@@ -2132,7 +2134,7 @@ enum TouchState
 
 struct Keyboard
 {
-	KeyState keys[KEY_COUNT];
+	KeyState keys[K_COUNT];
 };
 
 struct Mouse
@@ -2163,19 +2165,19 @@ struct Touch
 
 bool KeyPress(const Keyboard &keyboard, Key key)
 {
-	ASSERT(key < KEY_COUNT);
+	ASSERT(key < K_COUNT);
 	return keyboard.keys[key] == KEY_STATE_PRESS;
 }
 
 bool KeyPressed(const Keyboard &keyboard, Key key)
 {
-	ASSERT(key < KEY_COUNT);
+	ASSERT(key < K_COUNT);
 	return keyboard.keys[key] == KEY_STATE_PRESSED;
 }
 
 bool KeyRelease(const Keyboard &keyboard, Key key)
 {
-	ASSERT(key < KEY_COUNT);
+	ASSERT(key < K_COUNT);
 	return keyboard.keys[key] == KEY_STATE_RELEASE;
 }
 
@@ -2570,7 +2572,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				u32 keyCode = ev->detail;
 				ASSERT( keyCode < ARRAY_COUNT(XcbKeyMappings) );
 				u32 mapping = XcbKeyMappings[ keyCode ];
-				ASSERT( mapping < KEY_COUNT );
+				ASSERT( mapping < K_COUNT );
 				KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
 				window.keyboard.keys[ mapping ] = state;
 				break;
@@ -2869,7 +2871,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				WPARAM keyCode = wParam;
 				ASSERT( keyCode < ARRAY_COUNT(Win32KeyMappings) );
 				u32 mapping = Win32KeyMappings[ keyCode ];
-				ASSERT( mapping < KEY_COUNT );
+				ASSERT( mapping < K_COUNT );
 				KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
 				window->keyboard.keys[ mapping ] = state;
 			}
@@ -3212,7 +3214,7 @@ void PlatformUpdateEventLoop(Platform &platform)
 	Window &window = platform.window;
 
 	// Transition key states
-	for ( u32 i = 0; i < KEY_COUNT; ++i ) {
+	for ( u32 i = 0; i < K_COUNT; ++i ) {
 		if ( window.keyboard.keys[i] == KEY_STATE_PRESS ) {
 			window.keyboard.keys[i] = KEY_STATE_PRESSED;
 		} else if ( window.keyboard.keys[i] == KEY_STATE_RELEASE ) {
@@ -3298,21 +3300,21 @@ void PlatformUpdateEventLoop(Platform &platform)
 #endif
 
 	// Update key modifiers
-	window.chars.shift = KeyPressed(window.keyboard, KEY_SHIFT);
-	window.chars.ctrl = KeyPressed(window.keyboard, KEY_CONTROL);
-	window.chars.alt = KeyPressed(window.keyboard, KEY_ALT);
+	window.chars.shift = KeyPressed(window.keyboard, K_SHIFT);
+	window.chars.ctrl = KeyPressed(window.keyboard, K_CONTROL);
+	window.chars.alt = KeyPressed(window.keyboard, K_ALT);
 
-	for ( u32 i = 0; i < KEY_COUNT; ++i )
+	for ( u32 i = 0; i < K_COUNT; ++i )
 	{
 		if ( KeyPress(window.keyboard, (Key)i) )
 		{
 			char character = 0;
 
-			if ( i >= KEY_A && i <= KEY_Z ) {
-				character = window.chars.shift ? 'A' + (i - KEY_A) : 'a' + (i - KEY_A);
-			} else if ( i >= KEY_0 && i <= KEY_9 ) {
-				character = '0' + (i - KEY_0);
-			} else if ( i == KEY_SPACE ) {
+			if ( i >= K_A && i <= K_Z ) {
+				character = window.chars.shift ? 'A' + (i - K_A) : 'a' + (i - K_A);
+			} else if ( i >= K_0 && i <= K_9 ) {
+				character = '0' + (i - K_0);
+			} else if ( i == K_SPACE ) {
 				character = ' ';
 			}
 
@@ -3393,7 +3395,52 @@ bool InitializeGamepad(Platform &platform)
 		}
 	}
 
+#elif PLATFORM_LINUX
+
+	char path[MAX_PATH_LENGTH] = {};
+	char name[MAX_PATH_LENGTH] = {};
+	const char *dirName = "/dev/input";
+	bool found = false;
+
+	Dir dir = {};
+
+	if ( OpenDir(dir, dirName) )
+	{
+		DirEntry entry = {};
+
+		while ( !found && ReadDir(dir, entry) )
+		{
+			SPrintf(path, "%s/%s", dirName, entry.name);
+
+			if (StrEqN(entry.name, "event", 5))
+			{
+				int fd = open(path, O_RDONLY);
+				if (fd < 0) {
+					continue;
+				}
+
+				if ( ioctl(fd, EVIOCGNAME(sizeof(name)), name) != -1 )
+				{
+					LOG(Info, "- Device path: %s\n", path);
+					LOG(Info, "- Device name: %s\n", name);
+					found = true;
+				}
+
+				close(fd);
+			}
+		}
+
+		CloseDir(dir);
+	}
+
+	return found;
+
+#else
+
+	LOG(Info, "- Missing implementation\ń");
+
 #endif
+
 	return false;
 }
 

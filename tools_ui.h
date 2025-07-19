@@ -1269,7 +1269,7 @@ UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &
 		}
 		StrCopy(activeBuffer + cursorIndex, tmp);
 	}
-	else if ( ui.input.keyboard.keys[KEY_BACKSPACE] == KEY_STATE_PRESS )
+	else if ( ui.input.keyboard.keys[K_BACKSPACE] == KEY_STATE_PRESS )
 	{
 		if (cursorIndex > 0) {
 			StrCopy(tmp, activeBuffer + cursorIndex);
@@ -1277,26 +1277,26 @@ UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &
 			cursorIndex--;
 		}
 	}
-	else if ( ui.input.keyboard.keys[KEY_DELETE] == KEY_STATE_PRESS )
+	else if ( ui.input.keyboard.keys[K_DELETE] == KEY_STATE_PRESS )
 	{
 		if (cursorIndex < len) {
 			StrCopy(tmp, activeBuffer + cursorIndex + 1);
 			StrCopy(activeBuffer + cursorIndex, tmp);
 		}
 	}
-	else if ( KeyPress(ui.input.keyboard, KEY_LEFT) )
+	else if ( KeyPress(ui.input.keyboard, K_LEFT) )
 	{
 		cursorIndex = Max(cursorIndex - 1, 0);
 	}
-	else if ( KeyPress(ui.input.keyboard, KEY_RIGHT) )
+	else if ( KeyPress(ui.input.keyboard, K_RIGHT) )
 	{
 		cursorIndex = Min(cursorIndex + 1, len);
 	}
-	else if ( ui.input.keyboard.keys[KEY_RETURN] == KEY_STATE_PRESS )
+	else if ( ui.input.keyboard.keys[K_RETURN] == KEY_STATE_PRESS )
 	{
 		action = UpdateTextDone;
 	}
-	else if ( ui.input.keyboard.keys[KEY_ESCAPE] == KEY_STATE_PRESS )
+	else if ( ui.input.keyboard.keys[K_ESCAPE] == KEY_STATE_PRESS )
 	{
 		action = UpdateTextCancel;
 	}

@@ -310,10 +310,10 @@ static void AnimateCamera3D(const Window &window, Camera &camera, float deltaSec
 			dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
 		}
 #else
-		if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
-		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, K_W) ) { dir = Add(dir, ForwardDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, K_S) ) { dir = Add(dir, Negate( ForwardDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, K_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, K_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
 #endif
 		dir = NormalizeIfNotZero(dir);
 	}
@@ -379,10 +379,10 @@ static void AnimateCamera2D(const Window &window, const Input &input, Camera &ca
 			dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
 		}
 #else
-		if ( KeyPressed(window.keyboard, KEY_W) ) { dir = Add(dir, UpDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_S) ) { dir = Add(dir, Negate( UpDirectionFromAngles(angles) )); }
-		if ( KeyPressed(window.keyboard, KEY_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, KEY_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, K_W) ) { dir = Add(dir, UpDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, K_S) ) { dir = Add(dir, Negate( UpDirectionFromAngles(angles) )); }
+		if ( KeyPressed(window.keyboard, K_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
+		if ( KeyPressed(window.keyboard, K_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
 
 		dir = dir + gamepad.leftAxis.x * RightDirectionFromAngles(angles);
 		dir = dir + gamepad.leftAxis.y * UpDirectionFromAngles(angles);
