@@ -1,6 +1,24 @@
 #ifndef EDITOR_H
 #define EDITOR_H
 
+enum EditorCommandType
+{
+	EditorCommandReloadGraphicsPipeline,
+	EditorCommandRemoveTexture,
+	EditorCommandSave,
+	EditorCommandCount,
+};
+
+struct EditorCommand
+{
+	EditorCommandType type;
+	union
+	{
+		u32 pipelineIndex;
+		TextureH textureH;
+	};
+};
+
 struct Editor
 {
 	bool selectEntity;
@@ -8,6 +26,9 @@ struct Editor
 
 	ProjectionType cameraType;
 	Camera camera[ProjectionTypeCount];
+
+	EditorCommand commands[128];
+	u32 commandCount;
 };
 
 struct Engine;

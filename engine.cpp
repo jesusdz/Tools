@@ -33,7 +33,6 @@
 
 
 
-
 #define MAX_TEXTURES 8 
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
@@ -151,23 +150,6 @@ struct TimeSamples
 	f32 average;
 };
 
-enum EndFrameCommandType
-{
-	EndFrameCommandReloadGraphicsPipeline,
-	EndFrameCommandRemoveTexture,
-	EndFrameCommandCount,
-};
-
-struct EndFrameCommand
-{
-	EndFrameCommandType type;
-	union
-	{
-		u32 pipelineIndex;
-		TextureH textureH;
-	};
-};
-
 struct Graphics
 {
 	GraphicsDevice device;
@@ -254,9 +236,6 @@ struct Graphics
 
 	TimeSamples cpuFrameTimes;
 	TimeSamples gpuFrameTimes;
-
-	EndFrameCommand endFrameCommands[128];
-	u32 endFrameCommandCount;
 };
 
 // Editor API
@@ -319,6 +298,7 @@ struct ShaderSourceDesc
 	const char entryPoint[32];
 	const char name[32];
 };
+#pragma pack(pop)
 
 struct ShaderAndPipelineDesc
 {
@@ -334,6 +314,15 @@ struct ShaderAndComputeDesc
 	ComputeDesc desc;
 };
 
+struct AssetData
+{
+	const TextureDesc *textureDescs;
+	u32 textureDescCount;
+};
+
+#include "data.h"
+
+#pragma pack(push, 1)
 struct ShaderHeader
 {
 	ShaderSourceDesc desc;
@@ -1971,6 +1960,17 @@ void CleanupScene(Graphics &gfx)
 	// TODO
 }
 
+void Save(Engine &engine)
+{
+	const AssetData assetData = {
+		.textureDescs = textures,
+		.textureDescCount = ARRAY_COUNT(textures),
+	};
+
+	FilePath path = MakePath(AssetDir, "assets.txt");
+	DataSaveToText(path.str, assetData);
+}
+
 float3 UpDirectionFromAngles(const float2 &angles)
 {
 	const f32 yaw = angles.x;
@@ -2558,48 +2558,6 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	return true;
 }
 
-void AddEndFrameCommand(Graphics &gfx, const EndFrameCommand &command)
-{
-	ASSERT(gfx.endFrameCommandCount < ARRAY_COUNT(gfx.endFrameCommands));
-	gfx.endFrameCommands[gfx.endFrameCommandCount++] = command;
-}
-
-void ProcessEndFrameCommands(Engine &engine, Arena scratch)
-{
-	Graphics &gfx = engine.gfx;
-
-	if ( gfx.endFrameCommandCount > 0 )
-	{
-		WaitDeviceIdle(gfx.device);
-
-		for (u32 i = 0; i < gfx.endFrameCommandCount; ++i)
-		{
-			const EndFrameCommand &command = gfx.endFrameCommands[i];
-
-			switch (command.type)
-			{
-				case EndFrameCommandReloadGraphicsPipeline:
-				{
-					const u32 pipelineIndex = command.pipelineIndex;
-					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
-					break;
-				}
-				case EndFrameCommandRemoveTexture:
-				{
-					RemoveTexture(engine.gfx, command.textureH);
-					break;
-				}
-
-				default:;
-			}
-		}
-
-		gfx.endFrameCommandCount = 0;
-
-		LinkPipelineHandles(gfx);
-	}
-}
-
 
 
 #if USE_IMGUI
@@ -3081,8 +3039,6 @@ void OnPlatformUpdate(Platform &platform)
 #if USE_EDITOR
 		EditorUpdatePostRender(engine);
 #endif
-
-		ProcessEndFrameCommands(engine, platform.frameArena);
 	}
 }
 
@@ -3382,7 +3338,10 @@ int main(int argc, char **argv)
 }
 #endif
 
-// Editor implementation
+// Implementations
+
+#include "data.cpp"
+
 #if USE_EDITOR
 #include "editor.cpp"
 #endif

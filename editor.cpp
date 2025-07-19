@@ -1,4 +1,10 @@
 
+static void AddEditorCommand(Editor &editor, const EditorCommand &command)
+{
+	ASSERT(editor.commandCount < ARRAY_COUNT(editor.commands));
+	editor.commands[editor.commandCount++] = command;
+}
+
 static void EditorUpdateUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -52,6 +58,8 @@ static void EditorUpdateUI(Engine &engine)
 		}
 		if (UI_Button(ui, "Save scene"))
 		{
+			const EditorCommand command = { .type = EditorCommandSave };
+			AddEditorCommand(editor, command);
 		}
 	}
 
@@ -83,11 +91,11 @@ static void EditorUpdateUI(Engine &engine)
 			UI_BeginLayout(ui, UiLayoutHorizontal);
 			if ( UI_Button(ui, "Reload") )
 			{
-				const EndFrameCommand command = {
-					.type = EndFrameCommandReloadGraphicsPipeline,
+				const EditorCommand command = {
+					.type = EditorCommandReloadGraphicsPipeline,
 					.pipelineIndex = i,
 				};
-				AddEndFrameCommand(gfx, command);
+				AddEditorCommand(editor, command);
 			}
 			UI_Label(ui, pipelineName);
 			UI_EndLayout(ui);
@@ -117,11 +125,11 @@ static void EditorUpdateUI(Engine &engine)
 		{
 			if (UI_Button(ui, "Remove"))
 			{
-				const EndFrameCommand command = {
-					.type = EndFrameCommandRemoveTexture,
+				const EditorCommand command = {
+					.type = EditorCommandRemoveTexture,
 					.textureH = selectedHandle,
 				};
-				AddEndFrameCommand(gfx, command);
+				AddEditorCommand(editor, command);
 			}
 		}
 	}
@@ -442,6 +450,48 @@ static void EditorEndEntitySelection(Engine &engine)
 	}
 }
 
+static void EditorProcessCommands(Engine &engine, Arena scratch)
+{
+	Editor &editor = engine.editor;
+	Graphics &gfx = engine.gfx;
+
+	if ( editor.commandCount > 0 )
+	{
+		WaitDeviceIdle(gfx.device);
+
+		for (u32 i = 0; i < editor.commandCount; ++i)
+		{
+			const EditorCommand &command = editor.commands[i];
+
+			switch (command.type)
+			{
+				case EditorCommandReloadGraphicsPipeline:
+				{
+					const u32 pipelineIndex = command.pipelineIndex;
+					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
+					break;
+				}
+				case EditorCommandRemoveTexture:
+				{
+					RemoveTexture(engine.gfx, command.textureH);
+					break;
+				}
+				case EditorCommandSave:
+				{
+					Save(engine);
+					break;
+				}
+
+				default:;
+			}
+		}
+
+		editor.commandCount = 0;
+
+		LinkPipelineHandles(gfx);
+	}
+}
+
 void EditorInitialize(Engine &engine)
 {
 	Editor &editor = engine.editor;
@@ -554,5 +604,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 void EditorUpdatePostRender(Engine &engine)
 {
 	EditorEndEntitySelection(engine);
+
+	EditorProcessCommands(engine, engine.platform.frameArena);
 }
 
