@@ -320,7 +320,7 @@ struct AssetData
 	u32 textureDescCount;
 };
 
-//#include "data.h"
+#include "data.h"
 
 #pragma pack(push, 1)
 struct ShaderHeader
@@ -3340,7 +3340,7 @@ int main(int argc, char **argv)
 
 // Implementations
 
-//#include "data.cpp"
+#include "data.cpp"
 
 #if USE_EDITOR
 #include "editor.cpp"
