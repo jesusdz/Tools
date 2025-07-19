@@ -1115,13 +1115,17 @@ bool CreateDirectory(const char *path)
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	int res = mkdir(path, S_IRWXU | S_IRWXG | S_IXOTH );
 	if ( res != 0 ) {
-		perror("mkdir");
+		char message[MAX_PATH_LENGTH];
+		SPrintf(message, "mkdir %s", path);
+		perror(message);
 		ok = false;
 	}
 #elif PLATFORM_WINDOWS
 	ok = CreateDirectoryA(path, nullptr);
 	if ( !ok ) {
-		Win32ReportError("CreateDirectory");
+		char message[MAX_PATH_LENGTH];
+		SPrintf(message, "CreateDirectoryA %s", path);
+		Win32ReportError(message);
 	}
 #else
 #error "Missing implementation"
@@ -3444,7 +3448,7 @@ bool InitializeGamepad(Platform &platform)
 
 #else
 
-	LOG(Info, "- Missing implementation\ń");
+	LOG(Info, "- Missing implementation\n");
 
 #endif
 

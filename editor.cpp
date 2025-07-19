@@ -1,5 +1,5 @@
 
-static void UpdateUI(Engine &engine)
+static void EditorUpdateUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
 	Graphics &gfx = engine.gfx;
@@ -49,6 +49,9 @@ static void UpdateUI(Engine &engine)
 		if (UI_Button(ui, "Unselect"))
 		{
 			editor.selectedEntity = U32_MAX;
+		}
+		if (UI_Button(ui, "Save scene"))
+		{
 		}
 	}
 
@@ -271,7 +274,7 @@ static bool GetMovementTouchId(const Window &window, u32 *touchId)
 }
 #endif
 
-static void AnimateCamera3D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateCamera3D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	float3 dir = { 0, 0, 0 };
 
@@ -336,7 +339,7 @@ static void AnimateCamera3D(const Window &window, Camera &camera, float deltaSec
 	speed = Mul(speed, 0.9);
 }
 
-static void AnimateCamera2D(const Window &window, const Input &input, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateCamera2D(const Window &window, const Input &input, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	const Gamepad &gamepad = input.gamepad;
 
@@ -408,7 +411,7 @@ static void AnimateCamera2D(const Window &window, const Input &input, Camera &ca
 	speed = Mul(speed, 0.9);
 }
 
-static void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
+static void EditorBeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
 {
 	Editor &editor = engine.editor;
 
@@ -427,7 +430,7 @@ static void BeginEntitySelection(Engine &engine, const Mouse &mouse, bool handle
 	}
 }
 
-static void EndEntitySelection(Engine &engine)
+static void EditorEndEntitySelection(Engine &engine)
 {
 	Editor &editor = engine.editor;
 
@@ -439,28 +442,117 @@ static void EndEntitySelection(Engine &engine)
 	}
 }
 
+void EditorInitialize(Engine &engine)
+{
+	Editor &editor = engine.editor;
+
+	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
+	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
+	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
+
+	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionPerspective;
+	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
+	engine.editor.camera[ProjectionOrthographic].orientation = {};
+
+	engine.editor.cameraType = ProjectionPerspective;
+
+	engine.editor.selectedEntity = U32_MAX;
+}
+
 void EditorUpdate(Engine &engine)
 {
 	Platform &platform = engine.platform;
 
-	UpdateUI(engine);
+	EditorUpdateUI(engine);
 
 	const bool handleInput = !engine.ui.wantsInput;
 
 	if (engine.editor.cameraType == ProjectionPerspective)
 	{
-		AnimateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
+		EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
 	}
 	else if (engine.editor.cameraType == ProjectionOrthographic)
 	{
-		AnimateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
+		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
 	}
 
-	BeginEntitySelection(engine, platform.window.mouse, handleInput);
+	EditorBeginEntitySelection(engine, platform.window.mouse, handleInput);
+}
+
+void EditorRender(Engine &engine, CommandList &commandList)
+{
+	Editor &editor = engine.editor;
+	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+	const u32 frameIndex = gfx.device.frameIndex;
+	const BufferH vertexBuffer = gfx.globalVertexArena.buffer;
+	const BufferH indexBuffer = gfx.globalIndexArena.buffer;
+
+	if ( editor.selectEntity )
+	{
+		BeginDebugGroup(commandList, "Entity selection");
+
+		{ // Draw entity IDs
+			SetClearColor(commandList, 0, U32_MAX);
+
+			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
+
+			const uint2 framebufferSize = GetFramebufferSize(gfx.renderTargets.idFramebuffer);
+			SetViewportAndScissor(commandList, framebufferSize);
+
+			SetPipeline(commandList, gfx.idPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
+			{
+				const Entity &entity = scene.entities[entityIndex];
+
+				if ( !entity.visible || entity.culled ) continue;
+
+				// Draw!!!
+				const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
+				const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+				const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+			}
+
+			EndRenderPass(commandList);
+		}
+
+		{ // Write entity ID under mouse cursor into selection buffer
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeSelectH);
+
+			SetPipeline(commandList, gfx.computeSelectH);
+
+			const BindGroupDesc bindGroupDesc = {
+				.layout = pipeline.layout.bindGroupLayouts[3],
+				.bindings = {
+					{ .index = 0, .bufferView = gfx.selectionBufferViewH },
+					{ .index = 1, .image = gfx.renderTargets.idImage },
+				},
+			};
+			const BindGroup dynamicBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+
+			SetBindGroup(commandList, 0, dynamicBindGroup);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetBindGroup(commandList, 3, dynamicBindGroup);
+
+			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
+
+			Dispatch(commandList, 1, 1, 1);
+
+			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
+		}
+
+		EndDebugGroup(commandList);
+	}
 }
 
 void EditorUpdatePostRender(Engine &engine)
 {
-	EndEntitySelection(engine);
+	EditorEndEntitySelection(engine);
 }
 

@@ -12,7 +12,9 @@ struct Editor
 
 struct Engine;
 
+void EditorInitialize(Engine &engine);
 void EditorUpdate(Engine &engine);
+void EditorRender(Engine &engine, CommandList &commandList);
 void EditorUpdatePostRender(Engine &engine);
 
 #endif // #ifndef EDITOR_H

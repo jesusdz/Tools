@@ -57,20 +57,8 @@ directories:
 	mkdir -p build
 	mkdir -p build/shaders
 
-data: directories
-	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_shading.spv -Fc ${DATA_SHADERS_DIR}/vs_shading.dis -Fi shaders/vs_shading.pp shaders/shading.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo ${DATA_SHADERS_DIR}/fs_shading.spv -Fc ${DATA_SHADERS_DIR}/fs_shading.dis -Fi shaders/fs_shading.pp shaders/shading.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_sky.spv -Fc ${DATA_SHADERS_DIR}/vs_sky.dis shaders/sky.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo ${DATA_SHADERS_DIR}/fs_sky.spv -Fc ${DATA_SHADERS_DIR}/fs_sky.dis shaders/sky.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_shadowmap.spv -Fc ${DATA_SHADERS_DIR}/vs_shadowmap.dis shaders/shadowmap.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo ${DATA_SHADERS_DIR}/fs_shadowmap.spv -Fc ${DATA_SHADERS_DIR}/fs_shadowmap.dis shaders/shadowmap.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_ui.spv -Fc ${DATA_SHADERS_DIR}/vs_ui.dis shaders/ui.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo ${DATA_SHADERS_DIR}/fs_ui.spv -Fc ${DATA_SHADERS_DIR}/fs_ui.dis shaders/ui.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T vs_6_7 -E VSMain -Fo ${DATA_SHADERS_DIR}/vs_id.spv -Fc ${DATA_SHADERS_DIR}/vs_id.dis shaders/id.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T ps_6_7 -E PSMain -Fo ${DATA_SHADERS_DIR}/fs_id.spv -Fc ${DATA_SHADERS_DIR}/fs_id.dis shaders/id.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E CSMain -Fo ${DATA_SHADERS_DIR}/compute_select.spv -Fc ${DATA_SHADERS_DIR}/compute_select.dis shaders/compute_select.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_clear -Fo ${DATA_SHADERS_DIR}/compute_clear.spv -Fc ${DATA_SHADERS_DIR}/compute_clear.dis shaders/compute.hlsl
-	${DXC} -spirv ${DXC_FLAGS} -T cs_6_7 -E main_update -Fo ${DATA_SHADERS_DIR}/compute_update.spv -Fc ${DATA_SHADERS_DIR}/compute_update.dis shaders/compute.hlsl
+data: engine
+	./build/engine --build-data
 
 clean:
 	rm -rf build

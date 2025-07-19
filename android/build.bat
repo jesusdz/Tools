@@ -169,10 +169,12 @@ call %ADB% uninstall com.tools.game
 call %ADB% install -r bin\NativeActivity.apk
 call %ADB% shell mkdir -p /sdcard/Android/data/com.tools.game/files/
 call %ADB% shell mkdir -p /sdcard/tmp
-call %ADB% push ..\shaders\ /sdcard/tmp
-call %ADB% shell mv /sdcard/tmp/shaders /sdcard/Android/data/com.tools.game/files/
-call %ADB% push ..\assets\ /sdcard/tmp
-call %ADB% shell mv /sdcard/tmp/assets /sdcard/Android/data/com.tools.game/files/
+call %ADB% push ..\build\assets.dat /sdcard/tmp
+call %ADB% shell mv /sdcard/tmp/assets.dat /sdcard/Android/data/com.tools.game/files/
+REM call %ADB% push ..\shaders\ /sdcard/tmp
+REM call %ADB% shell mv /sdcard/tmp/shaders /sdcard/Android/data/com.tools.game/files/
+REM call %ADB% push ..\assets\ /sdcard/tmp
+REM call %ADB% shell mv /sdcard/tmp/assets /sdcard/Android/data/com.tools.game/files/
 call %ADB% shell chmod -R 777 /sdcard/Android/data/com.tools.game/files/*
 exit /b 0
 

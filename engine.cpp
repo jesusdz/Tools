@@ -392,7 +392,9 @@ struct Engine
 
 	Scene scene;
 
+#if USE_EDITOR
 	Editor editor;
+#endif
 
 	LoadedData data;
 };
@@ -1926,23 +1928,6 @@ void InitializeScene(Engine &engine, Arena &globalArena)
 
 }
 
-void InitializeEditor(Engine &engine)
-{
-	Editor &editor = engine.editor;
-
-	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
-	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
-	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
-
-	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionPerspective;
-	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
-	engine.editor.camera[ProjectionOrthographic].orientation = {};
-
-	engine.editor.cameraType = ProjectionPerspective;
-
-	engine.editor.selectedEntity = U32_MAX;
-}
-
 void WaitDeviceIdle(Graphics &gfx)
 {
 	WaitDeviceIdle(gfx.device);
@@ -2164,10 +2149,12 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 
 bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 {
-	Editor &editor = engine.editor;
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
 	Window &window = engine.platform.window;
+#if USE_EDITOR
+	Editor &editor = engine.editor;
+#endif
 
 	static f32 totalSeconds = 0.0f;
 	totalSeconds += deltaSeconds;
@@ -2203,10 +2190,17 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	float4 frustumBottomRight = {};
 	float3 cameraPosition = {};
 
-	if (editor.cameraType == ProjectionPerspective)
+#if USE_EDITOR
+	const Camera &camera = editor.cameraType == ProjectionPerspective ? engine.editor.camera[ProjectionPerspective] : engine.editor.camera[ProjectionOrthographic];
+#else
+	const Camera camera = {
+		.projectionType = ProjectionPerspective,
+		.position = {0, 1, 2},
+		.orientation = {0, -0.45f},
+	};
+#endif
+	if (camera.projectionType == ProjectionPerspective)
 	{
-		Camera &camera = engine.editor.camera[ProjectionPerspective];
-
 		// Calculate camera matrices
 		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
@@ -2244,8 +2238,6 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	}
 	else
 	{
-		Camera &camera = engine.editor.camera[ProjectionOrthographic];
-
 		// Calculate camera matrices
 		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
@@ -2306,7 +2298,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
+#if USE_EDITOR
 		.selectedEntity = editor.selectedEntity,
+#endif
 	};
 
 	// Update globals buffer
@@ -2542,67 +2536,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 	}
 
 #if USE_EDITOR
-	if ( editor.selectEntity )
-	{ // Selection buffer
-		BeginDebugGroup(commandList, "Entity selection");
-
-		{ // Draw entity IDs
-			SetClearColor(commandList, 0, U32_MAX);
-
-			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
-
-			const uint2 framebufferSize = GetFramebufferSize(gfx.renderTargets.idFramebuffer);
-			SetViewportAndScissor(commandList, framebufferSize);
-
-			SetPipeline(commandList, gfx.idPipelineH);
-			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-
-			SetVertexBuffer(commandList, vertexBuffer);
-			SetIndexBuffer(commandList, indexBuffer);
-
-			for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
-			{
-				const Entity &entity = scene.entities[entityIndex];
-
-				if ( !entity.visible || entity.culled ) continue;
-
-				// Draw!!!
-				const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
-				const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
-				const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
-			}
-
-			EndRenderPass(commandList);
-		}
-
-		{ // Write entity ID under mouse cursor into selection buffer
-			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.computeSelectH);
-
-			SetPipeline(commandList, gfx.computeSelectH);
-
-			const BindGroupDesc bindGroupDesc = {
-				.layout = pipeline.layout.bindGroupLayouts[3],
-				.bindings = {
-					{ .index = 0, .bufferView = gfx.selectionBufferViewH },
-					{ .index = 1, .image = gfx.renderTargets.idImage },
-				},
-			};
-			const BindGroup dynamicBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
-
-			SetBindGroup(commandList, 0, dynamicBindGroup);
-			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-			SetBindGroup(commandList, 3, dynamicBindGroup);
-
-			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
-
-			Dispatch(commandList, 1, 1, 1);
-
-			TransitionImageLayout(commandList, gfx.renderTargets.idImage, ImageStateShaderInput, ImageStateRenderTarget, 0, 1);
-		}
-
-		EndDebugGroup(commandList);
-	}
+	EditorRender(engine, commandList);
 #endif // USE_EDITOR
 
 
@@ -3088,7 +3022,9 @@ bool OnPlatformWindowInit(Platform &platform)
 
 		InitializeScene(engine, platform.globalArena);
 
-		InitializeEditor(engine);
+#if USE_EDITOR
+		EditorInitialize(engine);
+#endif
 	}
 
 #if USE_IMGUI
@@ -3409,9 +3345,11 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 #if USE_DATA_BUILD
 	bool buildData = false;
+	bool exitAfterBuild = false;
 	for ( u32 i = 0; i < argc; ++i ) {
 		if ( StrEq(argv[i], "--build-data") ) {
 			buildData = true;
+			exitAfterBuild = true;
 		}
 	}
 
@@ -3422,6 +3360,9 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	if ( buildData ) {
 		BuildData(engine.platform.frameArena);
+		if (exitAfterBuild) {
+			return;
+		}
 	}
 #endif // USE_DATA_BUILD
 
@@ -3437,7 +3378,7 @@ void android_main(struct android_app* app)
 int main(int argc, char **argv)
 {
 	EngineMain(argc, argv, NULL);
-	return 1;
+	return 0;
 }
 #endif
 
