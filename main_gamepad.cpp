@@ -13,13 +13,15 @@ const char *selectFirstDevicePath(char path[MAX_PATH_LENGTH])
 	char name[256];
 	const char *basedir = "/dev/input";
 
+	const char *devicePath = nullptr;
+
 	Dir dir = {};
 
 	if ( OpenDir(dir, basedir) )
 	{
 		DirEntry entry = {};
 
-		while ( ReadDir(dir, entry) )
+		while ( !devicePath && ReadDir(dir, entry) )
 		{
 			SPrintf(path, "%s/%s", basedir, entry.name);
 
@@ -35,7 +37,8 @@ const char *selectFirstDevicePath(char path[MAX_PATH_LENGTH])
 					LOG(Info, "Device info:\n");
 					LOG(Info, "- path: %s\n", path);
 					LOG(Info, "- name: %s\n", name);
-					return path;
+
+					devicePath = path;
 				}
 
 				close(fd);
@@ -45,7 +48,7 @@ const char *selectFirstDevicePath(char path[MAX_PATH_LENGTH])
 		CloseDir(dir);
 	}
 
-	return nullptr;
+	return devicePath;
 }
 
 int main(int argc, char **argv)
