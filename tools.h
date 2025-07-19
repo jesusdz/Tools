@@ -173,6 +173,15 @@ CT_ASSERT(sizeof(byte) == 1);
 #define I32_MAX 2147483647
 #define U32_MAX 4294967295
 
+#if PLATFORM_WINDOWS
+CT_ASSERT(sizeof(long) == sizeof(i32));
+typedef volatile LONG volatile_i32;
+typedef volatile ULONG volatile_u32;
+#else
+typedef volatile i32 volatile_i32;
+typedef volatile u32 volatile_u32;
+#endif
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -320,6 +329,18 @@ u32 FBZ(u32 bitMask)
 {
 	const u32 res = CTZ(~bitMask);
 	return res;
+}
+
+bool AtomicSwap(volatile_u32 *currValue, u32 oldValue, u32 newValue)
+{
+#if PLATFORM_WINDOWS
+		const bool swapped = InterlockedCompareExchange(currValue, newValue, oldValue) != *currValue;
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+		const bool swapped = __sync_bool_compare_and_swap(currValue, oldValue, newValue);
+#else
+#error "Missing implementation"
+#endif
+	return swapped;
 }
 
 
@@ -974,9 +995,25 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 
 bool WriteEntireFile(const char *filename, const void *buffer, u64 bytesToWrite)
 {
+	// TODO: Backup the previous file?
+
 	bool ok = false;
 #if PLATFORM_WINDOWS
-#error "Missing implementation"
+	HANDLE file = CreateFileA( filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+	if ( file == INVALID_HANDLE_VALUE  )
+	{
+		Win32ReportError("WriteEntireFile - CreateFileA");
+	}
+	else
+	{
+		DWORD bytesWritten = 0;
+		ok = WriteFile( file, buffer, bytesToWrite, &bytesWritten, NULL );
+		if ( !ok && bytesToWrite == bytesWritten )
+		{
+			Win32ReportError("WriteEntireFile - WriteFile");
+		}
+		CloseHandle( file );
+	}
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 	int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR );
 	if ( fd == -1 )
@@ -2444,7 +2481,7 @@ struct Platform
 	Arena dataArena;
 
 	Arena scratchArenas[MAX_SCRATCH_ARENAS];
-	volatile i32 scratchArenaLockMask;
+	volatile_u32 scratchArenaLockMask;
 
 	StringInterning stringInterning;
 	Window window;
@@ -2455,8 +2492,6 @@ struct Platform
 };
 
 static Platform *sPlatform = nullptr;
-
-#pragma intrinsic(_interlockedbittestandset)
 
 u32 AcquireScratchArena(Arena &outArena)
 {
@@ -2469,17 +2504,8 @@ u32 AcquireScratchArena(Arena &outArena)
 		ASSERT(index < MAX_SCRATCH_ARENAS);
 
 		// Try to change it
-#if PLATFORM_WINDOWS
-		char c = _interlockedbittestandset(&sPlatform->scratchArenaLockMask, index);
-		const bool indexAcquired = (!c);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
 		const u32 newValue = oldValue | (1<<index);
-		const bool indexAcquired = __sync_bool_compare_and_swap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
-#else
-#error "Missing implementation"
-#endif
-
-		if (indexAcquired)
+		if (AtomicSwap(&sPlatform->scratchArenaLockMask, oldValue, newValue))
 		{
 			Arena &arena = sPlatform->scratchArenas[index];
 			if (!arena.base)
@@ -2499,17 +2525,10 @@ u32 AcquireScratchArena(Arena &outArena)
 
 void ReleaseScratchArena(u32 index)
 {
-#if PLATFORM_WINDOWS
-		char c = _interlockedbittestandreset(&sPlatform->scratchArenaLockMask, index);
-		const bool indexReleased = (!c);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-		const u32 oldValue = sPlatform->scratchArenaLockMask;
-		const u32 newValue = oldValue & ~(1<<index);
-		const bool indexReleased = __sync_bool_compare_and_swap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
-#else
-#error "Missing implementation"
-#endif
-		ASSERT(indexReleased);
+	const u32 oldValue = sPlatform->scratchArenaLockMask;
+	const u32 newValue = oldValue & ~(1<<index);
+	const bool swapped = AtomicSwap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
+	ASSERT(swapped);
 }
 
 struct Scratch
