@@ -64,7 +64,7 @@ set CODE_DIR="../.."
 set INCLUDES="-I../../"
 set GCC_FLAGS=-fPIC
 set GCC_FLAGS=%GCC_FLAGS% -g -O0
-set GXX_FLAGS=%GCC_FLAGS% -std=gnu++11
+set GXX_FLAGS=%GCC_FLAGS% -std=gnu++20
 
 REM Have a look at this compile arguments
 REM /Users/thomas/Documents/android-ndk-r5b/toolchains/arm-eabi-4.4.0/prebuilt/darwin-x86/bin/arm-eabi-g++ --sysroot=/Users/thomas/Documents/android-ndk-r5b/platforms/android-8/arch-arm -march=armv7-a -mfloat-abi=softfp -mfpu=neon -Wl,--fix-cortex-a8 -fno-exceptions -fno-rtti -nostdlib -fpic -shared -o GLmove.so -O3

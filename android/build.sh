@@ -31,7 +31,7 @@ if [[ ${target} = "build" ]]; then
 	INCLUDES="-I../../"
 	GCC_FLAGS="-fPIC"
 	GCC_FLAGS="${GCC_FLAGS} -g -O0" # With debug info
-	GXX_FLAGS="${GCC_FLAGS} -std=gnu++11"
+	GXX_FLAGS="${GCC_FLAGS} -std=gnu++20"
 	LDD_FLAGS="-Wl,--build-id=sha1"
 
 	echo "android_native_app_glue.o:"
