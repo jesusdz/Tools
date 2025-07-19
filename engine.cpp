@@ -805,12 +805,16 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
 
 #if 1
+	Scratch scratch;
+
+	f32 *realSamples = PushArray(scratch.arena, f32, soundBuffer.sampleCount * 2.0f );
+
 	// Clear sound buffer
-	i16 *samplePtr = soundBuffer.samples;
+	f32 *samplePtr = realSamples;
 	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
 	{
-		*samplePtr++ = 0;
-		*samplePtr++ = 0;
+		*samplePtr++ = 0.0f;
+		*samplePtr++ = 0.0f;
 	}
 
 	for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
@@ -819,7 +823,7 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 		if (audioSource.clip)
 		{
 			const i16 *srcSample = (i16*)audioSource.clip->samples + audioSource.lastWriteSampleIndex;
-			i16 *dstSample = soundBuffer.samples;
+			f32 *dstSample = realSamples;
 
 			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
 			const u32 maxSampleCount = soundBuffer.sampleCount * 2;
@@ -827,8 +831,7 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 			const u32 sampleCount = Min(remainingClipSampleCount, maxSampleCount);
 			for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
 			{
-				// TODO: Make some audio mixing with sense and not this...
-				*dstSample = (i16)(0.5f * (*dstSample) + 0.5f * (*srcSample));
+				*dstSample += (f32)*srcSample;
 				dstSample++;
 				srcSample++;
 			}
@@ -839,6 +842,14 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 				audioSource.clip = nullptr;
 			}
 		}
+	}
+
+	f32 *srcSample = realSamples;
+	i16 *dstSample = soundBuffer.samples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
+	{
+		*dstSample++ = (i16)*srcSample++;
+		*dstSample++ = (i16)*srcSample++;
 	}
 #else
 	samplePtr = soundBuffer.samples;
