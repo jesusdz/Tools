@@ -53,7 +53,7 @@
 #include <xinput.h>
 #include <mmsystem.h> // audio
 #include <dsound.h>   // audio
-#include <direct.h>  // _getcwd
+#include <direct.h>   // _getcwd
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -307,6 +307,20 @@ u32 CLZ(u32 bitMask)
 	return count;
 }
 #endif // #else // #if TOOLS_USE_INTRINSICS
+
+// First bit set
+u32 FBS(u32 bitMask)
+{
+	const u32 res = CTZ(bitMask);
+	return res;
+}
+
+// First bit zero
+u32 FBZ(u32 bitMask)
+{
+	const u32 res = CTZ(~bitMask);
+	return res;
+}
 
 
 
@@ -577,12 +591,19 @@ f32 StrToFloat(const String &s)
 	return number;
 }
 
-void SPrintf(char *buffer, const char *format, ...)
+i32 VSPrintf(char *buffer, const char *format, va_list vaList)
+{
+	const i32 res = vsprintf(buffer, format, vaList);
+	return res;
+}
+
+i32 SPrintf(char *buffer, const char *format, ...)
 {
 	va_list vaList;
 	va_start(vaList, format);
-	vsprintf(buffer, format, vaList);
+	const i32 res = VSPrintf(buffer, format, vaList);
 	va_end(vaList);
+	return res;
 }
 
 
@@ -737,6 +758,13 @@ char *PushString(Arena &arena, const char *str)
 {
 	u32 len = StrLen(str);
 	char *bytes = PushStringN(arena, str, len);
+	return bytes;
+}
+
+char *PushChar(Arena &arena, char c)
+{
+	char *bytes = (char*)PushSize(arena, sizeof(c));
+	*bytes = c;
 	return bytes;
 }
 
@@ -944,6 +972,42 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	return ok;
 }
 
+bool WriteEntireFile(const char *filename, const void *buffer, u64 bytesToWrite)
+{
+	bool ok = false;
+#if PLATFORM_WINDOWS
+#error "Missing implementation"
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR );
+	if ( fd == -1 )
+	{
+		LinuxReportError("open");
+	}
+	else
+	{
+		while ( bytesToWrite > 0 )
+		{
+			const u32 bytesWritten = write(fd, buffer, bytesToWrite);
+			if ( bytesWritten > 0 )
+			{
+				bytesToWrite -= bytesWritten;
+				buffer = (byte*)buffer + bytesWritten;
+			}
+			else
+			{
+				LinuxReportError("write");
+				break;
+			}
+		}
+		ok = (bytesToWrite == 0);
+		close(fd);
+	}
+#else
+#error "Missing implementation"
+#endif
+	return ok;
+}
+
 DataChunk *PushFile( Arena& arena, const char *filename )
 {
 	DataChunk *file = 0;
@@ -1062,6 +1126,7 @@ bool CopyFile(const char *srcPath, const char *dstPath)
 
 const char *BinDir = "";
 const char *DataDir = "";
+const char *AssetDir = "";
 const char *ProjectDir = "";
 
 struct FilePath
@@ -2347,6 +2412,8 @@ struct PlatformConfig
 #endif // PLATFORM_ANDROID
 };
 
+#define MAX_SCRATCH_ARENAS 8
+
 struct Platform
 {
 	// To be configured by the client app
@@ -2375,6 +2442,10 @@ struct Platform
 	Arena frameArena;
 	Arena stringArena;
 	Arena dataArena;
+
+	Arena scratchArenas[MAX_SCRATCH_ARENAS];
+	volatile i32 scratchArenaLockMask;
+
 	StringInterning stringInterning;
 	Window window;
 	Input input;
@@ -2384,6 +2455,71 @@ struct Platform
 };
 
 static Platform *sPlatform = nullptr;
+
+#pragma intrinsic(_interlockedbittestandset)
+
+u32 AcquireScratchArena(Arena &outArena)
+{
+	// Max MAX_SCRATCH_ARENAS attempts to get a scratch arena
+	for (u32 i = 0; i < MAX_SCRATCH_ARENAS; ++i)
+	{
+		// Get the first bit not set
+		const u32 oldValue = sPlatform->scratchArenaLockMask;
+		const u32 index = FBZ(oldValue);
+		ASSERT(index < MAX_SCRATCH_ARENAS);
+
+		// Try to change it
+#if PLATFORM_WINDOWS
+		char c = _interlockedbittestandset(&sPlatform->scratchArenaLockMask, index);
+		const bool indexAcquired = (!c);
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+		const u32 newValue = oldValue | (1<<index);
+		const bool indexAcquired = __sync_bool_compare_and_swap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
+#else
+#error "Missing implementation"
+#endif
+
+		if (indexAcquired)
+		{
+			Arena &arena = sPlatform->scratchArenas[index];
+			if (!arena.base)
+			{
+				const u32 size = MB(1);
+				arena.base = (byte*)AllocateVirtualMemory(size);
+				arena.size = size;
+			}
+			outArena = arena;
+			outArena.used = 0;
+			return index;
+		}
+	}
+	INVALID_CODE_PATH();
+	return U32_MAX;
+}
+
+void ReleaseScratchArena(u32 index)
+{
+#if PLATFORM_WINDOWS
+		char c = _interlockedbittestandreset(&sPlatform->scratchArenaLockMask, index);
+		const bool indexReleased = (!c);
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+		const u32 oldValue = sPlatform->scratchArenaLockMask;
+		const u32 newValue = oldValue & ~(1<<index);
+		const bool indexReleased = __sync_bool_compare_and_swap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
+#else
+#error "Missing implementation"
+#endif
+		ASSERT(indexReleased);
+}
+
+struct Scratch
+{
+	Arena arena;
+	u32 lockedBit;
+
+	Scratch() { lockedBit = AcquireScratchArena(arena); }
+	~Scratch() { ReleaseScratchArena(lockedBit); }
+};
 
 
 bool IsAbsolutePath(const char *path)
@@ -2520,11 +2656,16 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 	CanonicalizePath(directory);
 	ProjectDir = PushString(platform.stringArena, directory);
 
+	StrCopy(directory, ProjectDir);
+	StrCat(directory, "/assets");
+	AssetDir = PushString(platform.stringArena, directory);
+
 #endif
 
 	LOG(Info, "Directories:\n");
 	LOG(Info, "- BinDir: %s\n", BinDir);
 	LOG(Info, "- DataDir: %s\n", DataDir);
+	LOG(Info, "- AssetDir: %s\n", AssetDir);
 	LOG(Info, "- ProjectDir: %s\n", ProjectDir);
 }
 
