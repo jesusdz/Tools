@@ -3830,6 +3830,7 @@ typedef int SND_PCM_HW_PARAMS_GET_PERIOD_TIME(const snd_pcm_hw_params_t *params,
 typedef int SND_PCM_HW_PARAMS_GET_PERIOD_SIZE(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *frames, int *dir);
 typedef int SND_PCM_AVAIL_DELAY(snd_pcm_t *pcm, snd_pcm_sframes_t *availp, snd_pcm_sframes_t *delayp);
 typedef snd_pcm_sframes_t SND_PCM_WRITEI(snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
+typedef int SND_PCM_RECOVER(snd_pcm_t *pcm, int err, int silent);
 typedef int SND_PCM_PREPARE(snd_pcm_t *pcm);
 typedef int SND_PCM_CLOSE(snd_pcm_t *pcm);
 typedef int SND_PCM_DRAIN(snd_pcm_t *pcm);
@@ -3852,6 +3853,7 @@ SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
 SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
 SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
 SND_PCM_WRITEI* FP_snd_pcm_writei;
+SND_PCM_RECOVER* FP_snd_pcm_recover;
 SND_PCM_PREPARE* FP_snd_pcm_prepare;
 SND_PCM_CLOSE* FP_snd_pcm_close;
 SND_PCM_DRAIN* FP_snd_pcm_drain;
@@ -4009,6 +4011,7 @@ bool InitializeAudio(Platform &platform)
 		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
 		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
 		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
+		FP_snd_pcm_recover = (SND_PCM_RECOVER*) LoadSymbol(alsa, "snd_pcm_recover");
 		FP_snd_pcm_prepare = (SND_PCM_PREPARE*) LoadSymbol(alsa, "snd_pcm_prepare");
 		FP_snd_pcm_close = (SND_PCM_CLOSE*) LoadSymbol(alsa, "snd_pcm_close");
 		FP_snd_pcm_drain = (SND_PCM_DRAIN*) LoadSymbol(alsa, "snd_pcm_drain");
@@ -4183,43 +4186,52 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 	}
 #elif PLATFORM_LINUX
 
-	snd_pcm_sframes_t availableFrames;
-	snd_pcm_sframes_t delayFrames;
-	if ( FP_snd_pcm_avail_delay(audio.pcm, &availableFrames, &delayFrames) == 0 )
+	for (u32 i = 0; i < 2; ++i)
 	{
-		const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
-		const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
+		snd_pcm_sframes_t availableFrames;
+		snd_pcm_sframes_t delayFrames;
+		int res = FP_snd_pcm_avail_delay(audio.pcm, &availableFrames, &delayFrames);
+		//LOG(Debug, "avail %u / delay %u\n", availableFrames, delayFrames);
 
-		snd_pcm_uframes_t framesToRender = maxFramesToRender - delayFrames;
-
-		framesToRender = framesToRender < availableFrames ? framesToRender : availableFrames;
-
-		if ( framesToRender > 0 )
+		if ( res == 0 )
 		{
-			//LOG(Debug, "avail:%u / delay:%u\n", availableFrames, delayFrames);
-			SoundBuffer soundBuffer = {};
-			soundBuffer.samplesPerSecond = audio.samplesPerSecond;
-			soundBuffer.sampleCount = framesToRender;
-			soundBuffer.samples = audio.outputSamples;
-			platform.RenderAudioCallback(platform, soundBuffer);
+			const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
+			const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
 
-			const int res = FP_snd_pcm_writei(audio.pcm, soundBuffer.samples, framesToRender);
+			snd_pcm_uframes_t framesToRender = maxFramesToRender - delayFrames;
 
-			if ( res >= 0 ) {
-				//LOG(Info, "%u frames written\n", res);
-			} else if (res == -EPIPE) {
-				LOG(Error, "An underrun occurred: %s\n", FP_snd_strerror(res));
-				FP_snd_pcm_prepare(audio.pcm);
-			} else if (res == -EBADFD) {
-				LOG(Error, "PCM is not in the right state (PREPARED or RUNNING): %s\n", FP_snd_strerror(res));
-			} else if (res == -ESTRPIPE) {
-				LOG(Error, "Underrun error: %s\n", FP_snd_strerror(res));
-			} else {
-				LOG(Error, "Unknown error: %s\n", FP_snd_strerror(res));
+			framesToRender = framesToRender < availableFrames ? framesToRender : availableFrames;
+
+			if ( framesToRender > 0 )
+			{
+				SoundBuffer soundBuffer = {};
+				soundBuffer.samplesPerSecond = audio.samplesPerSecond;
+				soundBuffer.sampleCount = framesToRender;
+				soundBuffer.samples = audio.outputSamples;
+				platform.RenderAudioCallback(platform, soundBuffer);
+
+				res = FP_snd_pcm_writei(audio.pcm, soundBuffer.samples, framesToRender);
+
+				if ( res < 0 )
+				{
+					LOG(Error, "Error calling snd_pcm_writei: %s\n", FP_snd_strerror(res));
+				}
 			}
 		}
-	}
+		else
+		{
+			LOG(Error, "Error calling snd_pcm_avail_delay: %s\n", FP_snd_strerror(res));
+		}
 
+		// Error recovery
+		if (res == -EPIPE || res == -ESTRPIPE || res == -EINTR) {
+			FP_snd_pcm_recover(audio.pcm, res, 0);
+			continue;
+		}
+
+		// All good or unrecoverable error (no need to try a second time)
+		break;
+	}
 
 #endif
 }
