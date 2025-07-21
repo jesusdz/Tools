@@ -54,6 +54,7 @@
 #include <mmsystem.h> // audio
 #include <dsound.h>   // audio
 #include <direct.h>   // _getcwd
+#include <intrin.h>   // _WriteBarrier
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -4238,21 +4239,84 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-#if PLATFORM_WINDOWS
+#if 0 && PLATFORM_WINDOWS
+struct ThreadInfo
+{
+	u32 globalIndex;
+};
+
+static HANDLE semaphoreHandle;
+static const char * workQueue[126] = {};
+static volatile_u32 workEnqueuedCount = 0;
+static volatile_u32 workCompletedCount = 0;
+
+void PushWork(const char *work)
+{
+	workQueue[workEnqueuedCount] = work;
+
+	_WriteBarrier();
+	_mm_sfence();
+
+	workEnqueuedCount++;
+
+	ReleaseSemaphore(semaphoreHandle, 1, 0);
+}
+
 DWORD WINAPI ThreadProc(LPVOID lpParameter)
 {
-	const char *str = (const char*)lpParameter;
-	LOG(Debug, "%s\n", str);
+	const ThreadInfo *threadInfo = (const ThreadInfo *)lpParameter;
+
+	while (1)
+	{
+		u32 workIndex = workCompletedCount;
+		if (workIndex < workEnqueuedCount)
+		{
+			if ( AtomicSwap(&workCompletedCount, workIndex, workIndex+1) )
+			{
+				const char *work = workQueue[workIndex];
+				LOG(Debug, "Thread %u: %s\n", threadInfo->globalIndex, work);
+			}
+		}
+		else
+		{
+			WaitForSingleObjectEx(semaphoreHandle, INFINITE, FALSE);
+		}
+	}
+
+	return 0;
 }
 #endif // PLATFORM_WINDOWS
 
 bool InitializeThreads(Platform &platform)
 {
-#if PLATFORM_WINDOWS
-	const char *parameter = "Hello threads!";
-	DWORD threadId;
-	HANDLE threadHandle = CreateThread(0, 0, ThreadProc, parameter, 0, &threadId);
-	CloseHandle(threadHandle);
+#if 0 && PLATFORM_WINDOWS
+
+	static ThreadInfo threadInfos[16];
+	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
+
+	const u32 iniCount = 0;
+	const u32 maxCount = threadCount;
+	semaphoreHandle = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+
+	for (u32 i = 0; i < threadCount; ++i)
+	{
+		ThreadInfo &threadInfo = threadInfos[i];
+		threadInfo.globalIndex = i;
+		DWORD threadId;
+		HANDLE threadHandle = CreateThread(0, 0, ThreadProc, (LPVOID)&threadInfo, 0, &threadId);
+		CloseHandle(threadHandle);
+	}
+
+	PushWork("0");
+	PushWork("1");
+	PushWork("2");
+	PushWork("3");
+	PushWork("4");
+	PushWork("5");
+	PushWork("6");
+	PushWork("7");
+	PushWork("8");
+	PushWork("9");
 #endif // PLATFORM_WINDOWS
 
 	return true;
