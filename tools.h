@@ -4238,6 +4238,26 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
+#if PLATFORM_WINDOWS
+DWORD WINAPI ThreadProc(LPVOID lpParameter)
+{
+	const char *str = (const char*)lpParameter;
+	LOG(Debug, "%s\n", str);
+}
+#endif // PLATFORM_WINDOWS
+
+bool InitializeThreads(Platform &platform)
+{
+#if PLATFORM_WINDOWS
+	const char *parameter = "Hello threads!";
+	DWORD threadId;
+	HANDLE threadHandle = CreateThread(0, 0, ThreadProc, parameter, 0, &threadId);
+	CloseHandle(threadHandle);
+#endif // PLATFORM_WINDOWS
+
+	return true;
+}
+
 bool PlatformInitialize(Platform &platform, int argc, char **argv)
 {
 	ASSERT( platform.globalMemorySize > 0 );
@@ -4289,6 +4309,11 @@ bool PlatformRun(Platform &platform)
 	}
 
 	if ( !InitializeAudio(platform) )
+	{
+		return false;
+	}
+
+	if ( !InitializeThreads(platform) )
 	{
 		return false;
 	}
