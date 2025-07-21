@@ -3672,8 +3672,10 @@ static f32 AxisFromEvent(i32 axis, i32 deadzoneThreshold)
 
 static f32 TriggerFromEvent(i32 value)
 {
-	ASSERT(value >= 0 && value < 256);
-	const f32 res = (f32)value/255.0f;
+	//ASSERT(value >= 0 && value < 256);
+	static f32 maxValue = 256.0f;
+	maxValue = Max(maxValue, (f32)value); // TODO(jesus): Query per-device limits with ioctl
+	const f32 res = (f32)value/maxValue;
 	return res;
 }
 
