@@ -4198,6 +4198,7 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 
 		if ( res == 0 )
 		{
+			// TODO(jesus): Underruns seem to be fixed increasing this time window (but we add latency to reproduce new sounds)
 			const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
 			const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
 
