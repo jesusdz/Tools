@@ -178,6 +178,8 @@ CT_ASSERT(sizeof(byte) == 1);
 CT_ASSERT(sizeof(long) == sizeof(i32));
 typedef volatile LONG volatile_i32;
 typedef volatile ULONG volatile_u32;
+typedef volatile LONGLONG volatile_i64;
+typedef volatile ULONGLONG volatile_u64;
 #else
 typedef volatile i32 volatile_i32;
 typedef volatile u32 volatile_u32;
@@ -333,6 +335,18 @@ u32 FBZ(u32 bitMask)
 }
 
 bool AtomicSwap(volatile_u32 *currValue, u32 oldValue, u32 newValue)
+{
+#if PLATFORM_WINDOWS
+		const bool swapped = InterlockedCompareExchange(currValue, newValue, oldValue) != *currValue;
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+		const bool swapped = __sync_bool_compare_and_swap(currValue, oldValue, newValue);
+#else
+#error "Missing implementation"
+#endif
+	return swapped;
+}
+
+bool AtomicSwap(volatile_u64 *currValue, u64 oldValue, u64 newValue)
 {
 #if PLATFORM_WINDOWS
 		const bool swapped = InterlockedCompareExchange(currValue, newValue, oldValue) != *currValue;
@@ -4240,84 +4254,185 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-#if 0 && PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS
 struct ThreadInfo
 {
 	u32 globalIndex;
 };
 
-static HANDLE semaphoreHandle;
-static const char * workQueue[126] = {};
-static volatile_u32 workEnqueuedCount = 0;
-static volatile_u32 workCompletedCount = 0;
+#define WORK_QUEUE_CALLBACK(name) void name(const ThreadInfo &threadInfo, void *data)
+typedef WORK_QUEUE_CALLBACK(WorkQueueCallback);
 
-void PushWork(const char *work)
+struct WorkQueueEntry
 {
-	workQueue[workEnqueuedCount] = work;
+	WorkQueueCallback *callback;
+	void *data;
+};
+
+struct WorkQueue
+{
+	HANDLE semaphore;
+	volatile_u64 head;
+	volatile_u64 tail;
+
+	WorkQueueEntry entries[128] = {};
+};
+
+static WorkQueue workQueue;
+
+static void WorkQueuePush(WorkQueueEntry entry)
+{
+	ASSERT(workQueue.head - workQueue.tail < ARRAY_COUNT(workQueue.entries));
+	ASSERT(entry.callback);
+	ASSERT(entry.data);
+
+	const u32 index = workQueue.head % ARRAY_COUNT(workQueue.entries);
+	workQueue.entries[index] = entry;
 
 	_WriteBarrier();
 	_mm_sfence();
 
-	workEnqueuedCount++;
+	workQueue.head++;
 
-	ReleaseSemaphore(semaphoreHandle, 1, 0);
+	ReleaseSemaphore(workQueue.semaphore, 1, 0);
 }
 
-DWORD WINAPI ThreadProc(LPVOID lpParameter)
+static void PrintString(const ThreadInfo &threadInfo, void *data)
+{
+	const char *work = (const char *)data;
+	LOG(Debug, "Thread %u: %s\n", threadInfo.globalIndex, work);
+}
+
+static void WorkQueuePushString(const char *str)
+{
+	WorkQueueEntry entry = {
+		.callback = PrintString,
+		.data = (void*)str
+	};
+	WorkQueuePush(entry);
+}
+
+static bool WorkQueueEmpty()
+{
+	const bool empty = workQueue.head == workQueue.tail;
+	return empty;
+}
+
+enum WorkQueueStatus
+{
+	WORK_QUEUE_SUCCESS,
+	WORK_QUEUE_FAILED,
+	WORK_QUEUE_EMPTY,
+};
+
+static WorkQueueStatus WorkQueueProcess(const ThreadInfo &threadInfo)
+{
+	WorkQueueStatus status = WORK_QUEUE_EMPTY;
+
+	const u64 tail = workQueue.tail;
+
+	if (tail < workQueue.head)
+	{
+		if ( AtomicSwap(&workQueue.tail, tail, tail+1) )
+		{
+			_ReadBarrier();
+
+			const u32 workIndex = tail % ARRAY_COUNT(workQueue.entries);
+			WorkQueueEntry &entry = workQueue.entries[workIndex];
+			entry.callback(threadInfo, entry.data);
+
+			status = WORK_QUEUE_SUCCESS;
+		}
+		else
+		{
+			status = WORK_QUEUE_FAILED;
+		}
+	}
+
+	return status;
+}
+
+static DWORD WINAPI WorkQueueThread(LPVOID lpParameter)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)lpParameter;
 
 	while (1)
 	{
-		u32 workIndex = workCompletedCount;
-		if (workIndex < workEnqueuedCount)
+		const WorkQueueStatus status = WorkQueueProcess(*threadInfo);
+		if ( status == WORK_QUEUE_EMPTY )
 		{
-			if ( AtomicSwap(&workCompletedCount, workIndex, workIndex+1) )
-			{
-				const char *work = workQueue[workIndex];
-				LOG(Debug, "Thread %u: %s\n", threadInfo->globalIndex, work);
-			}
-		}
-		else
-		{
-			WaitForSingleObjectEx(semaphoreHandle, INFINITE, FALSE);
+			WaitForSingleObjectEx(workQueue.semaphore, INFINITE, FALSE);
 		}
 	}
 
 	return 0;
 }
-#endif // PLATFORM_WINDOWS
 
-bool InitializeThreads(Platform &platform)
+static void WorkQueueInitialize()
 {
-#if 0 && PLATFORM_WINDOWS
-
 	static ThreadInfo threadInfos[16];
 	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
 
 	const u32 iniCount = 0;
 	const u32 maxCount = threadCount;
-	semaphoreHandle = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+	workQueue.semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+	workQueue.head = 0;
+	workQueue.tail = 0;
 
 	for (u32 i = 0; i < threadCount; ++i)
 	{
 		ThreadInfo &threadInfo = threadInfos[i];
 		threadInfo.globalIndex = i;
 		DWORD threadId;
-		HANDLE threadHandle = CreateThread(0, 0, ThreadProc, (LPVOID)&threadInfo, 0, &threadId);
+		HANDLE threadHandle = CreateThread(0, 0, WorkQueueThread, (LPVOID)&threadInfo, 0, &threadId);
 		CloseHandle(threadHandle);
 	}
+}
 
-	PushWork("0");
-	PushWork("1");
-	PushWork("2");
-	PushWork("3");
-	PushWork("4");
-	PushWork("5");
-	PushWork("6");
-	PushWork("7");
-	PushWork("8");
-	PushWork("9");
+#endif // PLATFORM_WINDOWS
+
+bool InitializeThreads(Platform &platform)
+{
+#if PLATFORM_WINDOWS
+
+	WorkQueueInitialize();
+
+	WorkQueuePushString("A0");
+	WorkQueuePushString("A1");
+	WorkQueuePushString("A2");
+	WorkQueuePushString("A3");
+	WorkQueuePushString("A4");
+	WorkQueuePushString("A5");
+	WorkQueuePushString("A6");
+	WorkQueuePushString("A7");
+	WorkQueuePushString("A8");
+	WorkQueuePushString("A9");
+	WorkQueuePushString("B0");
+	WorkQueuePushString("B1");
+	WorkQueuePushString("B2");
+	WorkQueuePushString("B3");
+	WorkQueuePushString("B4");
+	WorkQueuePushString("B5");
+	WorkQueuePushString("B6");
+	WorkQueuePushString("B7");
+	WorkQueuePushString("B8");
+	WorkQueuePushString("B9");
+	WorkQueuePushString("C0");
+	WorkQueuePushString("C1");
+	WorkQueuePushString("C2");
+	WorkQueuePushString("C3");
+	WorkQueuePushString("C4");
+	WorkQueuePushString("C5");
+	WorkQueuePushString("C6");
+	WorkQueuePushString("C7");
+	WorkQueuePushString("C8");
+	WorkQueuePushString("C9");
+
+	ThreadInfo threadInfo = { 16 };
+	while (!WorkQueueEmpty()) {
+		WorkQueueProcess(threadInfo);
+	}
+
 #endif // PLATFORM_WINDOWS
 
 	return true;
