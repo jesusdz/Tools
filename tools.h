@@ -64,6 +64,8 @@
 #include <errno.h>    // errno
 #include <sys/mman.h> // mmap
 #include <dirent.h>   // opendir/readdir/closedir
+#include <pthread.h>
+#include <semaphore.h>
 #endif
 
 #if PLATFORM_LINUX || PLATFORM_ANDROID
@@ -183,6 +185,8 @@ typedef volatile ULONGLONG volatile_u64;
 #else
 typedef volatile i32 volatile_i32;
 typedef volatile u32 volatile_u32;
+typedef volatile i64 volatile_i64;
+typedef volatile u64 volatile_u64;
 #endif
 
 
@@ -4254,7 +4258,6 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-#if PLATFORM_WINDOWS
 struct ThreadInfo
 {
 	u32 globalIndex;
@@ -4271,7 +4274,11 @@ struct WorkQueueEntry
 
 struct WorkQueue
 {
+#if PLATFORM_WINDOWS
 	HANDLE semaphore;
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	sem_t semaphore;
+#endif
 	volatile_u64 head;
 	volatile_u64 tail;
 
@@ -4289,27 +4296,22 @@ static void WorkQueuePush(WorkQueueEntry entry)
 	const u32 index = workQueue.head % ARRAY_COUNT(workQueue.entries);
 	workQueue.entries[index] = entry;
 
+#if PLATFORM_WINDOWS
 	_WriteBarrier();
 	_mm_sfence();
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	__sync_synchronize();
+#endif
 
 	workQueue.head++;
 
+#if PLATFORM_WINDOWS
 	ReleaseSemaphore(workQueue.semaphore, 1, 0);
-}
-
-static void PrintString(const ThreadInfo &threadInfo, void *data)
-{
-	const char *work = (const char *)data;
-	LOG(Debug, "Thread %u: %s\n", threadInfo.globalIndex, work);
-}
-
-static void WorkQueuePushString(const char *str)
-{
-	WorkQueueEntry entry = {
-		.callback = PrintString,
-		.data = (void*)str
-	};
-	WorkQueuePush(entry);
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	if ( sem_post(&workQueue.semaphore) != 0 ) {
+		LinuxReportError("WorkQueuePush - sem_post");
+	}
+#endif
 }
 
 static bool WorkQueueEmpty()
@@ -4335,7 +4337,11 @@ static WorkQueueStatus WorkQueueProcess(const ThreadInfo &threadInfo)
 	{
 		if ( AtomicSwap(&workQueue.tail, tail, tail+1) )
 		{
+#if PLATFORM_WINDOWS
 			_ReadBarrier();
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+			__sync_synchronize();
+#endif
 
 			const u32 workIndex = tail % ARRAY_COUNT(workQueue.entries);
 			WorkQueueEntry &entry = workQueue.entries[workIndex];
@@ -4352,30 +4358,49 @@ static WorkQueueStatus WorkQueueProcess(const ThreadInfo &threadInfo)
 	return status;
 }
 
-static DWORD WINAPI WorkQueueThread(LPVOID lpParameter)
+#if PLATFORM_WINDOWS
+static DWORD WINAPI WorkQueueThread(LPVOID arguments)
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+static void* WorkQueueThread(void *arguments)
+#endif
 {
-	const ThreadInfo *threadInfo = (const ThreadInfo *)lpParameter;
+	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
 
 	while (1)
 	{
 		const WorkQueueStatus status = WorkQueueProcess(*threadInfo);
 		if ( status == WORK_QUEUE_EMPTY )
 		{
+			#if PLATFORM_WINDOWS
 			WaitForSingleObjectEx(workQueue.semaphore, INFINITE, FALSE);
+			#elif PLATFORM_LINUX || PLATFORM_ANDROID
+			if ( sem_wait(&workQueue.semaphore) != 0 ) {
+				LinuxReportError("WorkQueueThread - sem_wait");
+			}
+			#endif
 		}
 	}
 
 	return 0;
 }
 
-static void WorkQueueInitialize()
+static bool WorkQueueInitialize()
 {
 	static ThreadInfo threadInfos[16];
 	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
 
 	const u32 iniCount = 0;
 	const u32 maxCount = threadCount;
+#if PLATFORM_WINDOWS
 	workQueue.semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	const int shared = 0;
+	const int value = 0;
+	if ( sem_init(&workQueue.semaphore, shared, value) != 0 ) {
+		LinuxReportError("WorkQueueInitialize - sem_init");
+		return false;
+	}
+#endif
 	workQueue.head = 0;
 	workQueue.tail = 0;
 
@@ -4383,19 +4408,47 @@ static void WorkQueueInitialize()
 	{
 		ThreadInfo &threadInfo = threadInfos[i];
 		threadInfo.globalIndex = i;
+#if PLATFORM_WINDOWS
 		DWORD threadId;
 		HANDLE threadHandle = CreateThread(0, 0, WorkQueueThread, (LPVOID)&threadInfo, 0, &threadId);
 		CloseHandle(threadHandle);
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+		pthread_t threadHandle;
+		if ( pthread_create(&threadHandle, nullptr, WorkQueueThread, &threadInfo) != 0 ) {
+			LinuxReportError("WorkQueueInitialize - pthread_create");
+			return false;
+		}
+		if ( pthread_detach(threadHandle) != 0 ) {
+			LinuxReportError("WorkQueueInitialize - pthread_detach");
+			return false;
+		}
+#endif
 	}
+
+	return true;
 }
 
-#endif // PLATFORM_WINDOWS
+static void PrintString(const ThreadInfo &threadInfo, void *data)
+{
+	const char *work = (const char *)data;
+	LOG(Debug, "Thread %u: %s\n", threadInfo.globalIndex, work);
+}
+
+static void WorkQueuePushString(const char *str)
+{
+	WorkQueueEntry entry = {
+		.callback = PrintString,
+		.data = (void*)str
+	};
+	WorkQueuePush(entry);
+}
 
 bool InitializeThreads(Platform &platform)
 {
-#if PLATFORM_WINDOWS
-
-	WorkQueueInitialize();
+	if ( !WorkQueueInitialize() )
+	{
+		return false;
+	}
 
 	WorkQueuePushString("A0");
 	WorkQueuePushString("A1");
@@ -4432,8 +4485,6 @@ bool InitializeThreads(Platform &platform)
 	while (!WorkQueueEmpty()) {
 		WorkQueueProcess(threadInfo);
 	}
-
-#endif // PLATFORM_WINDOWS
 
 	return true;
 }
