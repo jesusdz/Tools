@@ -4266,6 +4266,119 @@ struct ThreadInfo
 #define WORK_QUEUE_CALLBACK(name) void name(const ThreadInfo &threadInfo, void *data)
 typedef WORK_QUEUE_CALLBACK(WorkQueueCallback);
 
+#if PLATFORM_WINDOWS
+
+#define THREAD_FUNCTION(name) DWORD WINAPI name(LPVOID arguments)
+
+#define FullWriteBarrier() _WriteBarrier(); _mm_sfence()
+#define FullReadBarrier() _ReadBarrier()
+
+typedef HANDLE Semaphore;
+
+static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
+{
+	bool success = true;
+	semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+	if ( semaphore == NULL ) {
+		Win32ReportError("CreateSemaphoreEx");
+		success = false;
+	}
+	return success;
+}
+
+static bool SignalSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( !ReleaseSemaphore(semaphore, 1, 0) ) {
+		Win32ReportError("ReleaseSemaphore");
+		success = false;
+	}
+	return success;
+}
+
+static bool WaitSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( WaitForSingleObjectEx(semaphore, INFINITE, FALSE) == WAIT_FAILED ) {
+		Win32ReportError("WaitForSingleObjectEx");
+		success = false;
+	}
+	return success;
+}
+
+static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
+{
+	bool success = true;
+	DWORD threadId;
+	HANDLE threadHandle = CreateThread(0, 0, threadFunc, (LPVOID)&threadInfo, 0, &threadId);
+	if ( threadHandle == NULL ) {
+		Win32ReportError("CreateThread");
+		success = false;
+	} else {
+		CloseHandle(threadHandle);
+	}
+	return success;
+}
+
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+
+#define THREAD_FUNCTION(name) void* name(void *arguments)
+
+#define FullWriteBarrier() __sync_synchronize()
+#define FullReadBarrier() __sync_synchronize()
+
+typedef sem_t Semaphore;
+
+static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
+{
+	bool success = true;
+	if ( sem_init(&workQueue.semaphore, 0, iniCount) != 0 ) { // TODO(jediaz): use sem_init_np to set maxCount
+		LinuxReportError("sem_init");
+		success = false;
+	}
+	return success;
+}
+
+static bool SignalSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( sem_post(&workQueue.semaphore) != 0 ) {
+		LinuxReportError("sem_post");
+		success = false;
+	}
+	return success;
+}
+
+static bool WaitSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( sem_wait(&workQueue.semaphore) != 0 ) {
+		LinuxReportError("sem_wait");
+		success = false;
+	}
+	return success;
+}
+
+static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
+{
+	bool success = false;
+	pthread_t threadHandle;
+	if ( pthread_create(&threadHandle, nullptr, WorkQueueThread, &threadInfo) == 0 ) {
+		if ( pthread_detach(threadHandle) == 0 ) {
+			success = true;
+		} else {
+			LinuxReportError("pthread_detach");
+		}
+	} else {
+		LinuxReportError("pthread_create");
+	}
+	return success;
+}
+
+#else
+#error "Missing implementation"
+#endif
+
 struct WorkQueueEntry
 {
 	WorkQueueCallback *callback;
@@ -4274,11 +4387,7 @@ struct WorkQueueEntry
 
 struct WorkQueue
 {
-#if PLATFORM_WINDOWS
-	HANDLE semaphore;
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	sem_t semaphore;
-#endif
+	Semaphore semaphore;
 	volatile_u64 head;
 	volatile_u64 tail;
 
@@ -4296,22 +4405,11 @@ static void WorkQueuePush(WorkQueueEntry entry)
 	const u32 index = workQueue.head % ARRAY_COUNT(workQueue.entries);
 	workQueue.entries[index] = entry;
 
-#if PLATFORM_WINDOWS
-	_WriteBarrier();
-	_mm_sfence();
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	__sync_synchronize();
-#endif
+	FullWriteBarrier();
 
 	workQueue.head++;
 
-#if PLATFORM_WINDOWS
-	ReleaseSemaphore(workQueue.semaphore, 1, 0);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	if ( sem_post(&workQueue.semaphore) != 0 ) {
-		LinuxReportError("WorkQueuePush - sem_post");
-	}
-#endif
+	SignalSemaphore(workQueue.semaphore);
 }
 
 static bool WorkQueueEmpty()
@@ -4320,16 +4418,9 @@ static bool WorkQueueEmpty()
 	return empty;
 }
 
-enum WorkQueueStatus
+static bool WorkQueueProcess(const ThreadInfo &threadInfo)
 {
-	WORK_QUEUE_SUCCESS,
-	WORK_QUEUE_FAILED,
-	WORK_QUEUE_EMPTY,
-};
-
-static WorkQueueStatus WorkQueueProcess(const ThreadInfo &threadInfo)
-{
-	WorkQueueStatus status = WORK_QUEUE_EMPTY;
+	bool thereIsPendingWork = false;
 
 	const u64 tail = workQueue.tail;
 
@@ -4337,47 +4428,28 @@ static WorkQueueStatus WorkQueueProcess(const ThreadInfo &threadInfo)
 	{
 		if ( AtomicSwap(&workQueue.tail, tail, tail+1) )
 		{
-#if PLATFORM_WINDOWS
-			_ReadBarrier();
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-			__sync_synchronize();
-#endif
+			FullReadBarrier();
 
 			const u32 workIndex = tail % ARRAY_COUNT(workQueue.entries);
 			WorkQueueEntry &entry = workQueue.entries[workIndex];
 			entry.callback(threadInfo, entry.data);
+		}
 
-			status = WORK_QUEUE_SUCCESS;
-		}
-		else
-		{
-			status = WORK_QUEUE_FAILED;
-		}
+		thereIsPendingWork = true;
 	}
 
-	return status;
+	return thereIsPendingWork;
 }
 
-#if PLATFORM_WINDOWS
-static DWORD WINAPI WorkQueueThread(LPVOID arguments)
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-static void* WorkQueueThread(void *arguments)
-#endif
+static THREAD_FUNCTION(WorkQueueThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
 
 	while (1)
 	{
-		const WorkQueueStatus status = WorkQueueProcess(*threadInfo);
-		if ( status == WORK_QUEUE_EMPTY )
+		if ( !WorkQueueProcess(*threadInfo) )
 		{
-			#if PLATFORM_WINDOWS
-			WaitForSingleObjectEx(workQueue.semaphore, INFINITE, FALSE);
-			#elif PLATFORM_LINUX || PLATFORM_ANDROID
-			if ( sem_wait(&workQueue.semaphore) != 0 ) {
-				LinuxReportError("WorkQueueThread - sem_wait");
-			}
-			#endif
+			WaitSemaphore(workQueue.semaphore);
 		}
 	}
 
@@ -4391,16 +4463,11 @@ static bool WorkQueueInitialize()
 
 	const u32 iniCount = 0;
 	const u32 maxCount = threadCount;
-#if PLATFORM_WINDOWS
-	workQueue.semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	const int shared = 0;
-	const int value = 0;
-	if ( sem_init(&workQueue.semaphore, shared, value) != 0 ) {
-		LinuxReportError("WorkQueueInitialize - sem_init");
+	if ( !CreateSemaphore( workQueue.semaphore, iniCount, maxCount ) )
+	{
 		return false;
 	}
-#endif
+
 	workQueue.head = 0;
 	workQueue.tail = 0;
 
@@ -4408,21 +4475,10 @@ static bool WorkQueueInitialize()
 	{
 		ThreadInfo &threadInfo = threadInfos[i];
 		threadInfo.globalIndex = i;
-#if PLATFORM_WINDOWS
-		DWORD threadId;
-		HANDLE threadHandle = CreateThread(0, 0, WorkQueueThread, (LPVOID)&threadInfo, 0, &threadId);
-		CloseHandle(threadHandle);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-		pthread_t threadHandle;
-		if ( pthread_create(&threadHandle, nullptr, WorkQueueThread, &threadInfo) != 0 ) {
-			LinuxReportError("WorkQueueInitialize - pthread_create");
+		if ( !CreateDetachedThread(WorkQueueThread, threadInfo) )
+		{
 			return false;
 		}
-		if ( pthread_detach(threadHandle) != 0 ) {
-			LinuxReportError("WorkQueueInitialize - pthread_detach");
-			return false;
-		}
-#endif
 	}
 
 	return true;
