@@ -4332,38 +4332,38 @@ typedef sem_t Semaphore;
 static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
 {
 	bool success = true;
-	if ( sem_init(&workQueue.semaphore, 0, iniCount) != 0 ) { // TODO(jediaz): use sem_init_np to set maxCount
+	if ( sem_init(&semaphore, 0, iniCount) != 0 ) { // TODO(jediaz): use sem_init_np to set maxCount
 		LinuxReportError("sem_init");
 		success = false;
 	}
 	return success;
 }
 
-static bool SignalSemaphore( Semaphore semaphore )
+static bool SignalSemaphore( Semaphore &semaphore )
 {
 	bool success = true;
-	if ( sem_post(&workQueue.semaphore) != 0 ) {
+	if ( sem_post(&semaphore) != 0 ) {
 		LinuxReportError("sem_post");
 		success = false;
 	}
 	return success;
 }
 
-static bool WaitSemaphore( Semaphore semaphore )
+static bool WaitSemaphore( Semaphore &semaphore )
 {
 	bool success = true;
-	if ( sem_wait(&workQueue.semaphore) != 0 ) {
+	if ( sem_wait(&semaphore) != 0 ) {
 		LinuxReportError("sem_wait");
 		success = false;
 	}
 	return success;
 }
 
-static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
+static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), ThreadInfo &threadInfo )
 {
 	bool success = false;
 	pthread_t threadHandle;
-	if ( pthread_create(&threadHandle, nullptr, WorkQueueThread, &threadInfo) == 0 ) {
+	if ( pthread_create(&threadHandle, nullptr, threadFunc, &threadInfo) == 0 ) {
 		if ( pthread_detach(threadHandle) == 0 ) {
 			success = true;
 		} else {
@@ -4484,10 +4484,11 @@ static bool WorkQueueInitialize()
 	return true;
 }
 
+#if 0 // Threading test code
 static void PrintString(const ThreadInfo &threadInfo, void *data)
 {
 	const char *work = (const char *)data;
-	LOG(Debug, "Thread %u: %s\n", threadInfo.globalIndex, work);
+	LOG(Debug, "Thread %u work: %s\n", threadInfo.globalIndex, work);
 }
 
 static void WorkQueuePushString(const char *str)
@@ -4498,6 +4499,7 @@ static void WorkQueuePushString(const char *str)
 	};
 	WorkQueuePush(entry);
 }
+#endif
 
 bool InitializeThreads(Platform &platform)
 {
@@ -4506,6 +4508,7 @@ bool InitializeThreads(Platform &platform)
 		return false;
 	}
 
+#if 0 // Threading test code
 	WorkQueuePushString("A0");
 	WorkQueuePushString("A1");
 	WorkQueuePushString("A2");
@@ -4541,6 +4544,7 @@ bool InitializeThreads(Platform &platform)
 	while (!WorkQueueEmpty()) {
 		WorkQueueProcess(threadInfo);
 	}
+#endif
 
 	return true;
 }
