@@ -359,6 +359,16 @@ struct ImageHeader
 	u32 pixelsSize;
 };
 
+struct AudioClipHeader
+{
+	u32 sampleCount;
+	u32 samplingRate;
+	u16 sampleSize;
+	u16 channelCount;
+	u32 samplesOffset;
+	u32 samplesSize;
+};
+
 struct DataHeader
 {
 	u32 magicNumber;
@@ -366,6 +376,8 @@ struct DataHeader
 	u32 shaderCount;
 	u32 imagesOffset;
 	u32 imageCount;
+	u32 audioClipsOffset;
+	u32 audioClipCount;;
 };
 #pragma pack(pop)
 
@@ -381,11 +393,18 @@ struct LoadedImage
 	byte *pixels;
 };
 
+struct LoadedAudioClip
+{
+	AudioClipHeader *header;
+	void *samples;
+};
+
 struct LoadedData
 {
 	DataHeader *header;
 	LoadedShader *shaders;
 	LoadedImage *images;
+	LoadedAudioClip *audioClips;
 };
 
 
@@ -711,7 +730,7 @@ struct AudioClip
 	void *samples;
 	u32 sampleCount;
 	u32 samplingRate;
-	u16 bitsPerSample;
+	u16 sampleSize;
 	u16 channelCount;
 };
 
@@ -778,10 +797,10 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 			}
 		}
 
-		audioClip.bitsPerSample = Fmt.BitsPerSample;
+		audioClip.sampleSize = Fmt.BitsPerSample / 8;
 		audioClip.samplingRate = Fmt.SampleRate;
 		audioClip.channelCount = Fmt.NumChannels;
-		audioClip.sampleCount = dataSize / (Fmt.BitsPerSample / 8);
+		audioClip.sampleCount = dataSize / audioClip.sampleSize;
 		audioClip.samples = data;
 
 		fclose(file);
@@ -867,19 +886,38 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 #endif
 }
 
-void CreateAudioClips(Engine &engine, Arena &arena, const AudioClipDesc &audioClipDesc)
+void CreateAudioClip(Platform &platform, const LoadedAudioClip &loadedAudioClip)
 {
-	for (u32 i = 0; i < ARRAY_COUNT(audioClips); ++i)
+	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
-		AudioClip &audioClip = audioClips[i];
-		if ( !audioClip.samples )
-		{
-			LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
-			return;
-		}
-	}
+		AudioClip &audioClip = audioClips[audioClipCount++];
+		ASSERT(!audioClip.samples);
 
-	LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", audioClipDesc.filename);
+		audioClip.sampleSize = loadedAudioClip.header->sampleSize;
+		audioClip.samplingRate = loadedAudioClip.header->samplingRate;
+		audioClip.channelCount = loadedAudioClip.header->channelCount;
+		audioClip.sampleCount = loadedAudioClip.header->sampleCount;
+		audioClip.samples = loadedAudioClip.samples;
+	}
+	else
+	{
+		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", "<audio-clip>");
+	}
+}
+
+void CreateAudioClip(Engine &engine, Arena &arena, const AudioClipDesc &audioClipDesc)
+{
+	if ( audioClipCount < ARRAY_COUNT(audioClips) )
+	{
+		AudioClip &audioClip = audioClips[audioClipCount++];
+		ASSERT(!audioClip.samples);
+
+		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
+	}
+	else
+	{
+		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", audioClipDesc.filename);
+	}
 }
 
 void PlayAudioClip(Engine &engine)
@@ -1852,12 +1890,12 @@ void InitializeScene(Engine &engine, Arena &globalArena)
 	{
 		CreateTexture(gfx, textures[i]);
 	}
-#endif
 
 	for (u32 i = 0; i < ARRAY_COUNT(audioClipDescs); ++i)
 	{
-		CreateAudioClips(engine, globalArena, audioClipDescs[i]);
+		CreateAudioClip(engine, globalArena, audioClipDescs[i]);
 	}
+#endif
 
 	for (u32 i = 0; i < ARRAY_COUNT(materials); ++i)
 	{
@@ -3127,7 +3165,10 @@ static void BuildData(Arena frameArena)
 		const u32 imageCount = ARRAY_COUNT(textures);
 		const u32 imagesOffset = shadersOffset + shadersSize;
 		const u32 imagesSize = imageCount * sizeof(ImageHeader);
-		const u32 basePayloadOffset = imagesOffset + imagesSize;
+		const u32 audioClipCount = ARRAY_COUNT(audioClipDescs);
+		const u32 audioClipsOffset = imagesOffset + imagesSize;
+		const u32 audioClipsSize = audioClipCount * sizeof(AudioClipHeader);
+		const u32 basePayloadOffset = audioClipsOffset + audioClipsSize;
 
 		// Write file header
 		const DataHeader dataHeader = {
@@ -3136,6 +3177,8 @@ static void BuildData(Arena frameArena)
 			.shaderCount = shaderCount,
 			.imagesOffset = imagesOffset,
 			.imageCount = imageCount,
+			.audioClipsOffset = audioClipsOffset,
+			.audioClipCount = audioClipCount,
 		};
 		fwrite(&dataHeader, sizeof(dataHeader), 1, file);
 
@@ -3196,6 +3239,34 @@ static void BuildData(Arena frameArena)
 			payloadOffset += payloadSize;
 		}
 
+		// AudioClips
+		for (u32 i = 0; i < audioClipCount; ++i)
+		{
+			const AudioClipDesc &audioClip = audioClipDescs[i];
+
+			const FilePath path = MakePath(ProjectDir, audioClip.filename);
+
+			// TODO(jesus): Do not Load the entire audio clip here (just the header would be enough)
+			// TODO(jesus): Maybe compact how we write header + payload info into the data file
+			AudioClip tmpAudioClip;
+			Scratch scratch;
+			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch.arena, tmpAudioClip);
+
+			const u64 payloadSize = tmpAudioClip.sampleCount * tmpAudioClip.sampleSize;
+
+			const AudioClipHeader audioClipHeader = {
+				.sampleCount = tmpAudioClip.sampleCount,
+				.samplingRate = tmpAudioClip.samplingRate,
+				.sampleSize = tmpAudioClip.sampleSize,
+				.channelCount = tmpAudioClip.channelCount,
+				.samplesOffset = payloadOffset,
+				.samplesSize = U64ToU32(payloadSize),
+			};
+			fwrite(&audioClipHeader, sizeof(audioClipHeader), 1, file);
+
+			payloadOffset += payloadSize;
+		}
+
 		// Write assets payload
 
 		// Shaders
@@ -3247,6 +3318,27 @@ static void BuildData(Arena frameArena)
 			payloadOffset += payloadSize;
 		}
 
+		// AudioClips
+		for (u32 i = 0; i < audioClipCount; ++i)
+		{
+			const AudioClipDesc &desc = audioClipDescs[i];
+
+			const FilePath path = MakePath(ProjectDir, desc.filename);
+
+			AudioClip audioClip;
+			Scratch scratch;
+			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch.arena, audioClip);
+
+			const u32 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
+
+			if ( ok ) {
+				fwrite(audioClip.samples, payloadSize, 1, file);
+			} else {
+				fseek(file, payloadSize, SEEK_CUR);
+			}
+			payloadOffset += payloadSize;
+		}
+
 		fclose(file);
 	}
 }
@@ -3277,6 +3369,7 @@ static void LoadData(Engine &engine)
 	engine.data.header = dataHeader;
 	engine.data.shaders = PushArray(dataArena, LoadedShader, dataHeader->shaderCount);
 	engine.data.images = PushArray(dataArena, LoadedImage, dataHeader->imageCount);
+	engine.data.audioClips = PushArray(dataArena, LoadedAudioClip, dataHeader->audioClipCount);
 
 	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
 
@@ -3296,6 +3389,17 @@ static void LoadData(Engine &engine)
 		image.pixels = bytes + image.header->pixelsOffset;
 
 		CreateTexture(engine.gfx, image);
+	}
+
+	AudioClipHeader *audioClipHeaders = (AudioClipHeader*)(bytes + dataHeader->audioClipsOffset);
+
+	for (u32 i = 0; i < dataHeader->audioClipCount; ++i)
+	{
+		LoadedAudioClip &audioClip = engine.data.audioClips[i];
+		audioClip.header = audioClipHeaders + i;
+		audioClip.samples = bytes + audioClip.header->samplesOffset;
+
+		CreateAudioClip(engine.platform, audioClip);
 	}
 }
 

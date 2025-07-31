@@ -110,7 +110,7 @@ void DataSaveToTextFile(const char *path, const AssetData &assets)
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".filename = \"%s\",", desc.filename);
-		WriteLine(ctx, ".mipmap = \"%d\",", desc.mipmap);
+		WriteLine(ctx, ".mipmap = %d,", desc.mipmap);
 		PopIndent(ctx);
 
 		WriteLine(ctx, "}");
