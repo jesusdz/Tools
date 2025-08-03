@@ -283,22 +283,20 @@ enum ShaderType
 	ShaderTypeCompute
 };
 
-#pragma pack(push, 1)
 struct TextureDesc
 {
-	const char name[32];
-	const char filename[32];
-	int mipmap;
+	const char *name;
+	const char *filename;
+	u8 mipmap;
 };
 
 struct ShaderSourceDesc
 {
 	ShaderType type;
-	const char filename[32];
-	const char entryPoint[32];
-	const char name[32];
+	const char *filename;
+	const char *entryPoint;
+	const char *name;
 };
-#pragma pack(pop)
 
 struct ShaderAndPipelineDesc
 {
@@ -344,17 +342,21 @@ struct AssetData
 #pragma pack(push, 1)
 struct ShaderHeader
 {
-	ShaderSourceDesc desc;
+	char name[32];
+	char entryPoint[32];
+	ShaderType type;
 	u32 spirvOffset;
 	u32 spirvSize;
 };
 
 struct ImageHeader
 {
-	TextureDesc desc;
+	char name[32];
 	u16 width;
 	u16 height;
 	u8  channels;
+	u8  mipmap;
+	u16 unused;
 	u32 pixelsOffset;
 	u32 pixelsSize;
 };
@@ -1273,17 +1275,18 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 
 TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
 {
-	const TextureDesc &desc = image.header->desc;
+	const char *name = image.header->name;
 	const u32 width = image.header->width;
 	const u32 height = image.header->height;
 	const u32 channels = image.header->channels;
+	const u32 mipmap = image.header->mipmap;
 	const u8 *pixels = image.pixels;
 
-	const ImageH imageHandle = CreateImage(gfx, desc.name, width, height, channels, desc.mipmap, pixels);
+	const ImageH imageHandle = CreateImage(gfx, name, width, height, channels, mipmap, pixels);
 
 	const TextureH textureHandle = NewTextureHandle(gfx);
 	Texture &texture = GetTexture(gfx, textureHandle);
-	texture.name = desc.name;
+	texture.name = image.header->name;
 	texture.image = imageHandle;
 
 	return textureHandle;
@@ -1530,7 +1533,7 @@ static ShaderSource GetShaderSource(LoadedData &data, const char *shaderName)
 	for (u32 i = 0; i < data.header->shaderCount; ++i)
 	{
 		LoadedShader &loadedShader = data.shaders[i];
-		if ( StrEq( loadedShader.header->desc.name, shaderName) )
+		if ( StrEq( loadedShader.header->name, shaderName) )
 		{
 			bytes = loadedShader.spirv;
 			size = loadedShader.header->spirvSize;
@@ -1542,7 +1545,7 @@ static ShaderSource GetShaderSource(LoadedData &data, const char *shaderName)
 		for (u32 i = 0; i < data.header->shaderCount; ++i)
 		{
 			LoadedShader &loadedShader = data.shaders[i];
-			LOG( Error, "- %s\n", loadedShader.header->desc.name);
+			LOG( Error, "- %s\n", loadedShader.header->name);
 		}
 		QUIT_ABNORMALLY();
 	}
@@ -3184,7 +3187,14 @@ static void BuildData(Arena frameArena)
 
 		u32 payloadOffset = basePayloadOffset;
 
+		// Reserve space for asset headers
+		ShaderHeader *shaderHeaders = PushArray(frameArena, ShaderHeader, shaderCount);
+		ImageHeader *imageHeaders = PushArray(frameArena, ImageHeader, imageCount);
+		AudioClipHeader *audioClipHeaders = PushArray(frameArena, AudioClipHeader, audioClipCount);
+
 		// Write asset headers
+
+		fseek(file, payloadOffset, SEEK_SET);
 
 		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
@@ -3197,102 +3207,29 @@ static void BuildData(Arena frameArena)
 			u64 payloadSize = 0;
 			GetFileSize(filepath, payloadSize);
 
-			const ShaderHeader shaderHeader = {
-				.desc = shaderSources[i],
-				.spirvOffset = payloadOffset,
-				.spirvSize = U64ToU32(payloadSize),
-			};
-			fwrite(&shaderHeader, sizeof(shaderHeader), 1, file);
-
-			payloadOffset += payloadSize;
-		}
-
-		// Images
-		for (u32 i = 0; i < imageCount; ++i)
-		{
-			const TextureDesc &texture = textures[i];
-
-			const FilePath imagePath = MakePath(ProjectDir, texture.filename);
-
-			int texWidth, texHeight, texChannels;
-			int ok = stbi_info(imagePath.str, &texWidth, &texHeight, &texChannels);
-			texChannels = 4; // Because we use STBI_rgb_alpha
-			if ( !ok )
-			{
-				LOG(Error, "stbi_info failed to load %s\n", imagePath.str);
-				texWidth = texHeight = 1;
-				texChannels = 4;
-			}
-
-			const u64 payloadSize = texWidth * texHeight * texChannels;
-
-			const ImageHeader imageHeader = {
-				.desc = texture,
-				.width = I32ToU16(texWidth),
-				.height = I32ToU16(texHeight),
-				.channels = I32ToU8(texChannels),
-				.pixelsOffset = payloadOffset,
-				.pixelsSize = U64ToU32(payloadSize),
-			};
-			fwrite(&imageHeader, sizeof(imageHeader), 1, file);
-
-			payloadOffset += payloadSize;
-		}
-
-		// AudioClips
-		for (u32 i = 0; i < audioClipCount; ++i)
-		{
-			const AudioClipDesc &audioClip = audioClipDescs[i];
-
-			const FilePath path = MakePath(ProjectDir, audioClip.filename);
-
-			// TODO(jesus): Do not Load the entire audio clip here (just the header would be enough)
-			// TODO(jesus): Maybe compact how we write header + payload info into the data file
-			AudioClip tmpAudioClip;
-			Scratch scratch;
-			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch.arena, tmpAudioClip);
-
-			const u64 payloadSize = tmpAudioClip.sampleCount * tmpAudioClip.sampleSize;
-
-			const AudioClipHeader audioClipHeader = {
-				.sampleCount = tmpAudioClip.sampleCount,
-				.samplingRate = tmpAudioClip.samplingRate,
-				.sampleSize = tmpAudioClip.sampleSize,
-				.channelCount = tmpAudioClip.channelCount,
-				.samplesOffset = payloadOffset,
-				.samplesSize = U64ToU32(payloadSize),
-			};
-			fwrite(&audioClipHeader, sizeof(audioClipHeader), 1, file);
-
-			payloadOffset += payloadSize;
-		}
-
-		// Write assets payload
-
-		// Shaders
-		for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
-		{
-			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
-
-			char filepath[MAX_PATH_LENGTH];
-			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
-
-			u64 payloadSize = 0;
-			GetFileSize(filepath, payloadSize);
+			// Save asset header info
+			ShaderHeader &shaderHeader = shaderHeaders[i];
+			StrCopy(shaderHeader.name, shaderSourceDesc.name);
+			StrCopy(shaderHeader.entryPoint, shaderSourceDesc.entryPoint);
+			shaderHeader.type = shaderSourceDesc.type;
+			shaderHeader.spirvOffset = payloadOffset;
+			shaderHeader.spirvSize = U64ToU32(payloadSize);
 
 			Arena scratch = MakeSubArena(frameArena);
 			void *shaderPayload = PushSize(scratch, payloadSize);
 			ReadEntireFile(filepath, shaderPayload, payloadSize);
 
 			fwrite(shaderPayload, payloadSize, 1, file);
+
+			payloadOffset += payloadSize;
 		}
 
 		// Images
 		for (u32 i = 0; i < imageCount; ++i)
 		{
-			const TextureDesc &texture = textures[i];
+			const TextureDesc &textureDesc = textures[i];
 
-			const FilePath imagePath = MakePath(ProjectDir, texture.filename);
+			const FilePath imagePath = MakePath(ProjectDir, textureDesc.filename);
 
 			int texWidth, texHeight, texChannels;
 			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -3309,6 +3246,16 @@ static void BuildData(Arena frameArena)
 
 			const u64 payloadSize = texWidth * texHeight * texChannels;
 
+			// Save asset header info
+			ImageHeader &imageHeader = imageHeaders[i];
+			StrCopy(imageHeader.name, textureDesc.name);
+			imageHeader.width = I32ToU16(texWidth),
+			imageHeader.height = I32ToU16(texHeight),
+			imageHeader.channels = I32ToU8(texChannels),
+			imageHeader.mipmap = textureDesc.mipmap,
+			imageHeader.pixelsOffset = payloadOffset,
+			imageHeader.pixelsSize = U64ToU32(payloadSize),
+
 			fwrite(pixels, payloadSize, 1, file);
 
 			if ( originalPixels ) {
@@ -3321,23 +3268,43 @@ static void BuildData(Arena frameArena)
 		// AudioClips
 		for (u32 i = 0; i < audioClipCount; ++i)
 		{
-			const AudioClipDesc &desc = audioClipDescs[i];
+			const AudioClipDesc &audioClipDesc = audioClipDescs[i];
 
-			const FilePath path = MakePath(ProjectDir, desc.filename);
+			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
 
+			// TODO(jesus): Do not Load the entire audio clip here (just the header would be enough)
+			// TODO(jesus): Maybe compact how we write header + payload info into the data file
 			AudioClip audioClip;
-			Scratch scratch;
-			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch.arena, audioClip);
+			Arena scratch = MakeSubArena(frameArena);
+			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch, audioClip);
 
-			const u32 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
+			const u64 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
+
+			const AudioClipHeader audioClipHeader = {
+				.sampleCount = audioClip.sampleCount,
+				.samplingRate = audioClip.samplingRate,
+				.sampleSize = audioClip.sampleSize,
+				.channelCount = audioClip.channelCount,
+				.samplesOffset = payloadOffset,
+				.samplesSize = U64ToU32(payloadSize),
+			};
+			audioClipHeaders[i] = audioClipHeader;
 
 			if ( ok ) {
 				fwrite(audioClip.samples, payloadSize, 1, file);
 			} else {
 				fseek(file, payloadSize, SEEK_CUR);
 			}
+
 			payloadOffset += payloadSize;
 		}
+
+		// Write asset headers
+
+		fseek(file, sizeof(dataHeader), SEEK_SET);
+		fwrite(shaderHeaders, sizeof(shaderHeaders[0]), shaderCount, file);
+		fwrite(imageHeaders, sizeof(imageHeaders[0]), imageCount, file);
+		fwrite(audioClipHeaders, sizeof(audioClipHeaders[0]), audioClipCount, file);
 
 		fclose(file);
 	}
