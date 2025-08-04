@@ -132,6 +132,10 @@
 		LOG(Error, "%s", "Assertion failed: ASSERT( " #expression " )\n" ); \
 		QUIT_ABNORMALLY(); \
 	}
+#define ASSERTMSG(expression, message, ...) if ( !(expression) ) { \
+		LOG(Error, "Assertion failed: ASSERT(" #expression " )\nAssertion message: " message, __VA_ARGS__); \
+		QUIT_ABNORMALLY(); \
+	}
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define INVALID_CODE_PATH_MSG(message) ASSERT(0 && message)
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
@@ -773,7 +777,10 @@ Arena MakeSubArena(Arena &arena)
 
 byte* PushSize(Arena &arena, u32 size)
 {
-	ASSERT(arena.used + size <= arena.size && "PushSize of bounds of the memory arena.");
+	ASSERTMSG(arena.used + size <= arena.size,
+		"PushSize of bounds of the memory arena\n"
+		"- push size: %u\n- arena size: %u\n- arena remaining size: %u\n).",
+		size, arena.size, arena.size - arena.used);
 	byte* head = arena.base + arena.used;
 	arena.used += size;
 	return head;
