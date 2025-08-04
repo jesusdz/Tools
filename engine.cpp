@@ -31,6 +31,8 @@
 // Engine API
 #include "engine.h"
 
+#include "data.h"
+
 
 
 #define MAX_TEXTURES 8 
@@ -45,31 +47,6 @@
 #define LOAD_FROM_SOURCE_FILES 0
 
 
-
-
-struct MaterialDesc
-{
-	const char *name;
-	const char *textureName;
-	const char *pipelineName;
-	float uvScale;
-};
-
-enum GeometryType
-{
-	GeometryTypeCube,
-	GeometryTypePlane,
-	GeometryTypeScreen,
-};
-
-struct EntityDesc
-{
-	const char *name;
-	const char *materialName;
-	float3 pos;
-	float scale;
-	GeometryType geometryType;
-};
 
 struct Vertex
 {
@@ -95,11 +72,12 @@ constexpr TextureH InvalidTextureH = {};
 struct Material
 {
 	const char *name;
+	const char *pipelineName;
 	PipelineH pipelineH;
 	TextureH albedoTexture;
 	f32 uvScale;
 	u32 bufferOffset;
-	MaterialDesc desc;
+	//MaterialDesc desc;
 };
 
 typedef u32 MaterialH;
@@ -276,20 +254,6 @@ struct Scene
 	u32 entityCount;
 };
 
-enum ShaderType
-{
-	ShaderTypeVertex,
-	ShaderTypeFragment,
-	ShaderTypeCompute
-};
-
-struct TextureDesc
-{
-	const char *name;
-	const char *filename;
-	u8 mipmap;
-};
-
 struct ShaderSourceDesc
 {
 	ShaderType type;
@@ -312,102 +276,6 @@ struct ShaderAndComputeDesc
 	ComputeDesc desc;
 };
 
-struct AudioClipDesc
-{
-	const char *name;
-	const char *filename;
-};
-
-static AudioClipDesc audioClipDescs[] = {
-	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
-};
-
-struct AssetData
-{
-	const TextureDesc *textureDescs;
-	u32 textureDescCount;
-
-	const MaterialDesc *materialDescs;
-	u32 materialDescCount;
-
-	const EntityDesc *entityDescs;
-	u32 entityDescCount;
-
-	const AudioClipDesc *audioClipDescs;
-	u32 audioClipDescCount;
-};
-
-#include "data.h"
-
-#pragma pack(push, 1)
-struct ShaderHeader
-{
-	char name[32];
-	char entryPoint[32];
-	ShaderType type;
-	u32 spirvOffset;
-	u32 spirvSize;
-};
-
-struct ImageHeader
-{
-	char name[32];
-	u16 width;
-	u16 height;
-	u8  channels;
-	u8  mipmap;
-	u16 unused;
-	u32 pixelsOffset;
-	u32 pixelsSize;
-};
-
-struct AudioClipHeader
-{
-	u32 sampleCount;
-	u32 samplingRate;
-	u16 sampleSize;
-	u16 channelCount;
-	u32 samplesOffset;
-	u32 samplesSize;
-};
-
-struct DataHeader
-{
-	u32 magicNumber;
-	u32 shadersOffset;
-	u32 shaderCount;
-	u32 imagesOffset;
-	u32 imageCount;
-	u32 audioClipsOffset;
-	u32 audioClipCount;;
-};
-#pragma pack(pop)
-
-struct LoadedShader
-{
-	ShaderHeader *header;
-	byte *spirv;
-};
-
-struct LoadedImage
-{
-	ImageHeader *header;
-	byte *pixels;
-};
-
-struct LoadedAudioClip
-{
-	AudioClipHeader *header;
-	void *samples;
-};
-
-struct LoadedData
-{
-	DataHeader *header;
-	LoadedShader *shaders;
-	LoadedImage *images;
-	LoadedAudioClip *audioClips;
-};
 
 
 struct Engine
@@ -425,7 +293,7 @@ struct Engine
 	Editor editor;
 #endif
 
-	LoadedData data;
+	BinAssets assets;
 };
 
 static const TextureDesc textures[] =
@@ -436,20 +304,24 @@ static const TextureDesc textures[] =
 	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
 };
 
-static const MaterialDesc materials[] =
+static const MaterialDesc materialDescs[] =
 {
 	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
 	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_shading", .uvScale = 1.0f },
 	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_shading", .uvScale = 11.0f },
 };
 
-static const EntityDesc entities[] =
+static const EntityDesc entityDescs[] =
 {
 	{ .name = "ent_cube0", .materialName = "mat_diamond", .pos = { 1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
 	{ .name = "ent_cube1", .materialName = "mat_diamond", .pos = { 1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
 	{ .name = "ent_cube2", .materialName = "mat_dirt",    .pos = {-1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
 	{ .name = "ent_cube3", .materialName = "mat_dirt",    .pos = {-1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
 	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
+};
+
+static AudioClipDesc audioClipDescs[] = {
+	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
 };
 
 static const Vertex cubeVertices[] = {
@@ -888,18 +760,19 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 #endif
 }
 
-void CreateAudioClip(Platform &platform, const LoadedAudioClip &loadedAudioClip)
+void CreateAudioClip(Platform &platform, const BinAudioClip &binAudioClip)
 {
 	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
 		AudioClip &audioClip = audioClips[audioClipCount++];
 		ASSERT(!audioClip.samples);
 
-		audioClip.sampleSize = loadedAudioClip.header->sampleSize;
-		audioClip.samplingRate = loadedAudioClip.header->samplingRate;
-		audioClip.channelCount = loadedAudioClip.header->channelCount;
-		audioClip.sampleCount = loadedAudioClip.header->sampleCount;
-		audioClip.samples = loadedAudioClip.samples;
+		const BinAudioClipDesc &desc = *binAudioClip.desc;
+		audioClip.sampleSize = desc.sampleSize;
+		audioClip.samplingRate = desc.samplingRate;
+		audioClip.channelCount = desc.channelCount;
+		audioClip.sampleCount = desc.sampleCount;
+		audioClip.samples = binAudioClip.samples;
 	}
 	else
 	{
@@ -1273,20 +1146,21 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 	return texture;
 }
 
-TextureH CreateTexture(Graphics &gfx, const LoadedImage &image)
+TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
 {
-	const char *name = image.header->name;
-	const u32 width = image.header->width;
-	const u32 height = image.header->height;
-	const u32 channels = image.header->channels;
-	const u32 mipmap = image.header->mipmap;
-	const u8 *pixels = image.pixels;
+	const BinImageDesc &desc = *binImage.desc;
+	const char *name = desc.name;
+	const u32 width = desc.width;
+	const u32 height = desc.height;
+	const u32 channels = desc.channels;
+	const u32 mipmap = desc.mipmap;
+	const u8 *pixels = binImage.pixels;
 
 	const ImageH imageHandle = CreateImage(gfx, name, width, height, channels, mipmap, pixels);
 
 	const TextureH textureHandle = NewTextureHandle(gfx);
 	Texture &texture = GetTexture(gfx, textureHandle);
-	texture.name = image.header->name;
+	texture.name = desc.name;
 	texture.image = imageHandle;
 
 	return textureHandle;
@@ -1345,7 +1219,23 @@ MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	gfx.materials[materialHandle].uvScale = desc.uvScale;
 	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
-	gfx.materials[materialHandle].desc = desc;
+
+	return materialHandle;
+}
+
+MaterialH CreateMaterial( Graphics &gfx, const BinMaterialDesc &desc)
+{
+	TextureH textureHandle = FindTextureHandle(gfx, desc.textureName);
+	PipelineH pipelineHandle = FindPipelineHandle(gfx, desc.pipelineName);
+
+	ASSERT(gfx.materialCount < MAX_MATERIALS);
+	MaterialH materialHandle = gfx.materialCount++;
+	gfx.materials[materialHandle].name = desc.name;
+	gfx.materials[materialHandle].pipelineName = desc.pipelineName;
+	gfx.materials[materialHandle].pipelineH = pipelineHandle;
+	gfx.materials[materialHandle].albedoTexture = textureHandle;
+	gfx.materials[materialHandle].uvScale = desc.uvScale;
+	gfx.materials[materialHandle].bufferOffset = materialHandle * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
 
 	return materialHandle;
 }
@@ -1391,6 +1281,31 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 }
 
 void CreateEntity(Engine &engine, const EntityDesc &desc)
+{
+	Scene &scene = engine.scene;
+
+	ASSERT ( scene.entityCount < MAX_ENTITIES );
+	if ( scene.entityCount < MAX_ENTITIES )
+	{
+		BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
+		BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
+
+		const u32 entityIndex = scene.entityCount++;
+		scene.entities[entityIndex].name = desc.name;
+		scene.entities[entityIndex].visible = true;
+		scene.entities[entityIndex].position = desc.pos;
+		scene.entities[entityIndex].scale = desc.scale;
+		scene.entities[entityIndex].vertices = vertices;
+		scene.entities[entityIndex].indices = indices;
+		scene.entities[entityIndex].materialIndex = FindMaterialHandle(engine.gfx, desc.materialName);
+	}
+	else
+	{
+		LOG(Warning, "CreateEntity() - MAX_ENTITIES limit reached.\n");
+	}
+}
+
+void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 {
 	Scene &scene = engine.scene;
 
@@ -1526,26 +1441,26 @@ static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 	return shaderSource;
 }
 #else
-static ShaderSource GetShaderSource(LoadedData &data, const char *shaderName)
+static ShaderSource GetShaderSource(BinAssets &assets, const char *shaderName)
 {
 	byte *bytes = 0;
 	u32 size = 0;
-	for (u32 i = 0; i < data.header->shaderCount; ++i)
+	for (u32 i = 0; i < assets.header.shaderCount; ++i)
 	{
-		LoadedShader &loadedShader = data.shaders[i];
-		if ( StrEq( loadedShader.header->name, shaderName) )
+		BinShader &loadedShader = assets.shaders[i];
+		if ( StrEq( loadedShader.desc->name, shaderName) )
 		{
 			bytes = loadedShader.spirv;
-			size = loadedShader.header->spirvSize;
+			size = loadedShader.desc->dataSize;
 		}
 	}
 	if ( !bytes ) {
-		LOG( Error, "Could not find shader in data: %s\n", shaderName );
-		LOG( Error, "Shaders in data:\n");
-		for (u32 i = 0; i < data.header->shaderCount; ++i)
+		LOG( Error, "Could not find shader in assets: %s\n", shaderName );
+		LOG( Error, "Shaders in assets:\n");
+		for (u32 i = 0; i < assets.header.shaderCount; ++i)
 		{
-			LoadedShader &loadedShader = data.shaders[i];
-			LOG( Error, "- %s\n", loadedShader.header->name);
+			BinShader &loadedShader = assets.shaders[i];
+			LOG( Error, "- %s\n", loadedShader.desc->name);
 		}
 		QUIT_ABNORMALLY();
 	}
@@ -1566,8 +1481,8 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 	desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsName);
 	desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsName);
 #else
-	desc.vertexShaderSource = GetShaderSource(engine.data, pipelineDescs[pipelineIndex].vsName);
-	desc.fragmentShaderSource = GetShaderSource(engine.data, pipelineDescs[pipelineIndex].fsName);
+	desc.vertexShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].vsName);
+	desc.fragmentShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].fsName);
 #endif
 
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
@@ -1580,8 +1495,6 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 	pipelineHandles[pipelineIndex] = pipelineH;
 }
 
-static void LoadData(Engine &engine);
-
 static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIndex)
 {
 	Graphics &gfx = engine.gfx;
@@ -1590,7 +1503,7 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 #if LOAD_FROM_SOURCE_FILES
 	desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csName);
 #else
-	desc.computeShaderSource = GetShaderSource(engine.data, computeDescs[pipelineIndex].csName);
+	desc.computeShaderSource = GetShaderSource(engine.assets, computeDescs[pipelineIndex].csName);
 #endif
 
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
@@ -1789,7 +1702,31 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 		gfx.textureHandles[i].idx = i;
 	}
 
-	LoadData(engine);
+	engine.assets = LoadAssets(engine.platform.dataArena);
+
+	// Textures
+	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
+	{
+		CreateTexture(engine.gfx, engine.assets.images[i]);
+	}
+
+	// Audio clips
+	for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
+	{
+		CreateAudioClip(engine.platform, engine.assets.audioClips[i]);
+	}
+
+	// Materials
+	for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
+	{
+		CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
+	}
+
+	// Entities
+	for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
+	{
+		CreateEntity(engine, engine.assets.entityDescs[i]);
+	}
 
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
@@ -1880,7 +1817,7 @@ void LinkPipelineHandles(Graphics &gfx)
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
 		Material &material = gfx.materials[i];
-		material.pipelineH = FindPipelineHandle(gfx, material.desc.pipelineName);
+		material.pipelineH = FindPipelineHandle(gfx, material.pipelineName);
 	}
 }
 
@@ -1898,17 +1835,17 @@ void InitializeScene(Engine &engine, Arena &globalArena)
 	{
 		CreateAudioClip(engine, globalArena, audioClipDescs[i]);
 	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(materialDescs); ++i)
+	{
+		CreateMaterial(gfx, materialDescs[i]);
+	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(entityDescs); ++i)
+	{
+		CreateEntity(engine, entityDescs[i]);
+	}
 #endif
-
-	for (u32 i = 0; i < ARRAY_COUNT(materials); ++i)
-	{
-		CreateMaterial(gfx, materials[i]);
-	}
-
-	for (u32 i = 0; i < ARRAY_COUNT(entities); ++i)
-	{
-		CreateEntity(engine, entities[i]);
-	}
 
 	// Textures
 	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
@@ -2024,19 +1961,19 @@ void CleanupScene(Graphics &gfx)
 
 void Save(Engine &engine)
 {
-	const AssetData assetData = {
+	const AssetDescriptors assetDescs = {
 		.textureDescs = textures,
 		.textureDescCount = ARRAY_COUNT(textures),
-		.materialDescs = materials,
-		.materialDescCount = ARRAY_COUNT(materials),
-		.entityDescs = entities,
-		.entityDescCount = ARRAY_COUNT(entities),
+		.materialDescs = materialDescs,
+		.materialDescCount = ARRAY_COUNT(materialDescs),
+		.entityDescs = entityDescs,
+		.entityDescCount = ARRAY_COUNT(entityDescs),
 		.audioClipDescs = audioClipDescs,
 		.audioClipDescCount = ARRAY_COUNT(audioClipDescs),
 	};
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
-	DataSaveToTextFile(path.str, assetData);
+	SaveAssetDescriptors(path.str, assetDescs);
 }
 
 float3 UpDirectionFromAngles(const float2 &angles)
@@ -3147,228 +3084,6 @@ void OnPlatformCleanup(Platform &platform)
 	CleanupGraphics(gfx);
 }
 
-#if USE_DATA_BUILD
-static void BuildData(Arena frameArena)
-{
-	LOG(Info, "Building data\n");
-
-	FilePath dir;
-	CreateDirectory( MakePath(ProjectDir, "build").str );
-	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
-
-	CompileShaders();
-
-	FilePath filepath =  MakePath(DataDir, "assets.dat");
-	FILE *file = fopen(filepath.str, "wb");
-	if ( file )
-	{
-		const u32 shaderCount = ARRAY_COUNT(shaderSources);
-		const u32 shadersOffset = sizeof( DataHeader );
-		const u32 shadersSize = shaderCount * sizeof(ShaderHeader);
-		const u32 imageCount = ARRAY_COUNT(textures);
-		const u32 imagesOffset = shadersOffset + shadersSize;
-		const u32 imagesSize = imageCount * sizeof(ImageHeader);
-		const u32 audioClipCount = ARRAY_COUNT(audioClipDescs);
-		const u32 audioClipsOffset = imagesOffset + imagesSize;
-		const u32 audioClipsSize = audioClipCount * sizeof(AudioClipHeader);
-		const u32 basePayloadOffset = audioClipsOffset + audioClipsSize;
-
-		// Write file header
-		const DataHeader dataHeader = {
-			.magicNumber = U32FromChars('I', 'R', 'I', 'S'),
-			.shadersOffset = shadersOffset,
-			.shaderCount = shaderCount,
-			.imagesOffset = imagesOffset,
-			.imageCount = imageCount,
-			.audioClipsOffset = audioClipsOffset,
-			.audioClipCount = audioClipCount,
-		};
-		fwrite(&dataHeader, sizeof(dataHeader), 1, file);
-
-		u32 payloadOffset = basePayloadOffset;
-
-		// Reserve space for asset headers
-		ShaderHeader *shaderHeaders = PushArray(frameArena, ShaderHeader, shaderCount);
-		ImageHeader *imageHeaders = PushArray(frameArena, ImageHeader, imageCount);
-		AudioClipHeader *audioClipHeaders = PushArray(frameArena, AudioClipHeader, audioClipCount);
-
-		// Write asset headers
-
-		fseek(file, payloadOffset, SEEK_SET);
-
-		// Shaders
-		for (u32 i = 0; i < shaderCount; ++i)
-		{
-			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
-
-			char filepath[MAX_PATH_LENGTH];
-			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
-
-			u64 payloadSize = 0;
-			GetFileSize(filepath, payloadSize);
-
-			// Save asset header info
-			ShaderHeader &shaderHeader = shaderHeaders[i];
-			StrCopy(shaderHeader.name, shaderSourceDesc.name);
-			StrCopy(shaderHeader.entryPoint, shaderSourceDesc.entryPoint);
-			shaderHeader.type = shaderSourceDesc.type;
-			shaderHeader.spirvOffset = payloadOffset;
-			shaderHeader.spirvSize = U64ToU32(payloadSize);
-
-			Arena scratch = MakeSubArena(frameArena);
-			void *shaderPayload = PushSize(scratch, payloadSize);
-			ReadEntireFile(filepath, shaderPayload, payloadSize);
-
-			fwrite(shaderPayload, payloadSize, 1, file);
-
-			payloadOffset += payloadSize;
-		}
-
-		// Images
-		for (u32 i = 0; i < imageCount; ++i)
-		{
-			const TextureDesc &textureDesc = textures[i];
-
-			const FilePath imagePath = MakePath(ProjectDir, textureDesc.filename);
-
-			int texWidth, texHeight, texChannels;
-			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-			texChannels = 4; // Because we use STBI_rgb_alpha
-			stbi_uc* pixels = originalPixels;
-			if ( !pixels )
-			{
-				LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
-				static stbi_uc constPixels[] = {255, 0, 255, 255};
-				pixels = constPixels;
-				texWidth = texHeight = 1;
-				texChannels = 4;
-			}
-
-			const u64 payloadSize = texWidth * texHeight * texChannels;
-
-			// Save asset header info
-			ImageHeader &imageHeader = imageHeaders[i];
-			StrCopy(imageHeader.name, textureDesc.name);
-			imageHeader.width = I32ToU16(texWidth),
-			imageHeader.height = I32ToU16(texHeight),
-			imageHeader.channels = I32ToU8(texChannels),
-			imageHeader.mipmap = textureDesc.mipmap,
-			imageHeader.pixelsOffset = payloadOffset,
-			imageHeader.pixelsSize = U64ToU32(payloadSize),
-
-			fwrite(pixels, payloadSize, 1, file);
-
-			if ( originalPixels ) {
-				stbi_image_free(originalPixels);
-			}
-
-			payloadOffset += payloadSize;
-		}
-
-		// AudioClips
-		for (u32 i = 0; i < audioClipCount; ++i)
-		{
-			const AudioClipDesc &audioClipDesc = audioClipDescs[i];
-
-			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
-
-			// TODO(jesus): Do not Load the entire audio clip here (just the header would be enough)
-			// TODO(jesus): Maybe compact how we write header + payload info into the data file
-			AudioClip audioClip;
-			Arena scratch = MakeSubArena(frameArena);
-			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch, audioClip);
-
-			const u64 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
-
-			const AudioClipHeader audioClipHeader = {
-				.sampleCount = audioClip.sampleCount,
-				.samplingRate = audioClip.samplingRate,
-				.sampleSize = audioClip.sampleSize,
-				.channelCount = audioClip.channelCount,
-				.samplesOffset = payloadOffset,
-				.samplesSize = U64ToU32(payloadSize),
-			};
-			audioClipHeaders[i] = audioClipHeader;
-
-			if ( ok ) {
-				fwrite(audioClip.samples, payloadSize, 1, file);
-			} else {
-				fseek(file, payloadSize, SEEK_CUR);
-			}
-
-			payloadOffset += payloadSize;
-		}
-
-		// Write asset headers
-
-		fseek(file, sizeof(dataHeader), SEEK_SET);
-		fwrite(shaderHeaders, sizeof(shaderHeaders[0]), shaderCount, file);
-		fwrite(imageHeaders, sizeof(imageHeaders[0]), imageCount, file);
-		fwrite(audioClipHeaders, sizeof(audioClipHeaders[0]), audioClipCount, file);
-
-		fclose(file);
-	}
-}
-#endif // USE_DATA_BUILD
-
-static void LoadData(Engine &engine)
-{
-	Arena &dataArena = engine.platform.dataArena;
-	ResetArena(dataArena);
-
-	const FilePath filepath = MakePath(DataDir, "assets.dat");
-
-	DataChunk *chunk = PushFile( dataArena, filepath.str );
-	if ( !chunk ) {
-		LOG( Error, "Could not open file %s\n", filepath.str );
-		QUIT_ABNORMALLY();
-	}
-
-	byte *bytes =  chunk->bytes;
-	DataHeader *dataHeader = (DataHeader*)bytes;
-
-	if (dataHeader->magicNumber != U32FromChars('I', 'R', 'I', 'S'))
-	{
-		LOG( Error, "Wrong magic number in file %s\n", filepath.str );
-		QUIT_ABNORMALLY();
-	}
-
-	engine.data.header = dataHeader;
-	engine.data.shaders = PushArray(dataArena, LoadedShader, dataHeader->shaderCount);
-	engine.data.images = PushArray(dataArena, LoadedImage, dataHeader->imageCount);
-	engine.data.audioClips = PushArray(dataArena, LoadedAudioClip, dataHeader->audioClipCount);
-
-	ShaderHeader *shaderHeaders = (ShaderHeader*)(bytes + dataHeader->shadersOffset);
-
-	for (u32 i = 0; i < dataHeader->shaderCount; ++i)
-	{
-		LoadedShader &shader = engine.data.shaders[i];
-		shader.header = shaderHeaders + i;
-		shader.spirv = bytes + shader.header->spirvOffset;
-	}
-
-	ImageHeader *imageHeaders = (ImageHeader*)(bytes + dataHeader->imagesOffset);
-
-	for (u32 i = 0; i < dataHeader->imageCount; ++i)
-	{
-		LoadedImage &image = engine.data.images[i];
-		image.header = imageHeaders + i;
-		image.pixels = bytes + image.header->pixelsOffset;
-
-		CreateTexture(engine.gfx, image);
-	}
-
-	AudioClipHeader *audioClipHeaders = (AudioClipHeader*)(bytes + dataHeader->audioClipsOffset);
-
-	for (u32 i = 0; i < dataHeader->audioClipCount; ++i)
-	{
-		LoadedAudioClip &audioClip = engine.data.audioClips[i];
-		audioClip.header = audioClipHeaders + i;
-		audioClip.samples = bytes + audioClip.header->samplesOffset;
-
-		CreateAudioClip(engine.platform, audioClip);
-	}
-}
 
 void EngineMain( int argc, char **argv,  void *userData )
 {
@@ -3398,22 +3113,22 @@ void EngineMain( int argc, char **argv,  void *userData )
 	PlatformInitialize(engine.platform, argc, argv);
 
 #if USE_DATA_BUILD
-	bool buildData = false;
+	bool buildAssets = false;
 	bool exitAfterBuild = false;
 	for ( u32 i = 0; i < argc; ++i ) {
-		if ( StrEq(argv[i], "--build-data") ) {
-			buildData = true;
+		if ( StrEq(argv[i], "--build-assets") ) {
+			buildAssets = true;
 			exitAfterBuild = true;
 		}
 	}
 
 	FilePath dataFilepath =  MakePath(DataDir, "assets.dat");
 	if ( !ExistsFile(dataFilepath.str) ) {
-		buildData = true;
+		buildAssets = true;
 	}
 
-	if ( buildData ) {
-		BuildData(engine.platform.frameArena);
+	if ( buildAssets ) {
+		BuildAssets(engine.platform.frameArena);
 		if (exitAfterBuild) {
 			return;
 		}
