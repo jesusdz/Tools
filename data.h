@@ -186,6 +186,7 @@ struct BinAssets
 struct Engine;
 
 #if USE_DATA_BUILD
+AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena);
 void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena);
 #endif // USE_DATA_BUILD
 

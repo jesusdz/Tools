@@ -106,14 +106,14 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 	{
 		const TextureDesc &desc = assets.textureDescs[i];
 
-		WriteLine(ctx, "Texture %s {", desc.name);
+		WriteLine(ctx, "Texture %s = {", desc.name);
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".filename = \"%s\",", desc.filename);
 		WriteLine(ctx, ".mipmap = %d,", desc.mipmap);
 		PopIndent(ctx);
 
-		WriteLine(ctx, "}");
+		WriteLine(ctx, "};");
 		NewLine(ctx);
 	}
 
@@ -123,7 +123,7 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 	{
 		const MaterialDesc &desc = assets.materialDescs[i];
 
-		WriteLine(ctx, "Material %s {", desc.name);
+		WriteLine(ctx, "Material %s = {", desc.name);
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".textureName = \"%s\",", desc.textureName);
@@ -131,7 +131,7 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 		WriteLine(ctx, ".uvScale = %f,", desc.uvScale);
 		PopIndent(ctx);
 
-		WriteLine(ctx, "}");
+		WriteLine(ctx, "};");
 		NewLine(ctx);
 	}
 
@@ -141,7 +141,7 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 	{
 		const EntityDesc &desc = assets.entityDescs[i];
 
-		WriteLine(ctx, "Entity %s {", desc.name);
+		WriteLine(ctx, "Entity %s = {", desc.name);
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".materialName = \"%s\",", desc.materialName);
@@ -150,7 +150,7 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 		WriteLine(ctx, ".geometryType = %s,", GeometryTypeToString(desc.geometryType));
 		PopIndent(ctx);
 
-		WriteLine(ctx, "}");
+		WriteLine(ctx, "};");
 		NewLine(ctx);
 	}
 
@@ -160,13 +160,13 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 	{
 		const AudioClipDesc &desc = assets.audioClipDescs[i];
 
-		WriteLine(ctx, "AudioClip %s {", desc.name);
+		WriteLine(ctx, "AudioClip %s = {", desc.name);
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".filename = \"%s\",", desc.filename);
 		PopIndent(ctx);
 
-		WriteLine(ctx, "}");
+		WriteLine(ctx, "};");
 		NewLine(ctx);
 	}
 
@@ -191,7 +191,566 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 
 #if USE_DATA_BUILD
 
-void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena)
+enum DTokenId
+{
+	// Single character tokens
+	TOKEN_LEFT_BRACE,
+	TOKEN_RIGHT_BRACE,
+	TOKEN_COMMA,
+	TOKEN_DOT,
+	TOKEN_MINUS,
+	TOKEN_SEMICOLON,
+	TOKEN_EQUAL,
+	// Literals
+	TOKEN_IDENTIFIER,
+	TOKEN_STRING,
+	TOKEN_CHARACTER,
+	TOKEN_NUMBER,
+	// End
+	TOKEN_EOF,
+	TOKEN_COUNT,
+};
+
+static const char *DTokenIdNames[] =
+{
+	// Single character tokens
+	"TOKEN_LEFT_BRACE",
+	"TOKEN_RIGHT_BRACE",
+	"TOKEN_COMMA",
+	"TOKEN_DOT",
+	"TOKEN_MINUS",
+	"TOKEN_SEMICOLON",
+	"TOKEN_EQUAL",
+	// Literals
+	"TOKEN_IDENTIFIER",
+	"TOKEN_STRING",
+	"TOKEN_CHARACTER",
+	"TOKEN_NUMBER",
+	// End
+	"TOKEN_EOF",
+};
+
+CT_ASSERT(ARRAY_COUNT(DTokenIdNames) == TOKEN_COUNT);
+
+enum ValueType
+{
+	VALUE_TYPE_BOOL,
+	VALUE_TYPE_INT,
+	VALUE_TYPE_FLOAT,
+	VALUE_TYPE_STRING,
+	VALUE_TYPE_CHAR,
+	VALUE_TYPE_NULL,
+};
+
+struct DValue
+{
+	ValueType type;
+	union
+	{
+		bool b;
+		char c;
+		i32 i;
+		f32 f;
+		String s;
+	};
+};
+
+typedef DValue DLiteral;
+
+struct DToken
+{
+	DTokenId id;
+	u32 line;
+	String lexeme;
+	DLiteral literal;
+};
+
+static DToken gNullToken = {
+	.id = TOKEN_COUNT,
+	.line = 0,
+	.lexeme = { "", 0 },
+	.literal = { .type = VALUE_TYPE_NULL, .i = 0 },
+};
+
+struct DTokenList
+{
+	Arena *arena;
+	DToken *tokens;
+	i32 count;
+	bool valid;
+};
+
+struct DScanner
+{
+	i32 start;
+	i32 current;
+	i32 currentInLine;
+	u32 line;
+	bool hasErrors;
+
+	const char *text;
+	u32 textSize;
+};
+
+static bool Char_IsEOL(char character)
+{
+	return character == '\n';
+}
+
+static bool Char_IsAlpha(char character)
+{
+	return
+		( character >= 'a' && character <= 'z' ) ||
+		( character >= 'A' && character <= 'Z' ) ||
+		( character == '_' );
+}
+
+static bool Char_IsDigit(char character)
+{
+	return character >= '0' && character <= '9';
+}
+
+static bool Char_IsAlphaNumeric(char character)
+{
+	return Char_IsAlpha(character) || Char_IsDigit(character);
+}
+
+static bool DScanner_IsAtEnd(const DScanner &scanner)
+{
+	return scanner.current >= scanner.textSize;
+}
+
+static char DScanner_Advance(DScanner &scanner)
+{
+	ASSERT(scanner.current < scanner.textSize);
+	char currentChar = scanner.text[scanner.current];
+	scanner.current++;
+	scanner.currentInLine++;
+	return currentChar;
+}
+
+static bool DScanner_Consume(DScanner &scanner, char expected)
+{
+	if ( DScanner_IsAtEnd(scanner) ) return false;
+	if ( scanner.text[scanner.current] != expected ) return false;
+	scanner.current++;
+	scanner.currentInLine++;
+	return true;
+}
+
+static char DScanner_Peek(const DScanner &scanner)
+{
+	return DScanner_IsAtEnd(scanner) ? '\0' : scanner.text[ scanner.current ];
+}
+
+static char DScanner_PeekNext(const DScanner &scanner)
+{
+	if (scanner.current + 1 >= scanner.textSize) return '\0';
+	return scanner.text[ scanner.current + 1 ];
+}
+
+static String DScanner_ScannedString(const DScanner &scanner)
+{
+	const char *lexemeStart = scanner.text + scanner.start;
+	u32 lexemeSize = scanner.current - scanner.start;
+	String scannedString = { lexemeStart, lexemeSize };
+	return scannedString;
+}
+
+static void DScanner_AddToken(const DScanner &scanner, DTokenList &tokenList, DTokenId tokenId, DLiteral literal)
+{
+	DToken newToken = {};
+	newToken.id = tokenId;
+	newToken.lexeme = DScanner_ScannedString(scanner);
+	newToken.literal = literal;
+	newToken.line = scanner.line;
+
+	PushStruct(*tokenList.arena, DToken);
+	tokenList.tokens[tokenList.count++] = newToken;
+}
+
+static void DScanner_AddToken(const DScanner &scanner, DTokenList &tokenList, DTokenId tokenId)
+{
+	DLiteral literal = {};
+
+	if ( tokenId == TOKEN_STRING )
+	{
+		literal.type = VALUE_TYPE_STRING;
+		literal.s = DScanner_ScannedString(scanner);
+		literal.s.str += 1; // start after the first " char
+		literal.s.size -= 2; // remove both " characters
+	}
+	if ( tokenId == TOKEN_CHARACTER )
+	{
+		literal.type = VALUE_TYPE_CHAR;
+		String lexeme = DScanner_ScannedString(scanner);
+		literal.c = *(lexeme.str+1); // start after the ' char
+	}
+	else if ( tokenId == TOKEN_NUMBER )
+	{
+		literal.type = VALUE_TYPE_FLOAT;
+		literal.f = StrToFloat( DScanner_ScannedString(scanner) );
+	}
+
+	DScanner_AddToken(scanner, tokenList, tokenId, literal);
+}
+
+static void DScanner_SetError(DScanner &scanner, const char *format, ...)
+{
+	va_list vaList;
+	va_start(vaList, format);
+	printf("ERROR: %d:%d: ", scanner.line, scanner.currentInLine);
+	vprintf(format, vaList);
+	printf("\n");
+	va_end(vaList);
+	scanner.hasErrors = true;
+}
+
+static void DScanner_ScanToken(DScanner &scanner, DTokenList &tokenList)
+{
+	scanner.start = scanner.current;
+
+	char c = DScanner_Advance(scanner);
+
+	switch (c)
+	{
+		case '{': DScanner_AddToken(scanner, tokenList, TOKEN_LEFT_BRACE); break;
+		case '}': DScanner_AddToken(scanner, tokenList, TOKEN_RIGHT_BRACE); break;
+		case ',': DScanner_AddToken(scanner, tokenList, TOKEN_COMMA); break;
+		case '.': DScanner_AddToken(scanner, tokenList, TOKEN_DOT); break;
+		case '-': DScanner_AddToken(scanner, tokenList, TOKEN_MINUS); break;
+		case ';': DScanner_AddToken(scanner, tokenList, TOKEN_SEMICOLON); break;
+		case '=': DScanner_AddToken(scanner, tokenList, TOKEN_EQUAL ); break;
+		case '/':
+			if ( DScanner_Consume(scanner, '/') )
+			{
+				// Discard all chars until the end of line is reached
+				while ( !Char_IsEOL( DScanner_Peek(scanner) ) && !DScanner_IsAtEnd(scanner) )
+				{
+					DScanner_Advance(scanner);
+				}
+			}
+			else if ( DScanner_Consume(scanner, '*') )
+			{
+				while( !(DScanner_Consume(scanner, '*') && DScanner_Consume(scanner, '/')) || DScanner_IsAtEnd(scanner) )
+				{
+					if ( Char_IsEOL( DScanner_Peek(scanner) ) ) {
+						scanner.line++;
+						scanner.currentInLine = 0;
+					}
+					DScanner_Advance(scanner);
+				}
+			}
+			else
+			{
+				DScanner_SetError( scanner, "Unterminated comment." );
+				return;
+			}
+			break;
+
+		// Skip whitespaces
+		case ' ':
+		case '\r':
+		case '\t':
+			break;
+
+		// End of line counter
+		case '\n':
+			scanner.line++;
+			scanner.currentInLine = 0;
+			break;
+
+		case '\"':
+			while ( DScanner_Peek(scanner) != '\"' && !DScanner_IsAtEnd(scanner) )
+			{
+				if ( Char_IsEOL( DScanner_Peek(scanner) ) ) {
+					scanner.line++;
+					scanner.currentInLine = 0;
+				}
+				DScanner_Advance(scanner);
+			}
+
+			if ( DScanner_IsAtEnd(scanner) )
+			{
+				DScanner_SetError( scanner, "Unterminated string." );
+				return;
+			}
+
+			DScanner_Advance(scanner);
+
+			DScanner_AddToken(scanner, tokenList, TOKEN_STRING);
+			break;
+
+		case '\'':
+			{
+				if ( DScanner_IsAtEnd(scanner) )
+				{
+					DScanner_SetError( scanner, "Unterminated character" );
+					return;
+				}
+				char character = DScanner_Advance(scanner);
+				if ( DScanner_Advance(scanner) != '\'' )
+				{
+					DScanner_SetError( scanner, "Invalid char literal '%c'", character);
+					return;
+				}
+				DScanner_AddToken(scanner, tokenList, TOKEN_CHARACTER);
+			}
+			break;
+
+		default:
+			if ( Char_IsDigit(c) )
+			{
+				while ( Char_IsDigit( DScanner_Peek(scanner) ) ) DScanner_Advance(scanner);
+
+				if ( DScanner_Peek(scanner) == '.' && Char_IsDigit( DScanner_PeekNext(scanner) ) )
+				{
+					DScanner_Advance(scanner);
+					while ( Char_IsDigit(DScanner_Peek(scanner)) ) DScanner_Advance(scanner);
+					DScanner_Consume(scanner, 'f');
+				}
+
+				DScanner_AddToken(scanner, tokenList, TOKEN_NUMBER);
+			}
+			else if ( Char_IsAlpha(c) )
+			{
+				while ( Char_IsAlphaNumeric( DScanner_Peek(scanner) ) ) DScanner_Advance(scanner);
+
+				DScanner_AddToken(scanner, tokenList, TOKEN_IDENTIFIER);
+			}
+			else
+			{
+				DScanner_SetError( scanner, "Unexpected character '%c'.", c );
+			}
+	}
+}
+
+static DTokenList DScan(Arena &arena, const char *text, u32 textSize)
+{
+	DTokenList tokenList = {};
+	tokenList.arena = &arena;
+	tokenList.tokens = (DToken*)(arena.base + arena.used);
+
+	DScanner scanner = {};
+	scanner.line = 1;
+	scanner.hasErrors = false;
+	scanner.text = text;
+	scanner.textSize = textSize;
+
+	while ( ! DScanner_IsAtEnd(scanner) )
+	{
+		DScanner_ScanToken(scanner, tokenList);
+	}
+
+	DScanner_AddToken(scanner, tokenList, TOKEN_EOF);
+	tokenList.valid = !scanner.hasErrors;
+
+	return tokenList;
+}
+
+struct DParser
+{
+	const DTokenList *tokenList;
+	Arena *arena;
+	u32 nextToken;
+	u32 lastToken;
+	bool hasErrors;
+	bool hasFinished;
+	AssetDescriptors *descriptors;
+};
+
+
+static DParser DParser_Init(const DTokenList &tokenList, Arena &arena, AssetDescriptors &descriptors)
+{
+	const DParser parser = {
+		.tokenList = &tokenList,
+		.arena = &arena,
+		.descriptors = &descriptors,
+	};
+	return parser;
+}
+
+static u32 DParser_RemainingTokens(const DParser &parser)
+{
+	return parser.tokenList->count - parser.nextToken;
+}
+
+static const DToken &DParser_GetPreviousToken( const DParser &parser )
+{
+	ASSERT(parser.nextToken > 0);
+	return parser.tokenList->tokens[parser.nextToken-1];
+}
+
+static const DToken &DParser_GetNextToken( const DParser &parser )
+{
+	ASSERT(parser.nextToken < parser.tokenList->count);
+	return parser.tokenList->tokens[parser.nextToken];
+}
+
+static bool DParser_HasFinished(const DParser &parser)
+{
+	const bool hasErrors = parser.hasErrors;
+	const bool hasFinished = DParser_GetNextToken(parser).id == TOKEN_EOF;
+	return hasErrors || hasFinished;
+}
+
+static bool DParser_IsNextToken( const DParser &parser, DTokenId tokenId )
+{
+	if ( DParser_HasFinished( parser ) ) {
+		return tokenId == TOKEN_EOF;
+	} else {
+		ASSERT(parser.nextToken < parser.tokenList->count);
+		return tokenId == parser.tokenList->tokens[parser.nextToken].id;
+	}
+}
+
+static const DToken &DParser_GetLastToken( const DParser &parser )
+{
+	return parser.tokenList->tokens[parser.lastToken];
+}
+
+static void DParser_SetError(DParser &parser, const char *message)
+{
+	DToken token = DParser_GetNextToken(parser);
+	LOG(Error, "DParser error: %d:%.*s %s\n", token.line, token.lexeme.size, token.lexeme.str, message);
+	parser.hasErrors = true;
+}
+
+static const DToken &DParser_Consume( DParser &parser )
+{
+	if ( !DParser_HasFinished( parser ) ) {
+		parser.nextToken++;
+		parser.lastToken = parser.nextToken > parser.lastToken ? parser.nextToken : parser.lastToken;
+		return DParser_GetPreviousToken(parser);
+	} else {
+		DParser_SetError(parser, "Reached end of file");
+		return gNullToken;
+	}
+}
+
+static bool DParser_TryConsume( DParser &parser, DTokenId tokenId )
+{
+	if ( DParser_IsNextToken( parser, tokenId ) ) {
+		DParser_Consume( parser );
+		return true;
+	}
+	return false;
+}
+
+static void DParser_ConsumeUntil( DParser &parser, DTokenId tokenId )
+{
+	while ( !DParser_IsNextToken( parser, tokenId ) && !DParser_HasFinished( parser ) )
+	{
+		DParser_Consume( parser );
+	}
+	while ( DParser_TryConsume( parser, tokenId ) ) {
+		// Do nothing, just consume the expected token
+	}
+}
+
+static const String sMaterialStr = MakeString("Material");
+static const String sTextureStr = MakeString("Texture");
+static const String sEntityStr = MakeString("Entity");
+static const String sAudioClipStr = MakeString("AudioClip");
+
+static void DParseDescriptors(DParser &parser)
+{
+	while ( !DParser_HasFinished( parser ) )
+	{
+		if ( DParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+		{
+			const DToken &token = DParser_GetPreviousToken(parser);
+			const String tokenStr = token.lexeme;
+
+			if ( StrEq(tokenStr, sTextureStr) ) {
+				// TODO
+			} else if ( StrEq(tokenStr, sMaterialStr) ) {
+				// TODO
+			} else if ( StrEq(tokenStr, sEntityStr) ) {
+				// TODO
+			} else if ( StrEq(tokenStr, sAudioClipStr) ) {
+				// TODO
+			}
+		}
+	}
+}
+
+static void DParseDescriptorCounts(DParser &parser)
+{
+	while ( !DParser_HasFinished( parser ) )
+	{
+		if ( DParser_TryConsume(parser, TOKEN_IDENTIFIER) )
+		{
+			const DToken &token = DParser_GetPreviousToken(parser);
+			const String tokenStr = token.lexeme;
+
+			if ( StrEq(tokenStr, sTextureStr) ) {
+				parser.descriptors->textureDescCount++;
+			} else if ( StrEq(tokenStr, sMaterialStr) ) {
+				parser.descriptors->materialDescCount++;
+			} else if ( StrEq(tokenStr, sEntityStr) ) {
+				parser.descriptors->entityDescCount++;
+			} else if ( StrEq(tokenStr, sAudioClipStr) ) {
+				parser.descriptors->audioClipDescCount++;
+			}
+
+			DParser_ConsumeUntil(parser, TOKEN_SEMICOLON);
+		}
+	}
+}
+
+AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
+{
+	AssetDescriptors descriptors = {};
+	DataChunk *chunk = PushFile( arena, filepath );
+
+	if ( chunk )
+	{
+		DTokenList tokenList = DScan(arena, (const char *)chunk->bytes, chunk->size);
+		if ( tokenList.valid )
+		{
+			DParser parser = DParser_Init(tokenList, arena, descriptors);
+			DParseDescriptorCounts(parser);
+
+			if (!parser.hasErrors)
+			{
+				// Reserve memory and reset counts
+				descriptors.textureDescs = PushArray(arena, TextureDesc, descriptors.textureDescCount);
+				descriptors.textureDescCount = 0;
+				descriptors.materialDescs = PushArray(arena, MaterialDesc, descriptors.materialDescCount);
+				descriptors.materialDescCount = 0;
+				descriptors.entityDescs = PushArray(arena, EntityDesc, descriptors.entityDescCount);
+				descriptors.entityDescCount = 0;
+				descriptors.audioClipDescs = PushArray(arena, AudioClipDesc, descriptors.audioClipDescCount);
+				descriptors.audioClipDescCount = 0;
+
+				parser = DParser_Init(tokenList, arena, descriptors);
+				DParseDescriptors(parser);
+
+				if ( parser.hasErrors )
+				{
+					LOG(Error, "Could not parser tokens: %s\n", filepath);
+				}
+			}
+			else
+			{
+				LOG(Error, "Could not parse tokens for counts: %s\n", filepath);
+			}
+		}
+		else
+		{
+			LOG(Error, "Could not scan tokens: %s\n", filepath);
+		}
+	}
+	else
+	{
+		LOG(Warning, "Could not open file: %s\n", filepath);
+	}
+
+	return descriptors;
+}
+
+void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Arena tempArena)
 {
 	LOG(Info, "Building data\n");
 
@@ -203,23 +762,23 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 	FILE *file = fopen(filepath, "wb");
 	if ( file )
 	{
-		const u32 shaderCount = assetDescriptors.shaderDescCount;
+		const u32 shaderCount = descriptors.shaderDescCount;
 		const u32 shadersOffset = sizeof( BinAssetsHeader );
 		const u32 shadersSize = shaderCount * sizeof(BinShaderDesc);
 
-		const u32 imageCount = assetDescriptors.textureDescCount;
+		const u32 imageCount = descriptors.textureDescCount;
 		const u32 imagesOffset = shadersOffset + shadersSize;
 		const u32 imagesSize = imageCount * sizeof(BinImageDesc);
 
-		const u32 audioClipCount = assetDescriptors.audioClipDescCount;
+		const u32 audioClipCount = descriptors.audioClipDescCount;
 		const u32 audioClipsOffset = imagesOffset + imagesSize;
 		const u32 audioClipsSize = audioClipCount * sizeof(BinAudioClipDesc);
 
-		const u32 materialCount = assetDescriptors.materialDescCount;
+		const u32 materialCount = descriptors.materialDescCount;
 		const u32 materialsOffset = audioClipsOffset + audioClipsSize;
 		const u32 materialsSize = materialCount * sizeof(BinMaterialDesc);
 
-		const u32 entityCount = assetDescriptors.entityDescCount;
+		const u32 entityCount = descriptors.entityDescCount;
 		const u32 entitiesOffset = materialsOffset + materialsSize;
 		const u32 entitiesSize = entityCount * sizeof(BinEntityDesc);
 
@@ -257,7 +816,7 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
 		{
-			const ShaderSourceDesc &shaderSourceDesc = assetDescriptors.shaderDescs[i];
+			const ShaderSourceDesc &shaderSourceDesc = descriptors.shaderDescs[i];
 
 			char filepath[MAX_PATH_LENGTH];
 			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
@@ -285,7 +844,7 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 		// Images
 		for (u32 i = 0; i < imageCount; ++i)
 		{
-			const TextureDesc &textureDesc = assetDescriptors.textureDescs[i];
+			const TextureDesc &textureDesc = descriptors.textureDescs[i];
 
 			const FilePath imagePath = MakePath(ProjectDir, textureDesc.filename);
 
@@ -326,7 +885,7 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 		// AudioClips
 		for (u32 i = 0; i < audioClipCount; ++i)
 		{
-			const AudioClipDesc &audioClipDesc = assetDescriptors.audioClipDescs[i];
+			const AudioClipDesc &audioClipDesc = descriptors.audioClipDescs[i];
 
 			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
 
@@ -358,7 +917,7 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 		// Materials
 		for (u32 i = 0; i < materialCount; ++i)
 		{
-			const MaterialDesc &materialDesc = assetDescriptors.materialDescs[i];
+			const MaterialDesc &materialDesc = descriptors.materialDescs[i];
 
 			BinMaterialDesc &binMaterialDesc = binMaterialDescs[i];
 			StrCopy(binMaterialDesc.name, materialDesc.name);
@@ -370,7 +929,7 @@ void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath,
 		// Entities
 		for (u32 i = 0; i < entityCount; ++i)
 		{
-			const EntityDesc &entityDesc = assetDescriptors.entityDescs[i];
+			const EntityDesc &entityDesc = descriptors.entityDescs[i];
 
 			BinEntityDesc &binEntityDesc = binEntityDescs[i];
 			StrCopy(binEntityDesc.name, entityDesc.name);

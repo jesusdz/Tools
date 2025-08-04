@@ -3205,14 +3205,20 @@ void EngineMain( int argc, char **argv,  void *userData )
 		}
 	}
 
-	FilePath dataFilepath =  MakePath(DataDir, "assets.dat");
+	const FilePath dataFilepath = MakePath(DataDir, "assets.dat");
 	if ( !ExistsFile(dataFilepath.str) ) {
 		buildAssets = true;
 	}
 
 	if ( buildAssets ) {
-		Arena scratch = MakeSubArena(engine.platform.dataArena);
+		Arena &dataArena = engine.platform.dataArena;
+#if 1
 		const AssetDescriptors &assetDescriptors = GetAssetDescriptorsFromGlobalArrays();
+#else
+		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+		const AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+#endif
+		Arena scratch = MakeSubArena(dataArena);
 		BuildAssets(assetDescriptors, dataFilepath.str, scratch);
 		if (exitAfterBuild) {
 			return;
