@@ -1251,9 +1251,12 @@ bool CreateDirectory(const char *path)
 #elif PLATFORM_WINDOWS
 	ok = CreateDirectoryA(path, nullptr);
 	if ( !ok ) {
-		char message[MAX_PATH_LENGTH];
-		SPrintf(message, "CreateDirectoryA %s", path);
-		Win32ReportError(message);
+		DWORD errorCode = ::GetLastError();
+		if ( errorCode != ERROR_ALREADY_EXISTS ) {
+			char message[MAX_PATH_LENGTH];
+			SPrintf(message, "CreateDirectoryA %s", path);
+			Win32ReportError(message);
+		}
 	}
 #else
 #error "Missing implementation"
