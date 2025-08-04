@@ -17,9 +17,41 @@ static void EditorUpdateUI(Engine &engine)
 
 	UI_BeginWindow(ui, text);
 
-	if ( UI_Button(ui, "Play sound") )
+	if ( UI_Section(ui, "Audio") )
 	{
-		PlayAudioClip(engine);
+		if ( UI_Button(ui, "Play sound") )
+		{
+			const u32 index = 0;//GetAudioClipIndex(engine, "aclip_bell");
+			PlayAudioClip(engine, index);
+		}
+
+		UI_Separator(ui);
+
+		static u32 audioSourceMusic = INVALID_AUDIO_SOURCE;
+		if ( !IsActiveAudioSource(engine, audioSourceMusic) ) {
+			audioSourceMusic = INVALID_AUDIO_SOURCE;
+		}
+
+		if ( audioSourceMusic == INVALID_AUDIO_SOURCE ) {
+			if ( UI_Button(ui, "Play music") ) {
+				const u32 audioClipIndex = 1; //GetAudioClipIndex(engine, "aclip_music");
+				if ( audioClipIndex != INVALID_AUDIO_CLIP ) {
+					audioSourceMusic = PlayAudioClip(engine, audioClipIndex);
+				}
+			}
+		} else {
+			if ( IsPausedAudioSource(engine, audioSourceMusic) ) {
+				if ( UI_Button(ui, "Resume music") ) {
+					ResumeAudioSource(engine, audioSourceMusic);
+				}
+			} else {
+				if ( UI_Button(ui, "Pause music") ) {
+					PauseAudioSource(engine, audioSourceMusic);
+				}
+			} if ( UI_Button(ui, "Stop music") ) {
+				StopAudioSource(engine, audioSourceMusic);
+			}
+		}
 	}
 
 	if ( UI_Section(ui, "Profiling" ) )

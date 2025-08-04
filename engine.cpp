@@ -322,6 +322,7 @@ static const EntityDesc entityDescs[] =
 
 static AudioClipDesc audioClipDescs[] = {
 	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
+	//{ .name = "aclip_music", .filename = "assets/music.wav" },
 };
 
 static const Vertex cubeVertices[] = {
@@ -611,7 +612,9 @@ struct AudioClip
 enum AudioSourceFlags
 {
 	AUDIO_SOURCE_START_BIT = 1<<0,
-	AUDIO_SOURCE_LOOPS_BIT = 1<<1
+	AUDIO_SOURCE_LOOPS_BIT = 1<<1,
+	AUDIO_SOURCE_PAUSE_BIT = 1<<2,
+	AUDIO_SOURCE_STOP_BIT = 1<<3,
 };
 
 struct AudioSource
@@ -713,7 +716,12 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 	for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
 	{
 		AudioSource &audioSource = audioSources[i];
-		if (audioSource.clip)
+
+		const bool isPlaying = audioSource.clip != nullptr &&
+			!( audioSource.flags & AUDIO_SOURCE_PAUSE_BIT ) &&
+			!( audioSource.flags & AUDIO_SOURCE_STOP_BIT );
+
+		if (isPlaying)
 		{
 			const i16 *srcSample = (i16*)audioSource.clip->samples + audioSource.lastWriteSampleIndex;
 			f32 *dstSample = realSamples;
@@ -732,8 +740,13 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 			audioSource.lastWriteSampleIndex += sampleCount;
 			if (audioSource.lastWriteSampleIndex >= audioSource.clip->sampleCount)
 			{
-				audioSource.clip = nullptr;
+				audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 			}
+		}
+
+		if ( audioSource.flags & AUDIO_SOURCE_STOP_BIT )
+		{
+			audioSource = {};
 		}
 	}
 
@@ -795,23 +808,92 @@ void CreateAudioClip(Engine &engine, Arena &arena, const AudioClipDesc &audioCli
 	}
 }
 
-void PlayAudioClip(Engine &engine)
-{
-	const AudioClip &audioClip = audioClips[0];
-	if (!audioClip.samples) {
-		return;
-	}
+#define INVALID_AUDIO_CLIP U32_MAX
+#define INVALID_AUDIO_SOURCE U32_MAX
 
-	for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
+//u32 FindAudioClipIndex(Engine &engine, const char *name)
+//{
+//	u32 audioClipIndex = INVALID_AUDIO_CLIP;
+//	for (u32 i = 0; i < audioClipCount; ++i)
+//	{
+//		const AudioClip &audioClip = audioClips[i];
+//		if (StrEq(audioClip.name, name))
+//		{
+//			audioClipIndex = INVALID_AUDIO_CLIP;
+//			break;
+//		}
+//	}
+//	return audioClipIndex;
+//}
+
+u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
+{
+	u32 audioSourceIndex = INVALID_AUDIO_SOURCE;
+
+	if (audioClipIndex < audioClipCount)
 	{
-		AudioSource &audioSource = audioSources[i];
-		if (audioSource.clip == nullptr)
+		const AudioClip &audioClip = audioClips[audioClipIndex];
+
+		if (audioClip.samples)
 		{
-			audioSource.clip = &audioClip;
-			audioSource.lastWriteSampleIndex = 0;
-			break;
+			for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
+			{
+				AudioSource &audioSource = audioSources[i];
+				if (audioSource.clip == nullptr)
+				{
+					audioSource.clip = &audioClip;
+					audioSource.lastWriteSampleIndex = 0;
+					audioSourceIndex = i;
+					break;
+				}
+			}
 		}
 	}
+
+	if ( audioSourceIndex == INVALID_AUDIO_SOURCE) {
+		LOG(Warning, "Could not play audio clip %u\n", audioClipIndex);
+	}
+
+	return audioSourceIndex;
+}
+
+bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	bool active = false;
+	if (audioSourceIndex < ARRAY_COUNT(audioSources)) {
+		AudioSource &audioSource = audioSources[audioSourceIndex];
+		active = ( audioSource.clip != nullptr );
+	}
+	return active;
+}
+
+bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audioSources));
+	AudioSource &audioSource = audioSources[audioSourceIndex];
+	const bool paused = audioSource.flags & AUDIO_SOURCE_PAUSE_BIT;
+	return paused;
+}
+
+void PauseAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audioSources));
+	AudioSource &audioSource = audioSources[audioSourceIndex];
+	audioSource.flags |= AUDIO_SOURCE_PAUSE_BIT;
+}
+
+void ResumeAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audioSources));
+	AudioSource &audioSource = audioSources[audioSourceIndex];
+	audioSource.flags &= ~AUDIO_SOURCE_PAUSE_BIT;
+}
+
+void StopAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audioSources));
+	AudioSource &audioSource = audioSources[audioSourceIndex];
+	audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 }
 
 void CompileShaders()
@@ -3091,7 +3173,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	// Memory
 	engine.platform.stringMemorySize = KB(16);
-	engine.platform.dataMemorySize = MB(16);
+	engine.platform.dataMemorySize = MB(64);
 	engine.platform.globalMemorySize = MB(64);
 	engine.platform.frameMemorySize = MB(16);
 
@@ -3128,7 +3210,8 @@ void EngineMain( int argc, char **argv,  void *userData )
 	}
 
 	if ( buildAssets ) {
-		BuildAssets(engine.platform.frameArena);
+		Arena scratch = MakeSubArena(engine.platform.dataArena);
+		BuildAssets(scratch);
 		if (exitAfterBuild) {
 			return;
 		}
