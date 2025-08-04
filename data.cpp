@@ -191,35 +191,38 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 
 #if USE_DATA_BUILD
 
-void BuildAssets(Arena tempArena)
+void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena)
 {
 	LOG(Info, "Building data\n");
 
-	FilePath dir;
 	CreateDirectory( MakePath(ProjectDir, "build").str );
 	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
 
 	CompileShaders();
 
-	FilePath filepath =  MakePath(DataDir, "assets.dat");
-	FILE *file = fopen(filepath.str, "wb");
+	FILE *file = fopen(filepath, "wb");
 	if ( file )
 	{
-		const u32 shaderCount = ARRAY_COUNT(shaderSources);
+		const u32 shaderCount = assetDescriptors.shaderDescCount;
 		const u32 shadersOffset = sizeof( BinAssetsHeader );
 		const u32 shadersSize = shaderCount * sizeof(BinShaderDesc);
-		const u32 imageCount = ARRAY_COUNT(textures);
+
+		const u32 imageCount = assetDescriptors.textureDescCount;
 		const u32 imagesOffset = shadersOffset + shadersSize;
 		const u32 imagesSize = imageCount * sizeof(BinImageDesc);
-		const u32 audioClipCount = ARRAY_COUNT(audioClipDescs);
+
+		const u32 audioClipCount = assetDescriptors.audioClipDescCount;
 		const u32 audioClipsOffset = imagesOffset + imagesSize;
 		const u32 audioClipsSize = audioClipCount * sizeof(BinAudioClipDesc);
-		const u32 materialCount = ARRAY_COUNT(materialDescs);
+
+		const u32 materialCount = assetDescriptors.materialDescCount;
 		const u32 materialsOffset = audioClipsOffset + audioClipsSize;
 		const u32 materialsSize = materialCount * sizeof(BinMaterialDesc);
-		const u32 entityCount = ARRAY_COUNT(entityDescs);
+
+		const u32 entityCount = assetDescriptors.entityDescCount;
 		const u32 entitiesOffset = materialsOffset + materialsSize;
 		const u32 entitiesSize = entityCount * sizeof(BinEntityDesc);
+
 		const u32 basePayloadOffset = entitiesOffset + entitiesSize;
 
 		// Write file header
@@ -254,7 +257,7 @@ void BuildAssets(Arena tempArena)
 		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
 		{
-			const ShaderSourceDesc &shaderSourceDesc = shaderSources[i];
+			const ShaderSourceDesc &shaderSourceDesc = assetDescriptors.shaderDescs[i];
 
 			char filepath[MAX_PATH_LENGTH];
 			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
@@ -282,7 +285,7 @@ void BuildAssets(Arena tempArena)
 		// Images
 		for (u32 i = 0; i < imageCount; ++i)
 		{
-			const TextureDesc &textureDesc = textures[i];
+			const TextureDesc &textureDesc = assetDescriptors.textureDescs[i];
 
 			const FilePath imagePath = MakePath(ProjectDir, textureDesc.filename);
 
@@ -323,7 +326,7 @@ void BuildAssets(Arena tempArena)
 		// AudioClips
 		for (u32 i = 0; i < audioClipCount; ++i)
 		{
-			const AudioClipDesc &audioClipDesc = audioClipDescs[i];
+			const AudioClipDesc &audioClipDesc = assetDescriptors.audioClipDescs[i];
 
 			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
 
@@ -355,7 +358,7 @@ void BuildAssets(Arena tempArena)
 		// Materials
 		for (u32 i = 0; i < materialCount; ++i)
 		{
-			const MaterialDesc &materialDesc = materialDescs[i];
+			const MaterialDesc &materialDesc = assetDescriptors.materialDescs[i];
 
 			BinMaterialDesc &binMaterialDesc = binMaterialDescs[i];
 			StrCopy(binMaterialDesc.name, materialDesc.name);
@@ -367,7 +370,7 @@ void BuildAssets(Arena tempArena)
 		// Entities
 		for (u32 i = 0; i < entityCount; ++i)
 		{
-			const EntityDesc &entityDesc = entityDescs[i];
+			const EntityDesc &entityDesc = assetDescriptors.entityDescs[i];
 
 			BinEntityDesc &binEntityDesc = binEntityDescs[i];
 			StrCopy(binEntityDesc.name, entityDesc.name);

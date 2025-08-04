@@ -254,14 +254,6 @@ struct Scene
 	u32 entityCount;
 };
 
-struct ShaderSourceDesc
-{
-	ShaderType type;
-	const char *filename;
-	const char *entryPoint;
-	const char *name;
-};
-
 struct ShaderAndPipelineDesc
 {
 	const char *vsName;
@@ -2041,9 +2033,11 @@ void CleanupScene(Graphics &gfx)
 	// TODO
 }
 
-void Save(Engine &engine)
+AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 {
 	const AssetDescriptors assetDescs = {
+		.shaderDescs = shaderSources,
+		.shaderDescCount = ARRAY_COUNT(shaderSources),
 		.textureDescs = textures,
 		.textureDescCount = ARRAY_COUNT(textures),
 		.materialDescs = materialDescs,
@@ -2053,6 +2047,13 @@ void Save(Engine &engine)
 		.audioClipDescs = audioClipDescs,
 		.audioClipDescCount = ARRAY_COUNT(audioClipDescs),
 	};
+
+	return assetDescs;
+}
+
+void Save(Engine &engine)
+{
+	const AssetDescriptors assetDescs = GetAssetDescriptorsFromGlobalArrays();
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
 	SaveAssetDescriptors(path.str, assetDescs);
@@ -3211,7 +3212,8 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	if ( buildAssets ) {
 		Arena scratch = MakeSubArena(engine.platform.dataArena);
-		BuildAssets(scratch);
+		const AssetDescriptors &assetDescriptors = GetAssetDescriptorsFromGlobalArrays();
+		BuildAssets(assetDescriptors, dataFilepath.str, scratch);
 		if (exitAfterBuild) {
 			return;
 		}

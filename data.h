@@ -6,6 +6,21 @@
 
 // Types
 
+enum ShaderType
+{
+	ShaderTypeVertex,
+	ShaderTypeFragment,
+	ShaderTypeCompute
+};
+
+struct ShaderSourceDesc
+{
+	ShaderType type;
+	const char *filename;
+	const char *entryPoint;
+	const char *name;
+};
+
 struct TextureDesc
 {
 	const char *name;
@@ -45,6 +60,9 @@ struct AudioClipDesc
 
 struct AssetDescriptors
 {
+	const ShaderSourceDesc *shaderDescs;
+	u32 shaderDescCount;
+
 	const TextureDesc *textureDescs;
 	u32 textureDescCount;
 
@@ -68,13 +86,6 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assetDescrip
 // Binary data
 
 // Types
-
-enum ShaderType
-{
-	ShaderTypeVertex,
-	ShaderTypeFragment,
-	ShaderTypeCompute
-};
 
 #pragma pack(push, 1)
 struct BinShaderDesc
@@ -175,7 +186,7 @@ struct BinAssets
 struct Engine;
 
 #if USE_DATA_BUILD
-void BuildAssets(Arena scratchArena);
+void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena);
 #endif // USE_DATA_BUILD
 
 BinAssets LoadAssets(Arena &dataArena);
