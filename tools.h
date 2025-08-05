@@ -808,6 +808,12 @@ char *PushString(Arena &arena, const char *str)
 	return bytes;
 }
 
+char *PushString(Arena &arena, String str)
+{
+	char *bytes = PushStringN(arena, str.str, str.size);
+	return bytes;
+}
+
 char *PushChar(Arena &arena, char c)
 {
 	char *bytes = (char*)PushSize(arena, sizeof(c));

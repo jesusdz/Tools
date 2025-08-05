@@ -288,7 +288,7 @@ struct Engine
 	BinAssets assets;
 };
 
-static const TextureDesc textures[] =
+static TextureDesc textures[] =
 {
 	{ .name = "tex_diamond", .filename = "assets/diamond.png", .mipmap = 1 },
 	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg",    .mipmap = 1 },
@@ -296,14 +296,14 @@ static const TextureDesc textures[] =
 	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
 };
 
-static const MaterialDesc materialDescs[] =
+static MaterialDesc materialDescs[] =
 {
 	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
 	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_shading", .uvScale = 1.0f },
 	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_shading", .uvScale = 11.0f },
 };
 
-static const EntityDesc entityDescs[] =
+static EntityDesc entityDescs[] =
 {
 	{ .name = "ent_cube0", .materialName = "mat_diamond", .pos = { 1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
 	{ .name = "ent_cube1", .materialName = "mat_diamond", .pos = { 1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
@@ -380,7 +380,7 @@ static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
-static const ShaderSourceDesc shaderSources[] = {
+static ShaderSourceDesc shaderSources[] = {
 	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .name = "vs_shading" },
 	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .name = "fs_shading" },
 	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .name = "vs_sky" },
@@ -3212,11 +3212,15 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	if ( buildAssets ) {
 		Arena &dataArena = engine.platform.dataArena;
-#if 1
+#if 0
 		const AssetDescriptors &assetDescriptors = GetAssetDescriptorsFromGlobalArrays();
 #else
 		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-		const AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+
+		// TODO(jesus): Serialize this to text as well
+		assetDescriptors.shaderDescs = shaderSources;
+		assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
 #endif
 		Arena scratch = MakeSubArena(dataArena);
 		BuildAssets(assetDescriptors, dataFilepath.str, scratch);

@@ -1,0 +1,89 @@
+
+// Textures ////////////////////////////////////////////////////////////
+
+Texture tex_diamond = {
+ .filename = "assets/diamond.png",
+ .mipmap = 1,
+};
+
+Texture tex_dirt = {
+ .filename = "assets/dirt.jpg",
+ .mipmap = 1,
+};
+
+Texture tex_grass = {
+ .filename = "assets/grass.jpg",
+ .mipmap = 1,
+};
+
+Texture tex_sky = {
+ .filename = "assets/sky01.png",
+ .mipmap = 0,
+};
+
+
+// Materials ///////////////////////////////////////////////////////////
+
+Material mat_diamond = {
+ .textureName = "tex_diamond",
+ .pipelineName = "pipeline_shading",
+ .uvScale = 1.000000,
+};
+
+Material mat_dirt = {
+ .textureName = "tex_dirt",
+ .pipelineName = "pipeline_shading",
+ .uvScale = 1.000000,
+};
+
+Material mat_grass = {
+ .textureName = "tex_grass",
+ .pipelineName = "pipeline_shading",
+ .uvScale = 11.000000,
+};
+
+
+// Entities ////////////////////////////////////////////////////////////
+
+Entity ent_cube0 = {
+ .materialName = "mat_diamond",
+ .pos = {1.000000, 0.000000, 1.000000},
+ .scale = 1.000000,
+ .geometryType = GeometryTypeCube,
+};
+
+Entity ent_cube1 = {
+ .materialName = "mat_diamond",
+ .pos = {1.000000, 0.000000, -1.000000},
+ .scale = 1.000000,
+ .geometryType = GeometryTypeCube,
+};
+
+Entity ent_cube2 = {
+ .materialName = "mat_dirt",
+ .pos = {-1.000000, 0.000000, 1.000000},
+ .scale = 1.000000,
+ .geometryType = GeometryTypeCube,
+};
+
+Entity ent_cube3 = {
+ .materialName = "mat_dirt",
+ .pos = {-1.000000, 0.000000, -1.000000},
+ .scale = 1.000000,
+ .geometryType = GeometryTypeCube,
+};
+
+Entity ent_plane = {
+ .materialName = "mat_grass",
+ .pos = {0.000000, -0.500000, 0.000000},
+ .scale = 11.000000,
+ .geometryType = GeometryTypePlane,
+};
+
+
+// Audio clips /////////////////////////////////////////////////////////
+
+AudioClip aclip_bell = {
+ .filename = "assets/bell.wav",
+};
+

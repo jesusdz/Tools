@@ -89,6 +89,17 @@ static const char *GeometryTypeToString(GeometryType type)
 	return "<unknown>";
 }
 
+static GeometryType StrToGeometryType(String str)
+{
+	static const String sGeometryTypeCube = MakeString("GeometryTypeCube");
+	static const String sGeometryTypePlane = MakeString("GeometryTypePlane");
+	static const String sGeometryTypeScreen = MakeString("GeometryTypeScreen");
+	if ( StrEq(str, sGeometryTypeCube) ) return GeometryTypeCube;
+	else if ( StrEq(str, sGeometryTypePlane) ) return GeometryTypePlane;
+	else if ( StrEq(str, sGeometryTypeScreen) ) return GeometryTypeScreen;
+	return GeometryTypeCube;
+}
+
 void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 {
 	Scratch scratch;
@@ -232,44 +243,17 @@ static const char *DTokenIdNames[] =
 
 CT_ASSERT(ARRAY_COUNT(DTokenIdNames) == TOKEN_COUNT);
 
-enum ValueType
-{
-	VALUE_TYPE_BOOL,
-	VALUE_TYPE_INT,
-	VALUE_TYPE_FLOAT,
-	VALUE_TYPE_STRING,
-	VALUE_TYPE_CHAR,
-	VALUE_TYPE_NULL,
-};
-
-struct DValue
-{
-	ValueType type;
-	union
-	{
-		bool b;
-		char c;
-		i32 i;
-		f32 f;
-		String s;
-	};
-};
-
-typedef DValue DLiteral;
-
 struct DToken
 {
 	DTokenId id;
 	u32 line;
 	String lexeme;
-	DLiteral literal;
 };
 
 static DToken gNullToken = {
 	.id = TOKEN_COUNT,
 	.line = 0,
 	.lexeme = { "", 0 },
-	.literal = { .type = VALUE_TYPE_NULL, .i = 0 },
 };
 
 struct DTokenList
@@ -357,42 +341,15 @@ static String DScanner_ScannedString(const DScanner &scanner)
 	return scannedString;
 }
 
-static void DScanner_AddToken(const DScanner &scanner, DTokenList &tokenList, DTokenId tokenId, DLiteral literal)
+static void DScanner_AddToken(const DScanner &scanner, DTokenList &tokenList, DTokenId tokenId)
 {
 	DToken newToken = {};
 	newToken.id = tokenId;
 	newToken.lexeme = DScanner_ScannedString(scanner);
-	newToken.literal = literal;
 	newToken.line = scanner.line;
 
 	PushStruct(*tokenList.arena, DToken);
 	tokenList.tokens[tokenList.count++] = newToken;
-}
-
-static void DScanner_AddToken(const DScanner &scanner, DTokenList &tokenList, DTokenId tokenId)
-{
-	DLiteral literal = {};
-
-	if ( tokenId == TOKEN_STRING )
-	{
-		literal.type = VALUE_TYPE_STRING;
-		literal.s = DScanner_ScannedString(scanner);
-		literal.s.str += 1; // start after the first " char
-		literal.s.size -= 2; // remove both " characters
-	}
-	if ( tokenId == TOKEN_CHARACTER )
-	{
-		literal.type = VALUE_TYPE_CHAR;
-		String lexeme = DScanner_ScannedString(scanner);
-		literal.c = *(lexeme.str+1); // start after the ' char
-	}
-	else if ( tokenId == TOKEN_NUMBER )
-	{
-		literal.type = VALUE_TYPE_FLOAT;
-		literal.f = StrToFloat( DScanner_ScannedString(scanner) );
-	}
-
-	DScanner_AddToken(scanner, tokenList, tokenId, literal);
 }
 
 static void DScanner_SetError(DScanner &scanner, const char *format, ...)
@@ -637,6 +594,61 @@ static bool DParser_TryConsume( DParser &parser, DTokenId tokenId )
 	return false;
 }
 
+static String DParser_ConsumeLexeme( DParser &parser )
+{
+	const DToken &token = DParser_Consume(parser);
+	return token.lexeme;
+}
+
+static String DParser_ConsumeString( DParser &parser )
+{
+	const DToken &token = DParser_Consume(parser);
+	String str = token.lexeme;
+	str.str += 1; // Remove ""
+	str.size -= 2; // Remove ""
+	return str;
+}
+
+static u8 DParser_ConsumeU8( DParser &parser )
+{
+	const DToken &token = DParser_Consume(parser);
+	const u8 res = I32ToU8(StrToInt(token.lexeme));
+	return res;
+}
+
+static f32 DParser_ConsumeF32( DParser &parser )
+{
+	const DToken &token = DParser_Consume(parser);
+	const f32 res = StrToFloat(token.lexeme);
+	return res;
+}
+
+static GeometryType DParser_ConsumeGeometryType( DParser &parser )
+{
+	const String strGeometryType = DParser_ConsumeLexeme(parser);
+	const GeometryType res = StrToGeometryType(strGeometryType);
+	return res;
+}
+
+static float3 DParser_ConsumeFloat3( DParser &parser )
+{
+	float3 res = {};
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+	const bool sx = DParser_TryConsume(parser, TOKEN_MINUS);
+	res.x = DParser_ConsumeF32(parser);
+	res.x = sx ? -res.x : res.x;
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	const bool sy = DParser_TryConsume(parser, TOKEN_MINUS);
+	res.y = DParser_ConsumeF32(parser);
+	res.y = sy ? -res.y : res.y;
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	const bool sz = DParser_TryConsume(parser, TOKEN_MINUS);
+	res.z = DParser_ConsumeF32(parser);
+	res.z = sz ? -res.z : res.z;
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+	return res;
+}
+
 static void DParser_ConsumeUntil( DParser &parser, DTokenId tokenId )
 {
 	while ( !DParser_IsNextToken( parser, tokenId ) && !DParser_HasFinished( parser ) )
@@ -653,48 +665,156 @@ static const String sTextureStr = MakeString("Texture");
 static const String sEntityStr = MakeString("Entity");
 static const String sAudioClipStr = MakeString("AudioClip");
 
-static void DParseDescriptors(DParser &parser)
+static void DParseDescriptorCounts(DParser &parser)
 {
+	AssetDescriptors &descriptors = *parser.descriptors;
+
 	while ( !DParser_HasFinished( parser ) )
 	{
 		if ( DParser_TryConsume(parser, TOKEN_IDENTIFIER) )
 		{
-			const DToken &token = DParser_GetPreviousToken(parser);
-			const String tokenStr = token.lexeme;
+			const String type = DParser_GetPreviousToken(parser).lexeme;
 
-			if ( StrEq(tokenStr, sTextureStr) ) {
-				// TODO
-			} else if ( StrEq(tokenStr, sMaterialStr) ) {
-				// TODO
-			} else if ( StrEq(tokenStr, sEntityStr) ) {
-				// TODO
-			} else if ( StrEq(tokenStr, sAudioClipStr) ) {
-				// TODO
+			if ( StrEq(type, sTextureStr) ) {
+				descriptors.textureDescCount++;
+			} else if ( StrEq(type, sMaterialStr) ) {
+				descriptors.materialDescCount++;
+			} else if ( StrEq(type, sEntityStr) ) {
+				descriptors.entityDescCount++;
+			} else if ( StrEq(type, sAudioClipStr) ) {
+				descriptors.audioClipDescCount++;
 			}
+
+			DParser_ConsumeUntil(parser, TOKEN_SEMICOLON);
+		}
+		else
+		{
+			DParser_Consume(parser);
 		}
 	}
 }
 
-static void DParseDescriptorCounts(DParser &parser)
+static void DParseDescriptors(DParser &parser)
 {
+	AssetDescriptors &descriptors = *parser.descriptors;
+
 	while ( !DParser_HasFinished( parser ) )
 	{
 		if ( DParser_TryConsume(parser, TOKEN_IDENTIFIER) )
 		{
-			const DToken &token = DParser_GetPreviousToken(parser);
-			const String tokenStr = token.lexeme;
+			const String type = DParser_GetPreviousToken(parser).lexeme;
 
-			if ( StrEq(tokenStr, sTextureStr) ) {
-				parser.descriptors->textureDescCount++;
-			} else if ( StrEq(tokenStr, sMaterialStr) ) {
-				parser.descriptors->materialDescCount++;
-			} else if ( StrEq(tokenStr, sEntityStr) ) {
-				parser.descriptors->entityDescCount++;
-			} else if ( StrEq(tokenStr, sAudioClipStr) ) {
-				parser.descriptors->audioClipDescCount++;
+			if ( StrEq(type, sTextureStr) ) {
+				const String name = DParser_ConsumeLexeme( parser );
+				TextureDesc &desc = descriptors.textureDescs[descriptors.textureDescCount++];
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sFilename = MakeString("filename");
+					static const String sMipmap = MakeString("mipmap");
+					if ( StrEq( field, sFilename ) ) {
+						desc.filename = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sMipmap ) ) {
+						desc.mipmap = DParser_ConsumeU8(parser);
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
+			} else if ( StrEq(type, sMaterialStr) ) {
+				const String name = DParser_ConsumeLexeme( parser );
+				MaterialDesc &desc = descriptors.materialDescs[descriptors.materialDescCount++];
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sTextureName = MakeString("textureName");
+					static const String sPipelineName = MakeString("pipelineName");
+					static const String sUvScale = MakeString("uvScale");
+
+					if ( StrEq( field, sTextureName ) ) {
+						desc.textureName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sPipelineName ) ) {
+						desc.pipelineName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sUvScale ) ) {
+						desc.uvScale = DParser_ConsumeF32(parser);
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
+			} else if ( StrEq(type, sEntityStr) ) {
+				const String name = DParser_ConsumeLexeme( parser );
+				EntityDesc &desc = descriptors.entityDescs[descriptors.entityDescCount++];
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sMaterialName = MakeString("materialName");
+					static const String sPos = MakeString("pos");
+					static const String sScale = MakeString("scale");
+					static const String sGeometryType = MakeString("geometryType");
+
+					if ( StrEq( field, sMaterialName ) ) {
+						desc.materialName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sPos ) ) {
+						desc.pos = DParser_ConsumeFloat3(parser);
+					} else if ( StrEq( field, sScale ) ) {
+						desc.scale = DParser_ConsumeF32(parser);
+					} else if ( StrEq( field, sGeometryType ) ) {
+						desc.geometryType = DParser_ConsumeGeometryType(parser);
+					}
+
+					DParser_ConsumeUntil( parser, TOKEN_COMMA );
+				}
+			} else if ( StrEq(type, sAudioClipStr) ) {
+				const String name = DParser_ConsumeLexeme( parser );
+				AudioClipDesc &desc = descriptors.audioClipDescs[descriptors.audioClipDescCount++];
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sFilename = MakeString("filename");
+					if ( StrEq( field, sFilename ) ) {
+						desc.filename = PushString(*parser.arena, DParser_ConsumeString(parser) );
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
 			}
 
 			DParser_ConsumeUntil(parser, TOKEN_SEMICOLON);
+		}
+		else
+		{
+			DParser_Consume( parser );
 		}
 	}
 }

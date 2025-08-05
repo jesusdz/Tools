@@ -60,19 +60,19 @@ struct AudioClipDesc
 
 struct AssetDescriptors
 {
-	const ShaderSourceDesc *shaderDescs;
+	ShaderSourceDesc *shaderDescs;
 	u32 shaderDescCount;
 
-	const TextureDesc *textureDescs;
+	TextureDesc *textureDescs;
 	u32 textureDescCount;
 
-	const MaterialDesc *materialDescs;
+	MaterialDesc *materialDescs;
 	u32 materialDescCount;
 
-	const EntityDesc *entityDescs;
+	EntityDesc *entityDescs;
 	u32 entityDescCount;
 
-	const AudioClipDesc *audioClipDescs;
+	AudioClipDesc *audioClipDescs;
 	u32 audioClipDescCount;
 };
 
