@@ -91,13 +91,19 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena);
 // Types
 
 #pragma pack(push, 1)
+
+struct BinLocation
+{
+	u32 offset;
+	u32 size;
+};
+
 struct BinShaderDesc
 {
 	char name[32];
 	char entryPoint[32];
 	ShaderType type;
-	u32 dataOffset;
-	u32 dataSize;
+	BinLocation location;
 };
 
 struct BinImageDesc
@@ -108,8 +114,7 @@ struct BinImageDesc
 	u8  channels;
 	u8  mipmap;
 	u16 unused;
-	u32 dataOffset;
-	u32 dataSize;
+	BinLocation location;
 };
 
 struct BinAudioClipDesc
@@ -118,8 +123,7 @@ struct BinAudioClipDesc
 	u32 samplingRate;
 	u16 sampleSize;
 	u16 channelCount;
-	u32 dataOffset;
-	u32 dataSize;
+	BinLocation location;
 };
 
 struct BinMaterialDesc

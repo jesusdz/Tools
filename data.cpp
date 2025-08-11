@@ -963,8 +963,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			StrCopy(shaderHeader.name, shaderSourceDesc.name);
 			StrCopy(shaderHeader.entryPoint, shaderSourceDesc.entryPoint);
 			shaderHeader.type = shaderSourceDesc.type;
-			shaderHeader.dataOffset = payloadOffset;
-			shaderHeader.dataSize = U64ToU32(payloadSize);
+			shaderHeader.location.offset = payloadOffset;
+			shaderHeader.location.size = U64ToU32(payloadSize);
 
 			Arena scratch = MakeSubArena(tempArena);
 			void *shaderPayload = PushSize(scratch, payloadSize);
@@ -1004,8 +1004,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			imageHeader.height = I32ToU16(texHeight),
 			imageHeader.channels = I32ToU8(texChannels),
 			imageHeader.mipmap = textureDesc.mipmap,
-			imageHeader.dataOffset = payloadOffset,
-			imageHeader.dataSize = U64ToU32(payloadSize),
+			imageHeader.location.offset = payloadOffset,
+			imageHeader.location.size = U64ToU32(payloadSize),
 
 			fwrite(pixels, payloadSize, 1, file);
 
@@ -1034,8 +1034,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 				.samplingRate = audioClip.samplingRate,
 				.sampleSize = audioClip.sampleSize,
 				.channelCount = audioClip.channelCount,
-				.dataOffset = payloadOffset,
-				.dataSize = U64ToU32(payloadSize),
+				.location = {
+					.offset = payloadOffset,
+					.size = U64ToU32(payloadSize),
+				},
 			};
 			binAudioClipDescs[i] = audioClipHeader;
 
@@ -1147,7 +1149,7 @@ BinAssets LoadAssets(Arena &dataArena)
 	{
 		BinShader &shader = assets.shaders[i];
 		shader.desc = binShaderDescs + i;
-		shader.spirv = PushFileData(dataArena, file, shader.desc->dataOffset, shader.desc->dataSize);
+		shader.spirv = PushFileData(dataArena, file, shader.desc->location.offset, shader.desc->location.size);
 	}
 
 	BinImageDesc *binImageDescs = (BinImageDesc*) PushFileData(dataArena, file, imageDescsOffset, imageDescsSize);
@@ -1156,7 +1158,7 @@ BinAssets LoadAssets(Arena &dataArena)
 	{
 		BinImage &image = assets.images[i];
 		image.desc = binImageDescs + i;
-		image.pixels = PushFileData(dataArena, file, image.desc->dataOffset, image.desc->dataSize);
+		image.pixels = PushFileData(dataArena, file, image.desc->location.offset, image.desc->location.size);
 	}
 
 	BinAudioClipDesc *binAudioClipDescs = (BinAudioClipDesc*) PushFileData(dataArena, file, audioClipDescsOffset, audioClipDescsSize);
@@ -1165,7 +1167,7 @@ BinAssets LoadAssets(Arena &dataArena)
 	{
 		BinAudioClip &audioClip = assets.audioClips[i];
 		audioClip.desc = binAudioClipDescs + i;
-		audioClip.samples = PushFileData(dataArena, file, audioClip.desc->dataOffset, audioClip.desc->dataSize);
+		audioClip.samples = PushFileData(dataArena, file, audioClip.desc->location.offset, audioClip.desc->location.size);
 	}
 
 	assets.materialDescs = (BinMaterialDesc*) PushFileData(dataArena, file, materialDescsOffset, materialDescsSize);

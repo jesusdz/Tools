@@ -1525,7 +1525,7 @@ static ShaderSource GetShaderSource(BinAssets &assets, const char *shaderName)
 		if ( StrEq( loadedShader.desc->name, shaderName) )
 		{
 			bytes = loadedShader.spirv;
-			size = loadedShader.desc->dataSize;
+			size = loadedShader.desc->location.size;
 		}
 	}
 	if ( !bytes ) {
