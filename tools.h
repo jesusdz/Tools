@@ -981,6 +981,8 @@ struct File
 	u64 size;
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	int handle;
+#elif PLATFORM_WINDOWS
+	HANDLE handle;
 #else
 #error "Missing implementation"
 #endif
@@ -998,14 +1000,21 @@ File OpenFile(const char *filename, FileMode mode)
 	if ( GetFileSize( filename, file.size ) && file.size > 0 )
 	{
 #if  PLATFORM_LINUX || PLATFORM_ANDROID
-		file.handle = open(filename, O_RDONLY);
+		const int openMode = mode == FileModeRead ? O_RDONLY : O_WRONLY;
+		file.handle = open(filename, openMode);
 		if ( file.handle == -1 ) {
 			LinuxReportError("open");
 		} else {
 			file.isOpen = true;
 		}
 #else
-#error "Missing implementation"
+		ASSERT(mode == FileModeRead); // TODO: Implement for write-only
+		file.handle = CreateFileA( filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
+		if ( file.handle == INVALID_HANDLE_VALUE  ) {
+			Win32ReportError("CreateFileA");
+		} else {
+			file.isOpen = true;
+		}
 #endif
 	}
 	return file;
@@ -1014,10 +1023,9 @@ File OpenFile(const char *filename, FileMode mode)
 bool ReadFromFile(File file, void *buffer, u64 size)
 {
 	bool ok = false;
-
-#if PLATFORM_LINUX || PLATFORM_ANDROID
 	u64 bytesToRead = size;
 
+#if PLATFORM_LINUX || PLATFORM_ANDROID
 	while ( bytesToRead > 0 )
 	{
 		u64 bytesRead = read(file.handle, buffer, bytesToRead);
@@ -1033,6 +1041,13 @@ bool ReadFromFile(File file, void *buffer, u64 size)
 		}
 	}
 	ok = (bytesToRead == 0);
+#elif PLATFORM_WINDOWS
+	DWORD bytesRead = 0;
+	ok = ReadFile(file.handle, buffer, bytesToRead, &bytesRead, NULL);
+	if ( !ok && bytesToRead == bytesRead )
+	{
+		Win32ReportError("ReadEntireFile - ReadFile");
+	}
 #else
 #error "Missing implementation"
 #endif
@@ -1049,6 +1064,12 @@ bool FileSeek(File file, u64 offset)
 		LinuxReportError("lseek");
 	} else {
 		ok = true;
+	}
+#elif PLATFORM_WINDOWS
+	const LARGE_INTEGER iOffset = { .QuadPart = (LONGLONG)offset };
+	ok = SetFilePointerEx(file.handle, iOffset, NULL, FILE_BEGIN);
+	if ( !ok ) {
+		Win32ReportError("SetFilePointerEx");
 	}
 #else
 #error "Missing implementation"
@@ -1075,6 +1096,8 @@ void CloseFile(File file)
 	{
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 		close(file.handle);
+#elif PLATFORM_WINDOWS
+		CloseHandle(file.handle);
 #else
 #error "Missing implementation"
 #endif
