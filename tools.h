@@ -975,6 +975,112 @@ bool ExistsFile(const char *filename)
 	return res;
 }
 
+struct File
+{
+	bool isOpen;
+	u64 size;
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	int handle;
+#else
+#error "Missing implementation"
+#endif
+};
+
+enum FileMode
+{
+	FileModeRead,
+	FileModeWrite,
+};
+
+File OpenFile(const char *filename, FileMode mode)
+{
+	File file = {};
+	if ( GetFileSize( filename, file.size ) && file.size > 0 )
+	{
+#if  PLATFORM_LINUX || PLATFORM_ANDROID
+		file.handle = open(filename, O_RDONLY);
+		if ( file.handle == -1 ) {
+			LinuxReportError("open");
+		} else {
+			file.isOpen = true;
+		}
+#else
+#error "Missing implementation"
+#endif
+	}
+	return file;
+}
+
+bool ReadFromFile(File file, void *buffer, u64 size)
+{
+	bool ok = false;
+
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	u64 bytesToRead = size;
+
+	while ( bytesToRead > 0 )
+	{
+		u64 bytesRead = read(file.handle, buffer, bytesToRead);
+		if ( bytesRead > 0 )
+		{
+			bytesToRead -= bytesRead;
+			buffer = (byte*)buffer + bytesRead;
+		}
+		else
+		{
+			LinuxReportError("read");
+			break;
+		}
+	}
+	ok = (bytesToRead == 0);
+#else
+#error "Missing implementation"
+#endif
+
+	return ok;
+}
+
+bool FileSeek(File file, u64 offset)
+{
+	bool ok = false;
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	int res = lseek(file.handle, offset, SEEK_SET);
+	if ( res == -1 ) {
+		LinuxReportError("lseek");
+	} else {
+		ok = true;
+	}
+#else
+#error "Missing implementation"
+#endif
+	return ok;
+}
+
+byte *PushFileData(Arena &arena, File file, u64 offset, u64 size)
+{
+	if ( FileSeek(file, offset) ) {
+		Arena modifiedArena = arena;
+		byte *bytes = PushSize(modifiedArena, size);
+		if ( ReadFromFile(file, bytes, size) ) {
+			arena = modifiedArena;
+			return bytes;
+		}
+	}
+	return nullptr;
+}
+
+void CloseFile(File file)
+{
+	if (file.isOpen)
+	{
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+		close(file.handle);
+#else
+#error "Missing implementation"
+#endif
+	}
+}
+
 bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 {
 	bool ok = false;
@@ -1004,7 +1110,7 @@ bool ReadEntireFile(const char *filename, void *buffer, u64 bytesToRead)
 	{
 		while ( bytesToRead > 0 )
 		{
-			u32 bytesRead = read(fd, buffer, bytesToRead);
+			u64 bytesRead = read(fd, buffer, bytesToRead);
 			if ( bytesRead > 0 )
 			{
 				bytesToRead -= bytesRead;
@@ -1056,7 +1162,7 @@ bool WriteEntireFile(const char *filename, const void *buffer, u64 bytesToWrite)
 	{
 		while ( bytesToWrite > 0 )
 		{
-			const u32 bytesWritten = write(fd, buffer, bytesToWrite);
+			const u64 bytesWritten = write(fd, buffer, bytesToWrite);
 			if ( bytesWritten > 0 )
 			{
 				bytesToWrite -= bytesWritten;

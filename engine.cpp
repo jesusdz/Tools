@@ -2053,10 +2053,12 @@ AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 
 void Save(Engine &engine)
 {
+#if USE_DATA_BUILD
 	const AssetDescriptors assetDescs = GetAssetDescriptorsFromGlobalArrays();
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
 	SaveAssetDescriptors(path.str, assetDescs);
+#endif // USE_DATA_BUILD
 }
 
 float3 UpDirectionFromAngles(const float2 &angles)
@@ -3212,16 +3214,13 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	if ( buildAssets ) {
 		Arena &dataArena = engine.platform.dataArena;
-#if 0
-		const AssetDescriptors &assetDescriptors = GetAssetDescriptorsFromGlobalArrays();
-#else
 		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
 		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
 
-		// TODO(jesus): Serialize this to text as well
+		// TODO(jesus): Serialize this to text as well?
 		assetDescriptors.shaderDescs = shaderSources;
 		assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
-#endif
+
 		Arena scratch = MakeSubArena(dataArena);
 		BuildAssets(assetDescriptors, dataFilepath.str, scratch);
 		if (exitAfterBuild) {

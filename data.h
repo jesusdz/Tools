@@ -78,7 +78,10 @@ struct AssetDescriptors
 
 // Functions
 
+#if USE_DATA_BUILD
 void SaveAssetDescriptors(const char *path, const AssetDescriptors &assetDescriptors);
+AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena);
+#endif // USE_DATA_BUILD
 
 
 
@@ -183,10 +186,7 @@ struct BinAssets
 
 // Functions
 
-struct Engine;
-
 #if USE_DATA_BUILD
-AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena);
 void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena);
 #endif // USE_DATA_BUILD
 

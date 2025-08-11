@@ -1,4 +1,9 @@
 
+#if USE_DATA_BUILD
+
+////////////////////////////////////////////////////////////////////////
+// Text output
+
 struct WriteContext
 {
 	Arena arena;
@@ -196,11 +201,8 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 
 
 
-
-
-
-
-#if USE_DATA_BUILD
+////////////////////////////////////////////////////////////////////////
+// Text scanner / parser
 
 enum DTokenId
 {
@@ -870,6 +872,18 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 	return descriptors;
 }
 
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////
+// Binary output
+
 void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Arena tempArena)
 {
 	LOG(Info, "Building data\n");
@@ -1074,6 +1088,18 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 #endif // USE_DATA_BUILD
 
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////
+// Binary loading
+
 BinAssets LoadAssets(Arena &dataArena)
 {
 	BinAssets assets = {};
@@ -1082,56 +1108,68 @@ BinAssets LoadAssets(Arena &dataArena)
 
 	const FilePath filepath = MakePath(DataDir, "assets.dat");
 
-	DataChunk *chunk = PushFile( dataArena, filepath.str );
-	if ( !chunk ) {
+	File file = OpenFile( filepath.str, FileModeRead );
+	if ( !file.isOpen ) {
 		LOG( Error, "Could not open file %s\n", filepath.str );
 		QUIT_ABNORMALLY();
 	}
 
-	byte *bytes =  chunk->bytes;
-	BinAssetsHeader fileHeader = *(BinAssetsHeader*)bytes;
+	if ( !ReadFromFile( file, &assets.header, sizeof(BinAssetsHeader) ) )
+	{
+		LOG( Error, "Could not read file header from file %s\n", filepath.str );
+		QUIT_ABNORMALLY();
+	}
 
-	if (fileHeader.magicNumber != U32FromChars('I', 'R', 'I', 'S'))
+	if (assets.header.magicNumber != U32FromChars('I', 'R', 'I', 'S'))
 	{
 		LOG( Error, "Wrong magic number in file %s\n", filepath.str );
 		QUIT_ABNORMALLY();
 	}
 
-	assets.header = fileHeader;
 	assets.shaders = PushArray(dataArena, BinShader, assets.header.shaderCount);
 	assets.images = PushArray(dataArena, BinImage, assets.header.imageCount);
 	assets.audioClips = PushArray(dataArena, BinAudioClip, assets.header.audioClipCount);
-	assets.materialDescs = PushArray(dataArena, BinMaterialDesc, assets.header.materialCount);
 
-	BinShaderDesc *binShaderDescs = (BinShaderDesc*)(bytes + fileHeader.shadersOffset);
+	const u32 shaderDescsOffset = assets.header.shadersOffset;
+	const u32 shaderDescsSize = assets.header.shaderCount * sizeof(BinShaderDesc);
+	const u32 imageDescsOffset = assets.header.imagesOffset;
+	const u32 imageDescsSize = assets.header.imageCount * sizeof(BinImageDesc);
+	const u32 audioClipDescsOffset = assets.header.audioClipsOffset;
+	const u32 audioClipDescsSize = assets.header.audioClipCount * sizeof(BinAudioClipDesc);
+	const u32 materialDescsOffset = assets.header.materialsOffset;
+	const u32 materialDescsSize = assets.header.materialCount * sizeof(BinMaterialDesc);
+	const u32 entityDescsOffset = assets.header.entitiesOffset;
+	const u32 entityDescsSize = assets.header.entityCount * sizeof(BinEntityDesc);
 
-	for (u32 i = 0; i < fileHeader.shaderCount; ++i)
+	BinShaderDesc *binShaderDescs = (BinShaderDesc*) PushFileData(dataArena, file, shaderDescsOffset, shaderDescsSize);
+
+	for (u32 i = 0; i < assets.header.shaderCount; ++i)
 	{
 		BinShader &shader = assets.shaders[i];
 		shader.desc = binShaderDescs + i;
-		shader.spirv = bytes + shader.desc->dataOffset;
+		shader.spirv = PushFileData(dataArena, file, shader.desc->dataOffset, shader.desc->dataSize);
 	}
 
-	BinImageDesc *binImageDescs = (BinImageDesc*)(bytes + fileHeader.imagesOffset);
+	BinImageDesc *binImageDescs = (BinImageDesc*) PushFileData(dataArena, file, imageDescsOffset, imageDescsSize);
 
-	for (u32 i = 0; i < fileHeader.imageCount; ++i)
+	for (u32 i = 0; i < assets.header.imageCount; ++i)
 	{
 		BinImage &image = assets.images[i];
 		image.desc = binImageDescs + i;
-		image.pixels = bytes + image.desc->dataOffset;
+		image.pixels = PushFileData(dataArena, file, image.desc->dataOffset, image.desc->dataSize);
 	}
 
-	BinAudioClipDesc *binAudioClipDescs = (BinAudioClipDesc*)(bytes + fileHeader.audioClipsOffset);
+	BinAudioClipDesc *binAudioClipDescs = (BinAudioClipDesc*) PushFileData(dataArena, file, audioClipDescsOffset, audioClipDescsSize);
 
-	for (u32 i = 0; i < fileHeader.audioClipCount; ++i)
+	for (u32 i = 0; i < assets.header.audioClipCount; ++i)
 	{
 		BinAudioClip &audioClip = assets.audioClips[i];
 		audioClip.desc = binAudioClipDescs + i;
-		audioClip.samples = bytes + audioClip.desc->dataOffset;
+		audioClip.samples = PushFileData(dataArena, file, audioClip.desc->dataOffset, audioClip.desc->dataSize);
 	}
 
-	assets.materialDescs = (BinMaterialDesc*)(bytes + fileHeader.materialsOffset);
-	assets.entityDescs = (BinEntityDesc*)(bytes + fileHeader.entitiesOffset);
+	assets.materialDescs = (BinMaterialDesc*) PushFileData(dataArena, file, materialDescsOffset, materialDescsSize);
+	assets.entityDescs = (BinEntityDesc*) PushFileData(dataArena, file, entityDescsOffset, entityDescsSize);
 
 	return assets;
 }
