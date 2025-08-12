@@ -79,6 +79,7 @@ struct AssetDescriptors
 // Functions
 
 #if USE_DATA_BUILD
+void CompileShaders();
 void SaveAssetDescriptors(const char *path, const AssetDescriptors &assetDescriptors);
 AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena);
 #endif // USE_DATA_BUILD

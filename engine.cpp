@@ -951,44 +951,6 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 	audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 }
 
-void CompileShaders()
-{
-	char text[MAX_PATH_LENGTH];
-
-#if PLATFORM_WINDOWS
-	constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
-#elif PLATFORM_LINUX
-	constexpr const char *dxc = "dxc/linux/bin/dxc";
-#else
-	constexpr const char *dxc = "<none>";
-#endif
-	constexpr const char *flags = "-spirv -O3";
-
-	for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
-	{
-		const ShaderSourceDesc &desc = shaderSources[i];
-		const char *target =
-			desc.type == ShaderTypeVertex ? "vs_6_7" :
-			desc.type == ShaderTypeFragment ? "ps_6_7" :
-			desc.type == ShaderTypeCompute ? "cs_6_7" :
-			"unknown";
-		const char *entry = desc.entryPoint;
-		const char *output = desc.name;
-		const char *filename = desc.filename;
-		SPrintf(text,
-			"%s/%s "
-			"%s -T %s -E %s "
-			"-Fo %s/shaders/%s.spv -Fc %s/shaders/%s.dis "
-			"%s/shaders/%s",
-			ProjectDir, dxc,
-			flags, target, entry,
-			DataDir, output, DataDir, output,
-			ProjectDir, filename );
-		LOG(Debug, "%s\n", text);
-		ExecuteProcess(text);
-	}
-}
-
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
 	timeSamples.samples[timeSamples.sampleCount] = sample;
@@ -2141,15 +2103,15 @@ void CleanScene(Engine &engine)
 
 void BuildAssetsFromDescriptors(Engine &engine)
 {
-	Arena &dataArena = engine.platform.dataArena;
+	Arena scratch = MakeSubArena(engine.platform.dataArena);
+
 	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, scratch);
 
 	// TODO(jesus): Serialize this to text as well?
 	assetDescriptors.shaderDescs = shaderSources;
 	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
 
-	Arena scratch = MakeSubArena(dataArena);
 	const FilePath dataFilepath = MakePath(DataDir, "assets.dat");
 	BuildAssets(assetDescriptors, dataFilepath.str, scratch);
 }
