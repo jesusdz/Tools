@@ -5,7 +5,11 @@ enum EditorCommandType
 {
 	EditorCommandReloadGraphicsPipeline,
 	EditorCommandRemoveTexture,
-	EditorCommandSave,
+	EditorCommandLoadTxt,
+	EditorCommandSaveTxt,
+	EditorCommandLoadBin,
+	EditorCommandBuildBin,
+	EditorCommandClean,
 	EditorCommandCount,
 };
 

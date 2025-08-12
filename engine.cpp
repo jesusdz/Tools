@@ -44,8 +44,8 @@
 
 #define INVALID_HANDLE -1
 
-#define LOAD_FROM_SOURCE_FILES 0
 
+static bool sLoadFromTextDescriptors = false;
 
 
 struct Vertex
@@ -195,6 +195,7 @@ struct Graphics
 	TextureH skyTextureH;
 
 	ImageH pinkImageH;
+	ImageH blackImageH;
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
@@ -286,35 +287,6 @@ struct Engine
 #endif
 
 	BinAssets assets;
-};
-
-static TextureDesc textures[] =
-{
-	{ .name = "tex_diamond", .filename = "assets/diamond.png", .mipmap = 1 },
-	{ .name = "tex_dirt",    .filename = "assets/dirt.jpg",    .mipmap = 1 },
-	{ .name = "tex_grass",   .filename = "assets/grass.jpg",   .mipmap = 1 },
-	{ .name = "tex_sky",     .filename = "assets/sky01.png" },
-};
-
-static MaterialDesc materialDescs[] =
-{
-	{ .name = "mat_diamond", .textureName = "tex_diamond", .pipelineName = "pipeline_shading", .uvScale = 1.0f },
-	{ .name = "mat_dirt",    .textureName = "tex_dirt",    .pipelineName = "pipeline_shading", .uvScale = 1.0f },
-	{ .name = "mat_grass",   .textureName = "tex_grass",   .pipelineName = "pipeline_shading", .uvScale = 11.0f },
-};
-
-static EntityDesc entityDescs[] =
-{
-	{ .name = "ent_cube0", .materialName = "mat_diamond", .pos = { 1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
-	{ .name = "ent_cube1", .materialName = "mat_diamond", .pos = { 1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
-	{ .name = "ent_cube2", .materialName = "mat_dirt",    .pos = {-1, 0,  1},   .scale = 1,  .geometryType = GeometryTypeCube},
-	{ .name = "ent_cube3", .materialName = "mat_dirt",    .pos = {-1, 0, -1},   .scale = 1,  .geometryType = GeometryTypeCube},
-	{ .name = "ent_plane", .materialName = "mat_grass",   .pos = { 0, -0.5, 0}, .scale = 11, .geometryType = GeometryTypePlane},
-};
-
-static AudioClipDesc audioClipDescs[] = {
-	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
-	{ .name = "aclip_music", .filename = "assets/music.wav" },
 };
 
 static const Vertex cubeVertices[] = {
@@ -855,7 +827,7 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 #endif
 }
 
-void CreateAudioClip(Platform &platform, const BinAudioClip &binAudioClip)
+void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 {
 	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
@@ -876,8 +848,10 @@ void CreateAudioClip(Platform &platform, const BinAudioClip &binAudioClip)
 	}
 }
 
-void CreateAudioClip(Engine &engine, Arena &arena, const AudioClipDesc &audioClipDesc)
+void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 {
+	Arena &arena = engine.platform.dataArena;
+
 	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
 		AudioClip &audioClip = audioClips[audioClipCount++];
@@ -1012,19 +986,6 @@ void CompileShaders()
 			ProjectDir, filename );
 		LOG(Debug, "%s\n", text);
 		ExecuteProcess(text);
-	}
-}
-
-void CopyTextures()
-{
-	char text[MAX_PATH_LENGTH];
-
-	for (u32 i = 0; i < ARRAY_COUNT(textures); ++i)
-	{
-		const FilePath srcPath = MakePath(ProjectDir, textures[i].filename);
-		const FilePath dstPath = MakePath(DataDir, textures[i].filename);
-		LOG(Debug, "CopyFile %s to %s\n", srcPath.str, dstPath.str);
-		CopyFile(srcPath.str, dstPath.str);
 	}
 }
 
@@ -1270,7 +1231,22 @@ void FreeTextureHandle(Graphics &gfx, TextureH handle)
 
 }
 
-#if LOAD_FROM_SOURCE_FILES
+Texture &GetTexture(Graphics &gfx, TextureH handle)
+{
+	ASSERT( IsValidHandle(gfx, handle) );
+	Texture &texture = gfx.textures[handle.idx];
+	return texture;
+}
+
+TextureH CreateTexture(Graphics &gfx, const char *name, ImageH imageHandle)
+{
+	const TextureH textureHandle = NewTextureHandle(gfx);
+	Texture &texture = GetTexture(gfx, textureHandle);
+	texture.name = name;
+	texture.image = imageHandle;
+	return textureHandle;
+}
+
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	int texWidth, texHeight, texChannels;
@@ -1289,9 +1265,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	const ImageH imageHandle = CreateImage(gfx, desc.name, texWidth, texHeight, texChannels, desc.mipmap, pixels);
 
-	const TextureH textureHandle = NewTextureHandle(gfx);
-	gfx.textures[textureHandle].name = desc.name;
-	gfx.textures[textureHandle].image = imageHandle;
+	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
 
 	if ( originalPixels )
 	{
@@ -1299,14 +1273,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	}
 
 	return textureHandle;
-}
-#endif
-
-Texture &GetTexture(Graphics &gfx, TextureH handle)
-{
-	ASSERT( IsValidHandle(gfx, handle) );
-	Texture &texture = gfx.textures[handle.idx];
-	return texture;
 }
 
 TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
@@ -1321,10 +1287,7 @@ TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
 
 	const ImageH imageHandle = CreateImage(gfx, name, width, height, channels, mipmap, pixels);
 
-	const TextureH textureHandle = NewTextureHandle(gfx);
-	Texture &texture = GetTexture(gfx, textureHandle);
-	texture.name = desc.name;
-	texture.image = imageHandle;
+	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
 
 	return textureHandle;
 }
@@ -1353,7 +1316,6 @@ TextureH FindTextureHandle(Graphics &gfx, const char *name)
 		}
 	}
 	LOG(Warning, "Could not find texture <%s> handle.\n", name);
-	INVALID_CODE_PATH();
 	return InvalidTextureH;
 }
 
@@ -1378,6 +1340,7 @@ MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 	ASSERT(gfx.materialCount < MAX_MATERIALS);
 	MaterialH materialHandle = gfx.materialCount++;
 	gfx.materials[materialHandle].name = desc.name;
+	gfx.materials[materialHandle].pipelineName = desc.pipelineName;
 	gfx.materials[materialHandle].pipelineH = pipelineHandle;
 	gfx.materials[materialHandle].albedoTexture = textureHandle;
 	gfx.materials[materialHandle].uvScale = desc.uvScale;
@@ -1589,7 +1552,6 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	renderTargets = {};
 }
 
-#if LOAD_FROM_SOURCE_FILES
 static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 {
 	char filename[MAX_PATH_LENGTH];
@@ -1603,7 +1565,7 @@ static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 	ShaderSource shaderSource = { chunk->bytes, chunk->size };
 	return shaderSource;
 }
-#else
+
 static ShaderSource GetShaderSource(BinAssets &assets, const char *shaderName)
 {
 	byte *bytes = 0;
@@ -1630,7 +1592,6 @@ static ShaderSource GetShaderSource(BinAssets &assets, const char *shaderName)
 	const ShaderSource shaderSource = { .data = bytes, .dataSize = size };
 	return shaderSource;
 }
-#endif
 
 static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineIndex)
 {
@@ -1640,13 +1601,17 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 
 	PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
 	desc.renderPass = GetRenderPass(gfx.device, renderPassH);
-#if LOAD_FROM_SOURCE_FILES
-	desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsName);
-	desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsName);
-#else
-	desc.vertexShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].vsName);
-	desc.fragmentShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].fsName);
-#endif
+
+	if ( sLoadFromTextDescriptors )
+	{
+		desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsName);
+		desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsName);
+	}
+	else
+	{
+		desc.vertexShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].vsName);
+		desc.fragmentShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].fsName);
+	}
 
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = pipelineHandles[pipelineIndex];
@@ -1663,11 +1628,15 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 	Graphics &gfx = engine.gfx;
 
 	ComputeDesc desc = computeDescs[pipelineIndex].desc;
-#if LOAD_FROM_SOURCE_FILES
-	desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csName);
-#else
-	desc.computeShaderSource = GetShaderSource(engine.assets, computeDescs[pipelineIndex].csName);
-#endif
+
+	if ( sLoadFromTextDescriptors )
+	{
+		desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csName);
+	}
+	else
+	{
+		desc.computeShaderSource = GetShaderSource(engine.assets, computeDescs[pipelineIndex].csName);
+	}
 
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = computeHandles[pipelineIndex];
@@ -1677,6 +1646,33 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 	pipelineH = CreateComputePipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
 	SetObjectName(gfx.device, pipelineH, desc.name);
 	computeHandles[pipelineIndex] = pipelineH;
+}
+
+void LinkHandles(Graphics &gfx)
+{
+	// Textures
+	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
+
+	// Graphics pipelines
+	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
+	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
+	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
+#if USE_EDITOR
+	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
+#endif // USE_EDITOR
+
+	// Compute pipelines
+#if USE_COMPUTE_TEST
+	gfx.computeClearH = FindPipelineHandle(gfx, "compute_clear");
+	gfx.computeUpdateH = FindPipelineHandle(gfx, "compute_update");
+#endif // USE_COMPUTE_TEST
+	gfx.computeSelectH = FindPipelineHandle(gfx, "compute_select");
+
+	for (u32 i = 0; i < gfx.materialCount; ++i)
+	{
+		Material &material = gfx.materials[i];
+		material.pipelineH = FindPipelineHandle(gfx, material.pipelineName);
+	}
 }
 
 bool InitializeGraphics(Engine &engine, Arena &arena)
@@ -1863,33 +1859,10 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	for (u32 i = 0; i < MAX_TEXTURES; ++i) {
 		gfx.textureIndices[i] = i;
 		gfx.textureHandles[i].idx = i;
+		gfx.textureHandles[i].gen = 1;
 	}
 
-	engine.assets = LoadAssets(engine.platform.dataArena);
-
-	// Textures
-	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
-	{
-		CreateTexture(engine.gfx, engine.assets.images[i]);
-	}
-
-	// Audio clips
-	for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
-	{
-		CreateAudioClip(engine.platform, engine.assets.audioClips[i]);
-	}
-
-	// Materials
-	for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
-	{
-		CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
-	}
-
-	// Entities
-	for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
-	{
-		CreateEntity(engine, engine.assets.entityDescs[i]);
-	}
+	sLoadFromTextDescriptors = true;
 
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
@@ -1903,9 +1876,52 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 		CompileComputePipeline(engine, scratch, i);
 	}
 
+	sLoadFromTextDescriptors = false;
+
+	// Builtin images
+	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
+	gfx.pinkImageH = CreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
+	const byte blackImagePixels[] = { 0, 0, 0, 0 };
+	gfx.blackImageH = CreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
+
+	// Samplers
+	const SamplerDesc materialSamplerDesc = {
+		.addressMode = AddressModeRepeat,
+	};
+	gfx.materialSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
+	const SamplerDesc shadowmapSamplerDesc = {
+		.addressMode = AddressModeClampToBorder,
+		.borderColor = BorderColorBlackFloat,
+		.compareOp = CompareOpGreater,
+	};
+	gfx.shadowmapSamplerH = CreateSampler(gfx.device, shadowmapSamplerDesc);
+	const SamplerDesc skySamplerDesc = {
+		.addressMode = AddressModeClampToEdge,
+	};
+	gfx.skySamplerH = CreateSampler(gfx.device, skySamplerDesc);
+
+	// BindGroups for globals
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.globalBindGroups); ++i)
+	{
+		gfx.globalBindGroups[i] = CreateBindGroup(gfx.device, gfx.globalBindGroupLayout, gfx.globalBindGroupAllocator);
+	}
+
+	gfx.shouldUpdateGlobalBindGroups = true;
+
+	// Timestamp queries
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
+	{
+		gfx.timestampPools[i] = CreateTimestampPool(gfx.device, 128);
+		//ResetTimestampPool(gfx.device, gfx.timestampPools[i]); // Vulkan 1.2
+	}
+
+	LinkHandles(gfx);
+
 #if USE_UI
 	UI_Initialize(engine.ui, gfx, gfx.device, scratch);
 #endif
+
+	gfx.deviceInitialized = true;
 
 	return true;
 }
@@ -1960,82 +1976,8 @@ void UpdateMaterialBindGroups(Graphics &gfx)
 	}
 }
 
-void LinkPipelineHandles(Graphics &gfx)
+void UploadMaterialData(Graphics &gfx)
 {
-	// Graphics pipelines
-	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
-	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
-	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
-#if USE_EDITOR
-	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
-#endif // USE_EDITOR
-
-	// Compute pipelines
-#if USE_COMPUTE_TEST
-	gfx.computeClearH = FindPipelineHandle(gfx, "compute_clear");
-	gfx.computeUpdateH = FindPipelineHandle(gfx, "compute_update");
-#endif // USE_COMPUTE_TEST
-	gfx.computeSelectH = FindPipelineHandle(gfx, "compute_select");
-
-	for (u32 i = 0; i < gfx.materialCount; ++i)
-	{
-		Material &material = gfx.materials[i];
-		material.pipelineH = FindPipelineHandle(gfx, material.pipelineName);
-	}
-}
-
-void InitializeScene(Engine &engine, Arena &globalArena)
-{
-	Graphics &gfx = engine.gfx;
-
-#if LOAD_FROM_SOURCE_FILES
-	for (u32 i = 0; i < ARRAY_COUNT(textures); ++i)
-	{
-		CreateTexture(gfx, textures[i]);
-	}
-
-	for (u32 i = 0; i < ARRAY_COUNT(audioClipDescs); ++i)
-	{
-		CreateAudioClip(engine, globalArena, audioClipDescs[i]);
-	}
-
-	for (u32 i = 0; i < ARRAY_COUNT(materialDescs); ++i)
-	{
-		CreateMaterial(gfx, materialDescs[i]);
-	}
-
-	for (u32 i = 0; i < ARRAY_COUNT(entityDescs); ++i)
-	{
-		CreateEntity(engine, entityDescs[i]);
-	}
-#endif
-
-	// Textures
-	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
-
-	// Images
-	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
-	gfx.pinkImageH = CreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
-
-	// Pipelines
-	LinkPipelineHandles(gfx);
-
-	// Samplers
-	const SamplerDesc materialSamplerDesc = {
-		.addressMode = AddressModeRepeat,
-	};
-	gfx.materialSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
-	const SamplerDesc shadowmapSamplerDesc = {
-		.addressMode = AddressModeClampToBorder,
-		.borderColor = BorderColorBlackFloat,
-		.compareOp = CompareOpGreater,
-	};
-	gfx.shadowmapSamplerH = CreateSampler(gfx.device, shadowmapSamplerDesc);
-	const SamplerDesc skySamplerDesc = {
-		.addressMode = AddressModeClampToEdge,
-	};
-	gfx.skySamplerH = CreateSampler(gfx.device, skySamplerDesc);
-
 	CommandList commandList = BeginTransientCommandList(gfx.device);
 
 	// Copy material info to buffer
@@ -2049,15 +1991,10 @@ void InitializeScene(Engine &engine, Arena &globalArena)
 	}
 
 	EndTransientCommandList(gfx.device, commandList);
+}
 
-	// BindGroups for globals
-	for (u32 i = 0; i < ARRAY_COUNT(gfx.globalBindGroups); ++i)
-	{
-		gfx.globalBindGroups[i] = CreateBindGroup(gfx.device, gfx.globalBindGroupLayout, gfx.globalBindGroupAllocator);
-	}
-
-	gfx.shouldUpdateGlobalBindGroups = true;
-
+void CreateMaterialBindGroups(Graphics &gfx)
+{
 	// BindGroups for materials
 	for (u32 i = 0; i < gfx.materialCount; ++i)
 	{
@@ -2067,16 +2004,6 @@ void InitializeScene(Engine &engine, Arena &globalArena)
 	}
 
 	gfx.shouldUpdateMaterialBindGroups = true;
-
-	// Timestamp queries
-	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
-	{
-		gfx.timestampPools[i] = CreateTimestampPool(gfx.device, 128);
-		//ResetTimestampPool(gfx.device, gfx.timestampPools[i]); // Vulkan 1.2
-	}
-
-	gfx.deviceInitialized = true;
-
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -2112,16 +2039,7 @@ void CleanupGraphics(Graphics &gfx)
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
 
-void LoadScene(Graphics &gfx)
-{
-	// TODO
-}
-
-void CleanupScene(Graphics &gfx)
-{
-	// TODO
-}
-
+#if 0
 AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 {
 	const AssetDescriptors assetDescs = {
@@ -2139,15 +2057,101 @@ AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 
 	return assetDescs;
 }
+#endif
 
-void Save(Engine &engine)
+void LoadSceneFromTxt(Engine &engine)
 {
-#if USE_DATA_BUILD
+	Arena &dataArena = engine.platform.dataArena;
+	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+
+	// Textures
+	for (u32 i = 0; i < assetDescriptors.textureDescCount; ++i)
+	{
+		CreateTexture(engine.gfx, assetDescriptors.textureDescs[i]);
+	}
+
+	// Materials
+	for (u32 i = 0; i < assetDescriptors.materialDescCount; ++i)
+	{
+		CreateMaterial(engine.gfx, assetDescriptors.materialDescs[i]);
+	}
+
+	// Entities
+	for (u32 i = 0; i < assetDescriptors.entityDescCount; ++i)
+	{
+		CreateEntity(engine, assetDescriptors.entityDescs[i]);
+	}
+
+	// Audio clips
+	for (u32 i = 0; i < assetDescriptors.audioClipDescCount; ++i)
+	{
+		CreateAudioClip(engine, assetDescriptors.audioClipDescs[i]);
+	}
+
+	UploadMaterialData(engine.gfx);
+	CreateMaterialBindGroups(engine.gfx);
+}
+
+void SaveSceneToTxt(Engine &engine)
+{
+#if 0 && USE_DATA_BUILD
 	const AssetDescriptors assetDescs = GetAssetDescriptorsFromGlobalArrays();
 
 	FilePath path = MakePath(AssetDir, "assets.txt");
 	SaveAssetDescriptors(path.str, assetDescs);
 #endif // USE_DATA_BUILD
+}
+
+void LoadSceneFromBin(Engine &engine)
+{
+	engine.assets = LoadAssets(engine.platform.dataArena);
+
+	// Textures
+	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
+	{
+		CreateTexture(engine.gfx, engine.assets.images[i]);
+	}
+
+	// Materials
+	for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
+	{
+		CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
+	}
+
+	// Entities
+	for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
+	{
+		CreateEntity(engine, engine.assets.entityDescs[i]);
+	}
+
+	// Audio clips
+	for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
+	{
+		CreateAudioClip(engine, engine.assets.audioClips[i]);
+	}
+
+	UploadMaterialData(engine.gfx);
+	CreateMaterialBindGroups(engine.gfx);
+}
+
+void CleanScene(Engine &engine)
+{
+}
+
+void BuildAssetsFromDescriptors(Engine &engine)
+{
+	Arena &dataArena = engine.platform.dataArena;
+	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+
+	// TODO(jesus): Serialize this to text as well?
+	assetDescriptors.shaderDescs = shaderSources;
+	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
+
+	Arena scratch = MakeSubArena(dataArena);
+	const FilePath dataFilepath = MakePath(DataDir, "assets.dat");
+	BuildAssets(assetDescriptors, dataFilepath.str, scratch);
 }
 
 float3 UpDirectionFromAngles(const float2 &angles)
@@ -2814,20 +2818,6 @@ void UpdateImGui(Graphics &gfx)
 
 	ImGui::Begin("Hello, world!");
 
-
-	if ( ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen) )
-	{
-		static bool sceneLoaded = false;
-		if ( ImGui::Button("Load") && !sceneLoaded )
-		{
-			LoadScene(gfx);
-		}
-		if ( ImGui::Button("Cleanup") && sceneLoaded )
-		{
-			CleanupScene(gfx);
-		}
-	}
-
 	ImGui::Separator();
 
 	char tmpString[4092] = {};
@@ -3157,8 +3147,6 @@ bool OnPlatformWindowInit(Platform &platform)
 			return false;
 		}
 
-		InitializeScene(engine, platform.globalArena);
-
 #if USE_EDITOR
 		EditorInitialize(engine);
 #endif
@@ -3249,8 +3237,6 @@ void OnPlatformCleanup(Platform &platform)
 	UI_Cleanup(engine.ui);
 #endif
 
-	CleanupScene(gfx);
-
 	DestroyRenderTargets(gfx, gfx.renderTargets);
 	DestroySwapchain(gfx.device, gfx.device.swapchain);
 	CleanupGraphicsSurface(gfx.device);
@@ -3302,16 +3288,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 	}
 
 	if ( buildAssets ) {
-		Arena &dataArena = engine.platform.dataArena;
-		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
-
-		// TODO(jesus): Serialize this to text as well?
-		assetDescriptors.shaderDescs = shaderSources;
-		assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
-
-		Arena scratch = MakeSubArena(dataArena);
-		BuildAssets(assetDescriptors, dataFilepath.str, scratch);
+		BuildAssetsFromDescriptors(engine);
 		if (exitAfterBuild) {
 			return;
 		}

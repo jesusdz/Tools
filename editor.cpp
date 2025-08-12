@@ -101,9 +101,33 @@ static void EditorUpdateUI(Engine &engine)
 		{
 			editor.selectedEntity = U32_MAX;
 		}
-		if (UI_Button(ui, "Save scene"))
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		if ( UI_Button(ui, "Load TXT") )
 		{
-			const EditorCommand command = { .type = EditorCommandSave };
+			const EditorCommand command = { .type = EditorCommandLoadTxt };
+			AddEditorCommand(editor, command);
+		}
+		if (UI_Button(ui, "Save TXT"))
+		{
+			const EditorCommand command = { .type = EditorCommandSaveTxt };
+			AddEditorCommand(editor, command);
+		}
+		UI_EndLayout(ui);
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		if ( UI_Button(ui, "Load BIN") )
+		{
+			const EditorCommand command = { .type = EditorCommandLoadBin };
+			AddEditorCommand(editor, command);
+		}
+		if ( UI_Button(ui, "Build BIN") )
+		{
+			const EditorCommand command = { .type = EditorCommandBuildBin };
+			AddEditorCommand(editor, command);
+		}
+		UI_EndLayout(ui);
+		if ( UI_Button(ui, "Clean") )
+		{
+			const EditorCommand command = { .type = EditorCommandClean };
 			AddEditorCommand(editor, command);
 		}
 	}
@@ -521,9 +545,29 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 					RemoveTexture(engine.gfx, command.textureH);
 					break;
 				}
-				case EditorCommandSave:
+				case EditorCommandLoadTxt:
 				{
-					Save(engine);
+					LoadSceneFromTxt(engine);
+					break;
+				}
+				case EditorCommandSaveTxt:
+				{
+					SaveSceneToTxt(engine);
+					break;
+				}
+				case EditorCommandLoadBin:
+				{
+					LoadSceneFromBin(engine);
+					break;
+				}
+				case EditorCommandBuildBin:
+				{
+					BuildAssetsFromDescriptors(engine);
+					break;
+				}
+				case EditorCommandClean:
+				{
+					CleanScene(engine);
 					break;
 				}
 
@@ -533,7 +577,7 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 
 		editor.commandCount = 0;
 
-		LinkPipelineHandles(gfx);
+		LinkHandles(gfx);
 	}
 }
 
