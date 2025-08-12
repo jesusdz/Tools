@@ -74,6 +74,19 @@ static void EditorUpdateUI(Engine &engine)
 		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
 
+	if ( UI_Section(ui, "Memory") )
+	{
+		const Platform &platform = engine.platform;
+		SPrintf(text, "- Global Arena: %u / %u KB", platform.globalArena.used / KB(1), platform.globalArena.size / KB(1));
+		UI_Label(ui, text);
+		SPrintf(text, "- Frame Arena: %u / %u KB", platform.frameArena.used / KB(1), platform.frameArena.size / KB(1));
+		UI_Label(ui, text);
+		SPrintf(text, "- String Arena: %u / %u KB", platform.stringArena.used / KB(1), platform.stringArena.size / KB(1));
+		UI_Label(ui, text);
+		SPrintf(text, "- Data Arena: %u / %u KB", platform.dataArena.used / KB(1), platform.dataArena.size / KB(1));
+		UI_Label(ui, text);
+	}
+
 	if ( UI_Section(ui, "Scene") )
 	{
 		for (u32 i = 0; i < scene.entityCount; ++i)

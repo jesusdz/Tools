@@ -314,7 +314,7 @@ static EntityDesc entityDescs[] =
 
 static AudioClipDesc audioClipDescs[] = {
 	{ .name = "aclip_bell", .filename = "assets/bell.wav" },
-	//{ .name = "aclip_music", .filename = "assets/music.wav" },
+	{ .name = "aclip_music", .filename = "assets/music.wav" },
 };
 
 static const Vertex cubeVertices[] = {
@@ -592,26 +592,38 @@ struct WAVE_fmt
 
 #pragma pack(pop)
 
+#define AUDIO_CHUNK_SAMPLE_COUNT (48000/4)
+
+struct AudioChunk
+{
+	u32 firstSampleIndex;
+	i16 samples[AUDIO_CHUNK_SAMPLE_COUNT];
+	AudioChunk *next;
+};
+
 struct AudioClip
 {
-	void *samples;
+	AudioChunk *firstChunk;
+	void *samplesOld;
 	u32 sampleCount;
 	u32 samplingRate;
 	u16 sampleSize;
 	u16 channelCount;
+	BinLocation location;
 };
 
 enum AudioSourceFlags
 {
-	AUDIO_SOURCE_START_BIT = 1<<0,
-	AUDIO_SOURCE_LOOPS_BIT = 1<<1,
-	AUDIO_SOURCE_PAUSE_BIT = 1<<2,
-	AUDIO_SOURCE_STOP_BIT = 1<<3,
+	AUDIO_SOURCE_ACTIVE_BIT = 1<<0,
+	AUDIO_SOURCE_PAUSE_BIT = 1<<1,
+	AUDIO_SOURCE_STOP_BIT = 1<<2,
 };
+
+typedef u32 AudioClipH;
 
 struct AudioSource
 {
-	const AudioClip *clip = nullptr;
+	AudioClipH clip;
 	u32 lastWriteSampleIndex = 0;
 	u8 flags = 0;
 };
@@ -670,7 +682,7 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 		audioClip.samplingRate = Fmt.SampleRate;
 		audioClip.channelCount = Fmt.NumChannels;
 		audioClip.sampleCount = dataSize / audioClip.sampleSize;
-		audioClip.samples = data;
+		audioClip.samplesOld = data;
 
 		fclose(file);
 		return true;
@@ -693,6 +705,8 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
 
 #if 1
+	Engine &engine = GetEngine(platform);
+
 	Scratch scratch;
 
 	f32 *realSamples = PushArray(scratch.arena, f32, soundBuffer.sampleCount * 2.0f );
@@ -709,30 +723,106 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 	{
 		AudioSource &audioSource = audioSources[i];
 
-		const bool isPlaying = audioSource.clip != nullptr &&
+		const bool isPlaying =
+			( audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT ) &&
 			!( audioSource.flags & AUDIO_SOURCE_PAUSE_BIT ) &&
 			!( audioSource.flags & AUDIO_SOURCE_STOP_BIT );
 
 		if (isPlaying)
 		{
-			const i16 *srcSample = (i16*)audioSource.clip->samples + audioSource.lastWriteSampleIndex;
-			f32 *dstSample = realSamples;
+			AudioClip &audioClip = audioClips[audioSource.clip];
 
-			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
-			const u32 maxSampleCount = soundBuffer.sampleCount * 2;
-			const u32 remainingClipSampleCount = audioSource.clip->sampleCount - audioSource.lastWriteSampleIndex;
-			const u32 sampleCount = Min(remainingClipSampleCount, maxSampleCount);
-			for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+			const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
+			const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+			const u32 currChunkFirstSampleIndex = currChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+			const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount);
+			const u32 nextChunkFirstSampleIndex = nextChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+
+			AudioChunk *currChunk = audioClip.firstChunk;
+			while (currChunk)
 			{
-				*dstSample += (f32)*srcSample;
-				dstSample++;
-				srcSample++;
+				const u32 thisChunkIndex = currChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+				if ( currChunkIndex == thisChunkIndex )
+				{
+					break;
+				}
+				currChunk = currChunk->next;
 			}
 
-			audioSource.lastWriteSampleIndex += sampleCount;
-			if (audioSource.lastWriteSampleIndex >= audioSource.clip->sampleCount)
+			if ( !currChunk )
 			{
-				audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+				AudioChunk *currChunk = PushStruct(engine.platform.dataArena, AudioChunk);
+				currChunk->firstSampleIndex = currChunkFirstSampleIndex;
+				currChunk->next = audioClip.firstChunk;
+				FileSeek(engine.assets.file, audioClip.location.offset + currChunkFirstSampleIndex * sizeof(i16));
+				const u32 currChunkSampleCount = (currChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+				ReadFromFile(engine.assets.file, currChunk->samples, currChunkSampleCount * sizeof(i16));
+
+				audioClip.firstChunk = currChunk;
+			}
+
+			AudioChunk *nextChunk = nullptr;
+
+			if ( nextChunkIndex > currChunkIndex )
+			{
+				nextChunk = audioClip.firstChunk;
+				while (nextChunk)
+				{
+					const u32 thisChunkIndex = nextChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+					if ( nextChunkIndex == thisChunkIndex )
+					{
+						break;
+					}
+					nextChunk = nextChunk->next;
+				}
+
+				if ( !nextChunk )
+				{
+					AudioChunk *nextChunk = PushStruct(engine.platform.dataArena, AudioChunk);
+					nextChunk->firstSampleIndex = nextChunkFirstSampleIndex;
+					nextChunk->next = audioClip.firstChunk;
+					FileSeek(engine.assets.file, audioClip.location.offset + nextChunkFirstSampleIndex * sizeof(i16));
+					const u32 nextChunkSampleCount = (nextChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+					ReadFromFile(engine.assets.file, nextChunk->samples, nextChunkSampleCount * sizeof(i16));
+
+					audioClip.firstChunk = nextChunk;
+				}
+			}
+
+			AudioChunk *chunks[] = { currChunk, nextChunk };
+
+			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+			u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+			f32 *dstSample = realSamples;
+
+			for (u32 i = 0; i < ARRAY_COUNT(chunks); ++i)
+			{
+				AudioChunk *chunk = chunks[i];
+
+				if (chunk)
+				{
+					const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - chunk->firstSampleIndex;
+
+					const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
+					const u32 remainingChunkSampleCount = chunk->firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
+					const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
+					const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
+					for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+					{
+						*dstSample += (f32)*srcSample;
+						dstSample++;
+						srcSample++;
+					}
+
+					audioSource.lastWriteSampleIndex += sampleCount;
+					if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
+					{
+						audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+					}
+
+					requestedSampleCount -= sampleCount;
+				}
 			}
 		}
 
@@ -770,14 +860,15 @@ void CreateAudioClip(Platform &platform, const BinAudioClip &binAudioClip)
 	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
 		AudioClip &audioClip = audioClips[audioClipCount++];
-		ASSERT(!audioClip.samples);
+		//ASSERT(!audioClip.samples);
 
 		const BinAudioClipDesc &desc = *binAudioClip.desc;
 		audioClip.sampleSize = desc.sampleSize;
 		audioClip.samplingRate = desc.samplingRate;
 		audioClip.channelCount = desc.channelCount;
 		audioClip.sampleCount = desc.sampleCount;
-		audioClip.samples = binAudioClip.samples;
+		//audioClip.samples = binAudioClip.samples;
+		audioClip.location = desc.location;
 	}
 	else
 	{
@@ -790,7 +881,7 @@ void CreateAudioClip(Engine &engine, Arena &arena, const AudioClipDesc &audioCli
 	if ( audioClipCount < ARRAY_COUNT(audioClips) )
 	{
 		AudioClip &audioClip = audioClips[audioClipCount++];
-		ASSERT(!audioClip.samples);
+		//ASSERT(!audioClip.samples);
 
 		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
 	}
@@ -824,25 +915,23 @@ u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
 
 	if (audioClipIndex < audioClipCount)
 	{
-		const AudioClip &audioClip = audioClips[audioClipIndex];
+		AudioClip &audioClip = audioClips[audioClipIndex];
 
-		if (audioClip.samples)
+		for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
 		{
-			for (u32 i = 0; i < ARRAY_COUNT(audioSources); ++i)
+			AudioSource &audioSource = audioSources[i];
+			if ((audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT) == 0)
 			{
-				AudioSource &audioSource = audioSources[i];
-				if (audioSource.clip == nullptr)
-				{
-					audioSource.clip = &audioClip;
-					audioSource.lastWriteSampleIndex = 0;
-					audioSourceIndex = i;
-					break;
-				}
+				audioSource.clip = audioClipIndex;
+				audioSource.lastWriteSampleIndex = 0;
+				audioSource.flags |= AUDIO_SOURCE_ACTIVE_BIT;
+				audioSourceIndex = i;
+				break;
 			}
 		}
 	}
 
-	if ( audioSourceIndex == INVALID_AUDIO_SOURCE) {
+	if (audioSourceIndex == INVALID_AUDIO_SOURCE) {
 		LOG(Warning, "Could not play audio clip %u\n", audioClipIndex);
 	}
 
@@ -854,7 +943,7 @@ bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex)
 	bool active = false;
 	if (audioSourceIndex < ARRAY_COUNT(audioSources)) {
 		AudioSource &audioSource = audioSources[audioSourceIndex];
-		active = ( audioSource.clip != nullptr );
+		active = audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT;
 	}
 	return active;
 }

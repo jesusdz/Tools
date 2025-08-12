@@ -1042,7 +1042,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			binAudioClipDescs[i] = audioClipHeader;
 
 			if ( ok ) {
-				fwrite(audioClip.samples, payloadSize, 1, file);
+				fwrite(audioClip.samplesOld, payloadSize, 1, file);
 			} else {
 				fseek(file, payloadSize, SEEK_CUR);
 			}
@@ -1167,11 +1167,12 @@ BinAssets LoadAssets(Arena &dataArena)
 	{
 		BinAudioClip &audioClip = assets.audioClips[i];
 		audioClip.desc = binAudioClipDescs + i;
-		audioClip.samples = PushFileData(dataArena, file, audioClip.desc->location.offset, audioClip.desc->location.size);
 	}
 
 	assets.materialDescs = (BinMaterialDesc*) PushFileData(dataArena, file, materialDescsOffset, materialDescsSize);
 	assets.entityDescs = (BinEntityDesc*) PushFileData(dataArena, file, entityDescsOffset, entityDescsSize);
+
+	assets.file = file;
 
 	return assets;
 }

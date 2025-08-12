@@ -179,6 +179,8 @@ struct BinAudioClip
 
 struct BinAssets
 {
+	File file;
+
 	BinAssetsHeader header;
 
 	BinShader *shaders;
