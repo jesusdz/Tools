@@ -877,11 +877,14 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 	}
 }
 
-void RemoveAudioClip(Engine &engine, AudioClipH handle)
+void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle = true)
 {
 	AudioClip &clip = GetAudioClip(engine.audio, handle);
 	clip = {};
-	FreeHandle(engine.audio.clipHandles, handle);
+
+	if (freeHandle) {
+		FreeHandle(engine.audio.clipHandles, handle);
+	}
 }
 
 #define INVALID_AUDIO_CLIP U32_MAX
@@ -1285,13 +1288,15 @@ TextureH FindTextureHandle(Graphics &gfx, const char *name)
 	return handle;
 }
 
-void RemoveTexture(Graphics &gfx, TextureH textureH)
+void RemoveTexture(Graphics &gfx, TextureH textureH, bool freeHandle = true)
 {
 	Texture &texture = GetTexture(gfx, textureH);
 	DestroyImageH(gfx.device, texture.image);
 	texture = {};
 
-	FreeHandle(gfx.textureHandles, textureH);
+	if (freeHandle) {
+		FreeHandle(gfx.textureHandles, textureH);
+	}
 
 	gfx.shouldUpdateMaterialBindGroups = true;
 }
@@ -1355,12 +1360,14 @@ MaterialH FindMaterialHandle(Graphics &gfx, const char *name)
 	return handle;
 }
 
-void RemoveMaterial(Graphics &gfx, MaterialH materialH)
+void RemoveMaterial(Graphics &gfx, MaterialH materialH, bool freeHandle = true)
 {
 	Material &material = GetMaterial(gfx, materialH);
 	material = {};
 
-	FreeHandle(gfx.materialHandles, materialH);
+	if (freeHandle) {
+		FreeHandle(gfx.materialHandles, materialH);
+	}
 
 	// TODO: Do we need this here? I think we don't as we are removing, not modifying
 	//gfx.shouldUpdateMaterialBindGroups = true;
@@ -1441,11 +1448,14 @@ void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 	CreateEntity(engine, entityDesc);
 }
 
-void RemoveEntity(Engine &engine, Handle handle)
+void RemoveEntity(Engine &engine, Handle handle, bool freeHandle = true)
 {
 	Entity &entity = GetEntity(engine.scene, handle);
 	entity = {};
-	FreeHandle(engine.scene.entityHandles, handle);
+
+	if (freeHandle) {
+		FreeHandle(engine.scene.entityHandles, handle);
+	}
 }
 
 
@@ -2138,25 +2148,25 @@ void LoadSceneFromBin(Engine &engine)
 void CleanTexture(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveTexture(engine.gfx, handle);
+	RemoveTexture(engine.gfx, handle, false);
 }
 
 void CleanMaterial(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveMaterial(engine.gfx, handle);
+	RemoveMaterial(engine.gfx, handle, false);
 }
 
 void CleanEntity(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveEntity(engine, handle);
+	RemoveEntity(engine, handle, false);
 }
 
 void CleanAudioClip(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveAudioClip(engine, handle);
+	RemoveAudioClip(engine, handle, false);
 }
 
 void CleanScene(Engine &engine)

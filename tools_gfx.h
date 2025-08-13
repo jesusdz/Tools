@@ -2752,7 +2752,7 @@ const Image &GetImage(const GraphicsDevice &device, ImageH imageH)
 
 bool IsSwapchainImage(ImageH image)
 {
-	const bool isSwapchainImage = image.index < MAX_IMAGES;
+	const bool isSwapchainImage = image.index >= FIRST_SWAPCHAIN_IMAGE_INDEX;
 	return isSwapchainImage;
 }
 
