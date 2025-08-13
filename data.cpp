@@ -1152,7 +1152,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 ////////////////////////////////////////////////////////////////////////
 // Binary loading
 
-BinAssets LoadAssets(Arena &dataArena)
+BinAssets OpenAssets(Arena &dataArena)
 {
 	BinAssets assets = {};
 
@@ -1225,5 +1225,13 @@ BinAssets LoadAssets(Arena &dataArena)
 	assets.file = file;
 
 	return assets;
+}
+
+void CloseAssets(BinAssets &assets)
+{
+	if ( assets.file.isOpen )
+	{
+		CloseFile(assets.file);
+	}
 }
 

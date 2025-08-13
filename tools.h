@@ -1090,7 +1090,7 @@ byte *PushFileData(Arena &arena, File file, u64 offset, u64 size)
 	return nullptr;
 }
 
-void CloseFile(File file)
+void CloseFile(File &file)
 {
 	if (file.isOpen)
 	{
@@ -1101,6 +1101,7 @@ void CloseFile(File file)
 #else
 #error "Missing implementation"
 #endif
+		file.isOpen = false;
 	}
 }
 

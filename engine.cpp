@@ -877,6 +877,13 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 	}
 }
 
+void RemoveAudioClip(Engine &engine, AudioClipH handle)
+{
+	AudioClip &clip = GetAudioClip(engine.audio, handle);
+	clip = {};
+	FreeHandle(engine.audio.clipHandles, handle);
+}
+
 #define INVALID_AUDIO_CLIP U32_MAX
 #define INVALID_AUDIO_SOURCE U32_MAX
 
@@ -1432,6 +1439,13 @@ void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 		.geometryType = desc.geometryType,
 	};
 	CreateEntity(engine, entityDesc);
+}
+
+void RemoveEntity(Engine &engine, Handle handle)
+{
+	Entity &entity = GetEntity(engine.scene, handle);
+	entity = {};
+	FreeHandle(engine.scene.entityHandles, handle);
 }
 
 
@@ -2091,7 +2105,7 @@ void SaveSceneToTxt(Engine &engine)
 
 void LoadSceneFromBin(Engine &engine)
 {
-	engine.assets = LoadAssets(engine.platform.dataArena);
+	engine.assets = OpenAssets(engine.platform.dataArena);
 
 	// Textures
 	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
@@ -2121,8 +2135,42 @@ void LoadSceneFromBin(Engine &engine)
 	CreateMaterialBindGroups(engine.gfx);
 }
 
+void CleanTexture(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveTexture(engine.gfx, handle);
+}
+
+void CleanMaterial(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveMaterial(engine.gfx, handle);
+}
+
+void CleanEntity(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveEntity(engine, handle);
+}
+
+void CleanAudioClip(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveAudioClip(engine, handle);
+}
+
 void CleanScene(Engine &engine)
 {
+	ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
+	FreeAllHandles(engine.gfx.textureHandles);
+	ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
+	FreeAllHandles(engine.gfx.materialHandles);
+	ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
+	FreeAllHandles(engine.scene.entityHandles);
+	ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
+	FreeAllHandles(engine.audio.clipHandles);
+	CloseAssets(engine.assets);
+	ResetBindGroupAllocator( engine.gfx.device, engine.gfx.materialBindGroupAllocator );
 }
 
 void BuildAssetsFromDescriptors(Engine &engine)
