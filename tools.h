@@ -2572,7 +2572,7 @@ struct Input
 typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
 #endif
 
-struct Audio
+struct AudioDevice
 {
 	// Config
 	u16 channelCount;
@@ -2650,7 +2650,7 @@ struct Platform
 	StringInterning stringInterning;
 	Window window;
 	Input input;
-	Audio audio;
+	AudioDevice audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
 };
@@ -3297,7 +3297,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_SYSCOMMAND:
 			{
 				WPARAM param = ( wParam & 0xFFF0 );
-				Audio &audio = sPlatform->audio;
+				AudioDevice &audio = sPlatform->audio;
 
 				if (param == SC_MINIMIZE)
 				{
@@ -3973,7 +3973,7 @@ void UpdateGamepad(Platform &platform)
 }
 
 #if PLATFORM_WINDOWS
-void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
+void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
 #endif
 
 #if PLATFORM_LINUX
@@ -4036,7 +4036,7 @@ bool InitializeAudio(Platform &platform)
 		return true;
 	}
 
-	Audio &audio = platform.audio;
+	AudioDevice &audio = platform.audio;
 	const Window &window = platform.window;
 
 	const u16 gameUpdateHz = 30;
@@ -4237,7 +4237,7 @@ bool InitializeAudio(Platform &platform)
 }
 
 #if PLATFORM_WINDOWS
-void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
+void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
 {
 	ASSERT(writeSize <= audio.bufferSize);
 
@@ -4280,7 +4280,7 @@ void Win32FillAudioBuffer(Audio &audio, DWORD writeOffset, DWORD writeSize, cons
 
 void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 {
-	Audio &audio = platform.audio;
+	AudioDevice &audio = platform.audio;
 
 #if PLATFORM_WINDOWS
 	DWORD playCursor;
