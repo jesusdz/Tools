@@ -292,7 +292,7 @@ enum AudioSourceFlags
 	AUDIO_SOURCE_STOP_BIT = 1<<2,
 };
 
-typedef u32 AudioClipH;
+typedef Handle AudioClipH;
 
 struct AudioSource
 {
@@ -304,7 +304,7 @@ struct AudioSource
 struct Audio
 {
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
-	u32 clipCount = 0;
+	HandleManager clipHandles;
 
 	AudioSource sources[MAX_AUDIO_SOURCES] = {};
 };
@@ -664,6 +664,13 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 	}
 }
 
+AudioClip &GetAudioClip(Audio &audio, Handle handle)
+{
+	ASSERT( IsValidHandle(audio.clipHandles, handle) );
+	AudioClip &audioClip = audio.clips[handle.idx];
+	return audioClip;
+}
+
 void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 {
 	// Wave parameters
@@ -701,7 +708,7 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 
 		if (isPlaying)
 		{
-			AudioClip &audioClip = audio.clips[audioSource.clip];
+			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
 			const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
 			const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
@@ -830,10 +837,11 @@ void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 {
 	Audio &audio = engine.audio;
 
-	if ( audio.clipCount < ARRAY_COUNT(audio.clips) )
+	Handle handle = NewHandle(audio.clipHandles);
+
+	if ( IsValidHandle(audio.clipHandles, handle) )
 	{
-		AudioClip &audioClip = audio.clips[audio.clipCount++];
-		//ASSERT(!audioClip.samples);
+		AudioClip &audioClip = GetAudioClip(audio, handle);
 
 		const BinAudioClipDesc &desc = *binAudioClip.desc;
 		audioClip.sampleSize = desc.sampleSize;
@@ -854,9 +862,11 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 	Audio &audio = engine.audio;
 	Arena &arena = engine.platform.dataArena;
 
-	if ( audio.clipCount < ARRAY_COUNT(audio.clips) )
+	Handle handle = NewHandle(audio.clipHandles);
+
+	if ( IsValidHandle(audio.clipHandles, handle) )
 	{
-		AudioClip &audioClip = audio.clips[audio.clipCount++];
+		AudioClip &audioClip = GetAudioClip(audio, handle);
 		//ASSERT(!audioClip.samples);
 
 		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
@@ -890,16 +900,17 @@ u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
 	Audio &audio = engine.audio;
 	u32 audioSourceIndex = INVALID_AUDIO_SOURCE;
 
-	if (audioClipIndex < audio.clipCount)
+	if (audioClipIndex < audio.clipHandles.handleCount)
 	{
-		AudioClip &audioClip = audio.clips[audioClipIndex];
+		Handle clipHandle = GetHandleAt(audio.clipHandles, audioClipIndex);
+		AudioClip &audioClip = GetAudioClip(audio, clipHandle);
 
 		for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
 		{
 			AudioSource &audioSource = audio.sources[i];
 			if ((audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT) == 0)
 			{
-				audioSource.clip = audioClipIndex;
+				audioSource.clip = clipHandle;
 				audioSource.lastWriteSampleIndex = 0;
 				audioSource.flags |= AUDIO_SOURCE_ACTIVE_BIT;
 				audioSourceIndex = i;
@@ -3126,6 +3137,7 @@ bool OnPlatformWindowInit(Platform &platform)
 		}
 
 		Initialize(engine.scene.entityHandles, platform.globalArena, MAX_ENTITIES);
+		Initialize(engine.audio.clipHandles, platform.globalArena, MAX_AUDIO_CLIPS);
 
 #if USE_EDITOR
 		EditorInitialize(engine);
