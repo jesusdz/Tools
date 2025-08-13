@@ -12,6 +12,9 @@ constexpr Handle InvalidHandle = {};
 #define CHECK_HANDLE(name) bool name(Handle, const char *, void *)
 typedef CHECK_HANDLE(CheckHandle);
 
+#define PROCESS_HANDLE(name) void name(Handle, void *)
+typedef PROCESS_HANDLE(ProcessHandleFunc);
+
 struct HandleFinder
 {
 	CheckHandle *checkHandle;
@@ -34,20 +37,32 @@ inline bool operator==(Handle a, Handle b)
 	return equal;
 }
 
+void FreeAllHandles(HandleManager &manager)
+{
+	manager.handleCount = 0;
+
+	for (u32 i = 0; i < manager.handleLimit; ++i)
+	{
+		manager.indices[i] = i;
+		manager.handles[i].idx = i;
+		manager.handles[i].gen++;
+	}
+}
+
 void Initialize(HandleManager &manager, Arena &arena, u16 handleLimit)
 {
 	manager.handles = PushArray(arena, Handle, handleLimit);
 	manager.indices = PushArray(arena, u16, handleLimit);
+	manager.handleLimit = handleLimit;
+	manager.handleCount = 0;
 
-	for (u32 i = 0; i < handleLimit; ++i)
+	for (u32 i = 0; i < manager.handleLimit; ++i)
 	{
 		manager.indices[i] = i;
 		manager.handles[i].idx = i;
 		manager.handles[i].gen = 1;
 	}
 
-	manager.handleCount = 0;
-	manager.handleLimit = handleLimit;
 	manager.initialized = true;
 }
 
@@ -107,6 +122,17 @@ Handle FindHandle(const HandleManager &manager, const HandleFinder &finder)
 	LOG(Warning, "Could not find handle <%s>.\n", finder.name);
 	return InvalidHandle;
 }
+
+void ForAllHandles(const HandleManager &manager, ProcessHandleFunc *processHandle, void *data)
+{
+	for (u16 i = 0; i < manager.handleCount; ++i)
+	{
+		u16 index = manager.indices[i];
+		const Handle handle = manager.handles[index];
+		processHandle(handle, data);
+	}
+}
+
 
 #endif // HANDLE_MANAGER_H
 
