@@ -76,14 +76,27 @@ static void EditorUpdateUI(Engine &engine)
 
 	if ( UI_Section(ui, "Memory") )
 	{
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		const char *unitsStrArray[] = { "B", "KB", "MB" };
+		const u32 unitsSizeArray[] = { 1, KB(1), MB(1) };
+		static u32 units = 0;
+		for (u32 i = 0; i < ARRAY_COUNT(unitsStrArray); ++i) {
+			if ( UI_Radio(ui, unitsStrArray[i], units == i) ) {
+				units = i;
+			}
+		}
+		UI_EndLayout(ui);
+
 		const Platform &platform = engine.platform;
-		SPrintf(text, "- Global Arena: %u / %u KB", platform.globalArena.used / KB(1), platform.globalArena.size / KB(1));
+		const char *unitsStr = unitsStrArray[units];
+		const u32 unitsSize = unitsSizeArray[units];
+		SPrintf(text, "- Global Arena: %u / %u %s", platform.globalArena.used / unitsSize, platform.globalArena.size / unitsSize, unitsStr);
 		UI_Label(ui, text);
-		SPrintf(text, "- Frame Arena: %u / %u KB", platform.frameArena.used / KB(1), platform.frameArena.size / KB(1));
+		SPrintf(text, "- Frame Arena: %u / %u %s", platform.frameArena.used / unitsSize, platform.frameArena.size / unitsSize, unitsStr);
 		UI_Label(ui, text);
-		SPrintf(text, "- String Arena: %u / %u KB", platform.stringArena.used / KB(1), platform.stringArena.size / KB(1));
+		SPrintf(text, "- String Arena: %u / %u %s", platform.stringArena.used / unitsSize, platform.stringArena.size / unitsSize, unitsStr);
 		UI_Label(ui, text);
-		SPrintf(text, "- Data Arena: %u / %u KB", platform.dataArena.used / KB(1), platform.dataArena.size / KB(1));
+		SPrintf(text, "- Data Arena: %u / %u %s", platform.dataArena.used / unitsSize, platform.dataArena.size / unitsSize, unitsStr);
 		UI_Label(ui, text);
 	}
 

@@ -1637,11 +1637,10 @@ void LinkHandles(Graphics &gfx)
 	}
 }
 
-bool InitializeGraphics(Engine &engine, Arena &arena)
+bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
 	Window &window = engine.platform.window;
-	Arena scratch = MakeSubArena(arena);
 
 	if ( !InitializeGraphicsDevice( gfx.device, scratch, window ) ) {
 		return false;
@@ -1818,8 +1817,8 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
 	// Handle managers
-	Initialize(gfx.textureHandles);
-	Initialize(gfx.materialHandles);
+	Initialize(gfx.textureHandles, globalArena, MAX_TEXTURES);
+	Initialize(gfx.materialHandles, globalArena, MAX_MATERIALS);
 
 	sLoadFromTextDescriptors = true;
 
@@ -3105,14 +3104,14 @@ bool OnPlatformWindowInit(Platform &platform)
 	}
 	else
 	{
-		if ( !InitializeGraphics(engine, platform.globalArena) )
+		if ( !InitializeGraphics(engine, platform.globalArena, platform.frameArena) )
 		{
 			// TODO: Actually we could throw a system error and exit...
 			LOG(Error, "InitializeGraphics failed!\n");
 			return false;
 		}
 
-		Initialize(engine.scene.entityHandles);
+		Initialize(engine.scene.entityHandles, platform.globalArena, MAX_ENTITIES);
 
 #if USE_EDITOR
 		EditorInitialize(engine);
