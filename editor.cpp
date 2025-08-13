@@ -89,9 +89,9 @@ static void EditorUpdateUI(Engine &engine)
 
 	if ( UI_Section(ui, "Scene") )
 	{
-		for (u32 i = 0; i < scene.entityCount; ++i)
+		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 		{
-			Entity &entity = scene.entities[i];
+			Entity &entity = GetEntityAt(scene, i);
 			if ( UI_Radio(ui, entity.name, editor.selectedEntity == i) )
 			{
 				editor.selectedEntity = i;
@@ -644,9 +644,9 @@ void EditorRender(Engine &engine, CommandList &commandList)
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
-			for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
+			for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
 			{
-				const Entity &entity = scene.entities[entityIndex];
+				const Entity &entity = GetEntityAt(scene, entityIndex);
 
 				if ( !entity.visible || entity.culled ) continue;
 

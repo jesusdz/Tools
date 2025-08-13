@@ -246,7 +246,7 @@ struct Game
 struct Scene
 {
 	Entity entities[MAX_ENTITIES];
-	u32 entityCount;
+	HandleManager entityHandles;
 };
 
 struct ShaderAndPipelineDesc
@@ -1070,6 +1070,10 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 	return chunk;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// Image management
+
 void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandList, ImageH imageH)
 {
 	const Image &image = GetImage(device, imageH);
@@ -1145,6 +1149,9 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 
 	return image;
 }
+
+////////////////////////////////////////////////////////////////////////
+// Texture management
 
 Texture &GetTexture(Graphics &gfx, TextureH handle)
 {
@@ -1257,6 +1264,10 @@ void RemoveTexture(Graphics &gfx, TextureH textureH)
 	gfx.shouldUpdateMaterialBindGroups = true;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// Material management
+
 Material &GetMaterial(Graphics &gfx, MaterialH handle)
 {
 	ASSERT( IsValidHandle(gfx.materialHandles, handle) );
@@ -1312,6 +1323,20 @@ MaterialH FindMaterialHandle(Graphics &gfx, const char *name)
 	return handle;
 }
 
+void RemoveMaterial(Graphics &gfx, MaterialH materialH)
+{
+	Material &material = GetMaterial(gfx, materialH);
+	material = {};
+
+	FreeHandle(gfx.materialHandles, materialH);
+
+	// TODO: Do we need this here? I think we don't as we are removing, not modifying
+	//gfx.shouldUpdateMaterialBindGroups = true;
+}
+
+
+////////////////////////////////////////////////////////////////////////
+// Builtin geometry
 
 BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
 {
@@ -1335,55 +1360,58 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 	}
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// Entity management
+
+Entity &GetEntity(Scene &scene, Handle handle)
+{
+	ASSERT( IsValidHandle(scene.entityHandles, handle) );
+	Entity &entity = scene.entities[handle.idx];
+	return entity;
+}
+
+Entity &GetEntityAt(Scene &scene, u32 index)
+{
+	const u16 handleIndex = scene.entityHandles.indices[index];
+	const Handle handle = scene.entityHandles.handles[handleIndex];
+	Entity &entity = GetEntity(scene, handle);
+	return entity;
+}
+
 void CreateEntity(Engine &engine, const EntityDesc &desc)
 {
 	Scene &scene = engine.scene;
 
-	ASSERT ( scene.entityCount < MAX_ENTITIES );
-	if ( scene.entityCount < MAX_ENTITIES )
-	{
-		BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
-		BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
+	BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
+	BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
 
-		const u32 entityIndex = scene.entityCount++;
-		scene.entities[entityIndex].name = desc.name;
-		scene.entities[entityIndex].visible = true;
-		scene.entities[entityIndex].position = desc.pos;
-		scene.entities[entityIndex].scale = desc.scale;
-		scene.entities[entityIndex].vertices = vertices;
-		scene.entities[entityIndex].indices = indices;
-		scene.entities[entityIndex].materialH = FindMaterialHandle(engine.gfx, desc.materialName);
-	}
-	else
-	{
-		LOG(Warning, "CreateEntity() - MAX_ENTITIES limit reached.\n");
-	}
+	Handle handle = NewHandle(scene.entityHandles);
+	Entity &entity = GetEntity(scene, handle);
+	entity.name = desc.name;
+	entity.visible = true;
+	entity.position = desc.pos;
+	entity.scale = desc.scale;
+	entity.vertices = vertices;
+	entity.indices = indices;
+	entity.materialH = FindMaterialHandle(engine.gfx, desc.materialName);
 }
 
 void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 {
-	Scene &scene = engine.scene;
-
-	ASSERT ( scene.entityCount < MAX_ENTITIES );
-	if ( scene.entityCount < MAX_ENTITIES )
-	{
-		BufferChunk vertices = GetVerticesForGeometryType(engine.gfx, desc.geometryType);
-		BufferChunk indices = GetIndicesForGeometryType(engine.gfx, desc.geometryType);
-
-		const u32 entityIndex = scene.entityCount++;
-		scene.entities[entityIndex].name = desc.name;
-		scene.entities[entityIndex].visible = true;
-		scene.entities[entityIndex].position = desc.pos;
-		scene.entities[entityIndex].scale = desc.scale;
-		scene.entities[entityIndex].vertices = vertices;
-		scene.entities[entityIndex].indices = indices;
-		scene.entities[entityIndex].materialH = FindMaterialHandle(engine.gfx, desc.materialName);
-	}
-	else
-	{
-		LOG(Warning, "CreateEntity() - MAX_ENTITIES limit reached.\n");
-	}
+	const EntityDesc entityDesc = {
+		.name = desc.name,
+		.materialName = desc.materialName,
+		.pos = desc.pos,
+		.scale = desc.scale,
+		.geometryType = desc.geometryType,
+	};
+	CreateEntity(engine, entityDesc);
 }
+
+
+////////////////////////////////////////////////////////////////////////
+// Render targets
 
 RenderTargets CreateRenderTargets(Graphics &gfx)
 {
@@ -1480,6 +1508,10 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 
 	renderTargets = {};
 }
+
+
+////////////////////////////////////////////////////////////////////////
+// Shaders and pipelines
 
 static ShaderSource GetShaderSource(Arena &arena, const char *shaderName)
 {
@@ -2343,9 +2375,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		const float3 cameraPosition = camera.position;
 		const float3 cameraForward = ForwardDirectionFromAngles(camera.orientation);
 		const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
-		for (u32 i = 0; i < scene.entityCount; ++i)
+		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 		{
-			Entity &entity = scene.entities[i];
+			Entity &entity = GetEntityAt(scene, i);
 			entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
 		}
 	}
@@ -2369,9 +2401,9 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		cameraPosition = camera.position;
 
 		// CPU Frustum culling
-		for (u32 i = 0; i < scene.entityCount; ++i)
+		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 		{
-			Entity &entity = scene.entities[i];
+			Entity &entity = GetEntityAt(scene, i);
 			entity.culled = false; // TODO: Frustum culling with a 2D camera
 		}
 	}
@@ -2422,11 +2454,12 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
-	for (u32 i = 0; i < scene.entityCount; ++i)
+	for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 	{
-		const Entity &entity = scene.entities[i];
+		const Handle handle = GetHandleAt(scene.entityHandles, i);
+		const Entity &entity = GetEntity(scene, handle);
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
-		entities[i].world = worldMatrix;
+		entities[handle.idx].world = worldMatrix;
 	}
 
 	// Update bind groups
@@ -2494,9 +2527,10 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 
 		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
-		for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
 		{
-			const Entity &entity = scene.entities[entityIndex];
+			const Handle handle = GetHandleAt(scene.entityHandles, entityIndex);
+			const Entity &entity = GetEntity(scene, handle);
 
 			if ( !entity.visible ) continue;
 
@@ -2508,7 +2542,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
 		}
 
 		EndRenderPass(commandList);
@@ -2533,9 +2567,10 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
 
-		for (u32 entityIndex = 0; entityIndex < scene.entityCount; ++entityIndex)
+		for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
 		{
-			const Entity &entity = scene.entities[entityIndex];
+			const Handle handle = GetHandleAt(scene.entityHandles, entityIndex);
+			const Entity &entity = GetEntityAt(scene, entityIndex);
 
 			if ( !entity.visible || entity.culled ) continue;
 
@@ -2559,7 +2594,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
 
 			EndDebugGroup(commandList);
 		}
@@ -3076,6 +3111,8 @@ bool OnPlatformWindowInit(Platform &platform)
 			LOG(Error, "InitializeGraphics failed!\n");
 			return false;
 		}
+
+		Initialize(engine.scene.entityHandles);
 
 #if USE_EDITOR
 		EditorInitialize(engine);
