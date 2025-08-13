@@ -34,7 +34,6 @@
 #include "data.h"
 
 
-
 #define MAX_TEXTURES 8 
 #define MAX_MATERIALS 4
 #define MAX_ENTITIES 32
@@ -43,6 +42,9 @@
 #define MAX_COMPUTE_BINDINGS 4
 
 #define INVALID_HANDLE -1
+
+
+#include "handle_manager.h"
 
 
 static bool sLoadFromTextDescriptors = false;
@@ -61,13 +63,7 @@ struct Texture
 	ImageH image;
 };
 
-struct TextureH
-{
-	u16 gen;
-	u16 idx;
-};
-
-constexpr TextureH InvalidTextureH = {};
+typedef Handle TextureH;
 
 struct Material
 {
@@ -166,9 +162,7 @@ struct Graphics
 	RenderPassH idRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
-	TextureH textureHandles[MAX_TEXTURES];
-	u16 textureIndices[MAX_TEXTURES]; // First all used indices, then all free indices
-	u16 textureCount;
+	HandleManager textureHandles;
 
 	Material materials[MAX_MATERIALS];
 	u32 materialCount;
@@ -1152,57 +1146,24 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
-inline bool operator==(TextureH a, TextureH b)
-{
-	const bool equal = ( a.idx == b.idx ) && ( a.gen == b.gen );
-	return equal;
-}
-
-bool IsValidHandle(Graphics &gfx, TextureH handle)
-{
-	TextureH storedHandle = gfx.textureHandles[handle.idx];
-	const bool valid = handle == storedHandle;
-	return valid;
-}
-
-TextureH NewTextureHandle(Graphics &gfx)
-{
-	ASSERT(gfx.textureCount < MAX_TEXTURES);
-	u16 index = gfx.textureIndices[gfx.textureCount++];
-	TextureH &handle = gfx.textureHandles[index];
-	ASSERT(handle.idx == index);
-	return handle;
-}
-
-void FreeTextureHandle(Graphics &gfx, TextureH handle)
-{
-	ASSERT(IsValidHandle(gfx, handle));
-	gfx.textureHandles[handle.idx].gen++;
-
-	ASSERT(gfx.textureCount > 0);
-	gfx.textureCount--;
-	bool found = false;
-	for (u16 i = 0; i < gfx.textureCount; ++i) {
-		found = found || handle.idx == gfx.textureIndices[i];
-		if (found) { // compact indices from found index onwards
-			gfx.textureIndices[i] = gfx.textureIndices[i+1];
-		}
-	}
-	// Insert the freed index at the end
-	gfx.textureIndices[gfx.textureCount] = handle.idx;
-
-}
-
 Texture &GetTexture(Graphics &gfx, TextureH handle)
 {
-	ASSERT( IsValidHandle(gfx, handle) );
+	ASSERT( IsValidHandle(gfx.textureHandles, handle) );
 	Texture &texture = gfx.textures[handle.idx];
+	return texture;
+}
+
+Texture &GetTextureAt(Graphics &gfx, u32 index)
+{
+	const u16 handleIndex = gfx.textureHandles.indices[index];
+	const TextureH handle = gfx.textureHandles.handles[handleIndex];
+	Texture &texture = GetTexture(gfx, handle);
 	return texture;
 }
 
 TextureH CreateTexture(Graphics &gfx, const char *name, ImageH imageHandle)
 {
-	const TextureH textureHandle = NewTextureHandle(gfx);
+	const TextureH textureHandle = NewHandle(gfx.textureHandles);
 	Texture &texture = GetTexture(gfx, textureHandle);
 	texture.name = name;
 	texture.image = imageHandle;
@@ -1258,7 +1219,7 @@ ImageH GetTextureImage(Graphics &gfx, TextureH textureH, ImageH imageH)
 {
 	ImageH res = imageH;
 
-	if ( IsValidHandle(gfx, textureH) ) {
+	if ( IsValidHandle(gfx.textureHandles, textureH) ) {
 		const Texture &texture = GetTexture(gfx, textureH);
 		res = texture.image;
 	}
@@ -1266,30 +1227,32 @@ ImageH GetTextureImage(Graphics &gfx, TextureH textureH, ImageH imageH)
 	return res;
 }
 
+bool IsHandle( Handle handle, const char *name, void *data )
+{
+	Graphics &gfx = *(Graphics*)data;
+	Texture &texture = GetTexture(gfx, handle);
+	const bool equals = StrEq(texture.name, name);
+	return equals;
+}
+
 TextureH FindTextureHandle(Graphics &gfx, const char *name)
 {
-	for (u32 i = 0; i < gfx.textureCount; ++i)
-	{
-		u16 index = gfx.textureIndices[i];
-		TextureH handle = gfx.textureHandles[index];
-		const Texture &texture = GetTexture(gfx, handle);
-		if ( StrEq(texture.name, name) ) {
-			return handle;
-		}
-	}
-	LOG(Warning, "Could not find texture <%s> handle.\n", name);
-	return InvalidTextureH;
+	const HandleFinder finder = {
+		.checkHandle = IsHandle,
+		.name = name,
+		.data = &gfx,
+	};
+	const TextureH handle = FindHandle(gfx.textureHandles, finder);
+	return handle;
 }
 
 void RemoveTexture(Graphics &gfx, TextureH textureH)
 {
-	ASSERT(IsValidHandle(gfx, textureH));
-
 	Texture &texture = GetTexture(gfx, textureH);
 	DestroyImageH(gfx.device, texture.image);
 	texture = {};
 
-	FreeTextureHandle(gfx, textureH);
+	FreeHandle(gfx.textureHandles, textureH);
 
 	gfx.shouldUpdateMaterialBindGroups = true;
 }
@@ -1818,11 +1781,7 @@ bool InitializeGraphics(Engine &engine, Arena &arena)
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
 	// Texture handles
-	for (u32 i = 0; i < MAX_TEXTURES; ++i) {
-		gfx.textureIndices[i] = i;
-		gfx.textureHandles[i].idx = i;
-		gfx.textureHandles[i].gen = 1;
-	}
+	Initialize(gfx.textureHandles);
 
 	sLoadFromTextDescriptors = true;
 

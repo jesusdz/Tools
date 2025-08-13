@@ -176,10 +176,9 @@ static void EditorUpdateUI(Engine &engine)
 		static TextureH selectedHandle = {};
 		constexpr u32 imagesPerRow = 3;
 		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < gfx.textureCount; ++i)
+		for (u32 i = 0; i < gfx.textureHandles.handleCount; ++i)
 		{
-			u16 index = gfx.textureIndices[i];
-			TextureH handle = gfx.textureHandles[index];
+			const TextureH handle = GetHandleAt(gfx.textureHandles, i);
 			const Texture &texture = GetTexture(gfx, handle);
 
 			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
@@ -190,7 +189,7 @@ static void EditorUpdateUI(Engine &engine)
 		}
 		UI_EndLayout(ui);
 
-		if (IsValidHandle(gfx, selectedHandle))
+		if (IsValidHandle(gfx.textureHandles, selectedHandle))
 		{
 			if (UI_Button(ui, "Remove"))
 			{
