@@ -26,6 +26,7 @@ struct HandleManager
 	Handle handles[MAX_HANDLES];
 	u16 indices[MAX_HANDLES]; // First all used indices, then all free indices
 	u16 handleCount;
+	bool initialized;
 };
 
 inline bool operator==(Handle a, Handle b)
@@ -44,6 +45,7 @@ void Initialize(HandleManager &manager)
 	}
 
 	manager.handleCount = 0;
+	manager.initialized = true;
 }
 
 bool IsValidHandle(const HandleManager &manager, Handle handle)
@@ -55,6 +57,7 @@ bool IsValidHandle(const HandleManager &manager, Handle handle)
 
 Handle NewHandle(HandleManager &manager)
 {
+	ASSERT(manager.initialized);
 	ASSERT(manager.handleCount < MAX_HANDLES);
 	u16 index = manager.indices[manager.handleCount++];
 	Handle &handle = manager.handles[index];
