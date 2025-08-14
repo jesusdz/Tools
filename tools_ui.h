@@ -24,6 +24,8 @@ constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
 constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
 constexpr float4 UiColorBox = { 0.05, 0.1, 0.2, 1.0 };
 constexpr float4 UiColorBoxHover = { 0.1, 0.2, 0.4, 1.0 };
+constexpr float4 UiColorScrollbar = { 0.2, 0.2, 0.2, 1.0 };
+constexpr float4 UiColorScrollbarHover = { 0.4, 0.4, 0.4, 1.0 };
 constexpr float4 UiColorBoxInactive = { 0.01, 0.02, 0.05, 1.0 };
 
 // Metrics
@@ -68,9 +70,16 @@ struct UIWindow
 	char caption[64];
 	float2 pos;
 	float2 size;
-	float2 contentSize;
+	float2 containerSize;
+	float2 contentSize; // Only known after filling container
+	float contentOffset;
+	float contentOffsetBeforeScrolling;
 	bool dragging;
 	bool resizing;
+	bool scrolling;
+	int2 lastMouseClickPos;
+	int2 mousePosBeforeResize;
+	int2 sizeBeforeResize;
 	bool disableWidgets;
 	bool clippedContents;
 	u32 layer;
@@ -210,6 +219,18 @@ bool UI_IsMouseIdle(const UI &ui)
 {
 	const bool idle = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_IDLE;
 	return idle;
+}
+
+int2 UI_MouseScroll(const UI &ui)
+{
+	const int2 scroll = { .x = ui.input.mouse.wx, .y = ui.input.mouse.wy };
+	return scroll;
+}
+
+int2 UI_MousePos(const UI &ui)
+{
+	const int2 pos = { .x = ui.input.mouse.x, .y = ui.input.mouse.y };
+	return pos;
 }
 
 void UI_SetCursorPos(UI &ui, float2 pos)
@@ -389,10 +410,10 @@ void UI_RaiseWindow(UI &ui, UIWindow &window)
 	// Push down all windows in front of the one to be raised
 	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
-		 if (ui.windows[i].layer < window.layer)
-		 {
-			 ui.windows[i].layer++;
-		 }
+		if (ui.windows[i].layer < window.layer)
+		{
+			ui.windows[i].layer++;
+		}
 	}
 
 	// Finally put this window in front
@@ -466,6 +487,11 @@ bool UI_WidgetHovered(const UI &ui)
 	bool hover = false;
 	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
 
+	if (currentWindow.disableWidgets)
+	{
+		return false;
+	}
+
 	if ( &currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
 	{
 		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
@@ -488,10 +514,15 @@ float4 UI_WidgetColor(const UI &ui)
 	return res;
 }
 
-
 float4 UI_BoxColor(const UI &ui)
 {
 	const float4 res = UI_WidgetHovered(ui) ? UiColorBoxHover : UiColorBox;
+	return res;
+}
+
+float4 UI_ScrollbarColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorScrollbarHover : UiColorScrollbar;
 	return res;
 }
 
@@ -762,15 +793,15 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	return window;
 }
 
-void UI_BeginPanel(UI &ui, u32 index, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
-{
-	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
-}
-
-void UI_EndPanel(UI &ui)
-{
-	UI_PopDrawList(ui);
-}
+//void UI_BeginPanel(UI &ui, u32 index, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
+//{
+//	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
+//}
+//
+//void UI_EndPanel(UI &ui)
+//{
+//	UI_PopDrawList(ui);
+//}
 
 void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 {
@@ -786,7 +817,6 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 	drawList.sortKey.order = 0;
 
 	UI_BeginLayout(ui, UiLayoutVertical);
-
 	float2 panelPos = window.pos;
 	float2 panelSize = window.size;
 
@@ -824,9 +854,10 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 		UI_PopColor(ui);
 	}
 
+	const float cornerSize = 14;
+
 	if ( flags & UIWindowFlag_Resizable )
 	{
-		const float cornerSize = 14;
 		const float2 cornerBR = window.pos + window.size - (flags & UIWindowFlag_Border ? UiBorderSize : float2{0, 0});
 		const float2 cornerTR = cornerBR + float2{0.0, -cornerSize};
 		const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
@@ -838,34 +869,97 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 		UI_PopColor(ui);
 		if (UI_WidgetClicked(ui))
 		{
+			window.mousePosBeforeResize = UI_MousePos(ui);
+			window.sizeBeforeResize = {(i32)window.size.x, (i32)window.size.y};
 			window.resizing = true;
+			// Disable other widgets, resize widget has prevalence
 			window.disableWidgets = true;
 		}
 		UI_EndWidget(ui);
 	}
 
+	float2 cursorPos = panelPos;
+
 	if ( flags & UIWindowFlag_ClipContents )
 	{
 		window.clippedContents = true;
 
-		const int2 contentPos = {
+		const u32 containerHeight = (u32)(panelSize.y - 2.0f * UiWindowPadding.y);
+
+		const bool renderScrollbar = containerHeight < window.contentSize.y;
+		const i32 scrollbarWidth = renderScrollbar ? UiWindowPadding.x : 0;
+		const i32 scrollbarOuterWidth = renderScrollbar ? 3.0f * UiWindowPadding.x : 0;
+
+		const u32 containerWidth = renderScrollbar ?
+			(u32)(panelSize.x - UiWindowPadding.x - scrollbarOuterWidth) :
+			(u32)(panelSize.x - 2.0f * UiWindowPadding.x - scrollbarWidth);
+
+		const int2 containerPos = {
 			.x = (i32)(panelPos.x + UiWindowPadding.x),
 			.y = (i32)(panelPos.y + UiWindowPadding.y),
 		};
-		const uint2 contentSize = {
-			.x = (u32)(panelSize.x - 2.0f * UiWindowPadding.x),
-			.y = (u32)(panelSize.y - 2.0f * UiWindowPadding.y),
+		const uint2 containerSize = {
+			.x = containerWidth,
+			.y = containerHeight,
 		};
-		const rect contentRect = { .pos = contentPos, .size = contentSize };
-		UI_PushDrawList(ui, contentRect, ui.fontAtlasH);
 
-		panelPos = panelPos + UiWindowPadding;
-		panelSize = panelSize - 2.0f * UiWindowPadding;
+		if (renderScrollbar)
+		{
+			if (UI_IsMouseIdle(ui)) {
+				window.scrolling = false;
+			}
+
+			if (window.scrolling) { // Scroll by widget
+				const f32 mouseDelta = window.lastMouseClickPos.y - UI_MousePos(ui).y;
+				const f32 scrollDelta = window.contentSize.y * mouseDelta / containerHeight;
+				window.contentOffset = window.contentOffsetBeforeScrolling + scrollDelta;
+			} else {
+				const f32 scrollDelta = UI_MouseScroll(ui).y * 16; // Scroll by mouse
+				window.contentOffset -= scrollDelta;
+			}
+
+			const f32 minTopPosition = Min(window.containerSize.y - window.contentSize.y, 0.0f);
+			const f32 maxTopPosition = 0.0f;
+			window.contentOffset = Min(window.contentOffset, maxTopPosition);
+			window.contentOffset = Max(window.contentOffset, minTopPosition);
+
+			const f32 scrollbarPortion = Min(containerHeight / window.contentSize.y , 1.0f);
+			const f32 scrollbarHeight = containerHeight * scrollbarPortion;
+			const float2 scrollbarSize = { scrollbarWidth * 2.0f, scrollbarHeight };
+			const f32 scrollbarMinY = containerPos.y;
+			const f32 scrollbarMaxY = scrollbarMinY + containerHeight - scrollbarHeight;
+			const f32 scrollbarPosYNorm = 1.0f - (window.contentOffset - minTopPosition)/(maxTopPosition - minTopPosition);
+			const f32 scrollbarPosY = scrollbarMinY + (scrollbarMaxY - scrollbarMinY) * scrollbarPosYNorm;
+			const float2 scrollbarPos = { (f32)containerPos.x + (f32)containerSize.x + UiWindowPadding.x * 0.5f, scrollbarPosY };
+			UI_BeginWidget(ui, scrollbarPos, scrollbarSize);
+			UI_PushColor(ui, UI_ScrollbarColor(ui));
+			UI_AddRectangle(ui, scrollbarPos, scrollbarSize);
+			UI_PopColor(ui);
+			if (UI_WidgetClicked(ui)) {
+				window.scrolling = true;
+				window.lastMouseClickPos = UI_MousePos(ui);
+				window.contentOffsetBeforeScrolling = window.contentOffset;
+			}
+			UI_EndWidget(ui);
+		}
+		else
+		{
+			window.contentOffset = 0.0f;
+		}
+
+		const rect containerRect = { .pos = containerPos, .size = containerSize };
+		UI_PushDrawList(ui, containerRect, ui.fontAtlasH);
+
+		cursorPos = panelPos + UiWindowPadding;
+		panelSize = {(f32)containerSize.x, (f32)containerSize.y};
+
+		cursorPos.y += window.contentOffset;
 	}
 
-	window.contentSize = panelSize;
+	window.containerSize = panelSize;
 
-	UI_SetCursorPos(ui, panelPos);
+	UI_SetCursorPos(ui, cursorPos);
+	UI_BeginLayout(ui, UiLayoutVertical);
 }
 
 i32 UI_MakeID(const UI &ui, const char *text)
@@ -894,11 +988,14 @@ void UI_EndWindow(UI &ui)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
 
+	window.contentSize = UI_GetLayoutGroup(ui).size;
+	UI_EndLayout(ui); // Contents layout
+
 	if (window.clippedContents)
 	{
 		UI_PopDrawList(ui);
 	}
-	UI_EndLayout(ui);
+	UI_EndLayout(ui); // Panel layout
 	UI_PopDrawList(ui);
 
 	ASSERT(ui.windowStackSize > 0);
@@ -924,9 +1021,9 @@ UISection &UI_GetSection(UIWindow &window, const char *caption)
 	return section;
 }
 
-float2 UI_GetContentSize(const UIWindow &window)
+float2 UI_GetContainerSize(const UIWindow &window)
 {
-	return window.contentSize;
+	return window.containerSize;
 }
 
 bool UI_Section(UI &ui, const char *caption)
@@ -934,11 +1031,11 @@ bool UI_Section(UI &ui, const char *caption)
 	UIWindow &window = UI_GetCurrentWindow(ui);
 	UISection &section = UI_GetSection(window, caption);
 
-	const float contentWidth = UI_GetContentSize(window).x;
+	const float containerWidth = UI_GetContainerSize(window).x;
 	const float textHeight = UI_TextHeight(ui);
 	constexpr f32 vpadding = 3.0f;
 	const float2 pos = ui.currentPos;
-	const float2 size = { contentWidth, textHeight + 2.0f * vpadding};
+	const float2 size = { containerWidth, textHeight + 2.0f * vpadding};
 
 	UI_BeginWidget(ui, pos, size);
 
@@ -1087,7 +1184,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const u32 index = *selectedIndex;
 
 	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 contentWidth = UI_GetContentSize(window).x;
+	const f32 containerWidth = UI_GetContainerSize(window).x;
 
 	constexpr float2 padding = {4.0f, 3.0f};
 	const f32 textHeight = UI_TextHeight(ui);
@@ -1095,7 +1192,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const f32 side = textHeight + 2.0f * padding.y;
 
 	const float2 widgetPos = ui.currentPos;
-	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -1193,10 +1290,10 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 void UI_Separator(UI &ui)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const float contentWidth = UI_GetContentSize(window).x;
+	const float containerWidth = UI_GetContainerSize(window).x;
 
 	const float2 pos = ui.currentPos;
-	const float2 size = { contentWidth, 1.0 };
+	const float2 size = { containerWidth, 1.0 };
 
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
@@ -1311,7 +1408,7 @@ UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &
 void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 contentWidth = UI_GetContentSize(window).x;
+	const f32 containerWidth = UI_GetContainerSize(window).x;
 
 	constexpr float2 padding = {4.0f, 3.0f};
 	const f32 textHeight = UI_TextHeight(ui);
@@ -1319,7 +1416,7 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const f32 side = textHeight + 2.0f * padding.y;
 
 	const float2 widgetPos = ui.currentPos;
-	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -1398,7 +1495,7 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 void UI_InputInt(UI &ui, const char *label, i32 *number)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 contentWidth = UI_GetContentSize(window).x;
+	const f32 containerWidth = UI_GetContainerSize(window).x;
 
 	constexpr float2 padding = {4.0f, 3.0f};
 	const f32 textHeight = UI_TextHeight(ui);
@@ -1406,7 +1503,7 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	const f32 side = textHeight + 2.0f * padding.y;
 
 	const float2 widgetPos = ui.currentPos;
-	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
@@ -1461,7 +1558,7 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 void UI_InputFloat(UI &ui, const char *label, f32 *number)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 contentWidth = UI_GetContentSize(window).x;
+	const f32 containerWidth = UI_GetContainerSize(window).x;
 
 	constexpr float2 padding = {4.0f, 3.0f};
 	const f32 textHeight = UI_TextHeight(ui);
@@ -1469,7 +1566,7 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	const f32 side = textHeight + 2.0f * padding.y;
 
 	const float2 widgetPos = ui.currentPos;
-	const float2 widgetSize = float2{Round(contentWidth*0.6f), side};
+	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
@@ -1524,7 +1621,7 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 histogramWidth = UI_GetContentSize(window).x;
+	const f32 histogramWidth = UI_GetContainerSize(window).x;
 	const f32 histogramHeight = 30.0f;
 	const float2 histPos = ui.currentPos;
 	const float2 histSize = {histogramWidth, histogramHeight};
@@ -1677,7 +1774,9 @@ void UI_BeginFrame(UI &ui)
 			if ( window.resizing )
 			{
 				constexpr float2 minWindowSize = { 100.0f, 100.0f };
-				window.size = Max(minWindowSize, window.size + float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy});
+				const int2 resizeDelta = UI_MousePos(ui) - window.mousePosBeforeResize;
+				const int2 newWindowSize = window.sizeBeforeResize + resizeDelta;
+				window.size = Max(minWindowSize, float2{(float)newWindowSize.x, (float)newWindowSize.y});
 			}
 			else if ( window.dragging )
 			{
