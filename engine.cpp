@@ -134,6 +134,7 @@ struct Graphics
 
 	BufferH stagingBuffer;
 	u32 stagingBufferOffset;
+	bool inUploadContext;
 
 	BufferArena globalVertexArena;
 	BufferArena globalIndexArena;
@@ -1029,13 +1030,36 @@ struct StagedData
 	u32 offset;
 };
 
-StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 alignment = 0)
+static CommandList BeginUploadCommandList(Graphics &gfx)
 {
+	ASSERT(!gfx.inUploadContext && "Cannot nest calls to BeginUploadCommandList");
+	gfx.inUploadContext = true;
+
+	gfx.stagingBufferOffset = 0;
+
+	CommandList commandList = BeginTransientCommandList(gfx.device);
+	return commandList;
+}
+
+static void EndUploadCommandList(Graphics &gfx, CommandList commandList)
+{
+	EndTransientCommandList(gfx.device, commandList);
+
+	ASSERT(gfx.inUploadContext && "BeginUploadCommandList must have been called first");
+	gfx.inUploadContext = false;
+}
+
+static StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 alignment = 0)
+{
+	ASSERT(gfx.inUploadContext && "StageData must be called between calls to Begin/EndUploadCommandList");
+
 	const Buffer &stagingBuffer = GetBuffer(gfx.device, gfx.stagingBuffer);
 
 	const u32 finalAlignment = Max(alignment, gfx.device.alignment.optimalBufferCopyOffset);
 	const u32 unalignedOffset = stagingBuffer.alloc.offset + gfx.stagingBufferOffset;
 	const u32 alignedOffset = AlignUp(unalignedOffset, finalAlignment);
+
+	ASSERT(alignedOffset + size <= stagingBuffer.size);
 
 	StagedData staging = {};
 	staging.buffer = gfx.stagingBuffer;
@@ -1143,8 +1167,6 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	const u32 size = width * height * pixelSize;
 	const u32 alignment = channels == 1 ? 1 : 4;
 
-	StagedData staged = StageData(gfx, pixels, size, alignment);
-
 	const u32 mipLevels = mipmap ?
 		static_cast<uint32_t>(Floor(Log2(Max(width, height)))) + 1 :
 		1;
@@ -1164,7 +1186,9 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 			ImageUsageSampled, // to be sampled in shaders
 			HeapType_General);
 
-	CommandList commandList = BeginTransientCommandList(gfx.device);
+	CommandList commandList = BeginUploadCommandList(gfx);
+
+	StagedData staged = StageData(gfx, pixels, size, alignment);
 
 	TransitionImageLayout(commandList, image, ImageStateInitial, ImageStateTransferDst, 0, mipLevels);
 
@@ -1180,7 +1204,7 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 		TransitionImageLayout(commandList, image, ImageStateTransferDst, ImageStateShaderInput, 0, 1);
 	}
 
-	EndTransientCommandList(gfx.device, commandList);
+	EndUploadCommandList(gfx, commandList);
 
 	return image;
 }
@@ -1757,7 +1781,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.globalVertexArena = MakeBufferArena( gfx, CreateVertexBuffer(gfx, MB(4)) );
 	gfx.globalIndexArena = MakeBufferArena( gfx, CreateIndexBuffer(gfx, MB(4)) );
 
-	CommandList commandList = BeginTransientCommandList(gfx.device);
+	CommandList commandList = BeginUploadCommandList(gfx);
 
 	// Create vertex/index buffers
 	gfx.cubeVertices = PushData(gfx, commandList, gfx.globalVertexArena, cubeVertices, sizeof(cubeVertices));
@@ -1767,7 +1791,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
 	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
 
-	EndTransientCommandList(gfx.device, commandList);
+	EndUploadCommandList(gfx, commandList);
 
 	// Create globals buffer
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -1986,7 +2010,7 @@ void UpdateMaterialBindGroups(Graphics &gfx)
 
 void UploadMaterialData(Graphics &gfx)
 {
-	CommandList commandList = BeginTransientCommandList(gfx.device);
+	CommandList commandList = BeginUploadCommandList(gfx);
 
 	// Copy material info to buffer
 	for (u32 i = 0; i < gfx.materialHandles.handleCount; ++i)
@@ -1999,7 +2023,7 @@ void UploadMaterialData(Graphics &gfx)
 		CopyBufferToBuffer(commandList, staged.buffer, staged.offset, gfx.materialBuffer, material.bufferOffset, sizeof(shaderMaterial));
 	}
 
-	EndTransientCommandList(gfx.device, commandList);
+	EndUploadCommandList(gfx, commandList);
 }
 
 void CreateMaterialBindGroups(Graphics &gfx)

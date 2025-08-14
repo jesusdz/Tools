@@ -828,13 +828,6 @@ void ResetArena(Arena &arena)
 	arena.used = 0;
 }
 
-void PrintArenaUsage(Arena &arena)
-{
-	LOG(Info, "Memory Arena Usage:\n");
-	LOG(Info, "- size: %u B / %u kB\n", arena.size, arena.size/1024);
-	LOG(Info, "- used: %u B / %u kB\n", arena.used, arena.used/1024);
-}
-
 #define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer), 0)
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
@@ -4815,8 +4808,6 @@ bool PlatformRun(Platform &platform)
 	}
 
 	platform.CleanupCallback(platform);
-
-	PrintArenaUsage(platform.globalArena);
 
 	// TODO: Cleanup window and audio
 
