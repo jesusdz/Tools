@@ -3254,6 +3254,22 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 			}
 			break;
 
+		case WM_MOUSEWHEEL:
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.wy -= GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
+			}
+			break;
+
+		case WM_MOUSEHWHEEL:
+			if ( processMouseEvents )
+			{
+				ASSERT(window);
+				window->mouse.wx += GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
+			}
+			break;
+
 		case WM_MOUSEMOVE:
 			if ( processMouseEvents )
 			{
