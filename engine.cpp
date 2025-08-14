@@ -278,7 +278,7 @@ struct AudioChunk
 struct AudioClip
 {
 	AudioChunk *firstChunk;
-	void *samplesOld;
+	void *samples; // NOTE: Used for clips which are always loaded
 	u32 sampleCount;
 	u32 samplingRate;
 	u16 sampleSize;
@@ -327,6 +327,9 @@ struct Engine
 #endif
 
 	BinAssets assets;
+
+	Arena dataArenaStates[4];
+	u32 dataArenaStateCount;
 };
 
 static const Vertex cubeVertices[] = {
@@ -653,7 +656,7 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 		audioClip.samplingRate = Fmt.SampleRate;
 		audioClip.channelCount = Fmt.NumChannels;
 		audioClip.sampleCount = dataSize / audioClip.sampleSize;
-		audioClip.samplesOld = data;
+		audioClip.samples = data;
 
 		fclose(file);
 		return true;
@@ -703,6 +706,7 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 		AudioSource &audioSource = audio.sources[i];
 
 		const bool isPlaying =
+			IsValidHandle(audio.clipHandles, audioSource.clip) &&
 			( audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT ) &&
 			!( audioSource.flags & AUDIO_SOURCE_PAUSE_BIT ) &&
 			!( audioSource.flags & AUDIO_SOURCE_STOP_BIT );
@@ -711,96 +715,122 @@ void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 		{
 			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
-			const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
-			const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
-			const u32 currChunkFirstSampleIndex = currChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
-			const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount);
-			const u32 nextChunkFirstSampleIndex = nextChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
-
-			AudioChunk *currChunk = audioClip.firstChunk;
-			while (currChunk)
+			if ( audioClip.samples )
 			{
-				const u32 thisChunkIndex = currChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
-				if ( currChunkIndex == thisChunkIndex )
+				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+				const u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+				const i16 *srcSample = (i16*)audioClip.samples + audioSource.lastWriteSampleIndex;
+				f32 *dstSample = realSamples;
+
+				const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
+				const u32 sampleCount = Min(remainingClipSampleCount, requestedSampleCount);
+				for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
 				{
-					break;
+					*dstSample += (f32)*srcSample;
+					dstSample++;
+					srcSample++;
 				}
-				currChunk = currChunk->next;
-			}
 
-			if ( !currChunk )
-			{
-				AudioChunk *currChunk = PushStruct(engine.platform.dataArena, AudioChunk);
-				currChunk->firstSampleIndex = currChunkFirstSampleIndex;
-				currChunk->next = audioClip.firstChunk;
-				FileSeek(engine.assets.file, audioClip.location.offset + currChunkFirstSampleIndex * sizeof(i16));
-				const u32 currChunkSampleCount = (currChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
-				ReadFromFile(engine.assets.file, currChunk->samples, currChunkSampleCount * sizeof(i16));
-
-				audioClip.firstChunk = currChunk;
-			}
-
-			AudioChunk *nextChunk = nullptr;
-
-			if ( nextChunkIndex > currChunkIndex )
-			{
-				nextChunk = audioClip.firstChunk;
-				while (nextChunk)
+				audioSource.lastWriteSampleIndex += sampleCount;
+				if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
 				{
-					const u32 thisChunkIndex = nextChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
-					if ( nextChunkIndex == thisChunkIndex )
+					audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+				}
+			}
+			else
+			{
+				const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
+				const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+				const u32 currChunkFirstSampleIndex = currChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+				const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount);
+				const u32 nextChunkFirstSampleIndex = nextChunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+
+				AudioChunk *currChunk = audioClip.firstChunk;
+				while (currChunk)
+				{
+					const u32 thisChunkIndex = currChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+					if ( currChunkIndex == thisChunkIndex )
 					{
 						break;
 					}
-					nextChunk = nextChunk->next;
+					currChunk = currChunk->next;
 				}
 
-				if ( !nextChunk )
+				if ( !currChunk )
 				{
-					AudioChunk *nextChunk = PushStruct(engine.platform.dataArena, AudioChunk);
-					nextChunk->firstSampleIndex = nextChunkFirstSampleIndex;
-					nextChunk->next = audioClip.firstChunk;
-					FileSeek(engine.assets.file, audioClip.location.offset + nextChunkFirstSampleIndex * sizeof(i16));
-					const u32 nextChunkSampleCount = (nextChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
-					ReadFromFile(engine.assets.file, nextChunk->samples, nextChunkSampleCount * sizeof(i16));
+					AudioChunk *currChunk = PushStruct(engine.platform.dataArena, AudioChunk);
+					currChunk->firstSampleIndex = currChunkFirstSampleIndex;
+					currChunk->next = audioClip.firstChunk;
+					FileSeek(engine.assets.file, audioClip.location.offset + currChunkFirstSampleIndex * sizeof(i16));
+					const u32 currChunkSampleCount = (currChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+					ReadFromFile(engine.assets.file, currChunk->samples, currChunkSampleCount * sizeof(i16));
 
-					audioClip.firstChunk = nextChunk;
+					audioClip.firstChunk = currChunk;
 				}
-			}
 
-			AudioChunk *chunks[] = { currChunk, nextChunk };
+				AudioChunk *nextChunk = nullptr;
 
-			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
-			u32 requestedSampleCount = soundBuffer.sampleCount * 2;
-
-			f32 *dstSample = realSamples;
-
-			for (u32 i = 0; i < ARRAY_COUNT(chunks); ++i)
-			{
-				AudioChunk *chunk = chunks[i];
-
-				if (chunk)
+				if ( nextChunkIndex > currChunkIndex )
 				{
-					const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - chunk->firstSampleIndex;
-
-					const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
-					const u32 remainingChunkSampleCount = chunk->firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
-					const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
-					const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
-					for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+					nextChunk = audioClip.firstChunk;
+					while (nextChunk)
 					{
-						*dstSample += (f32)*srcSample;
-						dstSample++;
-						srcSample++;
+						const u32 thisChunkIndex = nextChunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+						if ( nextChunkIndex == thisChunkIndex )
+						{
+							break;
+						}
+						nextChunk = nextChunk->next;
 					}
 
-					audioSource.lastWriteSampleIndex += sampleCount;
-					if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
+					if ( !nextChunk )
 					{
-						audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
-					}
+						AudioChunk *nextChunk = PushStruct(engine.platform.dataArena, AudioChunk);
+						nextChunk->firstSampleIndex = nextChunkFirstSampleIndex;
+						nextChunk->next = audioClip.firstChunk;
+						FileSeek(engine.assets.file, audioClip.location.offset + nextChunkFirstSampleIndex * sizeof(i16));
+						const u32 nextChunkSampleCount = (nextChunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+						ReadFromFile(engine.assets.file, nextChunk->samples, nextChunkSampleCount * sizeof(i16));
 
-					requestedSampleCount -= sampleCount;
+						audioClip.firstChunk = nextChunk;
+					}
+				}
+
+				AudioChunk *chunks[] = { currChunk, nextChunk };
+
+				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+				u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+				f32 *dstSample = realSamples;
+
+				for (u32 i = 0; i < ARRAY_COUNT(chunks); ++i)
+				{
+					AudioChunk *chunk = chunks[i];
+
+					if (chunk)
+					{
+						const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - chunk->firstSampleIndex;
+
+						const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
+						const u32 remainingChunkSampleCount = chunk->firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
+						const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
+						const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
+						for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+						{
+							*dstSample += (f32)*srcSample;
+							dstSample++;
+							srcSample++;
+						}
+
+						audioSource.lastWriteSampleIndex += sampleCount;
+						if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
+						{
+							audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+						}
+
+						requestedSampleCount -= sampleCount;
+					}
 				}
 			}
 		}
@@ -2093,8 +2123,21 @@ AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 }
 #endif
 
+static void PushDataArenaState(Engine &engine)
+{
+	ASSERT(engine.dataArenaStateCount < ARRAY_COUNT(engine.dataArenaStates));
+	engine.dataArenaStates[engine.dataArenaStateCount++] = engine.platform.dataArena;
+}
+
+static void PopDataArenaState(Engine &engine)
+{
+	ASSERT(engine.dataArenaStateCount > 0);
+	engine.platform.dataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
+}
+
 void LoadSceneFromTxt(Engine &engine)
 {
+	PushDataArenaState(engine);
 	Arena &dataArena = engine.platform.dataArena;
 	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
 	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
@@ -2139,6 +2182,7 @@ void SaveSceneToTxt(Engine &engine)
 
 void LoadSceneFromBin(Engine &engine)
 {
+	PushDataArenaState(engine);
 	engine.assets = OpenAssets(engine.platform.dataArena);
 
 	// Textures
@@ -2205,6 +2249,7 @@ void CleanScene(Engine &engine)
 	FreeAllHandles(engine.audio.clipHandles);
 	CloseAssets(engine.assets);
 	ResetBindGroupAllocator( engine.gfx.device, engine.gfx.materialBindGroupAllocator );
+	PopDataArenaState(engine);
 }
 
 void BuildAssetsFromDescriptors(Engine &engine)

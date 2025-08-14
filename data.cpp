@@ -1092,7 +1092,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			binAudioClipDescs[i] = audioClipHeader;
 
 			if ( ok ) {
-				fwrite(audioClip.samplesOld, payloadSize, 1, file);
+				fwrite(audioClip.samples, payloadSize, 1, file);
 			} else {
 				fseek(file, payloadSize, SEEK_CUR);
 			}
@@ -1155,8 +1155,6 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 BinAssets OpenAssets(Arena &dataArena)
 {
 	BinAssets assets = {};
-
-	ResetArena(dataArena);
 
 	const FilePath filepath = MakePath(DataDir, "assets.dat");
 
