@@ -2405,6 +2405,7 @@ struct Mouse
 {
 	i32 x, y;
 	i32 dx, dy;
+	i32 wx, wy; // wheel x and y
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
 };
 
@@ -2912,8 +2913,10 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 					case 1: window.mouse.buttons[ MOUSE_BUTTON_LEFT ] = state; break;
 					case 2: window.mouse.buttons[ MOUSE_BUTTON_MIDDLE ] = state; break;
 					case 3: window.mouse.buttons[ MOUSE_BUTTON_RIGHT ] = state; break;
-					//case 4: // wheel up
-					//case 5: // wheel down
+					case 4: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wy -= 1; } break;// // wheel up
+					case 5: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wy += 1; } break;// // wheel down
+					case 6: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wx -= 1; } break;// // wheel left
+					case 7: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wx += 1; } break;// // wheel right
 					default:;
 				}
 				break;
@@ -3555,8 +3558,10 @@ void PlatformUpdateEventLoop(Platform &platform)
 		}
 	}
 
-	window.mouse.dx = 0.0f;
-	window.mouse.dy = 0.0f;
+	window.mouse.dx = 0;
+	window.mouse.dy = 0;
+	window.mouse.wx = 0;
+	window.mouse.wy = 0;
 
 	window.chars.charCount = 0;
 
