@@ -1240,6 +1240,44 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 }
 
 ////////////////////////////////////////////////////////////////////////
+// Read image file pixels
+
+struct ImagePixels
+{
+	stbi_uc* pixels;
+	i32 width;
+	i32 height;
+	i32 channelCount;
+	bool constPixels;
+};
+
+ImagePixels ReadImagePixels(const char *filepath)
+{
+	ImagePixels image = {};
+	image.pixels = stbi_load(filepath, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
+	image.channelCount = 4; // Because we use STBI_rgb_alpha
+	if ( !image.pixels )
+	{
+		LOG(Error, "stbi_load failed to load %s\n", filepath);
+		static stbi_uc constPixels[] = {255, 0, 255, 255};
+		image.pixels = constPixels;
+		image.width = image.height = 1;
+		image.channelCount = 4;
+		image.constPixels = true;
+	}
+	return image;
+}
+
+void FreeImagePixels(ImagePixels &image)
+{
+	if (image.pixels && !image.constPixels)
+	{
+		stbi_image_free(image.pixels);
+	}
+	image = {};
+}
+
+////////////////////////////////////////////////////////////////////////
 // Texture management
 
 Texture &GetTexture(Graphics &gfx, TextureH handle)
@@ -1268,28 +1306,14 @@ TextureH CreateTexture(Graphics &gfx, const char *name, ImageH imageHandle)
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
-	int texWidth, texHeight, texChannels;
 	FilePath imagePath = MakePath(ProjectDir, desc.filename);
-	stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-	texChannels = 4; // Because we use STBI_rgb_alpha
-	stbi_uc* pixels = originalPixels;
-	if ( !pixels )
-	{
-		LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
-		static stbi_uc constPixels[] = {255, 0, 255, 255};
-		pixels = constPixels;
-		texWidth = texHeight = 1;
-		texChannels = 4;
-	}
+	ImagePixels img = ReadImagePixels(imagePath.str);
 
-	const ImageH imageHandle = CreateImage(gfx, desc.name, texWidth, texHeight, texChannels, desc.mipmap, pixels);
+	const ImageH imageHandle = CreateImage(gfx, desc.name, img.width, img.height, img.channelCount, desc.mipmap, img.pixels);
 
 	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
 
-	if ( originalPixels )
-	{
-		stbi_image_free(originalPixels);
-	}
+	FreeImagePixels(img);
 
 	return textureHandle;
 }
