@@ -45,6 +45,7 @@ struct UIInput
 	Mouse mouse;
 	Keyboard keyboard;
 	Chars chars;
+	int2 lastMouseClickPos;
 };
 
 struct UISection
@@ -77,8 +78,6 @@ struct UIWindow
 	bool dragging;
 	bool resizing;
 	bool scrolling;
-	int2 lastMouseClickPos;
-	int2 mousePosBeforeResize;
 	int2 sizeBeforeResize;
 	bool disableWidgets;
 	bool clippedContents;
@@ -237,6 +236,12 @@ int2 UI_MouseScroll(const UI &ui)
 int2 UI_MousePos(const UI &ui)
 {
 	const int2 pos = { .x = ui.input.mouse.x, .y = ui.input.mouse.y };
+	return pos;
+}
+
+int2 UI_LastMouseClickPos(const UI &ui)
+{
+	const int2 pos = { .x = ui.input.lastMouseClickPos.x, .y = ui.input.lastMouseClickPos.y };
 	return pos;
 }
 
@@ -876,7 +881,6 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 		UI_PopColor(ui);
 		if (UI_WidgetClicked(ui))
 		{
-			window.mousePosBeforeResize = UI_MousePos(ui);
 			window.sizeBeforeResize = {(i32)window.size.x, (i32)window.size.y};
 			window.resizing = true;
 			// Disable other widgets, resize widget has prevalence
@@ -917,7 +921,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 			}
 
 			if (window.scrolling) { // Scroll by widget
-				const f32 mouseDelta = window.lastMouseClickPos.y - UI_MousePos(ui).y;
+				const f32 mouseDelta = UI_LastMouseClickPos(ui).y - UI_MousePos(ui).y;
 				const f32 scrollDelta = window.contentSize.y * mouseDelta / containerHeight;
 				window.contentOffset = window.contentOffsetBeforeScrolling + scrollDelta;
 			} else {
@@ -944,7 +948,6 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 			UI_PopColor(ui);
 			if (UI_WidgetClicked(ui)) {
 				window.scrolling = true;
-				window.lastMouseClickPos = UI_MousePos(ui);
 				window.contentOffsetBeforeScrolling = window.contentOffset;
 			}
 			UI_EndWidget(ui);
@@ -1802,6 +1805,11 @@ void UI_BeginFrame(UI &ui)
 	ui.drawListCount = 0;
 	ui.drawListStackSize = 0;
 
+	if (UI_IsMouseClick(ui))
+	{
+		ui.input.lastMouseClickPos = UI_MousePos(ui);
+	}
+
 	// Resize / move window interactions
 	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
@@ -1820,7 +1828,7 @@ void UI_BeginFrame(UI &ui)
 			if ( window.resizing )
 			{
 				constexpr float2 minWindowSize = { 100.0f, 100.0f };
-				const int2 resizeDelta = UI_MousePos(ui) - window.mousePosBeforeResize;
+				const int2 resizeDelta = UI_MousePos(ui) - UI_LastMouseClickPos(ui);
 				const int2 newWindowSize = window.sizeBeforeResize + resizeDelta;
 				window.size = Max(minWindowSize, float2{(float)newWindowSize.x, (float)newWindowSize.y});
 			}
