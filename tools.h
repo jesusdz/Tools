@@ -3544,6 +3544,9 @@ bool InitializeWindow(
 	int fullWidth = windowRect.right - windowRect.left;
 	int fullHeight = windowRect.bottom - windowRect.top;
 
+	// Ignore display scaling
+	SetProcessDPIAware();
+
 	HWND hWnd = CreateWindowExA(
 			0,                              // Optional window styles.
 			CLASS_NAME,                     // Window class
