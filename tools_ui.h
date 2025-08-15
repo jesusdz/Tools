@@ -154,6 +154,9 @@ struct UICombo
 struct UIIcon
 {
 	ImagePixels image;
+
+	// Known after packed into the atlas
+	int2 pos;
 	float2 uv;
 	float2 uvSize;
 };
@@ -213,6 +216,9 @@ struct UI
 
 	bool avoidWindowInteraction;
 	bool wantsInput;
+
+	UIIcon *icons;
+	u32 iconCount;
 };
 
 bool UI_IsMouseClick(const UI &ui)
@@ -1112,6 +1118,35 @@ bool UI_Button(UI &ui, const char *text)
 	return clicked;
 }
 
+bool UI_ButtonIcon(UI &ui, u32 iconIndex)
+{
+	ASSERT(iconIndex < ui.iconCount);
+	const UIIcon &icon = ui.icons[iconIndex];
+
+	constexpr float2 padding = {1.0f, 1.0f};
+	const float2 iconSize = { (f32)icon.image.width, (f32)icon.image.height };
+	const float2 widgetSize = iconSize + 2.0f * padding;
+
+	const float2 widgetPos = ui.currentPos;
+
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_AddRectangle(ui, widgetPos, widgetSize);
+	UI_PopColor(ui);
+
+	const float2 iconPos = widgetPos + padding;
+	UI_AddQuad(ui, iconPos, iconSize, icon.uv, icon.uvSize, UiColorWhite);
+
+	const bool clicked = UI_WidgetClicked(ui);
+
+	UI_EndWidget(ui);
+
+	UI_CursorAdvance(ui, widgetSize);
+
+	return clicked;
+}
+
 bool UI_Radio(UI &ui, const char *text, bool active)
 {
 	const float2 ballPos = ui.currentPos;
@@ -1740,21 +1775,29 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 	fontAtlasBitmap[strideInBytes * whitePixelRect.y + whitePixelRect.x] = 0xFF;
 	ui.whitePixelUv = float2{ (whitePixelRect.x + 0.5f) / fontAtlasWidth, (whitePixelRect.y + 0.5f)/ fontAtlasHeight };
 
-//	// Pack RGBA icons
-//	for (u32 i = 0; i < iconCount; ++i)
-//	{
-//		const UIIcon &icon = icons[i];
-//
-//		// Pack custom white pixel
-//		stbrp_rect iconRect = {
-//			.id = 0, // ignored by us
-//			.w = icon.image.width, .h = icon.image.height, // input
-//			// .x = 99, .y = 99, // output
-//			// .was_packed = false, // output
-//		};
-//		stbtt_PackFontRangesPackRects(&packContext, &iconRect, 1);
-//		ASSERT(iconRect.was_packed);
-//	}
+	// Pack RGBA icons
+	for (u32 i = 0; i < iconCount; ++i)
+	{
+		UIIcon &icon = icons[i];
+
+		// Pack custom white pixel
+		stbrp_rect iconRect = {
+			.id = 0, // ignored by us
+			.w = icon.image.width, .h = icon.image.height, // input
+			// .x = 99, .y = 99, // output
+			// .was_packed = false, // output
+		};
+		stbtt_PackFontRangesPackRects(&packContext, &iconRect, 1);
+		ASSERT(iconRect.was_packed);
+
+		// Save packing info
+		icon.pos = int2{ iconRect.x, iconRect.y };
+		icon.uv = float2{ (iconRect.x + 0.5f)/fontAtlasWidth, (iconRect.y + 0.5f)/fontAtlasHeight };
+		icon.uvSize = float2{ (f32)iconRect.w/fontAtlasWidth, (f32)iconRect.h/fontAtlasHeight };
+	}
+
+	ui.icons = icons;
+	ui.iconCount = iconCount;
 
 	// End packing
 	stbtt_PackEnd(&packContext);
@@ -1769,28 +1812,27 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 		*dstPtr++ = rgba{255, 255, 255, *srcPtr++};
 	}
 
-//	// Pack RGBA icons
-//	for (u32 i = 0; i < iconCount; ++i)
-//	{
-//		const UIIcon &icon = icons[i];
-//
-//		// Pack custom white pixel
-//		stbrp_rect iconRect = {
-//			.id = 0, // ignored by us
-//			.w = icon.image.width, .h = icon.image.height, // input
-//			// .x = 99, .y = 99, // output
-//			// .was_packed = false, // output
-//		};
-//		stbtt_PackFontRangesPackRects(&packContext, &iconRect, 1);
-//		for (u32 y = 0; y < icon.image.height; ++y)
-//		{
-//			for (u32 x = 0; x < icon.image.width; ++x)
-//			{
-//				fontAtlasBitmapRGBA[strideInBytes * (iconRect.y + y) + iconRect.x + x] = rgba{255, 255, 255, 255};
-//			}
-//		}
-//		//ui.whitePixelUv = float2{ (iconRect.x + 0.5f) / fontAtlasWidth, (iconRect.y + 0.5f)/ fontAtlasHeight };
-//	}
+	// Blit icon RGBA pixels
+	const u32 pixelSize = 4;
+	for (u32 i = 0; i < iconCount; ++i)
+	{
+		const UIIcon &icon = icons[i];
+		const u32 iconStride = icon.image.width * pixelSize;
+
+		for (u32 y = 0; y < icon.image.height; ++y)
+		{
+			for (u32 x = 0; x < icon.image.width; ++x)
+			{
+				const rgba color = {
+					icon.image.pixels[y * iconStride + x * pixelSize + 0],
+					icon.image.pixels[y * iconStride + x * pixelSize + 1],
+					icon.image.pixels[y * iconStride + x * pixelSize + 2],
+					icon.image.pixels[y * iconStride + x * pixelSize + 3],
+				};
+				fontAtlasBitmapRGBA[strideInBytes * (icon.pos.y + y) + icon.pos.x + x] = color;
+			}
+		}
+	}
 
 	// Create texture
 	ui.fontAtlasH = CreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
