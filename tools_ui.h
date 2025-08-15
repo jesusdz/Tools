@@ -1716,8 +1716,21 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 
 	UI_PushColor(ui, UiColorWidget);
 
+	struct SizedFont
+	{
+		const char *filename;
+		i32 height;
+	};
+
+	const SizedFont fonts[] = {
+		{ "editor/fonts/proggy/ProggyClean.ttf", 13 },
+		{ "editor/fonts/refixedsys/refixedsys-mono.ttf", 15 },
+	};
+
+	const SizedFont sizedFont = fonts[1];
+
 	// Load TTF font texture
-	FilePath fontPath = MakePath(ProjectDir, "assets/ProggyClean.ttf");
+	FilePath fontPath = MakePath(ProjectDir, sizedFont.filename);
 	DataChunk *chunk = PushFile( scratch, fontPath.str );
 	if ( !chunk )
 	{
@@ -1727,13 +1740,13 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 	const byte *fontData = chunk->bytes;
 
 	const u32 fontAtlasWidth = 128;
-	const u32 fontAtlasHeight = 64;
+	const u32 fontAtlasHeight = 128;
 	byte *fontAtlasBitmap = PushArray(scratch, byte, fontAtlasWidth * fontAtlasHeight);
 
 	stbtt_fontinfo font;
 	const int fontIndex = 0;
 	const int fontOffset = stbtt_GetFontOffsetForIndex(fontData, fontIndex);
-	const int pixelHeight = 13.0f;
+	const f32 pixelHeight = (f32)sizedFont.height;
 	if ( stbtt_InitFont(&font, fontData, fontOffset) )
 	{
 		ui.fontScale = stbtt_ScaleForPixelHeight(&font, pixelHeight);
