@@ -1123,11 +1123,11 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 	ASSERT(iconIndex < ui.iconCount);
 	const UIIcon &icon = ui.icons[iconIndex];
 
-	constexpr float2 padding = {1.0f, 1.0f};
+	constexpr float2 padding = {2.0f, 2.0f};
+	const float2 widgetPos = ui.currentPos;
+	const float2 iconPos = widgetPos + padding;
 	const float2 iconSize = { (f32)icon.image.width, (f32)icon.image.height };
 	const float2 widgetSize = iconSize + 2.0f * padding;
-
-	const float2 widgetPos = ui.currentPos;
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -1135,7 +1135,6 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 	UI_AddRectangle(ui, widgetPos, widgetSize);
 	UI_PopColor(ui);
 
-	const float2 iconPos = widgetPos + padding;
 	UI_AddQuad(ui, iconPos, iconSize, icon.uv, icon.uvSize, UiColorWhite);
 
 	const bool clicked = UI_WidgetClicked(ui);
@@ -1792,7 +1791,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 
 		// Save packing info
 		icon.pos = int2{ iconRect.x, iconRect.y };
-		icon.uv = float2{ (iconRect.x + 0.5f)/fontAtlasWidth, (iconRect.y + 0.5f)/fontAtlasHeight };
+		icon.uv = float2{ (f32)iconRect.x/fontAtlasWidth, (f32)iconRect.y/fontAtlasHeight };
 		icon.uvSize = float2{ (f32)iconRect.w/fontAtlasWidth, (f32)iconRect.h/fontAtlasHeight };
 	}
 
