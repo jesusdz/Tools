@@ -1,10 +1,10 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+
 #define TOOLS_PLATFORM
 #include "tools.h"
 
 #include "tools_gfx.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
 
 #define USE_EDITOR ( PLATFORM_LINUX || PLATFORM_WINDOWS )
 #define USE_UI ( PLATFORM_LINUX || PLATFORM_WINDOWS )
@@ -1240,44 +1240,6 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 }
 
 ////////////////////////////////////////////////////////////////////////
-// Read image file pixels
-
-struct ImagePixels
-{
-	stbi_uc* pixels;
-	i32 width;
-	i32 height;
-	i32 channelCount;
-	bool constPixels;
-};
-
-ImagePixels ReadImagePixels(const char *filepath)
-{
-	ImagePixels image = {};
-	image.pixels = stbi_load(filepath, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
-	image.channelCount = 4; // Because we use STBI_rgb_alpha
-	if ( !image.pixels )
-	{
-		LOG(Error, "stbi_load failed to load %s\n", filepath);
-		static stbi_uc constPixels[] = {255, 0, 255, 255};
-		image.pixels = constPixels;
-		image.width = image.height = 1;
-		image.channelCount = 4;
-		image.constPixels = true;
-	}
-	return image;
-}
-
-void FreeImagePixels(ImagePixels &image)
-{
-	if (image.pixels && !image.constPixels)
-	{
-		stbi_image_free(image.pixels);
-	}
-	image = {};
-}
-
-////////////////////////////////////////////////////////////////////////
 // Texture management
 
 Texture &GetTexture(Graphics &gfx, TextureH handle)
@@ -2003,7 +1965,18 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	LinkHandles(gfx);
 
 #if USE_UI
-	UI_Initialize(engine.ui, gfx, gfx.device, scratch);
+	UIIcon *icons = nullptr;
+	u32 iconCount = 0;
+#if USE_EDITOR
+	const char *iconFilenames[] = { "editor/open.png", "editor/save.png", "editor/reload.png" };
+	iconCount = ARRAY_COUNT(iconFilenames);
+	icons = PushArray(globalArena, UIIcon, iconCount);
+	for (u32 i = 0; i < iconCount; ++i) {
+		FilePath filepath = MakePath(ProjectDir, iconFilenames[i]);
+		icons[i].image = ReadImagePixels(filepath.str);
+	}
+#endif
+	UI_Initialize(engine.ui, gfx, gfx.device, scratch, icons, iconCount);
 #endif
 
 	gfx.deviceInitialized = true;

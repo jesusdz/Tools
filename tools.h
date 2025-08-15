@@ -10,6 +10,7 @@
  * - Strings
  * - Hashing
  * - Memory allocators
+ * - Image loading
  * - File/directory/path management
  * - Process execution
  * - Dynamic library loading
@@ -833,6 +834,46 @@ void ResetArena(Arena &arena)
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
 #define PushZeroStruct( arena, struct_type ) (struct_type*)PushZeroSize(arena, sizeof(struct_type))
 #define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * count)
+
+
+
+////////////////////////////////////////////////////////////////////////
+// Image loading
+
+struct ImagePixels
+{
+	stbi_uc* pixels;
+	i32 width;
+	i32 height;
+	i32 channelCount;
+	bool constPixels;
+};
+
+ImagePixels ReadImagePixels(const char *filepath)
+{
+	ImagePixels image = {};
+	image.pixels = stbi_load(filepath, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
+	image.channelCount = 4; // Because we use STBI_rgb_alpha
+	if ( !image.pixels )
+	{
+		LOG(Error, "stbi_load failed to load %s\n", filepath);
+		static stbi_uc constPixels[] = {255, 0, 255, 255};
+		image.pixels = constPixels;
+		image.width = image.height = 1;
+		image.channelCount = 4;
+		image.constPixels = true;
+	}
+	return image;
+}
+
+void FreeImagePixels(ImagePixels &image)
+{
+	if (image.pixels && !image.constPixels)
+	{
+		stbi_image_free(image.pixels);
+	}
+	image = {};
+}
 
 
 

@@ -152,6 +152,13 @@ struct UICombo
 	float2 size;
 };
 
+struct UIIcon
+{
+	ImagePixels image;
+	float2 uv;
+	float2 uvSize;
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -1651,7 +1658,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 struct Graphics;
 ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
-void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
+void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch, UIIcon *icons, u32 iconCount)
 {
 	const u32 vertexBufferSize = KB(128);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
@@ -1730,6 +1737,22 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	fontAtlasBitmap[strideInBytes * whitePixelRect.y + whitePixelRect.x] = 0xFF;
 	ui.whitePixelUv = float2{ (whitePixelRect.x + 0.5f) / fontAtlasWidth, (whitePixelRect.y + 0.5f)/ fontAtlasHeight };
 
+//	// Pack RGBA icons
+//	for (u32 i = 0; i < iconCount; ++i)
+//	{
+//		const UIIcon &icon = icons[i];
+//
+//		// Pack custom white pixel
+//		stbrp_rect iconRect = {
+//			.id = 0, // ignored by us
+//			.w = icon.image.width, .h = icon.image.height, // input
+//			// .x = 99, .y = 99, // output
+//			// .was_packed = false, // output
+//		};
+//		stbtt_PackFontRangesPackRects(&packContext, &iconRect, 1);
+//		ASSERT(iconRect.was_packed);
+//	}
+
 	// End packing
 	stbtt_PackEnd(&packContext);
 
@@ -1742,6 +1765,29 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch)
 	{
 		*dstPtr++ = rgba{255, 255, 255, *srcPtr++};
 	}
+
+//	// Pack RGBA icons
+//	for (u32 i = 0; i < iconCount; ++i)
+//	{
+//		const UIIcon &icon = icons[i];
+//
+//		// Pack custom white pixel
+//		stbrp_rect iconRect = {
+//			.id = 0, // ignored by us
+//			.w = icon.image.width, .h = icon.image.height, // input
+//			// .x = 99, .y = 99, // output
+//			// .was_packed = false, // output
+//		};
+//		stbtt_PackFontRangesPackRects(&packContext, &iconRect, 1);
+//		for (u32 y = 0; y < icon.image.height; ++y)
+//		{
+//			for (u32 x = 0; x < icon.image.width; ++x)
+//			{
+//				fontAtlasBitmapRGBA[strideInBytes * (iconRect.y + y) + iconRect.x + x] = rgba{255, 255, 255, 255};
+//			}
+//		}
+//		//ui.whitePixelUv = float2{ (iconRect.x + 0.5f) / fontAtlasWidth, (iconRect.y + 0.5f)/ fontAtlasHeight };
+//	}
 
 	// Create texture
 	ui.fontAtlasH = CreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
