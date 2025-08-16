@@ -1075,7 +1075,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			AudioClip audioClip;
 			Arena scratch = MakeSubArena(tempArena);
-			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch, audioClip);
+			void *samples = nullptr;
+			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch, audioClip, &samples);
 
 			const u64 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
 
@@ -1092,7 +1093,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			binAudioClipDescs[i] = audioClipHeader;
 
 			if ( ok ) {
-				fwrite(audioClip.samples, payloadSize, 1, file);
+				fwrite(samples, payloadSize, 1, file);
 			} else {
 				fseek(file, payloadSize, SEEK_CUR);
 			}

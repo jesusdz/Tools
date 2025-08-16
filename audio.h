@@ -18,12 +18,16 @@ struct AudioChunk
 struct AudioClip
 {
 	AudioChunk *firstChunk;
-	void *samples; // NOTE: Used for clips which are always loaded
 	u32 sampleCount;
 	u32 samplingRate;
 	u16 sampleSize;
 	u16 channelCount;
-	BinLocation location;
+	bool loadedFromAssetsFile;
+	union
+	{
+		BinLocation location;
+		const char *filename;
+	};
 };
 
 enum AudioSourceFlags
@@ -56,7 +60,8 @@ struct Audio
 
 struct Engine;
 
-bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip);
+bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip, void **outSamples);
+bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount);
 
 AudioClip &GetAudioClip(Audio &audio, Handle handle);
 void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);

@@ -40,7 +40,7 @@ struct WAVE_fmt
 
 #pragma pack(pop)
 
-bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip)
+bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip, void **outSamples)
 {
 	FILE *file = fopen(filename, "rb");
 	if (file != nullptr)
@@ -58,8 +58,7 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 		while (1)
 		{
 			fread(&Chunk, sizeof(Chunk), 1, file);
-			if (feof(file))
-			{
+			if (feof(file)) {
 				break;
 			}
 
@@ -75,9 +74,17 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 				case RIFF_data:
 					ASSERT(data == nullptr);
 					dataSize = Chunk.Size;
-					data = PushSize(arena, dataSize);
-					fread(data, dataSize, 1, file);
-					ASSERT(data != nullptr);
+					if (outSamples != nullptr)
+					{
+						data = PushSize(arena, dataSize);
+						ASSERT(data != nullptr);
+						fread(data, dataSize, 1, file);
+						*outSamples = data;
+					}
+					else
+					{
+						fseek(file, dataSize, SEEK_CUR);
+					}
 					break;
 				default:
 					fseek(file, Chunk.Size, SEEK_CUR);
@@ -85,11 +92,63 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 			}
 		}
 
+		audioClip.filename = filename;
 		audioClip.sampleSize = Fmt.BitsPerSample / 8;
 		audioClip.samplingRate = Fmt.SampleRate;
 		audioClip.channelCount = Fmt.NumChannels;
 		audioClip.sampleCount = dataSize / audioClip.sampleSize;
-		audioClip.samples = data;
+
+		fclose(file);
+		return true;
+	}
+	else
+	{
+		LOG(Warning, "Could not load sound file %s\n", filename);
+		return false;
+	}
+}
+
+bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount)
+{
+	FILE *file = fopen(filename, "rb");
+	if (file != nullptr)
+	{
+		WAVE_header Header;
+		WAVE_chunk Chunk;
+		WAVE_fmt Fmt;
+		const u32 dataOffset = firstSampleIndex * sizeof(i16);
+		const u32 dataSize = sampleCount * sizeof(i16);;
+
+		fread(&Header, sizeof(Header), 1, file);
+		ASSERT(Header.ChunkID == RIFF_RIFF); // "RIFF"
+		ASSERT(Header.Format == RIFF_WAVE); // "WAVE"
+
+		while (1)
+		{
+			fread(&Chunk, sizeof(Chunk), 1, file);
+			if (feof(file)) {
+				break;
+			}
+
+			switch (Chunk.ID)
+			{
+				case RIFF_fmt:
+					fread(&Fmt, Chunk.Size, 1, file);
+					ASSERT(Fmt.AudioFormat == 1); // 1 means PCM
+					ASSERT(Fmt.SampleRate == 48000);
+					ASSERT(Fmt.NumChannels == 2);
+					ASSERT(Fmt.BitsPerSample == 16);
+					break;
+				case RIFF_data:
+					ASSERT( dataOffset + dataSize <= Chunk.Size );
+					fseek(file, dataOffset, SEEK_CUR);
+					fread(samples, dataSize, 1, file);
+					break;
+				default:
+					fseek(file, Chunk.Size, SEEK_CUR);
+					break;
+			}
+		}
 
 		fclose(file);
 		return true;
@@ -123,7 +182,7 @@ void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 		audioClip.samplingRate = desc.samplingRate;
 		audioClip.channelCount = desc.channelCount;
 		audioClip.sampleCount = desc.sampleCount;
-		//audioClip.samples = binAudioClip.samples;
+		audioClip.loadedFromAssetsFile = true;
 		audioClip.location = desc.location;
 	}
 	else
@@ -144,7 +203,8 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 		AudioClip &audioClip = GetAudioClip(audio, handle);
 		//ASSERT(!audioClip.samples);
 
-		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
+		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip, nullptr);
+		audioClip.loadedFromAssetsFile = false;
 	}
 	else
 	{
@@ -294,6 +354,7 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 		{
 			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
+#if 0
 			if ( audioClip.samples )
 			{
 				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
@@ -318,6 +379,7 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 				}
 			}
 			else
+#endif
 			{
 				const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
 				const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
@@ -355,10 +417,18 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 						chunk = PushStruct(engine.platform.dataArena, AudioChunk);
 						chunk->firstSampleIndex = firstSampleIndex;
 						chunk->next = audioClip.firstChunk;
-						FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
-						const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
-						ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
 						audioClip.firstChunk = chunk;
+
+						const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+						if ( audioClip.loadedFromAssetsFile )
+						{
+							FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
+							ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
+						}
+						else
+						{
+							LoadSamplesFromWAVFile(audioClip.filename, chunk->samples, firstSampleIndex, chunkSampleCount);
+						}
 					}
 
 					// Copy requested samples from chunk to real samples
@@ -381,13 +451,18 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 						audioSource.lastWriteSampleIndex += sampleCount;
 						if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
 						{
-							audioSource = {};
+							audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 						}
 
 						requestedSampleCount -= sampleCount;
 					}
 				}
 			}
+		}
+
+		if ( audioSource.flags & AUDIO_SOURCE_STOP_BIT )
+		{
+			audioSource = {};
 		}
 	}
 
