@@ -1,0 +1,417 @@
+
+#define QUAD_CHAR(a,b,c,d) (a) | (b<<8) | (c<<16) | (d<<24)
+
+enum RIFFCode
+{
+	RIFF_RIFF = QUAD_CHAR('R', 'I', 'F', 'F'),
+	RIFF_WAVE = QUAD_CHAR('W', 'A', 'V', 'E'),
+	RIFF_fmt  = QUAD_CHAR('f', 'm', 't', ' '),
+	RIFF_data = QUAD_CHAR('d', 'a', 't', 'a'),
+};
+
+#pragma pack(push, 1)
+
+struct WAVE_header
+{
+	u32 ChunkID;
+	u32 ChunkSize;
+	u32 Format;
+};
+
+struct WAVE_chunk
+{
+	u32 ID;
+	u32 Size;
+};
+
+struct WAVE_fmt
+{
+	u16 AudioFormat;
+	u16 NumChannels;
+	u32 SampleRate;
+	u32 ByteRate;
+	u16 BlockAlign;
+	u16 BitsPerSample;
+	u16 cbSize;
+	u16 ValidBitsPerSample;
+	u32 ChannelMask;
+	u8  SubFormat[16];
+};
+
+#pragma pack(pop)
+
+bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip)
+{
+	FILE *file = fopen(filename, "rb");
+	if (file != nullptr)
+	{
+		WAVE_header Header;
+		WAVE_chunk Chunk;
+		WAVE_fmt Fmt;
+		u32 dataSize;
+		void *data = nullptr;
+
+		fread(&Header, sizeof(Header), 1, file);
+		ASSERT(Header.ChunkID == RIFF_RIFF); // "RIFF"
+		ASSERT(Header.Format == RIFF_WAVE); // "WAVE"
+
+		while (1)
+		{
+			fread(&Chunk, sizeof(Chunk), 1, file);
+			if (feof(file))
+			{
+				break;
+			}
+
+			switch (Chunk.ID)
+			{
+				case RIFF_fmt:
+					fread(&Fmt, Chunk.Size, 1, file);
+					ASSERT(Fmt.AudioFormat == 1); // 1 means PCM
+					ASSERT(Fmt.SampleRate == 48000);
+					ASSERT(Fmt.NumChannels == 2);
+					ASSERT(Fmt.BitsPerSample == 16);
+					break;
+				case RIFF_data:
+					ASSERT(data == nullptr);
+					dataSize = Chunk.Size;
+					data = PushSize(arena, dataSize);
+					fread(data, dataSize, 1, file);
+					ASSERT(data != nullptr);
+					break;
+				default:
+					fseek(file, Chunk.Size, SEEK_CUR);
+					break;
+			}
+		}
+
+		audioClip.sampleSize = Fmt.BitsPerSample / 8;
+		audioClip.samplingRate = Fmt.SampleRate;
+		audioClip.channelCount = Fmt.NumChannels;
+		audioClip.sampleCount = dataSize / audioClip.sampleSize;
+		audioClip.samples = data;
+
+		fclose(file);
+		return true;
+	}
+	else
+	{
+		LOG(Warning, "Could not load sound file %s\n", filename);
+		return false;
+	}
+}
+
+AudioClip &GetAudioClip(Audio &audio, Handle handle)
+{
+	ASSERT( IsValidHandle(audio.clipHandles, handle) );
+	AudioClip &audioClip = audio.clips[handle.idx];
+	return audioClip;
+}
+
+void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
+{
+	Audio &audio = engine.audio;
+
+	Handle handle = NewHandle(audio.clipHandles);
+
+	if ( IsValidHandle(audio.clipHandles, handle) )
+	{
+		AudioClip &audioClip = GetAudioClip(audio, handle);
+
+		const BinAudioClipDesc &desc = *binAudioClip.desc;
+		audioClip.sampleSize = desc.sampleSize;
+		audioClip.samplingRate = desc.samplingRate;
+		audioClip.channelCount = desc.channelCount;
+		audioClip.sampleCount = desc.sampleCount;
+		//audioClip.samples = binAudioClip.samples;
+		audioClip.location = desc.location;
+	}
+	else
+	{
+		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", "<audio-clip>");
+	}
+}
+
+void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
+{
+	Audio &audio = engine.audio;
+	Arena &arena = engine.platform.dataArena;
+
+	Handle handle = NewHandle(audio.clipHandles);
+
+	if ( IsValidHandle(audio.clipHandles, handle) )
+	{
+		AudioClip &audioClip = GetAudioClip(audio, handle);
+		//ASSERT(!audioClip.samples);
+
+		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip);
+	}
+	else
+	{
+		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", audioClipDesc.filename);
+	}
+}
+
+void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle)
+{
+	AudioClip &clip = GetAudioClip(engine.audio, handle);
+	clip = {};
+
+	if (freeHandle) {
+		FreeHandle(engine.audio.clipHandles, handle);
+	}
+}
+
+#define INVALID_AUDIO_CLIP U32_MAX
+#define INVALID_AUDIO_SOURCE U32_MAX
+
+//u32 FindAudioClipIndex(Engine &engine, const char *name)
+//{
+//	u32 audioClipIndex = INVALID_AUDIO_CLIP;
+//	for (u32 i = 0; i < audio.clipCount; ++i)
+//	{
+//		const AudioClip &audioClip = audio.clips[i];
+//		if (StrEq(audioClip.name, name))
+//		{
+//			audioClipIndex = INVALID_AUDIO_CLIP;
+//			break;
+//		}
+//	}
+//	return audioClipIndex;
+//}
+
+u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
+{
+	Audio &audio = engine.audio;
+	u32 audioSourceIndex = INVALID_AUDIO_SOURCE;
+
+	if (audioClipIndex < audio.clipHandles.handleCount)
+	{
+		Handle clipHandle = GetHandleAt(audio.clipHandles, audioClipIndex);
+		AudioClip &audioClip = GetAudioClip(audio, clipHandle);
+
+		for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
+		{
+			AudioSource &audioSource = audio.sources[i];
+			if ((audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT) == 0)
+			{
+				audioSource.clip = clipHandle;
+				audioSource.lastWriteSampleIndex = 0;
+				audioSource.flags |= AUDIO_SOURCE_ACTIVE_BIT;
+				audioSourceIndex = i;
+				break;
+			}
+		}
+	}
+
+	if (audioSourceIndex == INVALID_AUDIO_SOURCE) {
+		LOG(Warning, "Could not play audio clip %u\n", audioClipIndex);
+	}
+
+	return audioSourceIndex;
+}
+
+bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	Audio &audio = engine.audio;
+	bool active = false;
+	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		active = audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT;
+	}
+	return active;
+}
+
+bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	Audio &audio = engine.audio;
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
+	AudioSource &audioSource = audio.sources[audioSourceIndex];
+	const bool paused = audioSource.flags & AUDIO_SOURCE_PAUSE_BIT;
+	return paused;
+}
+
+void PauseAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	Audio &audio = engine.audio;
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
+	AudioSource &audioSource = audio.sources[audioSourceIndex];
+	audioSource.flags |= AUDIO_SOURCE_PAUSE_BIT;
+}
+
+void ResumeAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	Audio &audio = engine.audio;
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
+	AudioSource &audioSource = audio.sources[audioSourceIndex];
+	audioSource.flags &= ~AUDIO_SOURCE_PAUSE_BIT;
+}
+
+void StopAudioSource(Engine &engine, u32 audioSourceIndex)
+{
+	Audio &audio = engine.audio;
+	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
+	AudioSource &audioSource = audio.sources[audioSourceIndex];
+	audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+}
+
+void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
+{
+	// Wave parameters
+	const u32 ToneHz = 256;
+	const i32 ToneVolume = 4000;
+	const u32 WavePeriod = soundBuffer.samplesPerSecond / ToneHz;
+	static f32 tSine = 0.0f;
+
+	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
+
+#if 1
+	Audio &audio = engine.audio;
+
+	Scratch scratch;
+
+	f32 *realSamples = PushArray(scratch.arena, f32, soundBuffer.sampleCount * 2.0f );
+
+	// Clear sound buffer
+	f32 *samplePtr = realSamples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
+	{
+		*samplePtr++ = 0.0f;
+		*samplePtr++ = 0.0f;
+	}
+
+	for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
+	{
+		AudioSource &audioSource = audio.sources[i];
+
+		const bool isPlaying =
+			IsValidHandle(audio.clipHandles, audioSource.clip) &&
+			( audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT ) &&
+			!( audioSource.flags & AUDIO_SOURCE_PAUSE_BIT ) &&
+			!( audioSource.flags & AUDIO_SOURCE_STOP_BIT );
+
+		if (isPlaying)
+		{
+			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
+
+			if ( audioClip.samples )
+			{
+				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+				const u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+				const i16 *srcSample = (i16*)audioClip.samples + audioSource.lastWriteSampleIndex;
+				f32 *dstSample = realSamples;
+
+				const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
+				const u32 sampleCount = Min(remainingClipSampleCount, requestedSampleCount);
+				for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+				{
+					*dstSample += (f32)*srcSample;
+					dstSample++;
+					srcSample++;
+				}
+
+				audioSource.lastWriteSampleIndex += sampleCount;
+				if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
+				{
+					audioSource = {};
+				}
+			}
+			else
+			{
+				const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
+				const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+				const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount - 1);
+
+				const u32 chunkIndices[] = { currChunkIndex, nextChunkIndex };
+				const u32 prefetchChunkCount = nextChunkIndex - currChunkIndex + 1;
+				ASSERT(prefetchChunkCount <= 2);
+
+				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+				u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+				f32 *dstSample = realSamples;
+
+				for (u32 i = 0; i < prefetchChunkCount; ++i)
+				{
+					const u32 chunkIndex = chunkIndices[i];
+					const u32 firstSampleIndex = chunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+
+					// Search chunk
+					AudioChunk *chunk = audioClip.firstChunk;
+					while (chunk)
+					{
+						const u32 thisChunkIndex = chunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+						if ( chunkIndex == thisChunkIndex )
+						{
+							break;
+						}
+						chunk = chunk->next;
+					}
+
+					// No chunk found, create a new chunk and insert it
+					if ( !chunk )
+					{
+						chunk = PushStruct(engine.platform.dataArena, AudioChunk);
+						chunk->firstSampleIndex = firstSampleIndex;
+						chunk->next = audioClip.firstChunk;
+						FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
+						const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+						ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
+						audioClip.firstChunk = chunk;
+					}
+
+					// Copy requested samples from chunk to real samples
+					if (chunk)
+					{
+						const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - chunk->firstSampleIndex;
+
+						const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
+						const u32 remainingChunkSampleCount = chunk->firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
+						const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
+						const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
+
+						for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+						{
+							*dstSample += (f32)*srcSample;
+							dstSample++;
+							srcSample++;
+						}
+
+						audioSource.lastWriteSampleIndex += sampleCount;
+						if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
+						{
+							audioSource = {};
+						}
+
+						requestedSampleCount -= sampleCount;
+					}
+				}
+			}
+		}
+	}
+
+	// Convert f32 samples back to i16 samples
+	f32 *srcSample = realSamples;
+	i16 *dstSample = soundBuffer.samples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
+	{
+		*dstSample++ = (i16)*srcSample++;
+		*dstSample++ = (i16)*srcSample++;
+	}
+#else
+	samplePtr = soundBuffer.samples;
+	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
+	{
+		// Sine wave
+		tSine += TwoPi/(f32)WavePeriod;
+		while ( tSine >= TwoPi ) { tSine -= TwoPi; }
+		const f32 sinValue = Sin(tSine);
+		const i16 sample = (i16)(sinValue * ToneVolume);
+
+		*samplePtr++ = sample;
+		*samplePtr++ = sample;
+	}
+#endif
+}
+
