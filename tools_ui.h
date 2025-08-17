@@ -355,6 +355,13 @@ UIDrawList &UI_GetDrawList(UI &ui)
 	return ui.drawLists[drawListIndex];
 }
 
+const UIDrawList &UI_GetDrawList(const UI &ui)
+{
+	ASSERT(ui.drawListCount > 0 && ui.drawListStackSize > 0);
+	const u32 drawListIndex = ui.drawListStack[ui.drawListStackSize-1];
+	return ui.drawLists[drawListIndex];
+}
+
 void UI_PushDrawList(UI &ui, rect scissorRect, ImageH imageHandle, UIDrawListFlags flags = UIDrawListFlags_None)
 {
 	ASSERT(ui.drawListCount < ARRAY_COUNT(ui.drawLists));
@@ -500,6 +507,13 @@ const UIWindow &UI_GetCurrentWindow(const UI &ui)
 	return ui.windows[windowIndex];
 }
 
+bool UI_WindowHovered(const UI &ui)
+{
+	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
+	const bool hovered = &currentWindow == ui.hoveredWindow;
+	return hovered;
+}
+
 bool UI_WidgetHovered(const UI &ui)
 {
 	bool hover = false;
@@ -510,11 +524,15 @@ bool UI_WidgetHovered(const UI &ui)
 		return false;
 	}
 
-	if ( &currentWindow == ui.hoveredWindow && ui.widgetStackSize > 0 )
+	if ( UI_WindowHovered(ui) && ui.widgetStackSize > 0 )
 	{
 		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
+		const rect scissor = UI_GetDrawList(ui).scissorRect;
+		const float2 scissorPos = { (f32)scissor.pos.x, (f32)scissor.pos.y };
+		const float2 scissorSize = { (f32)scissor.size.x, (f32)scissor.size.y };
 
-		hover = UI_MouseInArea(ui, widget.pos, widget.size);
+		hover = UI_MouseInArea(ui, widget.pos, widget.size) &&
+			UI_MouseInArea(ui, scissorPos, scissorSize);
 	}
 
 	return hover;
@@ -930,7 +948,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 				const f32 mouseDelta = UI_LastMouseClickPos(ui).y - UI_MousePos(ui).y;
 				const f32 scrollDelta = window.contentSize.y * mouseDelta / containerHeight;
 				window.contentOffset = window.contentOffsetBeforeScrolling + scrollDelta;
-			} else {
+			} else if (UI_WindowHovered(ui)) {
 				const f32 scrollDelta = UI_MouseScroll(ui).y * 16; // Scroll by mouse
 				window.contentOffset -= scrollDelta;
 			}
