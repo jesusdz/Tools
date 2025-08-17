@@ -2802,6 +2802,30 @@ void OnPlatformUpdate(Platform &platform)
 	const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
 	AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
 
+#if USE_IMGUI
+	UpdateImGui(gfx);
+#endif
+
+#if USE_UI
+	UIBeginFrameRecording(engine);
+#endif
+
+#if USE_EDITOR
+	EditorUpdate(engine);
+#endif
+
+	GameUpdate(engine);
+
+#if USE_UI
+	UIEndFrameRecording(engine);
+#endif
+}
+
+void OnPlatformRenderGraphics(Platform &platform)
+{
+	Engine &engine = GetEngine(platform);
+	Graphics &gfx = engine.gfx;
+
 	if ( gfx.device.swapchain.outdated || platform.window.flags & WindowFlags_WasResized )
 	{
 		WaitDeviceIdle(gfx);
@@ -2818,30 +2842,16 @@ void OnPlatformUpdate(Platform &platform)
 
 	if ( gfx.deviceInitialized && gfx.device.swapchain.handle != VK_NULL_HANDLE )
 	{
-#if USE_IMGUI
-		UpdateImGui(gfx);
-#endif
-
-#if USE_UI
-		UIBeginFrameRecording(engine);
-#endif
-
-#if USE_EDITOR
-		EditorUpdate(engine);
-#endif
-
-		GameUpdate(engine);
-
-#if USE_UI
-		UIEndFrameRecording(engine);
-#endif
-
 		RenderGraphics(engine, platform.deltaSeconds);
 
 #if USE_EDITOR
-		EditorUpdatePostRender(engine);
+		EditorPostRender(engine);
 #endif
 	}
+}
+
+void OnPlatformRender(Platform &platform)
+{
 }
 
 void OnPlatformWindowCleanup(Platform &platform)
@@ -2893,6 +2903,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 	// Callbacks
 	engine.platform.InitCallback = OnPlatformInit;
 	engine.platform.UpdateCallback = OnPlatformUpdate;
+	engine.platform.RenderGraphicsCallback = OnPlatformRenderGraphics;
 	engine.platform.RenderAudioCallback = OnPlatformRenderAudio;
 	engine.platform.CleanupCallback = OnPlatformCleanup;
 	engine.platform.WindowInitCallback = OnPlatformWindowInit;

@@ -628,6 +628,8 @@ void EditorUpdate(Engine &engine)
 	}
 
 	EditorBeginEntitySelection(engine, platform.window.mouse, handleInput);
+
+	EditorProcessCommands(engine, engine.platform.frameArena);
 }
 
 void EditorRender(Engine &engine, CommandList &commandList)
@@ -702,10 +704,8 @@ void EditorRender(Engine &engine, CommandList &commandList)
 	}
 }
 
-void EditorUpdatePostRender(Engine &engine)
+void EditorPostRender(Engine &engine)
 {
 	EditorEndEntitySelection(engine);
-
-	EditorProcessCommands(engine, engine.platform.frameArena);
 }
 

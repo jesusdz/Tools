@@ -2662,6 +2662,7 @@ struct Platform
 
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
+	void (*RenderGraphicsCallback)(Platform &);
 	void (*RenderAudioCallback)(Platform &, SoundBuffer &soundBuffer);
 	void (*CleanupCallback)(Platform &);
 	bool (*WindowInitCallback)(Platform &);
@@ -4152,6 +4153,8 @@ bool InitializeAudio(Platform &platform)
 						// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
 						DSBUFFERDESC secondaryBufferDesc = {};
 						secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
+						// TODO(jesus): Set the DSBCAPS_GETCURRENTPOSITION2 flag?
+						// TODO(jesus): Set the DSBCAPS_GLOBALFOCUS flag?
 						secondaryBufferDesc.dwFlags = 0;
 						secondaryBufferDesc.dwBufferBytes = audio.bufferSize;
 						secondaryBufferDesc.lpwfxFormat = &waveFormat;
@@ -4759,6 +4762,7 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	ASSERT( platform.frameMemorySize > 0 );
 	ASSERT( platform.InitCallback );
 	ASSERT( platform.UpdateCallback );
+	ASSERT( platform.RenderGraphicsCallback );
 	ASSERT( platform.CleanupCallback );
 	ASSERT( platform.WindowInitCallback );
 	ASSERT( platform.WindowCleanupCallback );
@@ -4854,22 +4858,22 @@ bool PlatformRun(Platform &platform)
 			windowInitialized = false;
 		}
 
+		UpdateGamepad(platform);
+
 		if ( windowInitialized )
 		{
 			platform.UpdateCallback(platform);
 		}
 
-		platform.window.flags = 0;
+		platform.RenderGraphicsCallback(platform);
 
-		UpdateGamepad(platform);
+		platform.window.flags = 0;
 
 		if ( platform.audio.isPlaying )
 		{
 			const f32 secondsSinceFrameBegin = GetSecondsElapsed(currentFrameBeginClock, GetClock());
 			UpdateAudio(platform, secondsSinceFrameBegin);
 		}
-
-		// TODO: Potentially use a separate RenderCallback here instead of using UpdateCallback for that.
 	}
 
 	platform.CleanupCallback(platform);
