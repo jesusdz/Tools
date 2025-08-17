@@ -1697,7 +1697,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	for (u32 i = 0; i < valueCount; ++i)
 	{
 		const float heightRatio = values[i] / maxValue;
-		const f32 barHeight = Min(heightRatio * histogramHeight, histogramHeight);
+		const f32 barHeight = Max(1.0f , Min(heightRatio * histogramHeight, histogramHeight));
 		const float2 barPos = barBase + float2{ i * barWidth, -barHeight };
 		const float2 barSize = {barWidth - 1, barHeight};
 		UI_AddRectangle(ui, barPos, barSize);
