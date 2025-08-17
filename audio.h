@@ -22,11 +22,12 @@ struct AudioClip
 	};
 };
 
-enum AudioSourceFlags
+enum AudioSourceState
 {
-	AUDIO_SOURCE_ACTIVE_BIT = 1<<0,
-	AUDIO_SOURCE_PAUSE_BIT = 1<<1,
-	AUDIO_SOURCE_STOP_BIT = 1<<2,
+	AUDIO_SOURCE_STATE_IDLE,
+	AUDIO_SOURCE_STATE_PLAYING,
+	AUDIO_SOURCE_STATE_PAUSED,
+	AUDIO_SOURCE_STATE_LOCKED,
 };
 
 typedef Handle AudioClipH;
@@ -35,7 +36,7 @@ struct AudioSource
 {
 	AudioClipH clip;
 	u32 lastWriteSampleIndex = 0;
-	u8 flags = 0;
+	volatile_u32 state;
 };
 
 struct AudioChunk

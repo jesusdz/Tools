@@ -313,12 +313,15 @@ u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
 		for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
 		{
 			AudioSource &audioSource = audio.sources[i];
-			if ((audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT) == 0)
+
+			if (audioSource.state == AUDIO_SOURCE_STATE_IDLE)
 			{
 				audioSource.clip = clipHandle;
 				audioSource.lastWriteSampleIndex = 0;
-				audioSource.flags |= AUDIO_SOURCE_ACTIVE_BIT;
 				audioSourceIndex = i;
+
+				FullWriteBarrier();
+				audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
 				break;
 			}
 		}
@@ -337,7 +340,7 @@ bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex)
 	bool active = false;
 	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
 		AudioSource &audioSource = audio.sources[audioSourceIndex];
-		active = audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT;
+		active = audioSource.state != AUDIO_SOURCE_STATE_IDLE;
 	}
 	return active;
 }
@@ -345,34 +348,52 @@ bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex)
 bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
-	AudioSource &audioSource = audio.sources[audioSourceIndex];
-	const bool paused = audioSource.flags & AUDIO_SOURCE_PAUSE_BIT;
+	bool paused = false;
+	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		paused = audioSource.state == AUDIO_SOURCE_STATE_PAUSED;
+	}
 	return paused;
 }
 
 void PauseAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
-	AudioSource &audioSource = audio.sources[audioSourceIndex];
-	audioSource.flags |= AUDIO_SOURCE_PAUSE_BIT;
+	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		if (audioSource.state == AUDIO_SOURCE_STATE_PLAYING) {
+			do {
+				AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PLAYING, AUDIO_SOURCE_STATE_PAUSED);
+			} while (audioSource.state != AUDIO_SOURCE_STATE_PAUSED && audioSource.state != AUDIO_SOURCE_STATE_IDLE);
+		}
+	}
 }
 
 void ResumeAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
-	AudioSource &audioSource = audio.sources[audioSourceIndex];
-	audioSource.flags &= ~AUDIO_SOURCE_PAUSE_BIT;
+	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		if (audioSource.state == AUDIO_SOURCE_STATE_PAUSED) {
+			do {
+				AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PAUSED, AUDIO_SOURCE_STATE_PLAYING);
+			} while (audioSource.state != AUDIO_SOURCE_STATE_PLAYING && audioSource.state != AUDIO_SOURCE_STATE_IDLE);
+		}
+	}
 }
 
 void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	ASSERT(audioSourceIndex < ARRAY_COUNT(audio.sources));
-	AudioSource &audioSource = audio.sources[audioSourceIndex];
-	audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		bool stopped = false;
+		while ( !stopped ) {
+			stopped = AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PLAYING, AUDIO_SOURCE_STATE_IDLE);
+			stopped = stopped || AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PAUSED, AUDIO_SOURCE_STATE_IDLE);
+		}
+		audioSource = {};
+	}
 }
 
 
@@ -409,13 +430,9 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 	{
 		AudioSource &audioSource = audio.sources[i];
 
-		const bool isPlaying =
-			IsValidHandle(audio.clipHandles, audioSource.clip) &&
-			( audioSource.flags & AUDIO_SOURCE_ACTIVE_BIT ) &&
-			!( audioSource.flags & AUDIO_SOURCE_PAUSE_BIT ) &&
-			!( audioSource.flags & AUDIO_SOURCE_STOP_BIT );
+		bool audioSourceIsValid = IsValidHandle(audio.clipHandles, audioSource.clip);
 
-		if (isPlaying)
+		if (audioSourceIsValid && AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PLAYING, AUDIO_SOURCE_STATE_LOCKED))
 		{
 			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
@@ -494,15 +511,19 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 				audioSource.lastWriteSampleIndex += sampleCount;
 				if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
 				{
-					audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
+					audioSourceIsValid = false;
 				}
 
 				requestedSampleCount -= sampleCount;
 			}
+
+			FullWriteBarrier();
+			audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
 		}
 
-		if ( audioSource.flags & AUDIO_SOURCE_STOP_BIT )
+		if ( !audioSourceIsValid )
 		{
+			// This implies AUDIO_SOURCE_STATE_IDLE
 			audioSource = {};
 		}
 	}
