@@ -133,6 +133,8 @@ if [[ ${target} = "install" ]]; then
 	${ADB} install -r bin/NativeActivity.apk
 	${ADB} shell mkdir -p /sdcard/Android/data/com.tools.game/files/
 	${ADB} shell chmod o+rwx /sdcard/Android/data/com.tools.game/files
+	${ADB} push ../build/shaders.dat /sdcard/Android/data/com.tools.game/files/
+	${ADB} shell chmod o+r /sdcard/Android/data/com.tools.game/files/shaders.dat
 	${ADB} push ../build/assets.dat /sdcard/Android/data/com.tools.game/files/
 	${ADB} shell chmod o+r /sdcard/Android/data/com.tools.game/files/assets.dat
 	#${ADB} push ../build/shaders/ /sdcard/Android/data/com.tools.game/files/

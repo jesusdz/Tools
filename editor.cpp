@@ -574,7 +574,9 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				}
 				case EditorCommandBuildBin:
 				{
-					BuildAssetsFromDescriptors(engine);
+					const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
+					const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+					BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
 					break;
 				}
 				case EditorCommandClean:

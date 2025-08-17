@@ -938,11 +938,6 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 {
 	LOG(Info, "Building data\n");
 
-	CreateDirectory( MakePath(ProjectDir, "build").str );
-	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
-
-	CompileShaders();
-
 	FILE *file = fopen(filepath, "wb");
 	if ( file )
 	{
@@ -1153,27 +1148,25 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 ////////////////////////////////////////////////////////////////////////
 // Binary loading
 
-BinAssets OpenAssets(Arena &dataArena)
+BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 {
 	BinAssets assets = {};
 
-	const FilePath filepath = MakePath(DataDir, "assets.dat");
-
-	File file = OpenFile( filepath.str, FileModeRead );
+	File file = OpenFile( filepath, FileModeRead );
 	if ( !file.isOpen ) {
-		LOG( Error, "Could not open file %s\n", filepath.str );
+		LOG( Error, "Could not open file %s\n", filepath );
 		QUIT_ABNORMALLY();
 	}
 
 	if ( !ReadFromFile( file, &assets.header, sizeof(BinAssetsHeader) ) )
 	{
-		LOG( Error, "Could not read file header from file %s\n", filepath.str );
+		LOG( Error, "Could not read file header from file %s\n", filepath );
 		QUIT_ABNORMALLY();
 	}
 
 	if (assets.header.magicNumber != U32FromChars('I', 'R', 'I', 'S'))
 	{
-		LOG( Error, "Wrong magic number in file %s\n", filepath.str );
+		LOG( Error, "Wrong magic number in file %s\n", filepath );
 		QUIT_ABNORMALLY();
 	}
 

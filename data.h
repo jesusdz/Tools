@@ -197,7 +197,7 @@ struct BinAssets
 void BuildAssets(const AssetDescriptors &assetDescriptors, const char *filepath, Arena tempArena);
 #endif // USE_DATA_BUILD
 
-BinAssets OpenAssets(Arena &dataArena);
+BinAssets OpenAssets(Arena &dataArena, const char *filepath);
 void CloseAssets(BinAssets &assets);
 
 #endif // DATA_H

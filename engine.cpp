@@ -44,7 +44,11 @@
 
 
 
-static bool sLoadFromTextDescriptors = false;
+#if USE_DATA_BUILD
+static constexpr bool sLoadShadersFromText = true;
+#else
+static constexpr bool sLoadShadersFromText = false;
+#endif
 
 
 struct Vertex
@@ -277,6 +281,7 @@ struct Engine
 	Editor editor;
 #endif
 
+	BinAssets shaderAssets;
 	BinAssets assets;
 
 	Arena dataArenaStates[4];
@@ -1164,15 +1169,15 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 	PipelineDesc desc = pipelineDescs[pipelineIndex].desc;
 	desc.renderPass = GetRenderPass(gfx.device, renderPassH);
 
-	if ( sLoadFromTextDescriptors )
+	if ( sLoadShadersFromText )
 	{
 		desc.vertexShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].vsName);
 		desc.fragmentShaderSource = GetShaderSource(scratch, pipelineDescs[pipelineIndex].fsName);
 	}
 	else
 	{
-		desc.vertexShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].vsName);
-		desc.fragmentShaderSource = GetShaderSource(engine.assets, pipelineDescs[pipelineIndex].fsName);
+		desc.vertexShaderSource = GetShaderSource(engine.shaderAssets, pipelineDescs[pipelineIndex].vsName);
+		desc.fragmentShaderSource = GetShaderSource(engine.shaderAssets, pipelineDescs[pipelineIndex].fsName);
 	}
 
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
@@ -1191,13 +1196,13 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 
 	ComputeDesc desc = computeDescs[pipelineIndex].desc;
 
-	if ( sLoadFromTextDescriptors )
+	if ( sLoadShadersFromText )
 	{
 		desc.computeShaderSource = GetShaderSource(scratch, computeDescs[pipelineIndex].csName);
 	}
 	else
 	{
-		desc.computeShaderSource = GetShaderSource(engine.assets, computeDescs[pipelineIndex].csName);
+		desc.computeShaderSource = GetShaderSource(engine.shaderAssets, computeDescs[pipelineIndex].csName);
 	}
 
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
@@ -1421,8 +1426,6 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	Initialize(gfx.textureHandles, globalArena, MAX_TEXTURES);
 	Initialize(gfx.materialHandles, globalArena, MAX_MATERIALS);
 
-	sLoadFromTextDescriptors = true;
-
 	// Graphics pipelines
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
 	{
@@ -1434,8 +1437,6 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	{
 		CompileComputePipeline(engine, scratch, i);
 	}
-
-	sLoadFromTextDescriptors = false;
 
 	// Builtin images
 	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
@@ -1644,6 +1645,7 @@ static void PopDataArenaState(Engine &engine)
 	engine.platform.dataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
 }
 
+#if USE_DATA_BUILD
 void LoadSceneFromTxt(Engine &engine)
 {
 	PushDataArenaState(engine);
@@ -1677,6 +1679,7 @@ void LoadSceneFromTxt(Engine &engine)
 
 	UploadMaterialData(engine.gfx);
 	CreateMaterialBindGroups(engine.gfx);
+	LinkHandles(engine.gfx);
 }
 
 void SaveSceneToTxt(Engine &engine)
@@ -1688,11 +1691,20 @@ void SaveSceneToTxt(Engine &engine)
 	SaveAssetDescriptors(path.str, assetDescs);
 #endif // USE_DATA_BUILD
 }
+#endif // USE_DATA_BUILD
+
+void LoadShadersFromBin(Engine &engine)
+{
+	const FilePath filepath = MakePath(DataDir, "shaders.dat");
+	engine.shaderAssets = OpenAssets(engine.platform.dataArena, filepath.str);
+}
 
 void LoadSceneFromBin(Engine &engine)
 {
 	PushDataArenaState(engine);
-	engine.assets = OpenAssets(engine.platform.dataArena);
+
+	const FilePath filepath = MakePath(DataDir, "assets.dat");
+	engine.assets = OpenAssets(engine.platform.dataArena, filepath.str);
 
 	// Textures
 	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
@@ -1720,6 +1732,7 @@ void LoadSceneFromBin(Engine &engine)
 
 	UploadMaterialData(engine.gfx);
 	CreateMaterialBindGroups(engine.gfx);
+	LinkHandles(engine.gfx);
 }
 
 void CleanTexture(Handle handle, void* data)
@@ -1761,20 +1774,29 @@ void CleanScene(Engine &engine)
 	PopDataArenaState(engine);
 }
 
-void BuildAssetsFromDescriptors(Engine &engine)
+#if USE_DATA_BUILD
+void BuildShaders(Engine &engine, const char *outBinFilepath)
 {
+	CreateDirectory( MakePath(ProjectDir, "build").str );
+	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
+	CompileShaders();
+
 	Arena scratch = MakeSubArena(engine.platform.dataArena);
-
-	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, scratch);
-
-	// TODO(jesus): Serialize this to text as well?
+	AssetDescriptors assetDescriptors = {};
 	assetDescriptors.shaderDescs = shaderSources;
 	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
-
-	const FilePath dataFilepath = MakePath(DataDir, "assets.dat");
-	BuildAssets(assetDescriptors, dataFilepath.str, scratch);
+	BuildAssets(assetDescriptors, outBinFilepath, scratch);
 }
+
+void BuildAssetsFromTxt(Engine &engine, const char *inTxtFilepath, const char *outBinFilepath)
+{
+	CreateDirectory( MakePath(ProjectDir, "build").str );
+
+	Arena scratch = MakeSubArena(engine.platform.dataArena);
+	AssetDescriptors assetDescriptors = ParseDescriptors(inTxtFilepath, scratch);
+	BuildAssets(assetDescriptors, outBinFilepath, scratch);
+}
+#endif // USE_DATA_BUILD
 
 float3 UpDirectionFromAngles(const float2 &angles)
 {
@@ -2772,6 +2794,10 @@ bool OnPlatformWindowInit(Platform &platform)
 	}
 	else
 	{
+		if (!sLoadShadersFromText) {
+			LoadShadersFromBin(engine);
+		}
+
 		if ( !InitializeGraphics(engine, platform.globalArena, platform.frameArena) )
 		{
 			// TODO: Actually we could throw a system error and exit...
@@ -2799,8 +2825,16 @@ void OnPlatformUpdate(Platform &platform)
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
-	const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
-	AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
+	const Clock begin = GetClock();
+
+	// TODO(jesus): This is test code
+	static bool firstUpdate = true;
+	if ( firstUpdate )
+	{
+		firstUpdate = false;
+		LoadSceneFromBin(engine);
+		PlayAudioClip(engine, 1);
+	}
 
 #if USE_IMGUI
 	UpdateImGui(gfx);
@@ -2819,6 +2853,12 @@ void OnPlatformUpdate(Platform &platform)
 #if USE_UI
 	UIEndFrameRecording(engine);
 #endif
+
+	const Clock end = GetClock();
+	const f32 updateMillis = GetSecondsElapsed(begin, end) * 1000.0f;
+	AddTimeSample( gfx.cpuFrameTimes, updateMillis );
+	//const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
+	//AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
 }
 
 void OnPlatformRenderGraphics(Platform &platform)
@@ -2928,13 +2968,16 @@ void EngineMain( int argc, char **argv,  void *userData )
 		}
 	}
 
-	const FilePath dataFilepath = MakePath(DataDir, "assets.dat");
-	if ( !ExistsFile(dataFilepath.str) ) {
+	const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
+	if ( !ExistsFile(assetsFilepath.str) ) {
 		buildAssets = true;
 	}
 
 	if ( buildAssets ) {
-		BuildAssetsFromDescriptors(engine);
+		const FilePath shadersFilepath = MakePath(DataDir, "shaders.dat");
+		BuildShaders(engine, shadersFilepath.str);
+		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+		BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
 		if (exitAfterBuild) {
 			return;
 		}
