@@ -137,6 +137,7 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 					}
 					break;
 				default:
+					ASSERT(Chunk.Size > 0);
 					fseek(file, Chunk.Size, SEEK_CUR);
 					break;
 			}
@@ -173,7 +174,9 @@ bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSample
 		ASSERT(Header.ChunkID == RIFF_RIFF); // "RIFF"
 		ASSERT(Header.Format == RIFF_WAVE); // "WAVE"
 
-		while (1)
+		bool keepReading = true;
+
+		while (keepReading)
 		{
 			fread(&Chunk, sizeof(Chunk), 1, file);
 			if (feof(file)) {
@@ -193,8 +196,10 @@ bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSample
 					ASSERT( dataOffset + dataSize <= Chunk.Size );
 					fseek(file, dataOffset, SEEK_CUR);
 					fread(samples, dataSize, 1, file);
+					keepReading = false;
 					break;
 				default:
+					ASSERT(Chunk.Size > 0);
 					fseek(file, Chunk.Size, SEEK_CUR);
 					break;
 			}
@@ -460,7 +465,6 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 					{
 						LoadSamplesFromWAVFile(audioClip.filename, chunk->samples, firstSampleIndex, chunkSampleCount);
 					}
-					//LOG(Debug, "chunkIndex %u\n", chunkIndex);
 				}
 
 				// Remove chunk from the list
@@ -525,5 +529,6 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 		*samplePtr++ = sample;
 	}
 #endif
+
 }
 
