@@ -2744,6 +2744,13 @@ bool OnPlatformInit(Platform &platform)
 		return false;
 	}
 
+	// Initialize sound system
+	if ( !InitializeAudio(engine.audio, platform.globalArena) )
+	{
+		LOG(Error, "InitializeAudio failed!\n");
+		return false;
+	}
+
 	return true;
 }
 

@@ -1,4 +1,54 @@
 
+////////////////////////////////////////////////////////////////////////
+// Audio system init
+
+#define AUDIO_CHUNK_MEMORY MB(1)
+
+bool InitializeAudio(Audio &audio, Arena &globalArena)
+{
+	// Allocate audio chunks
+
+	const u32 totalChunkCount = AUDIO_CHUNK_MEMORY / sizeof(AudioChunk);
+
+	// Make sure we at least have as many audio chunks as twice the number of
+	// simultaneos audio sources. This is needed because every sound is split
+	// in sequences of chunks, so we play one and prefetch the next one.
+	if (totalChunkCount < MAX_AUDIO_SOURCES * 2)
+	{
+		LOG(Error, "- totalChunkCount (%u) must be <= MAX_AUDIO_SOURCES * 2 (%u)\n", totalChunkCount, MAX_AUDIO_SOURCES * 2);
+		return false;
+	}
+
+	AudioChunk *chunks = PushArray(globalArena, AudioChunk, totalChunkCount);
+	if ( chunks == nullptr )
+	{
+		LOG(Error, "- Could not allocate memory for %u audio chunks\n", totalChunkCount);
+		return false;
+	}
+
+	// Initialize doubly linked list of chunks
+
+	for (u32 i = 0; i < totalChunkCount; ++i)
+	{
+		chunks[i].next = &chunks[i+1];
+		chunks[i].prev = &chunks[i-1];
+	}
+
+	AudioChunk *first = &chunks[0];
+	AudioChunk *last = &chunks[totalChunkCount-1];
+	first->prev = &audio.audioChunkSentinel;
+	last->next = &audio.audioChunkSentinel;
+	audio.audioChunkSentinel.next = first;
+	audio.audioChunkSentinel.prev = last;
+
+	return true;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////
+// WAV file loading
+
 #define QUAD_CHAR(a,b,c,d) (a) | (b<<8) | (c<<16) | (d<<24)
 
 enum RIFFCode
@@ -160,6 +210,11 @@ bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSample
 	}
 }
 
+
+
+////////////////////////////////////////////////////////////////////////
+// AudioClip and AudioSource management
+
 AudioClip &GetAudioClip(Audio &audio, Handle handle)
 {
 	ASSERT( IsValidHandle(audio.clipHandles, handle) );
@@ -315,6 +370,11 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 	audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 }
 
+
+
+////////////////////////////////////////////////////////////////////////
+// Audio mixer
+
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 {
 	// Wave parameters
@@ -354,17 +414,72 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 		{
 			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
-#if 0
-			if ( audioClip.samples )
-			{
-				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
-				const u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+			const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
+			const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
+			const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount - 1);
 
-				const i16 *srcSample = (i16*)audioClip.samples + audioSource.lastWriteSampleIndex;
-				f32 *dstSample = realSamples;
+			const u32 chunkIndices[] = { currChunkIndex, nextChunkIndex };
+			const u32 prefetchChunkCount = nextChunkIndex - currChunkIndex + 1;
+			ASSERT(prefetchChunkCount <= 2);
+
+			// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
+			u32 requestedSampleCount = soundBuffer.sampleCount * 2;
+
+			f32 *dstSample = realSamples;
+
+			for (u32 i = 0; i < prefetchChunkCount; ++i)
+			{
+				const u32 chunkIndex = chunkIndices[i];
+				const u32 firstSampleIndex = chunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
+
+				// Search chunk
+				AudioChunk *chunk = audio.audioChunkSentinel.next;
+				AudioChunk *end = &audio.audioChunkSentinel;
+				while (chunk != end)
+				{
+					if ( audioSource.clip == chunk->clipH && chunkIndex == chunk->index ) {
+						break;
+					}
+					chunk = chunk->next;
+				}
+
+				// No chunk found, get LRU and populate it
+				if ( chunk == end )
+				{
+					chunk = audio.audioChunkSentinel.prev;
+					chunk->clipH = audioSource.clip;
+					chunk->index = chunkIndex;
+
+					const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
+					if ( audioClip.loadedFromAssetsFile )
+					{
+						FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
+						ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
+					}
+					else
+					{
+						LoadSamplesFromWAVFile(audioClip.filename, chunk->samples, firstSampleIndex, chunkSampleCount);
+					}
+					//LOG(Debug, "chunkIndex %u\n", chunkIndex);
+				}
+
+				// Remove chunk from the list
+				chunk->next->prev = chunk->prev;
+				chunk->prev->next = chunk->next;
+				// Put it back first in the list
+				chunk->next = audio.audioChunkSentinel.next;
+				chunk->prev = &audio.audioChunkSentinel;
+				chunk->next->prev = chunk;
+				chunk->prev->next = chunk;
+
+				// Copy requested samples from chunk to real samples
+				const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - firstSampleIndex;
 
 				const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
-				const u32 sampleCount = Min(remainingClipSampleCount, requestedSampleCount);
+				const u32 remainingChunkSampleCount = firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
+				const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
+				const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
+
 				for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
 				{
 					*dstSample += (f32)*srcSample;
@@ -375,88 +490,10 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 				audioSource.lastWriteSampleIndex += sampleCount;
 				if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
 				{
-					audioSource = {};
+					audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
 				}
-			}
-			else
-#endif
-			{
-				const u32 chunkCount = (audioClip.sampleCount - 1) / AUDIO_CHUNK_SAMPLE_COUNT + 1;
-				const u32 currChunkIndex = audioSource.lastWriteSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
-				const u32 nextChunkIndex = Min(currChunkIndex + 1, chunkCount - 1);
 
-				const u32 chunkIndices[] = { currChunkIndex, nextChunkIndex };
-				const u32 prefetchChunkCount = nextChunkIndex - currChunkIndex + 1;
-				ASSERT(prefetchChunkCount <= 2);
-
-				// soundBuffer.sampleCount is for stereo samples (each stereo sample is 2 mono samples)
-				u32 requestedSampleCount = soundBuffer.sampleCount * 2;
-
-				f32 *dstSample = realSamples;
-
-				for (u32 i = 0; i < prefetchChunkCount; ++i)
-				{
-					const u32 chunkIndex = chunkIndices[i];
-					const u32 firstSampleIndex = chunkIndex * AUDIO_CHUNK_SAMPLE_COUNT;
-
-					// Search chunk
-					AudioChunk *chunk = audioClip.firstChunk;
-					while (chunk)
-					{
-						const u32 thisChunkIndex = chunk->firstSampleIndex / AUDIO_CHUNK_SAMPLE_COUNT;
-						if ( chunkIndex == thisChunkIndex )
-						{
-							break;
-						}
-						chunk = chunk->next;
-					}
-
-					// No chunk found, create a new chunk and insert it
-					if ( !chunk )
-					{
-						chunk = PushStruct(engine.platform.dataArena, AudioChunk);
-						chunk->firstSampleIndex = firstSampleIndex;
-						chunk->next = audioClip.firstChunk;
-						audioClip.firstChunk = chunk;
-
-						const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
-						if ( audioClip.loadedFromAssetsFile )
-						{
-							FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
-							ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
-						}
-						else
-						{
-							LoadSamplesFromWAVFile(audioClip.filename, chunk->samples, firstSampleIndex, chunkSampleCount);
-						}
-					}
-
-					// Copy requested samples from chunk to real samples
-					if (chunk)
-					{
-						const i16 *srcSample = chunk->samples + audioSource.lastWriteSampleIndex - chunk->firstSampleIndex;
-
-						const u32 remainingClipSampleCount = audioClip.sampleCount - audioSource.lastWriteSampleIndex;
-						const u32 remainingChunkSampleCount = chunk->firstSampleIndex + AUDIO_CHUNK_SAMPLE_COUNT - audioSource.lastWriteSampleIndex;
-						const u32 remainingSampleCount = Min(remainingClipSampleCount, remainingChunkSampleCount);
-						const u32 sampleCount = Min(remainingSampleCount, requestedSampleCount);
-
-						for (u32 sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
-						{
-							*dstSample += (f32)*srcSample;
-							dstSample++;
-							srcSample++;
-						}
-
-						audioSource.lastWriteSampleIndex += sampleCount;
-						if (audioSource.lastWriteSampleIndex >= audioClip.sampleCount)
-						{
-							audioSource.flags |= AUDIO_SOURCE_STOP_BIT;
-						}
-
-						requestedSampleCount -= sampleCount;
-					}
-				}
+				requestedSampleCount -= sampleCount;
 			}
 		}
 

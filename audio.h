@@ -3,21 +3,13 @@
 
 #define MAX_AUDIO_CLIPS 16
 #define MAX_AUDIO_SOURCES 16
-#define AUDIO_CHUNK_SAMPLE_COUNT (48000/4)
+#define AUDIO_CHUNK_SAMPLE_COUNT (48000u/4u)
 
 ////////////////////////////////////////////////////////////////////////
 // Types
 
-struct AudioChunk
-{
-	u32 firstSampleIndex;
-	i16 samples[AUDIO_CHUNK_SAMPLE_COUNT];
-	AudioChunk *next;
-};
-
 struct AudioClip
 {
-	AudioChunk *firstChunk;
 	u32 sampleCount;
 	u32 samplingRate;
 	u16 sampleSize;
@@ -46,12 +38,24 @@ struct AudioSource
 	u8 flags = 0;
 };
 
+struct AudioChunk
+{
+	AudioClipH clipH;
+	u32 index;
+	i16 samples[AUDIO_CHUNK_SAMPLE_COUNT];
+	AudioChunk *prev;
+	AudioChunk *next;
+};
+
 struct Audio
 {
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
 	HandleManager clipHandles;
 
 	AudioSource sources[MAX_AUDIO_SOURCES] = {};
+
+	// Circular list of audio chunks
+	AudioChunk audioChunkSentinel;
 };
 
 
@@ -59,6 +63,8 @@ struct Audio
 // Functions
 
 struct Engine;
+
+bool InitializeAudio(Audio &audio, Arena &globalArena);
 
 bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip, void **outSamples);
 bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount);
