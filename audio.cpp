@@ -43,6 +43,9 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 
 	Initialize(audio.clipHandles, globalArena, MAX_AUDIO_SOURCES);
 
+	FullWriteBarrier();
+	audio.initialized = true;
+
 	return true;
 }
 
@@ -415,6 +418,10 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 
 #if 1
 	Audio &audio = engine.audio;
+
+	if (!audio.initialized) {
+		return;
+	}
 
 	Scratch scratch;
 

@@ -57,6 +57,8 @@ struct Audio
 
 	// Circular list of audio chunks
 	AudioChunk audioChunkSentinel;
+
+	bool initialized;
 };
 
 

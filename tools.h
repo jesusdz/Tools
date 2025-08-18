@@ -4036,10 +4036,10 @@ void UpdateGamepad(Platform &platform)
 }
 
 #if PLATFORM_WINDOWS
-void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
-#endif
 
-#if PLATFORM_LINUX
+void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
+
+#elif PLATFORM_LINUX
 
 typedef const char * SND_STRERROR (int errnum);
 typedef int SND_PCM_OPEN(snd_pcm_t **pcmp, const char * name, snd_pcm_stream_t stream, int	mode );
@@ -4086,6 +4086,10 @@ SND_PCM_RECOVER* FP_snd_pcm_recover;
 SND_PCM_PREPARE* FP_snd_pcm_prepare;
 SND_PCM_CLOSE* FP_snd_pcm_close;
 SND_PCM_DRAIN* FP_snd_pcm_drain;
+
+#elif PLATFORM_ANDROID
+
+aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames);
 
 #endif // PLATFORM_LINUX
 
@@ -4310,6 +4314,7 @@ bool InitializeAudio(Platform &platform)
 		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
 		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
 		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
+		AAudioStreamBuilder_setDataCallback(builder, AAudioFillAudioBuffer, &platform);
 
 		AAudioStream *stream;
 		result = AAudioStreamBuilder_openStream(builder, &stream);
@@ -4390,6 +4395,20 @@ void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize
 		LOG(Warning, "Failed to Lock sound buffer.\n");
 		audio.soundIsValid = false;
 	}
+}
+#elif PLATFORM_ANDROID
+aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames)
+{
+	Platform &platform = *(Platform*)userData;
+	AudioDevice &audio = platform.audio;
+
+	SoundBuffer soundBuffer = {};
+	soundBuffer.samplesPerSecond = audio.samplesPerSecond;
+	soundBuffer.sampleCount = numFrames;
+	soundBuffer.samples = (i16*)audioData;
+	platform.RenderAudioCallback(platform, soundBuffer);
+
+	return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 #endif // PLATFORM_WINDOWS
 
@@ -4517,23 +4536,7 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 
 #elif PLATFORM_ANDROID
 
-	// TODO(jesus): Revisit this to find out how many frames to render with the current stream state
-
-	const u16 framesToRender = audio.samplesPerSecond/60;
-
-	SoundBuffer soundBuffer = {};
-	soundBuffer.samplesPerSecond = audio.samplesPerSecond;
-	soundBuffer.sampleCount = framesToRender;
-	soundBuffer.samples = audio.outputSamples;
-	platform.RenderAudioCallback(platform, soundBuffer);
-
-	aaudio_result_t result = AAudioStream_write(audio.stream, soundBuffer.samples, soundBuffer.sampleCount * audio.channelCount * audio.bytesPerSample , 0);
-	if (result != AAUDIO_OK)
-	{
-		LOG(Error, "Could not write audio data to AAudioStream\n");
-		aaudio_stream_state_t state = AAudioStream_getState(audio.stream);
-		LOG(Error, "Audio stream state: %d\n", state);
-	}
+	// NOTE(jesus): AAudio makes an async call to AAudioFillAudioBuffer.
 
 #endif
 }
