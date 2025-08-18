@@ -2806,7 +2806,6 @@ bool OnPlatformWindowInit(Platform &platform)
 		}
 
 		Initialize(engine.scene.entityHandles, platform.globalArena, MAX_ENTITIES);
-		Initialize(engine.audio.clipHandles, platform.globalArena, MAX_AUDIO_CLIPS);
 
 #if USE_EDITOR
 		EditorInitialize(engine);

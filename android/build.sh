@@ -50,8 +50,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "libgame.so:"
-	echo ${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
-	${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -shared -o ../${OUT_LIB_DIR}/libgame.so
+	echo ${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -laaudio -shared -o ../${OUT_LIB_DIR}/libgame.so
+	${GXX} ${LDD_FLAGS} main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -laaudio -shared -o ../${OUT_LIB_DIR}/libgame.so
 	echo ""
 
 	echo "Popd..."

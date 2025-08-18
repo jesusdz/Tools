@@ -41,6 +41,8 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 	audio.audioChunkSentinel.next = first;
 	audio.audioChunkSentinel.prev = last;
 
+	Initialize(audio.clipHandles, globalArena, MAX_AUDIO_SOURCES);
+
 	return true;
 }
 

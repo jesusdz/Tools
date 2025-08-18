@@ -86,6 +86,7 @@
 #include <android/sensor.h>
 #include <android/log.h>
 #include <android_native_app_glue.h>
+#include <aaudio/AAudio.h>
 #endif
 
 
@@ -2626,6 +2627,8 @@ struct AudioDevice
 #elif PLATFORM_LINUX
 	DynamicLibrary library;
 	snd_pcm_t *pcm;
+#elif PLATFORM_ANDROID
+	AAudioStream *stream;
 #endif
 
 	bool initialized;
@@ -4249,9 +4252,9 @@ bool InitializeAudio(Platform &platform)
 		if (res == 0)
 		{
 			int dir = 0; // direction of approximate values
-			unsigned int sampleRate = 48000; // frames/second (CD quality)
-			unsigned int channelCount = 2;
-			unsigned int bytesPerSample = 2;
+			unsigned int sampleRate = audio.samplesPerSecond; // frames/second (CD quality)
+			unsigned int channelCount = audio.channelCount;
+			unsigned int bytesPerSample = audio.bytesPerSample;
 			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
 
 			// Allocate and configure hardware parameters
@@ -4292,6 +4295,56 @@ bool InitializeAudio(Platform &platform)
 		LOG(Error, "- Error loading libasound.so\n");
 	}
 
+	return audio.initialized;
+#elif PLATFORM_ANDROID
+
+	AAudioStreamBuilder *builder;
+	aaudio_result_t result = AAudio_createStreamBuilder(&builder);
+	if ( result == AAUDIO_OK )
+	{
+		const int32_t deviceId = 0;
+		AAudioStreamBuilder_setDeviceId(builder, deviceId);
+		AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
+		AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+		AAudioStreamBuilder_setSampleRate(builder, audio.samplesPerSecond);
+		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
+		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
+		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
+
+		AAudioStream *stream;
+		result = AAudioStreamBuilder_openStream(builder, &stream);
+		if ( result == AAUDIO_OK )
+		{
+			LOG(Info, "- AAudioStream created successfully!\n");
+
+			// TODO(jesus): Perform checks?
+			// aaudio_format_t dataFormat = AAudioStream_getDataFormat(stream);
+			// if (dataFormat == AAUDIO_FORMAT_PCM_I16) { }
+
+			result = AAudioStream_requestStart(stream);
+			if ( result == AAUDIO_OK )
+			{
+				LOG(Info, "- AAudioStream is playing...\n");
+				audio.stream = stream;
+				audio.initialized = true;
+				audio.isPlaying = true;
+			}
+			else
+			{
+				LOG(Error, "- Error starting AAudioStream\n");
+			}
+		}
+		else
+		{
+			LOG(Error, "- Error creating an AAudioStream\n");
+		}
+
+		AAudioStreamBuilder_delete(builder);
+	}
+	else
+	{
+		LOG(Error, "- Error creating an AAudioStreamBuilder\n");
+	}
 	return audio.initialized;
 #else
 	return true;
@@ -4460,6 +4513,26 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 
 		// All good or unrecoverable error (no need to try a second time)
 		break;
+	}
+
+#elif PLATFORM_ANDROID
+
+	// TODO(jesus): Revisit this to find out how many frames to render with the current stream state
+
+	const u16 framesToRender = audio.samplesPerSecond/60;
+
+	SoundBuffer soundBuffer = {};
+	soundBuffer.samplesPerSecond = audio.samplesPerSecond;
+	soundBuffer.sampleCount = framesToRender;
+	soundBuffer.samples = audio.outputSamples;
+	platform.RenderAudioCallback(platform, soundBuffer);
+
+	aaudio_result_t result = AAudioStream_write(audio.stream, soundBuffer.samples, soundBuffer.sampleCount * audio.channelCount * audio.bytesPerSample , 0);
+	if (result != AAUDIO_OK)
+	{
+		LOG(Error, "Could not write audio data to AAudioStream\n");
+		aaudio_stream_state_t state = AAudioStream_getState(audio.stream);
+		LOG(Error, "Audio stream state: %d\n", state);
 	}
 
 #endif
