@@ -2344,6 +2344,156 @@ float GetSecondsElapsed(Clock start, Clock end)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Threading
+
+struct ThreadInfo
+{
+	u32 globalIndex;
+};
+
+#define WORK_QUEUE_CALLBACK(name) void name(const ThreadInfo &threadInfo, void *data)
+typedef WORK_QUEUE_CALLBACK(WorkQueueCallback);
+
+#if PLATFORM_WINDOWS
+
+#define THREAD_FUNCTION(name) DWORD WINAPI name(LPVOID arguments)
+
+#define FullWriteBarrier() _WriteBarrier(); _mm_sfence()
+#define FullReadBarrier() _ReadBarrier()
+
+typedef HANDLE Semaphore;
+
+static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
+{
+	bool success = true;
+	semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+	if ( semaphore == NULL ) {
+		Win32ReportError("CreateSemaphoreEx");
+		success = false;
+	}
+	return success;
+}
+
+static bool SignalSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( !ReleaseSemaphore(semaphore, 1, 0) ) {
+		Win32ReportError("ReleaseSemaphore");
+		success = false;
+	}
+	return success;
+}
+
+static bool WaitSemaphore( Semaphore semaphore )
+{
+	bool success = true;
+	if ( WaitForSingleObjectEx(semaphore, INFINITE, FALSE) == WAIT_FAILED ) {
+		Win32ReportError("WaitForSingleObjectEx");
+		success = false;
+	}
+	return success;
+}
+
+static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
+{
+	bool success = true;
+	DWORD threadId;
+	HANDLE threadHandle = CreateThread(0, 0, threadFunc, (LPVOID)&threadInfo, 0, &threadId);
+	if ( threadHandle == NULL ) {
+		Win32ReportError("CreateThread");
+		success = false;
+	} else {
+		CloseHandle(threadHandle);
+	}
+	return success;
+}
+
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+
+#define THREAD_FUNCTION(name) void* name(void *arguments)
+
+#define FullWriteBarrier() __sync_synchronize()
+#define FullReadBarrier() __sync_synchronize()
+
+typedef sem_t Semaphore;
+
+static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
+{
+	bool success = true;
+	if ( sem_init(&semaphore, 0, iniCount) != 0 ) { // TODO(jediaz): use sem_init_np to set maxCount
+		LinuxReportError("sem_init");
+		success = false;
+	}
+	return success;
+}
+
+static bool SignalSemaphore( Semaphore &semaphore )
+{
+	bool success = true;
+	if ( sem_post(&semaphore) != 0 ) {
+		LinuxReportError("sem_post");
+		success = false;
+	}
+	return success;
+}
+
+static bool WaitSemaphore( Semaphore &semaphore )
+{
+	bool success = true;
+	if ( sem_wait(&semaphore) != 0 ) {
+		LinuxReportError("sem_wait");
+		success = false;
+	}
+	return success;
+}
+
+static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
+{
+	bool success = false;
+	pthread_t threadHandle;
+	if ( pthread_create(&threadHandle, nullptr, threadFunc, (void *)&threadInfo) == 0 ) {
+		if ( pthread_detach(threadHandle) == 0 ) {
+			success = true;
+		} else {
+			LinuxReportError("pthread_detach");
+		}
+	} else {
+		LinuxReportError("pthread_create");
+	}
+	return success;
+}
+
+static void SleepMillis(u32 millis)
+{
+	const useconds_t micros = millis * 1000;
+	const int res = usleep(micros);
+	if ( res == -1 )
+	{
+		LinuxReportError("usleep");
+	}
+}
+
+#else
+#error "Missing implementation"
+#endif
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Thread IDs
+
+#define WORK_QUEUE_WORKER_COUNT 8
+
+enum ThreadID
+{
+	THREAD_ID_AUDIO,
+	THREAD_ID_WORKER_0,
+	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
+};
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Window and input
 
 #if defined(TOOLS_PLATFORM)
@@ -4041,6 +4191,11 @@ void UpdateGamepad(Platform &platform)
 #endif
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Audio
+
 #if PLATFORM_WINDOWS
 
 void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
@@ -4098,269 +4253,6 @@ SND_PCM_DRAIN* FP_snd_pcm_drain;
 aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames);
 
 #endif // PLATFORM_LINUX
-
-bool InitializeAudio(Platform &platform)
-{
-	LOG(Info, "Sound system initialization:\n");
-
-	if ( platform.RenderAudioCallback == nullptr )
-	{
-		LOG(Info, "- RenderAudioCallback not provided, sound system not required\n");
-		return true;
-	}
-
-	AudioDevice &audio = platform.audio;
-	const Window &window = platform.window;
-
-	const u16 gameUpdateHz = 30;
-
-	// Audio configuration
-	audio.channelCount = 2;
-	audio.bytesPerSample = 2; // 4 in HH
-	audio.samplesPerSecond = 48000; // per channel
-	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
-	audio.latencyFrameCount = 3;
-	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / gameUpdateHz;
-	audio.safetyBytes = (audio.samplesPerSecond * audio.bytesPerSample * audio.channelCount)/audio.latencyFrameCount;
-
-	// Allocate buffer to output samples from the engine
-	audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
-
-#if PLATFORM_WINDOWS
-	audio.library = OpenLibrary("dsound.dll");
-
-	if (audio.library)
-	{
-		LOG(Info, "- Loaded dsound.dll successfully\n");
-
-		FP_DirectSoundCreate* CreateAudioDevice = (FP_DirectSoundCreate*)LoadSymbol(audio.library, "DirectSoundCreate");
-
-		LPDIRECTSOUND directSound;
-		if (CreateAudioDevice && SUCCEEDED(CreateAudioDevice(0, &directSound, 0)))
-		{
-			LOG(Info, "- Audio device created successfully\n");
-
-			if (SUCCEEDED(directSound->SetCooperativeLevel(window.hWnd, DSSCL_PRIORITY)))
-			{
-				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
-				DSBUFFERDESC primaryBufferDesc = {};
-				primaryBufferDesc.dwSize = sizeof(primaryBufferDesc);
-				primaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
-				LPDIRECTSOUNDBUFFER primaryBuffer;
-				if (SUCCEEDED(directSound->CreateSoundBuffer(&primaryBufferDesc, &primaryBuffer, 0)))
-				{
-					LOG(Info, "- Primary buffer created successfully\n");
-
-					WAVEFORMATEX waveFormat = {};
-					waveFormat.wFormatTag = WAVE_FORMAT_PCM;
-					waveFormat.nChannels = audio.channelCount;
-					waveFormat.nSamplesPerSec = audio.samplesPerSecond;
-					waveFormat.nBlockAlign = audio.channelCount * audio.bytesPerSample;
-					waveFormat.nAvgBytesPerSec = audio.samplesPerSecond * waveFormat.nBlockAlign;
-					waveFormat.wBitsPerSample = audio.bytesPerSample * 8;
-					waveFormat.cbSize = 0;
-					if (SUCCEEDED(primaryBuffer->SetFormat(&waveFormat)))
-					{
-						LOG(Info, "- Primary buffer format set successfully\n");
-
-						// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
-						DSBUFFERDESC secondaryBufferDesc = {};
-						secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
-						// TODO(jesus): Set the DSBCAPS_GETCURRENTPOSITION2 flag?
-						// TODO(jesus): Set the DSBCAPS_GLOBALFOCUS flag?
-						secondaryBufferDesc.dwFlags = 0;
-						secondaryBufferDesc.dwBufferBytes = audio.bufferSize;
-						secondaryBufferDesc.lpwfxFormat = &waveFormat;
-						LPDIRECTSOUNDBUFFER secondaryBuffer;
-						if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
-						{
-							LOG(Info, "- Secondary buffer created successfully\n");
-
-							audio.buffer = secondaryBuffer;
-
-							MemSet(audio.outputSamples, audio.bufferSize, 0);
-							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize, audio.outputSamples);
-
-							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
-							{
-								LOG(Info, "- Secondary buffer is playing...\n");
-								audio.initialized = true;
-								audio.isPlaying = true;
-								audio.soundIsValid = false;
-							}
-							else
-							{
-								LOG(Error, "- Error playing secondaryBuffer.\n");
-							}
-						}
-						else
-						{
-							LOG(Error, "- Error calling CreateSoundBuffer for secondaryBuffer\n");
-						}
-					}
-					else
-					{
-						LOG(Error, "- Error setting primary buffer format\n");
-					}
-				}
-				else
-				{
-					LOG(Error, "- Error calling CreateSoundBuffer for primaryBuffer\n");
-				}
-			}
-			else
-			{
-				LOG(Error, "- Error setting DirectSound priority cooperative level\n");
-			}
-		}
-		else
-		{
-			LOG(Error, "- Error loading DirectSoundCreate symbol\n");
-		}
-	}
-	else
-	{
-		LOG(Error, "- Error loading dsound.dll\n");
-	}
-
-	return audio.initialized;
-
-#elif PLATFORM_LINUX
-
-	audio.library = OpenLibrary("libasound.so");
-
-	if (audio.library)
-	{
-		DynamicLibrary alsa = audio.library;
-
-		// Load functions
-		FP_snd_strerror = (SND_STRERROR*) LoadSymbol(alsa, "snd_strerror");
-		FP_snd_pcm_open = (SND_PCM_OPEN*) LoadSymbol(alsa, "snd_pcm_open");
-		FP_snd_pcm_hw_params_malloc = (SND_PCM_HW_PARAMS_MALLOC*) LoadSymbol(alsa, "snd_pcm_hw_params_malloc");
-		FP_snd_pcm_hw_params_any = (SND_PCM_HW_PARAMS_ANY*) LoadSymbol(alsa, "snd_pcm_hw_params_any");
-		FP_snd_pcm_hw_params_set_access = (SND_PCM_HW_PARAMS_SET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_access");
-		FP_snd_pcm_hw_params_set_format = (SND_PCM_HW_PARAMS_SET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_set_format");
-		FP_snd_pcm_hw_params_set_channels = (SND_PCM_HW_PARAMS_SET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_channels");
-		FP_snd_pcm_hw_params_set_rate_near = (SND_PCM_HW_PARAMS_SET_RATE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_rate_near");
-		FP_snd_pcm_hw_params_set_period_size_near = (SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_period_size_near");
-		FP_snd_pcm_hw_params = (SND_PCM_HW_PARAMS*) LoadSymbol(alsa, "snd_pcm_hw_params");
-		FP_snd_pcm_hw_params_get_channels = (SND_PCM_HW_PARAMS_GET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_channels");
-		FP_snd_pcm_hw_params_get_rate = (SND_PCM_HW_PARAMS_GET_RATE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_rate");
-		FP_snd_pcm_hw_params_get_format = (SND_PCM_HW_PARAMS_GET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_get_format");
-		FP_snd_pcm_hw_params_get_access = (SND_PCM_HW_PARAMS_GET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_access");
-		FP_snd_pcm_hw_params_get_period_time = (SND_PCM_HW_PARAMS_GET_PERIOD_TIME*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_time");
-		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
-		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
-		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
-		FP_snd_pcm_recover = (SND_PCM_RECOVER*) LoadSymbol(alsa, "snd_pcm_recover");
-		FP_snd_pcm_prepare = (SND_PCM_PREPARE*) LoadSymbol(alsa, "snd_pcm_prepare");
-		FP_snd_pcm_close = (SND_PCM_CLOSE*) LoadSymbol(alsa, "snd_pcm_close");
-		FP_snd_pcm_drain = (SND_PCM_DRAIN*) LoadSymbol(alsa, "snd_pcm_drain");
-
-		// Open PCM device
-		int res = FP_snd_pcm_open(&audio.pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
-		if (res == 0)
-		{
-			int dir = 0; // direction of approximate values
-			unsigned int sampleRate = audio.samplesPerSecond; // frames/second (CD quality)
-			unsigned int channelCount = audio.channelCount;
-			unsigned int bytesPerSample = audio.bytesPerSample;
-			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
-
-			// Allocate and configure hardware parameters
-			snd_pcm_hw_params_t *params;
-			FP_snd_pcm_hw_params_malloc(&params);
-			FP_snd_pcm_hw_params_any(audio.pcm, params); // default values
-			FP_snd_pcm_hw_params_set_channels(audio.pcm, params, channelCount);
-			FP_snd_pcm_hw_params_set_rate_near(audio.pcm, params, &sampleRate, &dir);
-			FP_snd_pcm_hw_params_set_format(audio.pcm, params, SND_PCM_FORMAT_S16_LE); // 16 bit little endian
-			FP_snd_pcm_hw_params_set_access(audio.pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-			FP_snd_pcm_hw_params_set_period_size_near(audio.pcm, params, &frames, &dir);
-
-			// Write the parameters to the driver
-			res = FP_snd_pcm_hw_params(audio.pcm, params);
-			if (res == 0)
-			{
-				LOG(Info, "- PCM is playing...\n");
-				audio.initialized = true;
-				audio.isPlaying = true;
-				audio.soundIsValid = false;
-			}
-			else
-			{
-				LOG(Error, "- Error setting PCM HW parameters: %s\n", FP_snd_strerror(res));
-			}
-
-			unsigned int finalSampleRate = 0;
-			FP_snd_pcm_hw_params_get_rate(params, &finalSampleRate, &dir);
-		}
-		else
-		{
-			LOG(Error, "- Error opening PCM device: %s\n", FP_snd_strerror(res));
-			return 1;
-		}
-	}
-	else
-	{
-		LOG(Error, "- Error loading libasound.so\n");
-	}
-
-	return audio.initialized;
-#elif PLATFORM_ANDROID
-
-	AAudioStreamBuilder *builder;
-	aaudio_result_t result = AAudio_createStreamBuilder(&builder);
-	if ( result == AAUDIO_OK )
-	{
-		const int32_t deviceId = 0;
-		AAudioStreamBuilder_setDeviceId(builder, deviceId);
-		AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
-		AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
-		AAudioStreamBuilder_setSampleRate(builder, audio.samplesPerSecond);
-		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
-		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
-		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
-		AAudioStreamBuilder_setDataCallback(builder, AAudioFillAudioBuffer, &platform);
-
-		AAudioStream *stream;
-		result = AAudioStreamBuilder_openStream(builder, &stream);
-		if ( result == AAUDIO_OK )
-		{
-			LOG(Info, "- AAudioStream created successfully!\n");
-
-			// TODO(jesus): Perform checks?
-			// aaudio_format_t dataFormat = AAudioStream_getDataFormat(stream);
-			// if (dataFormat == AAUDIO_FORMAT_PCM_I16) { }
-
-			result = AAudioStream_requestStart(stream);
-			if ( result == AAUDIO_OK )
-			{
-				LOG(Info, "- AAudioStream is playing...\n");
-				audio.stream = stream;
-				audio.initialized = true;
-				audio.isPlaying = true;
-			}
-			else
-			{
-				LOG(Error, "- Error starting AAudioStream\n");
-			}
-		}
-		else
-		{
-			LOG(Error, "- Error creating an AAudioStream\n");
-		}
-
-		AAudioStreamBuilder_delete(builder);
-	}
-	else
-	{
-		LOG(Error, "- Error creating an AAudioStreamBuilder\n");
-	}
-	return audio.initialized;
-#else
-	return true;
-#endif // PLATFORM_WINDOWS
-}
 
 #if PLATFORM_WINDOWS
 void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
@@ -4547,126 +4439,320 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-struct ThreadInfo
-{
-	u32 globalIndex;
-};
+#if PLATFORM_LINUX
+#define USE_AUDIO_THREAD 1
+#endif
 
-#define WORK_QUEUE_CALLBACK(name) void name(const ThreadInfo &threadInfo, void *data)
-typedef WORK_QUEUE_CALLBACK(WorkQueueCallback);
+#if USE_AUDIO_THREAD
+static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
+{
+	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
+
+	ASSERT( sPlatform );
+	Platform &platform = *sPlatform;
+
+	Clock lastClock = GetClock();
+
+	while (1)
+	{
+		if ( platform.audio.isPlaying )
+		{
+			Clock currentClock = GetClock();
+			const f32 secondsSinceLastIteration = GetSecondsElapsed(lastClock, currentClock);
+			lastClock = currentClock;
+
+			UpdateAudio(platform, secondsSinceLastIteration);
+
+			SleepMillis(30);
+		}
+	}
+
+	return 0;
+}
+#endif // USE_AUDIO_THREAD
+
+bool InitializeAudio(Platform &platform)
+{
+	LOG(Info, "Sound system initialization:\n");
+
+	if ( platform.RenderAudioCallback == nullptr )
+	{
+		LOG(Info, "- RenderAudioCallback not provided, sound system not required\n");
+		return true;
+	}
+
+	AudioDevice &audio = platform.audio;
+	const Window &window = platform.window;
+
+	const u16 gameUpdateHz = 30;
+
+	// Audio configuration
+	audio.channelCount = 2;
+	audio.bytesPerSample = 2; // 4 in HH
+	audio.samplesPerSecond = 48000; // per channel
+	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
+	audio.latencyFrameCount = 3;
+	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / gameUpdateHz;
+	audio.safetyBytes = (audio.samplesPerSecond * audio.bytesPerSample * audio.channelCount)/audio.latencyFrameCount;
+
+	// Allocate buffer to output samples from the engine
+	audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
 
 #if PLATFORM_WINDOWS
 
-#define THREAD_FUNCTION(name) DWORD WINAPI name(LPVOID arguments)
+	audio.library = OpenLibrary("dsound.dll");
 
-#define FullWriteBarrier() _WriteBarrier(); _mm_sfence()
-#define FullReadBarrier() _ReadBarrier()
+	if (audio.library)
+	{
+		LOG(Info, "- Loaded dsound.dll successfully\n");
 
-typedef HANDLE Semaphore;
+		FP_DirectSoundCreate* CreateAudioDevice = (FP_DirectSoundCreate*)LoadSymbol(audio.library, "DirectSoundCreate");
 
-static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
-{
-	bool success = true;
-	semaphore = CreateSemaphoreEx(0, iniCount, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
-	if ( semaphore == NULL ) {
-		Win32ReportError("CreateSemaphoreEx");
-		success = false;
-	}
-	return success;
-}
+		LPDIRECTSOUND directSound;
+		if (CreateAudioDevice && SUCCEEDED(CreateAudioDevice(0, &directSound, 0)))
+		{
+			LOG(Info, "- Audio device created successfully\n");
 
-static bool SignalSemaphore( Semaphore semaphore )
-{
-	bool success = true;
-	if ( !ReleaseSemaphore(semaphore, 1, 0) ) {
-		Win32ReportError("ReleaseSemaphore");
-		success = false;
-	}
-	return success;
-}
+			if (SUCCEEDED(directSound->SetCooperativeLevel(window.hWnd, DSSCL_PRIORITY)))
+			{
+				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
+				DSBUFFERDESC primaryBufferDesc = {};
+				primaryBufferDesc.dwSize = sizeof(primaryBufferDesc);
+				primaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+				LPDIRECTSOUNDBUFFER primaryBuffer;
+				if (SUCCEEDED(directSound->CreateSoundBuffer(&primaryBufferDesc, &primaryBuffer, 0)))
+				{
+					LOG(Info, "- Primary buffer created successfully\n");
 
-static bool WaitSemaphore( Semaphore semaphore )
-{
-	bool success = true;
-	if ( WaitForSingleObjectEx(semaphore, INFINITE, FALSE) == WAIT_FAILED ) {
-		Win32ReportError("WaitForSingleObjectEx");
-		success = false;
-	}
-	return success;
-}
+					WAVEFORMATEX waveFormat = {};
+					waveFormat.wFormatTag = WAVE_FORMAT_PCM;
+					waveFormat.nChannels = audio.channelCount;
+					waveFormat.nSamplesPerSec = audio.samplesPerSecond;
+					waveFormat.nBlockAlign = audio.channelCount * audio.bytesPerSample;
+					waveFormat.nAvgBytesPerSec = audio.samplesPerSecond * waveFormat.nBlockAlign;
+					waveFormat.wBitsPerSample = audio.bytesPerSample * 8;
+					waveFormat.cbSize = 0;
+					if (SUCCEEDED(primaryBuffer->SetFormat(&waveFormat)))
+					{
+						LOG(Info, "- Primary buffer format set successfully\n");
 
-static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo &threadInfo )
-{
-	bool success = true;
-	DWORD threadId;
-	HANDLE threadHandle = CreateThread(0, 0, threadFunc, (LPVOID)&threadInfo, 0, &threadId);
-	if ( threadHandle == NULL ) {
-		Win32ReportError("CreateThread");
-		success = false;
-	} else {
-		CloseHandle(threadHandle);
-	}
-	return success;
-}
+						// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
+						DSBUFFERDESC secondaryBufferDesc = {};
+						secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
+						// TODO(jesus): Set the DSBCAPS_GETCURRENTPOSITION2 flag?
+						// TODO(jesus): Set the DSBCAPS_GLOBALFOCUS flag?
+						secondaryBufferDesc.dwFlags = 0;
+						secondaryBufferDesc.dwBufferBytes = audio.bufferSize;
+						secondaryBufferDesc.lpwfxFormat = &waveFormat;
+						LPDIRECTSOUNDBUFFER secondaryBuffer;
+						if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
+						{
+							LOG(Info, "- Secondary buffer created successfully\n");
 
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
+							audio.buffer = secondaryBuffer;
 
-#define THREAD_FUNCTION(name) void* name(void *arguments)
+							MemSet(audio.outputSamples, audio.bufferSize, 0);
+							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize, audio.outputSamples);
 
-#define FullWriteBarrier() __sync_synchronize()
-#define FullReadBarrier() __sync_synchronize()
-
-typedef sem_t Semaphore;
-
-static bool CreateSemaphore( Semaphore &semaphore, u32 iniCount, u32 maxCount )
-{
-	bool success = true;
-	if ( sem_init(&semaphore, 0, iniCount) != 0 ) { // TODO(jediaz): use sem_init_np to set maxCount
-		LinuxReportError("sem_init");
-		success = false;
-	}
-	return success;
-}
-
-static bool SignalSemaphore( Semaphore &semaphore )
-{
-	bool success = true;
-	if ( sem_post(&semaphore) != 0 ) {
-		LinuxReportError("sem_post");
-		success = false;
-	}
-	return success;
-}
-
-static bool WaitSemaphore( Semaphore &semaphore )
-{
-	bool success = true;
-	if ( sem_wait(&semaphore) != 0 ) {
-		LinuxReportError("sem_wait");
-		success = false;
-	}
-	return success;
-}
-
-static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), ThreadInfo &threadInfo )
-{
-	bool success = false;
-	pthread_t threadHandle;
-	if ( pthread_create(&threadHandle, nullptr, threadFunc, &threadInfo) == 0 ) {
-		if ( pthread_detach(threadHandle) == 0 ) {
-			success = true;
-		} else {
-			LinuxReportError("pthread_detach");
+							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
+							{
+								LOG(Info, "- Secondary buffer is playing...\n");
+								audio.initialized = true;
+								audio.isPlaying = true;
+								audio.soundIsValid = false;
+							}
+							else
+							{
+								LOG(Error, "- Error playing secondaryBuffer.\n");
+							}
+						}
+						else
+						{
+							LOG(Error, "- Error calling CreateSoundBuffer for secondaryBuffer\n");
+						}
+					}
+					else
+					{
+						LOG(Error, "- Error setting primary buffer format\n");
+					}
+				}
+				else
+				{
+					LOG(Error, "- Error calling CreateSoundBuffer for primaryBuffer\n");
+				}
+			}
+			else
+			{
+				LOG(Error, "- Error setting DirectSound priority cooperative level\n");
+			}
 		}
-	} else {
-		LinuxReportError("pthread_create");
+		else
+		{
+			LOG(Error, "- Error loading DirectSoundCreate symbol\n");
+		}
 	}
-	return success;
-}
+	else
+	{
+		LOG(Error, "- Error loading dsound.dll\n");
+	}
+
+	return audio.initialized;
+
+#elif PLATFORM_LINUX
+
+	audio.library = OpenLibrary("libasound.so");
+
+	if (audio.library)
+	{
+		DynamicLibrary alsa = audio.library;
+
+		// Load functions
+		FP_snd_strerror = (SND_STRERROR*) LoadSymbol(alsa, "snd_strerror");
+		FP_snd_pcm_open = (SND_PCM_OPEN*) LoadSymbol(alsa, "snd_pcm_open");
+		FP_snd_pcm_hw_params_malloc = (SND_PCM_HW_PARAMS_MALLOC*) LoadSymbol(alsa, "snd_pcm_hw_params_malloc");
+		FP_snd_pcm_hw_params_any = (SND_PCM_HW_PARAMS_ANY*) LoadSymbol(alsa, "snd_pcm_hw_params_any");
+		FP_snd_pcm_hw_params_set_access = (SND_PCM_HW_PARAMS_SET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_access");
+		FP_snd_pcm_hw_params_set_format = (SND_PCM_HW_PARAMS_SET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_set_format");
+		FP_snd_pcm_hw_params_set_channels = (SND_PCM_HW_PARAMS_SET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_channels");
+		FP_snd_pcm_hw_params_set_rate_near = (SND_PCM_HW_PARAMS_SET_RATE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_rate_near");
+		FP_snd_pcm_hw_params_set_period_size_near = (SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_period_size_near");
+		FP_snd_pcm_hw_params = (SND_PCM_HW_PARAMS*) LoadSymbol(alsa, "snd_pcm_hw_params");
+		FP_snd_pcm_hw_params_get_channels = (SND_PCM_HW_PARAMS_GET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_channels");
+		FP_snd_pcm_hw_params_get_rate = (SND_PCM_HW_PARAMS_GET_RATE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_rate");
+		FP_snd_pcm_hw_params_get_format = (SND_PCM_HW_PARAMS_GET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_get_format");
+		FP_snd_pcm_hw_params_get_access = (SND_PCM_HW_PARAMS_GET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_access");
+		FP_snd_pcm_hw_params_get_period_time = (SND_PCM_HW_PARAMS_GET_PERIOD_TIME*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_time");
+		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
+		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
+		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
+		FP_snd_pcm_recover = (SND_PCM_RECOVER*) LoadSymbol(alsa, "snd_pcm_recover");
+		FP_snd_pcm_prepare = (SND_PCM_PREPARE*) LoadSymbol(alsa, "snd_pcm_prepare");
+		FP_snd_pcm_close = (SND_PCM_CLOSE*) LoadSymbol(alsa, "snd_pcm_close");
+		FP_snd_pcm_drain = (SND_PCM_DRAIN*) LoadSymbol(alsa, "snd_pcm_drain");
+
+		// Open PCM device
+		int res = FP_snd_pcm_open(&audio.pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+		if (res == 0)
+		{
+			int dir = 0; // direction of approximate values
+			unsigned int sampleRate = audio.samplesPerSecond; // frames/second (CD quality)
+			unsigned int channelCount = audio.channelCount;
+			unsigned int bytesPerSample = audio.bytesPerSample;
+			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
+
+			// Allocate and configure hardware parameters
+			snd_pcm_hw_params_t *params;
+			FP_snd_pcm_hw_params_malloc(&params);
+			FP_snd_pcm_hw_params_any(audio.pcm, params); // default values
+			FP_snd_pcm_hw_params_set_channels(audio.pcm, params, channelCount);
+			FP_snd_pcm_hw_params_set_rate_near(audio.pcm, params, &sampleRate, &dir);
+			FP_snd_pcm_hw_params_set_format(audio.pcm, params, SND_PCM_FORMAT_S16_LE); // 16 bit little endian
+			FP_snd_pcm_hw_params_set_access(audio.pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+			FP_snd_pcm_hw_params_set_period_size_near(audio.pcm, params, &frames, &dir);
+
+			// Write the parameters to the driver
+			res = FP_snd_pcm_hw_params(audio.pcm, params);
+			if (res == 0)
+			{
+				LOG(Info, "- PCM is playing...\n");
+				audio.initialized = true;
+				audio.isPlaying = true;
+				audio.soundIsValid = false;
+			}
+			else
+			{
+				LOG(Error, "- Error setting PCM HW parameters: %s\n", FP_snd_strerror(res));
+			}
+
+			unsigned int finalSampleRate = 0;
+			FP_snd_pcm_hw_params_get_rate(params, &finalSampleRate, &dir);
+		}
+		else
+		{
+			LOG(Error, "- Error opening PCM device: %s\n", FP_snd_strerror(res));
+			return 1;
+		}
+	}
+	else
+	{
+		LOG(Error, "- Error loading libasound.so\n");
+	}
+
+#elif PLATFORM_ANDROID
+
+	AAudioStreamBuilder *builder;
+	aaudio_result_t result = AAudio_createStreamBuilder(&builder);
+	if ( result == AAUDIO_OK )
+	{
+		const int32_t deviceId = 0;
+		AAudioStreamBuilder_setDeviceId(builder, deviceId);
+		AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
+		AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
+		AAudioStreamBuilder_setSampleRate(builder, audio.samplesPerSecond);
+		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
+		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
+		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
+		AAudioStreamBuilder_setDataCallback(builder, AAudioFillAudioBuffer, &platform);
+
+		AAudioStream *stream;
+		result = AAudioStreamBuilder_openStream(builder, &stream);
+		if ( result == AAUDIO_OK )
+		{
+			LOG(Info, "- AAudioStream created successfully!\n");
+
+			// TODO(jesus): Perform checks?
+			// aaudio_format_t dataFormat = AAudioStream_getDataFormat(stream);
+			// if (dataFormat == AAUDIO_FORMAT_PCM_I16) { }
+
+			result = AAudioStream_requestStart(stream);
+			if ( result == AAUDIO_OK )
+			{
+				LOG(Info, "- AAudioStream is playing...\n");
+				audio.stream = stream;
+				audio.initialized = true;
+				audio.isPlaying = true;
+			}
+			else
+			{
+				LOG(Error, "- Error starting AAudioStream\n");
+			}
+		}
+		else
+		{
+			LOG(Error, "- Error creating an AAudioStream\n");
+		}
+
+		AAudioStreamBuilder_delete(builder);
+	}
+	else
+	{
+		LOG(Error, "- Error creating an AAudioStreamBuilder\n");
+	}
 
 #else
-#error "Missing implementation"
-#endif
+#error "Missing implementation" 
+#endif // PLATFORM_WINDOWS
+
+#if USE_AUDIO_THREAD
+	if ( audio.initialized )
+	{
+		static const ThreadInfo threadInfo = {
+			.globalIndex = THREAD_ID_AUDIO,
+		};
+		if ( !CreateDetachedThread(AudioThread, threadInfo) )
+		{
+			audio.initialized = false;
+		}
+	}
+#endif // USE_AUDIO_THREAD
+
+	return audio.initialized;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Work queue abstraction
 
 struct WorkQueueEntry
 {
@@ -4745,34 +4831,6 @@ static THREAD_FUNCTION(WorkQueueThread) // void *WorkQueueThread(void* arguments
 	return 0;
 }
 
-static bool WorkQueueInitialize()
-{
-	static ThreadInfo threadInfos[16];
-	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
-
-	const u32 iniCount = 0;
-	const u32 maxCount = threadCount;
-	if ( !CreateSemaphore( workQueue.semaphore, iniCount, maxCount ) )
-	{
-		return false;
-	}
-
-	workQueue.head = 0;
-	workQueue.tail = 0;
-
-	for (u32 i = 0; i < threadCount; ++i)
-	{
-		ThreadInfo &threadInfo = threadInfos[i];
-		threadInfo.globalIndex = i;
-		if ( !CreateDetachedThread(WorkQueueThread, threadInfo) )
-		{
-			return false;
-		}
-	}
-
-	return true;
-}
-
 #if 0 // Threading test code
 static void PrintString(const ThreadInfo &threadInfo, void *data)
 {
@@ -4790,12 +4848,32 @@ static void WorkQueuePushString(const char *str)
 }
 #endif
 
-bool InitializeThreads(Platform &platform)
+bool InitializeWorkQueue(Platform &platform)
 {
-	if ( !WorkQueueInitialize() )
+	static ThreadInfo threadInfos[WORK_QUEUE_WORKER_COUNT];
+	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
+
+	const u32 iniCount = 0;
+	const u32 maxCount = threadCount;
+	if ( !CreateSemaphore( workQueue.semaphore, iniCount, maxCount ) )
 	{
 		return false;
 	}
+
+	workQueue.head = 0;
+	workQueue.tail = 0;
+
+	for (u32 i = 0; i < threadCount; ++i)
+	{
+		ThreadInfo &threadInfo = threadInfos[i];
+		threadInfo.globalIndex = THREAD_ID_WORKER_0 + i;
+		if ( !CreateDetachedThread(WorkQueueThread, threadInfo) )
+		{
+			return false;
+		}
+	}
+
+	return true;
 
 #if 0 // Threading test code
 	WorkQueuePushString("A0");
@@ -4894,7 +4972,7 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
-	if ( !InitializeThreads(platform) )
+	if ( !InitializeWorkQueue(platform) )
 	{
 		return false;
 	}
@@ -4951,11 +5029,13 @@ bool PlatformRun(Platform &platform)
 
 		platform.window.flags = 0;
 
+#if !USE_AUDIO_THREAD
 		if ( platform.audio.isPlaying )
 		{
 			const f32 secondsSinceFrameBegin = GetSecondsElapsed(currentFrameBeginClock, GetClock());
 			UpdateAudio(platform, secondsSinceFrameBegin);
 		}
+#endif // USE_AUDIO_THREAD
 	}
 
 	platform.CleanupCallback(platform);
