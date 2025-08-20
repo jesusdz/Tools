@@ -2408,6 +2408,12 @@ static bool CreateDetachedThread( THREAD_FUNCTION(threadFunc), const ThreadInfo 
 	return success;
 }
 
+static void SleepMillis(u32 millis)
+{
+	Sleep(millis);
+}
+
+
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 
 #define THREAD_FUNCTION(name) void* name(void *arguments)
@@ -4439,8 +4445,10 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_WINDOWS
 #define USE_AUDIO_THREAD 1
+#elif PLATFORM_ANDROID
+#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
 #endif
 
 #if USE_AUDIO_THREAD
@@ -4596,8 +4604,6 @@ bool InitializeAudio(Platform &platform)
 		LOG(Error, "- Error loading dsound.dll\n");
 	}
 
-	return audio.initialized;
-
 #elif PLATFORM_LINUX
 
 	audio.library = OpenLibrary("libasound.so");
@@ -4670,7 +4676,6 @@ bool InitializeAudio(Platform &platform)
 		else
 		{
 			LOG(Error, "- Error opening PCM device: %s\n", FP_snd_strerror(res));
-			return 1;
 		}
 	}
 	else
