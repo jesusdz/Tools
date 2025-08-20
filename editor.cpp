@@ -12,20 +12,19 @@ static void EditorUpdateUI(Engine &engine)
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
 
-	char text[MAX_PATH_LENGTH];
-	SPrintf(text, "Debug UI");
-
-	UI_BeginWindow(ui, text);
+	UI_BeginWindow(ui, "Debug UI");
 
 	if ( UI_Section(ui, "Audio") )
 	{
+		UI_SeparatorLabel(ui, "Sound");
+
 		if ( UI_Button(ui, "Play sound") )
 		{
 			const u32 index = 0;//GetAudioClipIndex(engine, "aclip_bell");
 			PlayAudioClip(engine, index);
 		}
 
-		UI_Separator(ui);
+		UI_SeparatorLabel(ui, "Music");
 
 		static u32 audioSourceMusic = INVALID_AUDIO_SOURCE;
 		if ( !IsActiveAudioSource(engine, audioSourceMusic) ) {
@@ -60,17 +59,14 @@ static void EditorUpdateUI(Engine &engine)
 
 		const u32 sceneWidth = gfx.device.swapchain.extent.width;
 		const u32 sceneHeight = gfx.device.swapchain.extent.height;
-		SPrintf(text, "Resolution: %ux%u px", sceneWidth, sceneHeight);
-		UI_Label(ui, text);
+		UI_Label(ui, "Resolution: %ux%u px", sceneWidth, sceneHeight);
 
 		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
-		SPrintf(text, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
-		UI_Label(ui, text);
+		UI_Label(ui, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
 		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
 
 		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
-		SPrintf(text, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
-		UI_Label(ui, text);
+		UI_Label(ui, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
 		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
 	}
 
@@ -90,14 +86,10 @@ static void EditorUpdateUI(Engine &engine)
 		const Platform &platform = engine.platform;
 		const char *unitsStr = unitsStrArray[units];
 		const u32 unitsSize = unitsSizeArray[units];
-		SPrintf(text, "- Global Arena: %u / %u %s", platform.globalArena.used / unitsSize, platform.globalArena.size / unitsSize, unitsStr);
-		UI_Label(ui, text);
-		SPrintf(text, "- Frame Arena: %u / %u %s", platform.frameArena.used / unitsSize, platform.frameArena.size / unitsSize, unitsStr);
-		UI_Label(ui, text);
-		SPrintf(text, "- String Arena: %u / %u %s", platform.stringArena.used / unitsSize, platform.stringArena.size / unitsSize, unitsStr);
-		UI_Label(ui, text);
-		SPrintf(text, "- Data Arena: %u / %u %s", platform.dataArena.used / unitsSize, platform.dataArena.size / unitsSize, unitsStr);
-		UI_Label(ui, text);
+		UI_Label(ui, "- Global Arena: %u / %u %s", platform.globalArena.used / unitsSize, platform.globalArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Frame Arena: %u / %u %s", platform.frameArena.used / unitsSize, platform.frameArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- String Arena: %u / %u %s", platform.stringArena.used / unitsSize, platform.stringArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Data Arena: %u / %u %s", platform.dataArena.used / unitsSize, platform.dataArena.size / unitsSize, unitsStr);
 	}
 
 	if ( UI_Section(ui, "Scene") )

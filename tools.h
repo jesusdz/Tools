@@ -643,6 +643,12 @@ i32 VSPrintf(char *buffer, const char *format, va_list vaList)
 	return res;
 }
 
+i32 VSNPrintf(char *buffer, u32 size, const char *format, va_list vaList)
+{
+	const i32 res = vsnprintf(buffer, size, format, vaList);
+	return res;
+}
+
 i32 SPrintf(char *buffer, const char *format, ...)
 {
 	va_list vaList;

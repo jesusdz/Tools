@@ -1489,7 +1489,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		icons[i].image = ReadImagePixels(filepath.str);
 	}
 #endif
-	UI_Initialize(engine.ui, gfx, gfx.device, scratch, icons, iconCount);
+	UI_Initialize(engine.ui, gfx, gfx.device, globalArena, icons, iconCount);
 #endif
 
 	gfx.deviceInitialized = true;

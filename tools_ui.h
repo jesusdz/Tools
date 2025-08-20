@@ -12,6 +12,15 @@
 #error "tools_gfx.h needs to be defined before tools_ui.h"
 #endif
 
+#define UI_TEMP_STRING_SIZE KB(4)
+
+#define UI_VSPRINTF(format, text) \
+	va_list vaList; \
+	va_start(vaList, format); \
+	VSNPrintf(ui.tempString, UI_TEMP_STRING_SIZE, format, vaList); \
+	va_end(vaList); \
+	const char *text = ui.tempString;
+
 // Colors
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorOrange = {1.0, 0.6, 0.0, 1.0};
@@ -219,6 +228,8 @@ struct UI
 
 	UIIcon *icons;
 	u32 iconCount;
+
+	char *tempString;
 };
 
 bool UI_IsMouseClick(const UI &ui)
@@ -1102,8 +1113,10 @@ bool UI_Section(UI &ui, const char *caption)
 	return section.open;
 }
 
-void UI_Label(UI &ui, const char *text)
+void UI_Label(UI &ui, const char *format, ...)
 {
+	UI_VSPRINTF(format, text);
+
 	UI_AddText(ui, ui.currentPos, text);
 
 	const float textHeight = UI_TextHeight(ui);
@@ -1360,6 +1373,42 @@ void UI_Separator(UI &ui)
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
+	UI_CursorAdvance(ui, size);
+}
+
+void UI_SeparatorLabel(UI &ui, const char *format, ...)
+{
+	UI_VSPRINTF(format, text);
+
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const float containerWidth = UI_GetContainerSize(window).x;
+
+	const float2 cornerPos = ui.currentPos;
+	const float2 size = { containerWidth, 1.0 };
+
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+
+	const float middle = UI_TextHeight(ui) * 0.5;
+	const float padding = 4.0f;
+	const float2 line1Pos = cornerPos + float2{0.0f, middle};
+	const float2 line1Size = { 8.0f, 1.0 };
+	const float2 textPos = cornerPos + float2{line1Size.x + padding, 0.0};
+	const float2 textSize = UI_TextSize(ui, text);
+	const float2 line2Pos = cornerPos + float2{line1Size.x + textSize.x + 2.0f*padding, middle};
+	const float2 line2Size = float2{Max(0.0f, size.x - line1Size.x - textSize.x), line1Size.y};
+
+	UI_PushColor(ui, UiColorBorder);
+	UI_AddRectangle(ui, line1Pos, line1Size);
+	UI_PopColor(ui);
+
+	UI_AddText(ui, textPos, text);
+
+	UI_PushColor(ui, UiColorBorder);
+	UI_AddRectangle(ui, line2Pos, line2Size);
+	UI_PopColor(ui);
+
+	UI_EndLayout(ui);
+
 	UI_CursorAdvance(ui, size);
 }
 
@@ -1713,8 +1762,10 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 struct Graphics;
 ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
-void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch, UIIcon *icons, u32 iconCount)
+void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalArena, UIIcon *icons, u32 iconCount)
 {
+	ui.tempString = PushArray(globalArena, char, UI_TEMP_STRING_SIZE);
+
 	const u32 vertexBufferSize = KB(128);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
 
@@ -1746,6 +1797,9 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 	};
 
 	const SizedFont sizedFont = fonts[1];
+
+	Arena scratch = globalArena;
+	#define globalArena invalidArena // NOTE: Cannot use globalArena after scratching it
 
 	// Load TTF font texture
 	FilePath fontPath = MakePath(ProjectDir, sizedFont.filename);
@@ -1867,6 +1921,8 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena scratch,
 	// Create texture
 	ui.fontAtlasH = CreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
 	ui.fontAtlasSize = {fontAtlasWidth, fontAtlasHeight};
+
+	#undef globalArena
 }
 
 void UI_BeginFrame(UI &ui)
