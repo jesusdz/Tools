@@ -24,7 +24,7 @@
 // Colors
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorOrange = {1.0, 0.6, 0.0, 1.0};
-constexpr float4 UiColorBorder = { 0.3, 0.3, 0.3, 0.9 };
+constexpr float4 UiColorBorder = { 0.2, 0.2, 0.2, 0.9 };
 constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
 constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.95 };
@@ -36,6 +36,8 @@ constexpr float4 UiColorBoxHover = { 0.1, 0.2, 0.4, 1.0 };
 constexpr float4 UiColorScrollbar = { 0.2, 0.2, 0.2, 1.0 };
 constexpr float4 UiColorScrollbarHover = { 0.4, 0.4, 0.4, 1.0 };
 constexpr float4 UiColorBoxInactive = { 0.01, 0.02, 0.05, 1.0 };
+constexpr float4 UiColorMenu = { 0.05, 0.05, 0.05, 1.0 };
+constexpr float4 UiColorMenuHover = { 0.1, 0.1, 0.1, 1.0 };
 
 // Metrics
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
@@ -230,6 +232,8 @@ struct UI
 	u32 iconCount;
 
 	char *tempString;
+
+	bool menuBarBegan;
 };
 
 bool UI_IsMouseClick(const UI &ui)
@@ -291,17 +295,17 @@ UILayoutGroup &UI_GetLayoutGroup(UI &ui)
 	return group;
 }
 
-void UI_CursorAdvance(UI &ui, float2 prevWidgetSize)
+void UI_CursorAdvance(UI &ui, float2 prevWidgetSize, float spacing = UiSpacing)
 {
 	const UILayout layout = UI_GetLayout(ui);
 
 	if ( layout == UiLayoutHorizontal )
 	{
-		UI_MoveCursorRight(ui, prevWidgetSize.x + UiSpacing);
+		UI_MoveCursorRight(ui, prevWidgetSize.x + spacing);
 	}
 	else // if ( layout == UiLayoutVertical )
 	{
-		UI_MoveCursorDown(ui, prevWidgetSize.y + UiSpacing);
+		UI_MoveCursorDown(ui, prevWidgetSize.y + spacing);
 	}
 }
 
@@ -1756,6 +1760,73 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	UI_EndWidget(ui);
 
 	UI_CursorAdvance(ui, histSize);
+}
+
+void UI_BeginMenuBar(UI &ui)
+{
+	ASSERT(ui.windowStackSize == 0);
+	ui.menuBarBegan = true;
+
+	const char *idString = "UI_BeginMenuBar";
+	const u32 windowId = UI_MakeID(ui, idString);
+	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, idString);
+	UI_BeginWindow(ui, windowId, UIWindowFlag_None);
+
+	window.pos = {0, 0};
+	window.size = {(f32)ui.viewportSize.x, 22.0f};
+
+	const float2 pos = window.pos;
+	const float2 size = window.size;
+
+	UI_PushColor(ui, UiColorMenu);
+	UI_AddRectangle(ui, pos, size);
+
+	const float2 borderPos = pos + float2{0.0f, size.y};
+	const float2 borderSize = float2{size.x, 1.0f};
+	UI_PushColor(ui, UiColorBorder);
+	UI_AddRectangle(ui, borderPos, borderSize);
+	UI_PopColor(ui);
+
+	ui.currentPos = pos + float2{UiSpacing, 0.0f};
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+}
+
+void UI_EndMenuBar(UI &ui)
+{
+	ASSERT(ui.menuBarBegan);
+	ui.menuBarBegan = false;
+
+	UI_EndLayout(ui);
+	UI_PopColor(ui);
+	UI_EndWindow(ui);
+}
+
+bool UI_BeginMenu(UI &ui, const char *name)
+{
+	constexpr float2 margin = {8.0f, 3.0f};
+
+	const float2 textSize = UI_TextSize(ui, name);
+	const float2 itemSize = textSize + 2.0f * margin;
+
+	const float2 itemPos = ui.currentPos;
+	const float2 textPos = itemPos + margin;
+
+	UI_BeginWidget(ui, itemPos, itemSize);
+	const bool clicked = UI_WidgetClicked(ui);
+	const bool hovered = UI_WidgetHovered(ui);
+	UI_PushColor(ui, hovered ? UiColorMenuHover : UiColorMenu);
+	UI_AddRectangle(ui, itemPos, itemSize);
+	UI_PopColor(ui);
+	UI_AddText(ui, textPos, name);
+	UI_EndWidget(ui);
+
+	UI_CursorAdvance(ui, itemSize, 0.0f);
+
+	return clicked;
+}
+
+void UI_EndMenu(UI &ui)
+{
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.

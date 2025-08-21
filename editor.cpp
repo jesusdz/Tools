@@ -12,6 +12,24 @@ static void EditorUpdateUI(Engine &engine)
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
 
+	UI_BeginMenuBar(ui);
+	if (UI_BeginMenu(ui, "File"))
+	{
+		LOG(Debug, "File");
+		UI_EndMenu(ui);
+	}
+	if (UI_BeginMenu(ui, "View"))
+	{
+		LOG(Debug, "View");
+		UI_EndMenu(ui);
+	}
+	if (UI_BeginMenu(ui, "Help"))
+	{
+		LOG(Debug, "Help");
+		UI_EndMenu(ui);
+	}
+	UI_EndMenuBar(ui);
+
 	UI_BeginWindow(ui, "Debug UI");
 
 	if ( UI_Section(ui, "Audio") )
