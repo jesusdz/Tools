@@ -1,8 +1,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-#define TOOLS_PLATFORM
 #include "tools.h"
+
+#include "tools_platform.h"
 
 #include "tools_gfx.h"
 
