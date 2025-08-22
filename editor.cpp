@@ -11,24 +11,60 @@ static void EditorUpdateUI(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
+	Platform &platform = engine.platform;
 
-	UI_BeginMenuBar(ui);
-	if (UI_BeginMenu(ui, "File"))
+	if ( UI_BeginMenuBar(ui) )
 	{
-		LOG(Debug, "File");
-		UI_EndMenu(ui);
+		if (UI_BeginMenu(ui, "File"))
+		{
+			if ( UI_MenuItem(ui, "Load scene") )
+			{
+				// TODO
+			}
+			if ( UI_MenuItem(ui, "Save scene") )
+			{
+				// TODO
+			}
+
+			if ( UI_MenuItem(ui, "Clear scene") )
+			{
+				// TODO
+			}
+
+			//UI_Separator(ui);
+
+			if ( UI_MenuItem(ui, "Build scene") )
+			{
+				// TODO
+			}
+
+			//UI_Separator(ui);
+
+			if ( UI_MenuItem(ui, "Quit") )
+			{
+				platform.globalRunning = false;
+			}
+			UI_EndMenu(ui);
+		}
+		if (UI_BeginMenu(ui, "View"))
+		{
+			if ( UI_MenuItem(ui, "Debug UI") )
+			{
+				LOG(Debug, "Debug UI\n");
+			}
+			if ( UI_MenuItem(ui, "Other") )
+			{
+				LOG(Debug, "Other\n");
+			}
+			UI_EndMenu(ui);
+		}
+		if (UI_BeginMenu(ui, "Help"))
+		{
+			UI_EndMenu(ui);
+		}
+
+		UI_EndMenuBar(ui);
 	}
-	if (UI_BeginMenu(ui, "View"))
-	{
-		LOG(Debug, "View");
-		UI_EndMenu(ui);
-	}
-	if (UI_BeginMenu(ui, "Help"))
-	{
-		LOG(Debug, "Help");
-		UI_EndMenu(ui);
-	}
-	UI_EndMenuBar(ui);
 
 	UI_BeginWindow(ui, "Debug UI");
 
@@ -101,7 +137,6 @@ static void EditorUpdateUI(Engine &engine)
 		}
 		UI_EndLayout(ui);
 
-		const Platform &platform = engine.platform;
 		const char *unitsStr = unitsStrArray[units];
 		const u32 unitsSize = unitsSizeArray[units];
 		UI_Label(ui, "- Global Arena: %u / %u %s", platform.globalArena.used / unitsSize, platform.globalArena.size / unitsSize, unitsStr);

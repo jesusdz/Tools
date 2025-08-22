@@ -86,6 +86,7 @@ struct UIWindow
 	float2 contentSize; // Only known after filling container
 	float contentOffset;
 	float contentOffsetBeforeScrolling;
+	bool visible;
 	bool dragging;
 	bool resizing;
 	bool scrolling;
@@ -201,7 +202,8 @@ struct UI
 	float4 colors[16];
 	u32 colorCount;
 
-	float2 currentPos;
+	float2 cursorStack[16];
+	u32 cursorStackSize;
 
 	UIInput input;
 	uint2 viewportSize;
@@ -234,7 +236,20 @@ struct UI
 	char *tempString;
 
 	bool menuBarBegan;
+	UIWindow *activeMenu;
 };
+
+static float2 dX(float2 v)
+{
+	const float2 res = { v.x, 0 };
+	return res;
+}
+
+static float2 dY(float2 v)
+{
+	const float2 res = { 0, v.y };
+	return res;
+}
 
 bool UI_IsMouseClick(const UI &ui)
 {
@@ -266,19 +281,43 @@ int2 UI_LastMouseClickPos(const UI &ui)
 	return pos;
 }
 
+float2 UI_GetCursorPos(const UI &ui)
+{
+	ASSERT(ui.cursorStackSize > 0);
+	const float2 cursorPos = ui.cursorStack[ui.cursorStackSize-1];
+	return cursorPos;
+}
+
+void UI_PushCursorPos(UI &ui, float2 pos)
+{
+	ASSERT(ui.cursorStackSize < ARRAY_COUNT(ui.cursorStack));
+	ui.cursorStack[ui.cursorStackSize++] = pos;
+}
+
+void UI_PopCursorPos(UI &ui)
+{
+	ASSERT(ui.cursorStackSize > 0);
+	ui.cursorStackSize--;
+}
+
 void UI_SetCursorPos(UI &ui, float2 pos)
 {
-	ui.currentPos = pos;
+	ASSERT(ui.cursorStackSize > 0);
+	ui.cursorStack[ui.cursorStackSize-1] = pos;
 }
 
 void UI_MoveCursorDown(UI &ui, float amount)
 {
-	ui.currentPos.y += amount;
+	float2 cursorPos = UI_GetCursorPos(ui);
+	cursorPos.y += amount;
+	UI_SetCursorPos(ui, cursorPos);
 }
 
 void UI_MoveCursorRight(UI &ui, float amount)
 {
-	ui.currentPos.x += amount;
+	float2 cursorPos = UI_GetCursorPos(ui);
+	cursorPos.x += amount;
+	UI_SetCursorPos(ui, cursorPos);
 }
 
 UILayout UI_GetLayout(const UI &ui)
@@ -314,7 +353,7 @@ void UI_BeginLayout(UI &ui, UILayout layout)
 	ASSERT(ui.layoutGroupCount < ARRAY_COUNT(ui.layoutGroups));
 	UILayoutGroup &group = ui.layoutGroups[ui.layoutGroupCount++];
 	group.layout = layout;
-	group.pos = ui.currentPos;
+	group.pos = UI_GetCursorPos(ui);
 	group.size = {};
 }
 
@@ -557,6 +596,12 @@ bool UI_WidgetClicked(const UI &ui)
 {
 	const bool clicked = UI_WidgetHovered(ui) && UI_IsMouseClick(ui);
 	return clicked;
+}
+
+float4 UI_MenuItemColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorMenuHover : UiColorMenu;
+	return res;
 }
 
 float4 UI_WidgetColor(const UI &ui)
@@ -860,6 +905,9 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 
 	UIWindow &window = UI_FindWindow(ui, windowId);
 	ui.windowStack[ui.windowStackSize++] = window.index;
+	window.visible = true;
+
+	UI_PushCursorPos(ui, window.pos);
 
 	UI_PushDrawList(ui, rect{0, 0, ui.viewportSize.x, ui.viewportSize.y}, ui.fontAtlasH, UIDrawListFlags_None);
 
@@ -1046,6 +1094,7 @@ void UI_EndWindow(UI &ui)
 	}
 	UI_EndLayout(ui); // Panel layout
 	UI_PopDrawList(ui);
+	UI_PopCursorPos(ui);
 
 	ASSERT(ui.windowStackSize > 0);
 	ui.windowStackSize--;
@@ -1083,7 +1132,7 @@ bool UI_Section(UI &ui, const char *caption)
 	const float containerWidth = UI_GetContainerSize(window).x;
 	const float textHeight = UI_TextHeight(ui);
 	constexpr f32 vpadding = 3.0f;
-	const float2 pos = ui.currentPos;
+	const float2 pos = UI_GetCursorPos(ui);
 	const float2 size = { containerWidth, textHeight + 2.0f * vpadding};
 
 	UI_BeginWidget(ui, pos, size);
@@ -1121,7 +1170,7 @@ void UI_Label(UI &ui, const char *format, ...)
 {
 	UI_VSPRINTF(format, text);
 
-	UI_AddText(ui, ui.currentPos, text);
+	UI_AddText(ui, UI_GetCursorPos(ui), text);
 
 	const float textHeight = UI_TextHeight(ui);
 	UI_MoveCursorDown(ui, textHeight + UiSpacing);
@@ -1133,7 +1182,7 @@ bool UI_Button(UI &ui, const char *text)
 	const float2 textSize = UI_TextSize(ui, text);
 	const float2 size = textSize + 2.0f * padding;
 
-	const float2 pos = ui.currentPos;
+	const float2 pos = UI_GetCursorPos(ui);
 
 	UI_BeginWidget(ui, pos, size);
 
@@ -1159,7 +1208,7 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 	const UIIcon &icon = ui.icons[iconIndex];
 
 	constexpr float2 padding = {2.0f, 2.0f};
-	const float2 widgetPos = ui.currentPos;
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 iconPos = widgetPos + padding;
 	const float2 iconSize = { (f32)icon.image.width, (f32)icon.image.height };
 	const float2 widgetSize = iconSize + 2.0f * padding;
@@ -1183,7 +1232,7 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 
 bool UI_Radio(UI &ui, const char *text, bool active)
 {
-	const float2 ballPos = ui.currentPos;
+	const float2 ballPos = UI_GetCursorPos(ui);
 	const float2 ballSize = {15.0, 15.0};
 	const float2 textPos = ballPos + float2{ballSize.x + UiSpacing * 0.5f, 0.0};
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, ballSize.y);
@@ -1220,7 +1269,7 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 {
 	ASSERT(checked != nullptr);
 
-	const float2 boxPos = ui.currentPos;
+	const float2 boxPos = UI_GetCursorPos(ui);
 	const float2 boxSize = {15.0, 15.0};
 	const float2 textPos = boxPos + float2{boxSize.x + UiSpacing * 0.5f, 0.0};
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, boxSize.y);
@@ -1270,7 +1319,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 
 	const f32 side = textHeight + 2.0f * padding.y;
 
-	const float2 widgetPos = ui.currentPos;
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
@@ -1362,7 +1411,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 		}
 	}
 
-	ui.currentPos = widgetPos;
+	UI_SetCursorPos(ui, widgetPos);
 	UI_CursorAdvance(ui, widgetSize);
 }
 
@@ -1371,7 +1420,7 @@ void UI_Separator(UI &ui)
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const float containerWidth = UI_GetContainerSize(window).x;
 
-	const float2 pos = ui.currentPos;
+	const float2 pos = UI_GetCursorPos(ui);
 	const float2 size = { containerWidth, 1.0 };
 
 	UI_PushColor(ui, UiColorBorder);
@@ -1387,7 +1436,7 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const float containerWidth = UI_GetContainerSize(window).x;
 
-	const float2 cornerPos = ui.currentPos;
+	const float2 cornerPos = UI_GetCursorPos(ui);
 	const float2 size = { containerWidth, 1.0 };
 
 	UI_BeginLayout(ui, UiLayoutHorizontal);
@@ -1418,7 +1467,7 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 
 bool UI_Image(UI &ui, ImageH image, UIWidgetFlags flags = UIWidgetFlag_None)
 {
-	const float2 framePos = ui.currentPos;
+	const float2 framePos = UI_GetCursorPos(ui);
 	const float2 frameSize = { 50.0f, 50.0f };
 
 	const float2 borderSize = { 1, 1 };
@@ -1530,7 +1579,7 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 
 	const f32 side = textHeight + 2.0f * padding.y;
 
-	const float2 widgetPos = ui.currentPos;
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
@@ -1617,7 +1666,7 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 
 	const f32 side = textHeight + 2.0f * padding.y;
 
-	const float2 widgetPos = ui.currentPos;
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
@@ -1680,7 +1729,7 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 
 	const f32 side = textHeight + 2.0f * padding.y;
 
-	const float2 widgetPos = ui.currentPos;
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
@@ -1738,7 +1787,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 histogramWidth = UI_GetContainerSize(window).x;
 	const f32 histogramHeight = 30.0f;
-	const float2 histPos = ui.currentPos;
+	const float2 histPos = UI_GetCursorPos(ui);
 	const float2 histSize = {histogramWidth, histogramHeight};
 
 	UI_BeginWidget(ui, histPos, histSize, false);
@@ -1762,7 +1811,7 @@ void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 10
 	UI_CursorAdvance(ui, histSize);
 }
 
-void UI_BeginMenuBar(UI &ui)
+bool UI_BeginMenuBar(UI &ui)
 {
 	ASSERT(ui.windowStackSize == 0);
 	ui.menuBarBegan = true;
@@ -1787,8 +1836,10 @@ void UI_BeginMenuBar(UI &ui)
 	UI_AddRectangle(ui, borderPos, borderSize);
 	UI_PopColor(ui);
 
-	ui.currentPos = pos + float2{UiSpacing, 0.0f};
+	UI_SetCursorPos( ui, pos + float2{UiSpacing, 0.0f} );
 	UI_BeginLayout(ui, UiLayoutHorizontal);
+
+	return true;
 }
 
 void UI_EndMenuBar(UI &ui)
@@ -1808,7 +1859,7 @@ bool UI_BeginMenu(UI &ui, const char *name)
 	const float2 textSize = UI_TextSize(ui, name);
 	const float2 itemSize = textSize + 2.0f * margin;
 
-	const float2 itemPos = ui.currentPos;
+	const float2 itemPos = UI_GetCursorPos(ui);
 	const float2 textPos = itemPos + margin;
 
 	UI_BeginWidget(ui, itemPos, itemSize);
@@ -1822,11 +1873,59 @@ bool UI_BeginMenu(UI &ui, const char *name)
 
 	UI_CursorAdvance(ui, itemSize, 0.0f);
 
-	return clicked;
+	const u32 windowId = UI_MakeID(ui, name);
+	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, name);
+
+	if (clicked) {
+		if ( ui.activeMenu == &window ) {
+			ui.activeMenu = nullptr;
+		} else {
+			ui.activeMenu = &window;
+		}
+	}
+
+	const bool showMenu = ui.activeMenu == &window;
+	if ( showMenu )
+	{
+		ui.activeMenu = &window;
+		window.pos = itemPos + dY(itemSize);
+		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
+	}
+
+	return showMenu;
 }
 
 void UI_EndMenu(UI &ui)
 {
+	UI_EndWindow(ui);
+}
+
+bool UI_MenuItem(UI &ui, const char *name)
+{
+	constexpr float2 padding = {8.0f, 4.0f};
+	const float2 textSize = UI_TextSize(ui, name);
+	const float2 widgetPos = UI_GetCursorPos(ui);
+	const float2 widgetSize = float2{ 150, textSize.y } + 2.0f * padding;
+
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	UI_PushColor(ui, UI_MenuItemColor(ui));
+	UI_AddRectangle(ui, widgetPos, widgetSize);
+	UI_PopColor(ui);
+
+	const bool clicked = UI_WidgetClicked(ui);
+	UI_EndWidget(ui);
+
+	const float2 textPos = widgetPos + padding;
+	UI_AddText(ui, textPos, name);
+
+	UI_CursorAdvance(ui, widgetSize, 0);
+
+	if (clicked) {
+		ui.activeMenu = nullptr;
+	}
+
+	return clicked;
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
@@ -2055,7 +2154,7 @@ void UI_BeginFrame(UI &ui)
 	// Update active window
 	if ( UI_IsMouseClick(ui) )
 	{
-		if ( ui.hoveredWindow )
+		if ( ui.hoveredWindow && ui.hoveredWindow->visible )
 		{
 			UI_RaiseWindow(ui, *ui.hoveredWindow);
 			ui.activeWindow = ui.hoveredWindow;
@@ -2071,6 +2170,12 @@ void UI_BeginFrame(UI &ui)
 		ui.activeWidgetId = 0;
 	}
 
+	// Reset visibility (to be determined again during this frame)
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+		window.visible = false;
+	}
 }
 
 void UI_EndFrame(UI &ui)

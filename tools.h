@@ -2855,6 +2855,8 @@ struct Platform
 	AudioDevice audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
+
+	bool globalRunning;
 };
 
 static Platform *sPlatform = nullptr;
@@ -4471,7 +4473,7 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 
 			UpdateAudio(platform, secondsSinceLastIteration);
 
-			SleepMillis(30);
+			SleepMillis(10);
 		}
 	}
 
@@ -4996,7 +4998,9 @@ bool PlatformRun(Platform &platform)
 
 	const Clock firstFrameClock = GetClock();
 
-	while ( 1 )
+	platform.globalRunning = true;
+
+	while ( platform.globalRunning )
 	{
 		ResetArena(platform.frameArena);
 
