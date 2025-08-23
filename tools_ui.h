@@ -1876,6 +1876,7 @@ bool UI_BeginMenu(UI &ui, const char *name)
 	const u32 windowId = UI_MakeID(ui, name);
 	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, name);
 
+	// Show on click
 	if (clicked) {
 		if ( ui.activeMenu == &window ) {
 			ui.activeMenu = nullptr;
@@ -1884,12 +1885,19 @@ bool UI_BeginMenu(UI &ui, const char *name)
 		}
 	}
 
+	// Show on hovering another menu
+	if (hovered) {
+		if (ui.activeMenu != nullptr) {
+			ui.activeMenu = &window;
+		}
+	}
+
 	const bool showMenu = ui.activeMenu == &window;
 	if ( showMenu )
 	{
-		ui.activeMenu = &window;
 		window.pos = itemPos + dY(itemSize);
 		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
+		UI_RaiseWindow(ui, window);
 	}
 
 	return showMenu;
@@ -1897,6 +1905,10 @@ bool UI_BeginMenu(UI &ui, const char *name)
 
 void UI_EndMenu(UI &ui)
 {
+	UILayoutGroup &layoutGroup = UI_GetLayoutGroup(ui);
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	window.size = layoutGroup.size;
+
 	UI_EndWindow(ui);
 }
 
@@ -2144,7 +2156,7 @@ void UI_BeginFrame(UI &ui)
 	{
 		UIWindow &window = ui.windows[i];
 
-		if ( UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
+		if ( window.visible && UI_MouseInArea(ui, window.pos, window.size) && window.layer < hoveredWindowLayer )
 		{
 			ui.hoveredWindow = &window;
 			hoveredWindowLayer = window.layer;
@@ -2168,6 +2180,29 @@ void UI_BeginFrame(UI &ui)
 		}
 
 		ui.activeWidgetId = 0;
+	}
+
+	// Deactivate menus on click outside
+	if ( ui.activeMenu )
+	{
+		const float2 pos = ui.activeMenu->pos;
+		const float2 size = ui.activeMenu->size;
+		if ( UI_IsMouseClick(ui) && !UI_MouseInArea(ui, pos, size)  )
+		{
+			ui.activeMenu = nullptr;
+		}
+	}
+
+	// Deactivate menus on move mouse away
+	if ( ui.activeMenu )
+	{
+		const float2 margin = {50, 50};
+		const float2 extendedPos = ui.activeMenu->pos - margin;
+		const float2 extendedSize = ui.activeMenu->size + 2.0f * margin;
+		if ( !UI_MouseInArea(ui, extendedPos, extendedSize) )
+		{
+			ui.activeMenu = nullptr;
+		}
 	}
 
 	// Reset visibility (to be determined again during this frame)
