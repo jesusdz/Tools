@@ -2437,6 +2437,11 @@ bool InitializeWorkQueue(Platform &platform)
 	return true;
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Platform
+
 bool PlatformInitialize(Platform &platform, int argc, char **argv)
 {
 	ASSERT( platform.globalMemorySize > 0 );

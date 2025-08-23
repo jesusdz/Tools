@@ -204,6 +204,12 @@ static void EditorUpdateUI(Engine &engine)
 				editor.cameraType = (ProjectionType)i;
 			}
 		}
+
+		if ( editor.cameraType == ProjectionPerspective )
+		{
+			UI_SeparatorLabel(ui, "Perspective options");
+			UI_Checkbox(ui, "Orbit", &editor.cameraOrbit);
+		}
 	}
 
 	if ( UI_Section(ui, "Pipelines") )
@@ -410,6 +416,20 @@ static bool GetMovementTouchId(const Window &window, u32 *touchId)
 	return false;
 }
 #endif
+
+static void EditorUpdateCamera3DOrbit(Camera &camera, float deltaSeconds)
+{
+	static f32 yaw = 0;
+	yaw += 0.25 * Pi * deltaSeconds;
+
+	const f32 pitch = -0.45f;
+	const float2 angles = {yaw, pitch};
+	const float3 forward = ForwardDirectionFromAngles(angles);
+	const float3 position = -3.0f * forward;
+
+	camera.position = position;
+	camera.orientation = angles;
+}
 
 static void EditorUpdateCamera3D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
 {
@@ -670,7 +690,14 @@ void EditorUpdate(Engine &engine)
 
 	if (engine.editor.cameraType == ProjectionPerspective)
 	{
-		EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
+		if (engine.editor.cameraOrbit)
+		{
+			EditorUpdateCamera3DOrbit(engine.editor.camera[ProjectionPerspective], platform.deltaSeconds);
+		}
+		else
+		{
+			EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
+		}
 	}
 	else if (engine.editor.cameraType == ProjectionOrthographic)
 	{

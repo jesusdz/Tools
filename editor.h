@@ -32,6 +32,7 @@ struct Editor
 
 	ProjectionType cameraType;
 	Camera camera[ProjectionTypeCount];
+	bool cameraOrbit;
 
 	EditorCommand commands[128];
 	u32 commandCount;
