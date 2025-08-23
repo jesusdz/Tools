@@ -48,9 +48,9 @@ static void EditorUpdateUI(Engine &engine)
 		}
 		if (UI_BeginMenu(ui, "View"))
 		{
-			if ( UI_MenuItem(ui, "Debug UI") )
+			if ( UI_MenuItem(ui, "Debug UI", editor.showDebugUI) )
 			{
-				LOG(Debug, "Debug UI\n");
+				editor.showDebugUI = !editor.showDebugUI;
 			}
 			if ( UI_MenuItem(ui, "Other") )
 			{
@@ -66,6 +66,8 @@ static void EditorUpdateUI(Engine &engine)
 		UI_EndMenuBar(ui);
 	}
 
+	if ( editor.showDebugUI )
+	{
 	UI_BeginWindow(ui, "Debug UI");
 
 	if ( UI_Section(ui, "Audio") )
@@ -374,6 +376,7 @@ static void EditorUpdateUI(Engine &engine)
 #endif
 
 	UI_EndWindow(ui);
+	}
 }
 
 #if PLATFORM_ANDROID

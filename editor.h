@@ -25,6 +25,8 @@ struct EditorCommand
 
 struct Editor
 {
+	bool showDebugUI;
+
 	bool selectEntity;
 	u32 selectedEntity;
 

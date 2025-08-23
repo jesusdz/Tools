@@ -1801,6 +1801,12 @@ float3 operator*(float a, float3 b)
 	return res;
 }
 
+float2 operator*(float2 a, float2 b)
+{
+	const float2 res = { .x = a.x * b.x, .y = a.y * b.y };
+	return res;
+}
+
 int2 operator+(int2 pos, uint2 size)
 {
 	const int2 pos2 = { pos.x + (i32)size.x, pos.y + (i32)size.y };

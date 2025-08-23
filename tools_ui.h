@@ -237,6 +237,7 @@ struct UI
 
 	bool menuBarBegan;
 	UIWindow *activeMenu;
+	UIVertex *activeMenuVertexPtr;
 };
 
 static float2 dX(float2 v)
@@ -568,7 +569,7 @@ bool UI_WindowHovered(const UI &ui)
 	return hovered;
 }
 
-bool UI_WidgetHovered(const UI &ui)
+bool UI_WidgetHovered(const UI &ui, float2 widgetPos, float2 widgetSize)
 {
 	bool hover = false;
 	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
@@ -578,30 +579,40 @@ bool UI_WidgetHovered(const UI &ui)
 		return false;
 	}
 
-	if ( UI_WindowHovered(ui) && ui.widgetStackSize > 0 )
+	if ( UI_WindowHovered(ui) )
 	{
-		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
 		const rect scissor = UI_GetDrawList(ui).scissorRect;
 		const float2 scissorPos = { (f32)scissor.pos.x, (f32)scissor.pos.y };
 		const float2 scissorSize = { (f32)scissor.size.x, (f32)scissor.size.y };
 
-		hover = UI_MouseInArea(ui, widget.pos, widget.size) &&
+		hover = UI_MouseInArea(ui, widgetPos, widgetSize) &&
 			UI_MouseInArea(ui, scissorPos, scissorSize);
 	}
 
 	return hover;
 }
 
-bool UI_WidgetClicked(const UI &ui)
+bool UI_WidgetHovered(const UI &ui)
 {
-	const bool clicked = UI_WidgetHovered(ui) && UI_IsMouseClick(ui);
+	bool hover = false;
+	if ( ui.widgetStackSize > 0 )
+	{
+		const UIWidget &widget = ui.widgetStack[ui.widgetStackSize-1];
+		hover = UI_WidgetHovered(ui, widget.pos, widget.size);
+	}
+	return hover;
+}
+
+bool UI_WidgetClicked(const UI &ui, float2 widgetPos, float2 widgetSize)
+{
+	const bool clicked = UI_IsMouseClick(ui) && UI_WidgetHovered(ui, widgetPos, widgetSize);
 	return clicked;
 }
 
-float4 UI_MenuItemColor(const UI &ui)
+bool UI_WidgetClicked(const UI &ui)
 {
-	const float4 res = UI_WidgetHovered(ui) ? UiColorMenuHover : UiColorMenu;
-	return res;
+	const bool clicked = UI_IsMouseClick(ui) && UI_WidgetHovered(ui);
+	return clicked;
 }
 
 float4 UI_WidgetColor(const UI &ui)
@@ -1898,6 +1909,11 @@ bool UI_BeginMenu(UI &ui, const char *name)
 		window.pos = itemPos + dY(itemSize);
 		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 		UI_RaiseWindow(ui, window);
+
+		// Add the rectangle background, save its vertices to modify the size later
+		ui.activeMenuVertexPtr = ui.vertexPtr;
+		const float2 tempSize = {0, 0};
+		UI_AddRectangle(ui, window.pos, tempSize );
 	}
 
 	return showMenu;
@@ -1909,27 +1925,67 @@ void UI_EndMenu(UI &ui)
 	UIWindow &window = UI_GetCurrentWindow(ui);
 	window.size = layoutGroup.size;
 
+	// Set the size of the menu background panel
+	// Tri 1
+	ui.activeMenuVertexPtr[1].position.y += window.size.y;
+	ui.activeMenuVertexPtr[2].position.x += window.size.x;
+	ui.activeMenuVertexPtr[2].position.y += window.size.y;
+	// Tri 2
+	ui.activeMenuVertexPtr[4].position.x += window.size.x;
+	ui.activeMenuVertexPtr[4].position.y += window.size.y;
+	ui.activeMenuVertexPtr[5].position.x += window.size.x;
+
 	UI_EndWindow(ui);
 }
 
-bool UI_MenuItem(UI &ui, const char *name)
+bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 {
 	constexpr float2 padding = {8.0f, 4.0f};
 	const float2 textSize = UI_TextSize(ui, name);
+	const float2 checkSize = float2{textSize.y, textSize.y};
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{ 150, textSize.y } + 2.0f * padding;
+	const float2 widgetSize = float2{ textSize.x, textSize.y } + dX(padding) + dX(checkSize) + 2.0f * padding;
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_MenuItemColor(ui));
-	UI_AddRectangle(ui, widgetPos, widgetSize);
-	UI_PopColor(ui);
+	const UIWindow &menu = UI_GetCurrentWindow(ui);
+	const float2 extWidgetSize = Max(widgetSize, dY(widgetSize) + dX(menu.size));
+	const bool hovered = UI_WidgetHovered(ui, widgetPos, extWidgetSize);
+	if ( hovered )
+	{
+		UI_PushColor(ui, UiColorMenuHover);
+		UI_AddRectangle(ui, widgetPos, extWidgetSize);
+		UI_PopColor(ui);
+	}
 
-	const bool clicked = UI_WidgetClicked(ui);
+	const bool clicked = UI_WidgetClicked(ui, widgetPos, extWidgetSize);
 	UI_EndWidget(ui);
 
 	const float2 textPos = widgetPos + padding;
 	UI_AddText(ui, textPos, name);
+
+	if (checked)
+	{
+		UI_PushColor(ui, UiColorWhite);
+		const float2 n0 = { 0.131, 1.0 - 0.592};
+		const float2 n1 = { 0.0, 1.0 - 0.4};
+		const float2 n2 = { 0.493, 1.0 - 0.052};
+		const float2 n3 = { 1.0, 1.0 - 0.778};
+		const float2 n4 = { 0.81, 1.0 - 0.991};
+		const float2 n5 = { 0.4364, 1.0 - 0.3771};
+		const float2 checkPos = widgetPos + padding + dX(textSize) + dX(padding);
+		const float2 p0 = checkPos + checkSize * n0;
+		const float2 p1 = checkPos + checkSize * n1;
+		const float2 p2 = checkPos + checkSize * n2;
+		const float2 p3 = checkPos + checkSize * n3;
+		const float2 p4 = checkPos + checkSize * n4;
+		const float2 p5 = checkPos + checkSize * n5;
+		UI_AddTriangle(ui, p0, p1, p2, UiColorWhite );
+		UI_AddTriangle(ui, p0, p2, p5, UiColorWhite );
+		UI_AddTriangle(ui, p2, p3, p4, UiColorWhite );
+		UI_AddTriangle(ui, p5, p2, p4, UiColorWhite );
+		UI_PopColor(ui);
+	}
 
 	UI_CursorAdvance(ui, widgetSize, 0);
 
