@@ -1534,9 +1534,10 @@ void SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *n
 // Device
 //////////////////////////////
 
-Swapchain CreateSwapchain(GraphicsDevice &device, Window &window, const SwapchainInfo &swapchainInfo)
+void CreateSwapchain(GraphicsDevice &device, Window &window)
 {
 	Swapchain swapchain = {};
+	const SwapchainInfo &swapchainInfo = device.swapchainInfo;
 
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice, device.surface, &surfaceCapabilities);
@@ -1698,11 +1699,13 @@ Swapchain CreateSwapchain(GraphicsDevice &device, Window &window, const Swapchai
 
 	swapchain.valid = true;
 
-	return swapchain;
+	device.swapchain = swapchain;
 }
 
-void DestroySwapchain(GraphicsDevice &device, Swapchain &swapchain)
+void DestroySwapchain(GraphicsDevice &device)
 {
+	Swapchain &swapchain = device.swapchain;
+
 	if ( swapchain.handle != VK_NULL_HANDLE )
 	{
 		for ( u32 i = 0; i < swapchain.imageCount; ++i )

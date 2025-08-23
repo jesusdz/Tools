@@ -2880,14 +2880,13 @@ void OnPlatformRenderGraphics(Platform &platform)
 	{
 		WaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
-		DestroySwapchain(gfx.device, gfx.device.swapchain);
+		DestroySwapchain(gfx.device);
 		if ( platform.window.width != 0 && platform.window.height != 0 )
 		{
-			gfx.device.swapchain = CreateSwapchain(gfx.device, platform.window, gfx.device.swapchainInfo);
+			CreateSwapchain(gfx.device, platform.window);
 			gfx.renderTargets = CreateRenderTargets(gfx);
 			gfx.shouldUpdateGlobalBindGroups = true;
 		}
-		gfx.device.swapchain.valid = true;
 	}
 
 	if ( IsValidSwapchain(gfx.device) )
@@ -2911,7 +2910,7 @@ void OnPlatformWindowCleanup(Platform &platform)
 
 	WaitDeviceIdle(gfx);
 	DestroyRenderTargets(gfx, gfx.renderTargets);
-	DestroySwapchain(gfx.device, gfx.device.swapchain);
+	DestroySwapchain(gfx.device);
 	CleanupGraphicsSurface(gfx.device);
 }
 
@@ -2933,7 +2932,7 @@ void OnPlatformCleanup(Platform &platform)
 #endif
 
 	DestroyRenderTargets(gfx, gfx.renderTargets);
-	DestroySwapchain(gfx.device, gfx.device.swapchain);
+	DestroySwapchain(gfx.device);
 	CleanupGraphicsSurface(gfx.device);
 
 	CleanupGraphics(gfx);
