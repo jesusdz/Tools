@@ -2717,6 +2717,11 @@ static void ProcessPlatformEvents(Platform &platform)
 				}
 				break;
 			};
+			case PlatformEventTypeKeyPress:
+			{
+				window.keyboard.keys[event.keyPress.code] = event.keyPress.state;
+				break;
+			};
 			case PlatformEventTypeMouseClick:
 			{
 				window.mouse.buttons[event.mouseClick.button] = event.mouseClick.state;
