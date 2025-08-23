@@ -441,7 +441,8 @@ struct Platform
 	volatile_i64 eventHead;
 	PlatformEvent events[128];
 
-	bool globalRunning;
+	bool mainThreadRunning;
+	bool updateThreadRunning;
 	bool windowInitialized;
 
 	Semaphore updateThreadFinished;
@@ -1600,12 +1601,23 @@ void PlatformUpdateEventLoop(Platform &platform)
 
 #elif USE_WINAPI
 
+	BOOL ret = 1;
 	MSG msg = { };
+#if USE_UPDATE_THREAD
+	while ( (ret = GetMessage( &msg, NULL, 0, 0 )) != 0 ) // ret == 0 means WM_QUIT
+#else
 	while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )
+#endif
 	{
-		if ( LOWORD( msg.message ) == WM_QUIT )
+		if ( ret == -1 )
+		{
+			LOG(Error, "Fatal error returned by GetMessage\n");
+			break;
+		}
+		else if ( LOWORD( msg.message ) == WM_QUIT )
 		{
 			window.flags |= WindowFlags_Exit;
+			break;
 		}
 		else
 		{
@@ -1613,6 +1625,10 @@ void PlatformUpdateEventLoop(Platform &platform)
 			DispatchMessage(&msg);
 		}
 	}
+
+#if USE_UPDATE_THREAD
+	platform.mainThreadRunning = false;
+#endif
 
 #endif
 
@@ -2685,7 +2701,7 @@ static void ProcessPlatformEvents(Platform &platform)
 			case PlatformEventTypeWindowWillDestroy:
 			{
 				platform.windowInitialized = false;
-				//platform.WindowCleanupCallback(platform);
+				platform.WindowCleanupCallback(platform);
 				CleanupWindow(platform.window);
 				break;
 			};
@@ -2722,7 +2738,7 @@ static void ProcessPlatformEvents(Platform &platform)
 			};
 			case PlatformEventTypeQuit:
 			{
-				platform.globalRunning = false;
+				platform.updateThreadRunning = false;
 				break;
 			};
 		}
@@ -2740,7 +2756,7 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 
 	Clock lastClock = GetClock();
 
-	while ( platform.globalRunning )
+	while ( platform.updateThreadRunning )
 	{
 		ResetArena(platform.frameArena);
 
@@ -2773,6 +2789,8 @@ bool InitializeUpdateThread(Platform &platform)
 	bool ok = true;
 
 #if USE_UPDATE_THREAD
+	platform.updateThreadRunning = true;
+
 	if ( !CreateSemaphore( platform.updateThreadFinished, 0, 1 ) )
 	{
 		return false;
@@ -2867,8 +2885,6 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
-	platform.globalRunning = true;
-
 	if ( !InitializeUpdateThread(platform) )
 	{
 		return false;
@@ -2878,7 +2894,9 @@ bool PlatformRun(Platform &platform)
 
 	const Clock firstFrameClock = GetClock();
 
-	while ( platform.globalRunning )
+	platform.mainThreadRunning = true;
+
+	while ( platform.mainThreadRunning )
 	{
 		const Clock currentFrameBeginClock = GetClock();
 		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameBeginClock);
@@ -2892,7 +2910,7 @@ bool PlatformRun(Platform &platform)
 
 		if ( platform.window.flags & WindowFlags_Exit )
 		{
-			platform.globalRunning = false;
+			platform.mainThreadRunning = false;
 			continue;
 		}
 		if ( platform.window.flags & WindowFlags_WasCreated )
@@ -2932,8 +2950,12 @@ bool PlatformRun(Platform &platform)
 	WaitSemaphore(platform.updateThreadFinished);
 #endif
 
-	platform.CleanupCallback(platform);
+	if ( platform.windowInitialized )
+	{
+		platform.WindowCleanupCallback(platform);
+	}
 
+	platform.CleanupCallback(platform);
 	// TODO: Cleanup window and audio
 
 	return false;

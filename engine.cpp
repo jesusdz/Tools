@@ -2932,9 +2932,10 @@ void OnPlatformCleanup(Platform &platform)
 	UI_Cleanup(engine.ui);
 #endif
 
-	DestroyRenderTargets(gfx, gfx.renderTargets);
-	DestroySwapchain(gfx.device);
-	CleanupGraphicsSurface(gfx.device);
+	// TODO(jesus): Remove, already handled OnPlatformWindowCleanup
+	//DestroyRenderTargets(gfx, gfx.renderTargets);
+	//DestroySwapchain(gfx.device);
+	//CleanupGraphicsSurface(gfx.device);
 
 	CleanupGraphics(gfx);
 }

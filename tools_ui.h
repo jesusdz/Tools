@@ -891,7 +891,7 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	window.id = windowId;
 	window.index = windowIndex;
 	StrCopy(window.caption, caption);
-	window.pos = {100.0f + start*100.0f, 100.0f+start*100.0f};
+	window.pos = {100.0f + start*20.0f, 100.0f+start*20.0f};
 	window.size = {200.0f, 300.0f};
 	window.layer = windowIndex;
 	UI_RaiseWindow(ui, window);
