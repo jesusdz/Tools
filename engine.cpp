@@ -90,6 +90,8 @@ struct RenderTargets
 
 	ImageH idImage;
 	Framebuffer idFramebuffer;
+
+	bool initialized;
 };
 
 enum ProjectionType
@@ -1091,11 +1093,18 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 	EndTransientCommandList(gfx.device, commandList);
 
+	renderTargets.initialized = true;
+
 	return renderTargets;
 }
 
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 {
+	if ( !renderTargets.initialized )
+	{
+		return;
+	}
+
 	DestroyImageH(gfx.device, renderTargets.depthImage);
 
 	// Reset the heap used for render targets
@@ -1247,9 +1256,8 @@ void LinkHandles(Graphics &gfx)
 bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
-	Window &window = engine.platform.window;
 
-	if ( !InitializeGraphicsDevice( gfx.device, scratch, window ) ) {
+	if ( !InitializeGraphicsDevice( gfx.device, scratch ) ) {
 		return false;
 	}
 
@@ -1304,9 +1312,6 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		};
 		gfx.idRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
 	}
-
-	// Render targets
-	gfx.renderTargets = CreateRenderTargets(gfx);
 
 	// Create staging buffer
 	gfx.stagingBuffer = CreateStagingBuffer(gfx);
@@ -2866,7 +2871,12 @@ void OnPlatformRenderGraphics(Platform &platform)
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
-	if ( gfx.device.swapchain.outdated || platform.window.flags & WindowFlags_WasResized )
+	if ( !gfx.deviceInitialized )
+	{
+		return;
+	}
+
+	if ( !IsValidSwapchain(gfx.device) || platform.window.flags & WindowFlags_WasResized )
 	{
 		WaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
@@ -2877,10 +2887,10 @@ void OnPlatformRenderGraphics(Platform &platform)
 			gfx.renderTargets = CreateRenderTargets(gfx);
 			gfx.shouldUpdateGlobalBindGroups = true;
 		}
-		gfx.device.swapchain.outdated = false;
+		gfx.device.swapchain.valid = true;
 	}
 
-	if ( gfx.deviceInitialized && gfx.device.swapchain.handle != VK_NULL_HANDLE )
+	if ( IsValidSwapchain(gfx.device) )
 	{
 		RenderGraphics(engine, platform.deltaSeconds);
 

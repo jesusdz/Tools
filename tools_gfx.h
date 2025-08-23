@@ -487,8 +487,8 @@ struct Swapchain
 	u32 imageCount;
 	ImageH images[MAX_SWAPCHAIN_IMAGE_COUNT];
 	float preRotationDegrees;
-	bool outdated;
 	u32 currentImageIndex;
+	bool valid;
 };
 
 struct ShaderSource
@@ -1696,22 +1696,31 @@ Swapchain CreateSwapchain(GraphicsDevice &device, Window &window, const Swapchai
 		swapchain.images[i] = imageH;
 	}
 
+	swapchain.valid = true;
 
 	return swapchain;
 }
 
 void DestroySwapchain(GraphicsDevice &device, Swapchain &swapchain)
 {
-	for ( u32 i = 0; i < swapchain.imageCount; ++i )
+	if ( swapchain.handle != VK_NULL_HANDLE )
 	{
-		VkImageView &imageView = device.images[FIRST_SWAPCHAIN_IMAGE_INDEX + i].imageViewHandle;
-		DestroyImageView(device, imageView);
-		imageView = VK_NULL_HANDLE;
+		for ( u32 i = 0; i < swapchain.imageCount; ++i )
+		{
+			VkImageView &imageView = device.images[FIRST_SWAPCHAIN_IMAGE_INDEX + i].imageViewHandle;
+			DestroyImageView(device, imageView);
+			imageView = VK_NULL_HANDLE;
+		}
+
+		vkDestroySwapchainKHR(device.handle, swapchain.handle, VULKAN_ALLOCATORS);
 	}
 
-	vkDestroySwapchainKHR(device.handle, swapchain.handle, VULKAN_ALLOCATORS);
-
 	swapchain = {};
+}
+
+bool IsValidSwapchain(const GraphicsDevice &device)
+{
+	return device.swapchain.valid;
 }
 
 bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
@@ -1893,7 +1902,7 @@ bool InitializeGraphicsSurface(GraphicsDevice &device, const Window &window)
 	return true;
 }
 
-bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &window)
+bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 {
 	VkResult result = VK_RESULT_MAX_ENUM;
 
@@ -2278,9 +2287,6 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 		device.freeImages[i] = i;
 	}
 
-	// Create swapchain
-	device.swapchain = CreateSwapchain( device, window, device.swapchainInfo );
-
 
 	// Synchronization objects
 	const VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -2311,6 +2317,12 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch, Window &win
 	VK_CALL( vkCreatePipelineCache( device.handle, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &device.pipelineCache ) );
 
 	return true;
+}
+
+bool IsValidGraphicsDevice(const GraphicsDevice &device)
+{
+	const bool valid = device.handle != VK_NULL_HANDLE;
+	return valid;
 }
 
 
@@ -3941,7 +3953,7 @@ bool Present(GraphicsDevice &device, SubmitResult submitResult)
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
 	{
 		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
-		device.swapchain.outdated = true;
+		device.swapchain.valid = false;
 	}
 	else if (presentResult != VK_SUCCESS)
 	{
@@ -3996,7 +4008,7 @@ bool BeginFrame(GraphicsDevice &device)
 	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 	{
 		LOG(Warning, "vkAcquireNextImageKHR - result: VK_ERROR_OUT_OF_DATE_KHR\n");
-		device.swapchain.outdated = true;
+		device.swapchain.valid = false;
 		return false;
 	}
 	else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
