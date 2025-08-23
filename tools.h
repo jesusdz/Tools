@@ -56,6 +56,7 @@
 #include <dsound.h>   // audio
 #include <direct.h>   // _getcwd
 #include <intrin.h>   // _WriteBarrier
+#undef Yield          // Empty macro defined in winbase.h
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -186,13 +187,11 @@ CT_ASSERT(sizeof(byte) == 1);
 CT_ASSERT(sizeof(long) == sizeof(i32));
 typedef volatile LONG volatile_i32;
 typedef volatile ULONG volatile_u32;
-typedef volatile LONGLONG volatile_i64;
-typedef volatile ULONGLONG volatile_u64;
+typedef volatile LONG64 volatile_i64;
 #else
 typedef volatile i32 volatile_i32;
 typedef volatile u32 volatile_u32;
 typedef volatile i64 volatile_i64;
-typedef volatile u64 volatile_u64;
 #endif
 
 
@@ -356,10 +355,10 @@ bool AtomicSwap(volatile_u32 *currValue, u32 oldValue, u32 newValue)
 	return swapped;
 }
 
-bool AtomicSwap(volatile_u64 *currValue, u64 oldValue, u64 newValue)
+bool AtomicSwap(volatile_i64 *currValue, i64 oldValue, i64 newValue)
 {
 #if PLATFORM_WINDOWS
-		const bool swapped = InterlockedCompareExchange(currValue, newValue, oldValue) != *currValue;
+		const bool swapped = InterlockedCompareExchange64(currValue, newValue, oldValue) != *currValue;
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 		const bool swapped = __sync_bool_compare_and_swap(currValue, oldValue, newValue);
 #else
@@ -368,19 +367,19 @@ bool AtomicSwap(volatile_u64 *currValue, u64 oldValue, u64 newValue)
 	return swapped;
 }
 
-u64 AtomicPreIncrement(volatile_u64 *value)
+i64 AtomicPreIncrement(volatile_i64 *value)
 {
 #if PLATFORM_WINDOWS
-	const u64 oldValue = InterlockedIncrement64(value) - 1;
+	const i64 oldValue = InterlockedIncrement64(value) - 1;
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
-	const u64 oldValue = __sync_fetch_and_add(value, 1);
+	const i64 oldValue = __sync_fetch_and_add(value, 1);
 #else
 #error "Missing implementation"
 #endif
 	return oldValue;
 }
 
-inline void AtomicIncrement(volatile_u64 *value)
+inline void AtomicIncrement(volatile_i64 *value)
 {
 	AtomicPreIncrement(value);
 }
@@ -2436,6 +2435,11 @@ static void SleepMillis(u32 millis)
 	Sleep(millis);
 }
 
+static void Yield()
+{
+	SwitchToThread();
+}
+
 
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 
@@ -2500,6 +2504,11 @@ static void SleepMillis(u32 millis)
 	{
 		LinuxReportError("usleep");
 	}
+}
+
+static void Yield()
+{
+	SleepMillis(1);
 }
 
 #else

@@ -8,10 +8,24 @@
 
 enum ThreadID
 {
+	THREAD_ID_UPDATE,
 	THREAD_ID_AUDIO,
 	THREAD_ID_WORKER_0,
 	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
 };
+
+#if PLATFORM_WINDOWS
+#define USE_UPDATE_THREAD 1
+#else
+#define USE_UPDATE_THREAD 0
+#endif
+
+#if PLATFORM_LINUX || PLATFORM_WINDOWS
+#define USE_AUDIO_THREAD 1
+#elif PLATFORM_ANDROID
+#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
+#endif
+
 
 
 
@@ -321,6 +335,59 @@ struct SoundBuffer
 	i16* samples;
 };
 
+enum PlatformEventType
+{
+	PlatformEventTypeWindowWasCreated,
+	PlatformEventTypeWindowWillDestroy,
+	PlatformEventTypeWindowResize,
+	PlatformEventTypeKeyPress,
+	PlatformEventTypeMouseClick,
+	PlatformEventTypeMouseMove,
+	PlatformEventTypeMouseWheel,
+	PlatformEventTypeQuit,
+	PlatformEventTypeCount,
+};
+
+struct PlatformEventWindowResize
+{
+	u16 width, height;
+};
+
+struct PlatformEventKeyPress
+{
+	Key code;
+	KeyState state;
+};
+
+struct PlatformEventMouseClick
+{
+	MouseButton button;
+	ButtonState state;
+};
+
+struct PlatformEventMouseMove
+{
+	i16 x, y;
+};
+
+struct PlatformEventMouseWheel
+{
+	i16 dx, dy;
+};
+
+struct PlatformEvent
+{
+	PlatformEventType type;
+	union
+	{
+		PlatformEventWindowResize windowResize;
+		PlatformEventKeyPress keyPress;
+		PlatformEventMouseClick mouseClick;
+		PlatformEventMouseMove mouseMove;
+		PlatformEventMouseWheel mouseWheel;
+	};
+};
+
 struct PlatformConfig
 {
 #if PLATFORM_ANDROID
@@ -370,7 +437,14 @@ struct Platform
 	f32 deltaSeconds;
 	f32 totalSeconds;
 
+	volatile_i64 eventTail;
+	volatile_i64 eventHead;
+	PlatformEvent events[128];
+
 	bool globalRunning;
+	bool windowInitialized;
+
+	Semaphore updateThreadFinished;
 };
 
 static Platform *sPlatform = nullptr;
@@ -571,6 +645,24 @@ void InitializeDirectories(Platform &platform, int argc, char **argv)
 }
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Generic platform events
+
+void SendPlatformEvent(Platform &platform, PlatformEvent event)
+{
+	ASSERT(platform.eventHead - platform.eventTail < ARRAY_COUNT(platform.events));
+	
+	const i32 eventIndex = platform.eventHead % ARRAY_COUNT(platform.events);
+	platform.events[eventIndex] = event;
+
+	AtomicIncrement(&platform.eventHead);
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Specific platform events
 
 #if USE_XCB && 0
 void PrintModifiers(uint32_t mask)
@@ -893,6 +985,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+	ASSERT(sPlatform);
+	Platform &platform = *sPlatform;
+
+#if !USE_UPDATE_THREAD
+	Window *window = &platform.window;
+#endif
+
 	bool processMouseEvents = true;
 	bool processKeyboardEvents = true;
 #if USE_IMGUI
@@ -908,22 +1007,30 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 	}
 #endif
 
-	Window *window = (Window*)GetPropA(hWnd, "WindowPtr");
-
-
 	switch (uMsg)
 	{
 		case WM_KEYDOWN:
 		case WM_KEYUP:
 			if ( processKeyboardEvents )
 			{
-				ASSERT(window);
 				WPARAM keyCode = wParam;
 				ASSERT( keyCode < ARRAY_COUNT(Win32KeyMappings) );
-				u32 mapping = Win32KeyMappings[ keyCode ];
+				const Key mapping = Win32KeyMappings[ keyCode ];
 				ASSERT( mapping < K_COUNT );
-				KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+				const KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeKeyPress,
+					.keyPress = {
+						.code = mapping,
+						.state = state,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
+				ASSERT(window);
 				window->keyboard.keys[ mapping ] = state;
+#endif
 			}
 			break;
 
@@ -935,74 +1042,164 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_LBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_LEFT,
+						.state = BUTTON_STATE_PRESS,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				//int xPos = GET_X_LPARAM(lParam);
 				//int yPos = GET_Y_LPARAM(lParam);
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
+#endif
 			}
 			break;
 		case WM_LBUTTONUP:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_LEFT,
+						.state = BUTTON_STATE_RELEASE,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
+#endif
 			}
 			break;
 		case WM_RBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_RIGHT,
+						.state = BUTTON_STATE_PRESS,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
+#endif
 			}
 			break;
 		case WM_RBUTTONUP:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_RIGHT,
+						.state = BUTTON_STATE_RELEASE,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
+#endif
 			}
 			break;
 		case WM_MBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_MIDDLE,
+						.state = BUTTON_STATE_PRESS,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
+#endif
 			}
 			break;
 		case WM_MBUTTONUP:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseClick,
+					.mouseClick = {
+						.button = MOUSE_BUTTON_MIDDLE,
+						.state = BUTTON_STATE_RELEASE,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
+#endif
 			}
 			break;
 
 		case WM_MOUSEWHEEL:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseWheel,
+					.mouseWheel = { .dy = -GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.wy -= GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
+#endif
 			}
 			break;
 
 		case WM_MOUSEHWHEEL:
 			if ( processMouseEvents )
 			{
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseWheel,
+					.mouseWheel = { .dx = GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
 				window->mouse.wx += GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
+#endif
 			}
 			break;
 
 		case WM_MOUSEMOVE:
 			if ( processMouseEvents )
 			{
+				i16 xPos = GET_X_LPARAM(lParam);
+				i16 yPos = GET_Y_LPARAM(lParam);
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseMove,
+					.mouseMove = { .x = xPos, .y = yPos }
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
-				i32 xPos = GET_X_LPARAM(lParam);
-				i32 yPos = GET_Y_LPARAM(lParam);
 				window->mouse.dx = xPos - window->mouse.x;
 				window->mouse.dy = yPos - window->mouse.y;
 				window->mouse.x = xPos;
 				window->mouse.y = yPos;
+#endif
 				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
 			}
 			break;
@@ -1018,15 +1215,23 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
 		case WM_SIZE:
 			{
+				const u16 width = LOWORD(lParam);
+				const u16 height = HIWORD(lParam);
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeWindowResize,
+					.windowResize = { .width = width, .height = height },
+				};
+				SendPlatformEvent(platform, event);
+#else
 				ASSERT(window);
-				i32 width = LOWORD(lParam);
-				i32 height = HIWORD(lParam);
 				if ( window->width != width || window->height != height )
 				{
 					window->width = Max(width, 0);
 					window->height = Max(height, 0);
 					window->flags |= WindowFlags_WasResized;
 				}
+#endif
 				break;
 			}
 
@@ -1061,6 +1266,10 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// to indicate that we handled this message.
 				// Otherwise, calling DefWindowProc will internally call DestroyWindow
 				// and will internally send the WM_DESTROY message.
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = { .type = PlatformEventTypeWindowWillDestroy, };
+				SendPlatformEvent(platform, event);
+#endif
 				DestroyWindow(hWnd);
 				break;
 			}
@@ -1070,7 +1279,12 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
+				#if USE_UPDATE_THREAD
+				const PlatformEvent event = { .type = PlatformEventTypeQuit, };
+				SendPlatformEvent(platform, event);
+				#else
 				window->flags |= WindowFlags_WillDestroy;
+				#endif
 				PostQuitMessage(0);
 				break;
 			}
@@ -1248,12 +1462,6 @@ bool InitializeWindow(
 		return false;
 	}
 
-	if ( !SetPropA(hWnd, "WindowPtr", &window) )
-	{
-		Win32ReportError("InitializeWindow - SetPropA");
-		return false;
-	}
-
 	ShowWindow(hWnd, SW_SHOW);
 
 	window.hInstance = hInstance;
@@ -1278,10 +1486,8 @@ void CleanupWindow(Window &window)
 }
 
 
-void PlatformUpdateEventLoop(Platform &platform)
+void TransitionInputStatesSinceLastFrame(Window &window)
 {
-	Window &window = platform.window;
-
 	// Transition key states
 	for ( u32 i = 0; i < K_COUNT; ++i ) {
 		if ( window.keyboard.keys[i] == KEY_STATE_PRESS ) {
@@ -1317,6 +1523,46 @@ void PlatformUpdateEventLoop(Platform &platform)
 		window.touches[i].dx = 0.0f;
 		window.touches[i].dy = 0.0f;
 	}
+}
+
+
+void UpdateKeyModifiers(Window &window)
+{
+	// Update key modifiers
+	window.chars.shift = KeyPressed(window.keyboard, K_SHIFT);
+	window.chars.ctrl = KeyPressed(window.keyboard, K_CONTROL);
+	window.chars.alt = KeyPressed(window.keyboard, K_ALT);
+
+	for ( u32 i = 0; i < K_COUNT; ++i )
+	{
+		if ( KeyPress(window.keyboard, (Key)i) )
+		{
+			char character = 0;
+
+			if ( i >= K_A && i <= K_Z ) {
+				character = window.chars.shift ? 'A' + (i - K_A) : 'a' + (i - K_A);
+			} else if ( i >= K_0 && i <= K_9 ) {
+				character = '0' + (i - K_0);
+			} else if ( i == K_SPACE ) {
+				character = ' ';
+			}
+
+			if (character)
+			{
+				window.chars.chars[window.chars.charCount++] = character;
+			}
+		}
+	}
+}
+
+
+void PlatformUpdateEventLoop(Platform &platform)
+{
+	Window &window = platform.window;
+
+#if !USE_UPDATE_THREAD
+	TransitionInputStatesSinceLastFrame(window);
+#endif
 
 #if USE_XCB
 
@@ -1370,31 +1616,9 @@ void PlatformUpdateEventLoop(Platform &platform)
 
 #endif
 
-	// Update key modifiers
-	window.chars.shift = KeyPressed(window.keyboard, K_SHIFT);
-	window.chars.ctrl = KeyPressed(window.keyboard, K_CONTROL);
-	window.chars.alt = KeyPressed(window.keyboard, K_ALT);
-
-	for ( u32 i = 0; i < K_COUNT; ++i )
-	{
-		if ( KeyPress(window.keyboard, (Key)i) )
-		{
-			char character = 0;
-
-			if ( i >= K_A && i <= K_Z ) {
-				character = window.chars.shift ? 'A' + (i - K_A) : 'a' + (i - K_A);
-			} else if ( i >= K_0 && i <= K_9 ) {
-				character = '0' + (i - K_0);
-			} else if ( i == K_SPACE ) {
-				character = ' ';
-			}
-
-			if (character)
-			{
-				window.chars.chars[window.chars.charCount++] = character;
-			}
-		}
-	}
+#if !USE_UPDATE_THREAD
+	UpdateKeyModifiers(window);
+#endif
 }
 
 #if PLATFORM_WINDOWS
@@ -1961,12 +2185,6 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 #endif
 }
 
-#if PLATFORM_LINUX || PLATFORM_WINDOWS
-#define USE_AUDIO_THREAD 1
-#elif PLATFORM_ANDROID
-#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
-#endif
-
 #if USE_AUDIO_THREAD
 static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 {
@@ -2284,8 +2502,8 @@ struct WorkQueueEntry
 struct WorkQueue
 {
 	Semaphore semaphore;
-	volatile_u64 head;
-	volatile_u64 tail;
+	volatile_i64 head;
+	volatile_i64 tail;
 
 	WorkQueueEntry entries[128] = {};
 };
@@ -2440,6 +2658,141 @@ bool InitializeWorkQueue(Platform &platform)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Update thread
+
+#if USE_UPDATE_THREAD
+
+static void ProcessPlatformEvents(Platform &platform)
+{
+	Window &window = platform.window;
+
+	TransitionInputStatesSinceLastFrame(window);
+
+	while (platform.eventTail < platform.eventHead)
+	{
+		const i64 uncappedIndex = AtomicPreIncrement(&platform.eventTail);
+		const i32 eventIndex = uncappedIndex % ARRAY_COUNT(platform.events);
+		const PlatformEvent &event = platform.events[eventIndex];
+
+		switch (event.type)
+		{
+			case PlatformEventTypeWindowWasCreated:
+			{
+				platform.WindowInitCallback(platform);
+				platform.windowInitialized = true;
+				break;
+			};
+			case PlatformEventTypeWindowWillDestroy:
+			{
+				platform.windowInitialized = false;
+				//platform.WindowCleanupCallback(platform);
+				CleanupWindow(platform.window);
+				break;
+			};
+			case PlatformEventTypeWindowResize:
+			{
+				const u16 width = event.windowResize.width;
+				const u16 height = event.windowResize.height;
+				if ( window.width != width || window.height != height )
+				{
+					window.width = Max(width, 0);
+					window.height = Max(height, 0);
+					window.flags |= WindowFlags_WasResized;
+				}
+				break;
+			};
+			case PlatformEventTypeMouseClick:
+			{
+				window.mouse.buttons[event.mouseClick.button] = event.mouseClick.state;
+				break;
+			};
+			case PlatformEventTypeMouseMove:
+			{
+				window.mouse.dx = event.mouseMove.x - window.mouse.x;
+				window.mouse.dy = event.mouseMove.y - window.mouse.y;
+				window.mouse.x = event.mouseMove.x;
+				window.mouse.y = event.mouseMove.y;
+				break;
+			};
+			case PlatformEventTypeMouseWheel:
+			{
+				window.mouse.wx += event.mouseWheel.dx;
+				window.mouse.wy += event.mouseWheel.dy;
+				break;
+			};
+			case PlatformEventTypeQuit:
+			{
+				platform.globalRunning = false;
+				break;
+			};
+		}
+	}
+
+	UpdateKeyModifiers(window);
+}
+
+static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
+{
+	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
+
+	ASSERT( sPlatform );
+	Platform &platform = *sPlatform;
+
+	Clock lastClock = GetClock();
+
+	while ( platform.globalRunning )
+	{
+		ResetArena(platform.frameArena);
+
+		ProcessPlatformEvents(platform);
+
+		if ( platform.windowInitialized )
+		{
+			UpdateGamepad(platform);
+
+			platform.UpdateCallback(platform);
+
+			platform.RenderGraphicsCallback(platform);
+
+			platform.window.flags = 0;
+		}
+		else
+		{
+			Yield();
+		}
+	}
+
+	SignalSemaphore(platform.updateThreadFinished);
+
+	return 0;
+}
+#endif // USE_AUDIO_THREAD
+
+bool InitializeUpdateThread(Platform &platform)
+{
+	bool ok = true;
+
+#if USE_UPDATE_THREAD
+	if ( !CreateSemaphore( platform.updateThreadFinished, 0, 1 ) )
+	{
+		return false;
+	}
+
+	static const ThreadInfo threadInfo = {
+		.globalIndex = THREAD_ID_UPDATE,
+	};
+	if ( !CreateDetachedThread(UpdateThread, threadInfo) )
+	{
+		ok = false;
+	}
+#endif // USE_UPDATE_THREAD
+
+	return ok;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform
 
 bool PlatformInitialize(Platform &platform, int argc, char **argv)
@@ -2488,6 +2841,9 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
+	const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
+	SendPlatformEvent(platform, event);
+
 	if ( InitializeGamepad(platform) )
 	{
 		// Do nothing
@@ -2511,18 +2867,19 @@ bool PlatformRun(Platform &platform)
 		return false;
 	}
 
-	Clock lastFrameClock = GetClock();
+	platform.globalRunning = true;
 
-	bool windowInitialized = false;
+	if ( !InitializeUpdateThread(platform) )
+	{
+		return false;
+	}
+
+	Clock lastFrameClock = GetClock();
 
 	const Clock firstFrameClock = GetClock();
 
-	platform.globalRunning = true;
-
 	while ( platform.globalRunning )
 	{
-		ResetArena(platform.frameArena);
-
 		const Clock currentFrameBeginClock = GetClock();
 		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameBeginClock);
 		platform.totalSeconds = GetSecondsElapsed(firstFrameClock, currentFrameBeginClock);
@@ -2530,25 +2887,29 @@ bool PlatformRun(Platform &platform)
 
 		PlatformUpdateEventLoop(platform);
 
+#if !USE_UPDATE_THREAD
+		ResetArena(platform.frameArena);
+
 		if ( platform.window.flags & WindowFlags_Exit )
 		{
-			break;
+			platform.globalRunning = false;
+			continue;
 		}
 		if ( platform.window.flags & WindowFlags_WasCreated )
 		{
 			platform.WindowInitCallback(platform);
-			windowInitialized = true;
+			platform.windowInitialized = true;
 		}
 		if ( platform.window.flags & WindowFlags_WillDestroy )
 		{
 			platform.WindowCleanupCallback(platform);
 			CleanupWindow(platform.window);
-			windowInitialized = false;
+			platform.windowInitialized = false;
 		}
 
 		UpdateGamepad(platform);
 
-		if ( windowInitialized )
+		if ( platform.windowInitialized )
 		{
 			platform.UpdateCallback(platform);
 		}
@@ -2556,6 +2917,7 @@ bool PlatformRun(Platform &platform)
 		platform.RenderGraphicsCallback(platform);
 
 		platform.window.flags = 0;
+#endif // !USE_UPDATE_THREAD
 
 #if !USE_AUDIO_THREAD
 		if ( platform.audio.isPlaying )
@@ -2565,6 +2927,10 @@ bool PlatformRun(Platform &platform)
 		}
 #endif // USE_AUDIO_THREAD
 	}
+
+#if USE_UPDATE_THREAD
+	WaitSemaphore(platform.updateThreadFinished);
+#endif
 
 	platform.CleanupCallback(platform);
 

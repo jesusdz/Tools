@@ -214,6 +214,8 @@ struct Graphics
 
 	TimeSamples cpuFrameTimes;
 	TimeSamples gpuFrameTimes;
+
+	f32 deltaSeconds;
 };
 
 // Editor API
@@ -1980,7 +1982,7 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 }
 
 
-bool RenderGraphics(Engine &engine, f32 deltaSeconds)
+bool RenderGraphics(Engine &engine)
 {
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
@@ -1990,7 +1992,7 @@ bool RenderGraphics(Engine &engine, f32 deltaSeconds)
 #endif
 
 	static f32 totalSeconds = 0.0f;
-	totalSeconds += deltaSeconds;
+	totalSeconds += gfx.deltaSeconds;
 
 	u32 frameIndex = gfx.device.frameIndex;
 
@@ -2862,14 +2864,17 @@ void OnPlatformUpdate(Platform &platform)
 	const Clock end = GetClock();
 	const f32 updateMillis = GetSecondsElapsed(begin, end) * 1000.0f;
 	AddTimeSample( gfx.cpuFrameTimes, updateMillis );
-	//const f32 cpuDeltaMillis = platform.deltaSeconds * 1000.0f;
-	//AddTimeSample( gfx.cpuFrameTimes, cpuDeltaMillis );
 }
 
 void OnPlatformRenderGraphics(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
+
+	static Clock lastClock = GetClock();
+	Clock currentClock = GetClock();
+	gfx.deltaSeconds = GetSecondsElapsed(lastClock, currentClock);
+	lastClock = currentClock;
 
 	if ( !gfx.deviceInitialized )
 	{
@@ -2891,16 +2896,12 @@ void OnPlatformRenderGraphics(Platform &platform)
 
 	if ( IsValidSwapchain(gfx.device) )
 	{
-		RenderGraphics(engine, platform.deltaSeconds);
+		RenderGraphics(engine);
 
 #if USE_EDITOR
 		EditorPostRender(engine);
 #endif
 	}
-}
-
-void OnPlatformRender(Platform &platform)
-{
 }
 
 void OnPlatformWindowCleanup(Platform &platform)

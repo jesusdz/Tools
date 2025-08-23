@@ -683,6 +683,7 @@ void EditorInitialize(Engine &engine)
 void EditorUpdate(Engine &engine)
 {
 	Platform &platform = engine.platform;
+	Graphics &gfx = engine.gfx;
 
 	EditorUpdateUI(engine);
 
@@ -692,16 +693,16 @@ void EditorUpdate(Engine &engine)
 	{
 		if (engine.editor.cameraOrbit)
 		{
-			EditorUpdateCamera3DOrbit(engine.editor.camera[ProjectionPerspective], platform.deltaSeconds);
+			EditorUpdateCamera3DOrbit(engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds);
 		}
 		else
 		{
-			EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], platform.deltaSeconds, handleInput);
+			EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
 		}
 	}
 	else if (engine.editor.cameraType == ProjectionOrthographic)
 	{
-		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], platform.deltaSeconds, handleInput);
+		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}
 
 	EditorBeginEntitySelection(engine, platform.window.mouse, handleInput);
