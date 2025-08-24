@@ -14,7 +14,7 @@ enum ThreadID
 	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
 };
 
-#if PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
 #define USE_UPDATE_THREAD 1
 #else
 #define USE_UPDATE_THREAD 0
@@ -696,6 +696,9 @@ extern IMGUI_IMPL_API bool ImGui_ImplXcb_HandleInputEvent(xcb_generic_event_t *e
 
 void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
+	ASSERT(sPlatform);
+	Platform &platform = *sPlatform;
+
 #if USE_IMGUI
 	if (ImGui_ImplXcb_HandleInputEvent(event))
 		return;
@@ -712,10 +715,21 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
 				u32 keyCode = ev->detail;
 				ASSERT( keyCode < ARRAY_COUNT(XcbKeyMappings) );
-				u32 mapping = XcbKeyMappings[ keyCode ];
+				const Key mapping = XcbKeyMappings[ keyCode ];
 				ASSERT( mapping < K_COUNT );
-				KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+				const KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeKeyPress,
+					.keyPress = {
+						.code = mapping,
+						.state = state,
+					},
+				};
+				SendPlatformEvent(platform, event);
+#else
 				window.keyboard.keys[ mapping ] = state;
+#endif
 				break;
 			}
 
@@ -724,15 +738,43 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 			{
 				// NOTE: xcb_button_release_event_t is an alias of xcb_button_press_event_t
 				xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-				ButtonState state = eventType == XCB_BUTTON_PRESS ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
+				const ButtonState state = eventType == XCB_BUTTON_PRESS ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
+				const MouseButton button =
+					ev->detail == 1 ? MOUSE_BUTTON_LEFT :
+					ev->detail == 2 ? MOUSE_BUTTON_MIDDLE :
+					MOUSE_BUTTON_RIGHT;
+				const i16 wheelY = ev->detail == 4 ? -1 : ev->detail == 5 ? 1 : 0;
+				const i16 wheelX = ev->detail == 6 ? -1 : ev->detail == 7 ? 1 : 0;
+				PlatformEvent event = {};
 				switch (ev->detail) {
-					case 1: window.mouse.buttons[ MOUSE_BUTTON_LEFT ] = state; break;
-					case 2: window.mouse.buttons[ MOUSE_BUTTON_MIDDLE ] = state; break;
-					case 3: window.mouse.buttons[ MOUSE_BUTTON_RIGHT ] = state; break;
-					case 4: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wy -= 1; } break;// // wheel up
-					case 5: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wy += 1; } break;// // wheel down
-					case 6: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wx -= 1; } break;// // wheel left
-					case 7: if (eventType == XCB_BUTTON_PRESS) { window.mouse.wx += 1; } break;// // wheel right
+					// Left, middle, right buttons
+					case 1:
+					case 2:
+					case 3:
+#if USE_UPDATE_THREAD
+						event.type = PlatformEventTypeMouseClick;
+						event.mouseClick.button = button;
+						event.mouseClick.state = state;
+						SendPlatformEvent(platform, event);
+#else
+						window.mouse.buttons[button] = state;
+#endif
+						break;
+					// Mouse wheel
+					case 4:
+					case 5:
+					case 6:
+					case 7:
+#if USE_UPDATE_THREAD
+						event.type = PlatformEventTypeMouseWheel;
+						event.mouseWheel.dx = wheelX;
+						event.mouseWheel.dy = wheelY;
+						SendPlatformEvent(platform, event);
+#else
+						window.mouse.wx += wheelX;
+						window.mouse.wy += wheelY;
+#endif
+						break;
 					default:;
 				}
 				break;
@@ -741,10 +783,18 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_MOTION_NOTIFY:
 			{
 				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeMouseMove,
+					.mouseMove = { .x = ev->event_x, .y = ev->event_y }
+				};
+				SendPlatformEvent(platform, event);
+#else
 				window.mouse.dx = static_cast<i32>(ev->event_x) - static_cast<i32>(window.mouse.x);
 				window.mouse.dy = static_cast<i32>(ev->event_y) - static_cast<i32>(window.mouse.y);
 				window.mouse.x = ev->event_x;
 				window.mouse.y = ev->event_y;
+#endif
 				break;
 			}
 
@@ -767,12 +817,20 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_CONFIGURE_NOTIFY:
 			{
 				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
+#if USE_UPDATE_THREAD
+				const PlatformEvent event = {
+					.type = PlatformEventTypeWindowResize,
+					.windowResize = { .width = ev->width, .height = ev->height },
+				};
+				SendPlatformEvent(platform, event);
+#else
 				if ( window.width != ev->width || window.height != ev->height )
 				{
 					window.width = ev->width;
 					window.height = ev->height;
 					window.flags |= WindowFlags_WasResized;
 				}
+#endif
 				break;
 			}
 
@@ -781,8 +839,17 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
 				if ( ev->data.data32[0] == window.closeAtom )
 				{
+#if USE_UPDATE_THREAD
+					// NOTE(jesus): Likely not needed as we destroy the window when exiting the app
+					//const PlatformEvent event1 = { .type = PlatformEventTypeWindowWillDestroy, };
+					//SendPlatformEvent(platform, event1);
+					const PlatformEvent event2 = { .type = PlatformEventTypeQuit, };
+					SendPlatformEvent(platform, event2);
+					platform.mainThreadRunning = false;
+#else
 					window.flags |= WindowFlags_WillDestroy;
 					window.flags |= WindowFlags_Exit;
+#endif
 				}
 				break;
 			}
@@ -1479,8 +1546,14 @@ bool InitializeWindow(
 void CleanupWindow(Window &window)
 {
 #if USE_XCB
-	xcb_destroy_window(window.connection, window.window);
-	xcb_disconnect(window.connection);
+	if ( window.window ) {
+		xcb_destroy_window(window.connection, window.window);
+		window.window = 0;
+	}
+	if (window.connection) {
+		xcb_disconnect(window.connection);
+		window.connection = nullptr;
+	}
 #elif USE_WINAPI
 	DestroyWindow(window.hWnd);
 #endif
@@ -1568,11 +1641,19 @@ void PlatformUpdateEventLoop(Platform &platform)
 #if USE_XCB
 
 	xcb_generic_event_t *event;
+#if USE_UPDATE_THREAD
+	while ( platform.mainThreadRunning && (event = xcb_wait_for_event(window.connection)) != 0 )
+#else
 	while ( (event = xcb_poll_for_event(window.connection)) != 0 )
+#endif
 	{
 		XcbWindowProc(window, event);
 		free(event);
 	}
+
+#if USE_UPDATE_THREAD
+	platform.mainThreadRunning = false;
+#endif
 
 #elif USE_ANDROID
 
@@ -2955,6 +3036,7 @@ bool PlatformRun(Platform &platform)
 	WaitSemaphore(platform.updateThreadFinished);
 #endif
 
+
 	if ( platform.windowInitialized )
 	{
 		platform.WindowCleanupCallback(platform);
@@ -2964,6 +3046,11 @@ bool PlatformRun(Platform &platform)
 	// TODO: Cleanup window and audio
 
 	return false;
+}
+
+void PlatformQuit(Platform &platform)
+{
+	exit(0);
 }
 
 #endif // PLATFORM_H

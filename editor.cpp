@@ -42,8 +42,7 @@ static void EditorUpdateUI(Engine &engine)
 
 			if ( UI_MenuItem(ui, "Quit") )
 			{
-				platform.mainThreadRunning = false;
-				platform.updateThreadRunning = false;
+				PlatformQuit(platform);
 			}
 			UI_EndMenu(ui);
 		}
