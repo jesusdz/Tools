@@ -1380,11 +1380,6 @@ bool CopyFile(const char *srcPath, const char *dstPath)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // File paths
 
-const char *BinDir = "";
-const char *DataDir = "";
-const char *AssetDir = "";
-const char *ProjectDir = "";
-
 struct FilePath
 {
 	char str[MAX_PATH_LENGTH];
@@ -1397,6 +1392,21 @@ FilePath MakePath(const char *basePath, const char *relativePath)
 	StrCat(path.str, "/");
 	StrCat(path.str, relativePath);
 	return path;
+}
+
+bool HasFileExtension(const char *filename, const char *extension)
+{
+	const u32 extLen = StrLen(extension);
+	const u32 filenameLen = StrLen(filename);
+	bool extensionMatches = false;
+	if (extLen < filenameLen)
+	{
+		if (filename[filenameLen - extLen - 1] == '.')
+		{
+			extensionMatches = StrEq(filename + filenameLen - extLen, extension);
+		}
+	}
+	return extensionMatches;
 }
 
 

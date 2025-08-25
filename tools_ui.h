@@ -115,6 +115,7 @@ enum UILayout
 {
 	UiLayoutVertical,
 	UiLayoutHorizontal,
+	UiLayoutItemBrowser,
 };
 
 struct UILayoutGroup
@@ -307,6 +308,12 @@ void UI_SetCursorPos(UI &ui, float2 pos)
 	ui.cursorStack[ui.cursorStackSize-1] = pos;
 }
 
+void UI_SetCursorPosX(UI &ui, f32 x)
+{
+	ASSERT(ui.cursorStackSize > 0);
+	ui.cursorStack[ui.cursorStackSize-1].x = x;
+}
+
 void UI_MoveCursorDown(UI &ui, float amount)
 {
 	float2 cursorPos = UI_GetCursorPos(ui);
@@ -335,17 +342,38 @@ UILayoutGroup &UI_GetLayoutGroup(UI &ui)
 	return group;
 }
 
+const UIDrawList &UI_GetDrawList(const UI &ui);
+
 void UI_CursorAdvance(UI &ui, float2 prevWidgetSize, float spacing = UiSpacing)
 {
 	const UILayout layout = UI_GetLayout(ui);
+	const UILayoutGroup group = UI_GetLayoutGroup(ui);
 
 	if ( layout == UiLayoutHorizontal )
 	{
 		UI_MoveCursorRight(ui, prevWidgetSize.x + spacing);
 	}
-	else // if ( layout == UiLayoutVertical )
+	else if ( layout == UiLayoutVertical )
 	{
 		UI_MoveCursorDown(ui, prevWidgetSize.y + spacing);
+	}
+	else if ( layout == UiLayoutItemBrowser )
+	{
+		const UIDrawList &drawlist = UI_GetDrawList(ui);
+		const f32 prevWidgetX = UI_GetCursorPos(ui).x;
+		const f32 nextWidgetEnd = prevWidgetX + prevWidgetSize.x * 2.0f;
+		const f32 contentEnd = drawlist.scissorRect.pos.x + drawlist.scissorRect.size.x;
+		const bool spaceAtRight = nextWidgetEnd < contentEnd;
+
+		if ( spaceAtRight )
+		{
+			UI_MoveCursorRight(ui, prevWidgetSize.x + spacing);
+		}
+		else
+		{
+			UI_SetCursorPosX(ui, group.pos.x);
+			UI_MoveCursorDown(ui, prevWidgetSize.y + spacing);
+		}
 	}
 }
 
@@ -1476,23 +1504,23 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	UI_CursorAdvance(ui, size);
 }
 
-bool UI_Image(UI &ui, ImageH image, UIWidgetFlags flags = UIWidgetFlag_None)
+bool UI_Image(UI &ui, ImageH image, float2 imageSize = float2{32, 32}, UIWidgetFlags flags = UIWidgetFlag_None)
 {
-	const float2 framePos = UI_GetCursorPos(ui);
-	const float2 frameSize = { 50.0f, 50.0f };
-
 	const float2 borderSize = { 1, 1 };
-	const float2 pos = framePos + borderSize;
-	const float2 size = frameSize - 2 * borderSize;
+
+	const float2 framePos = UI_GetCursorPos(ui);
+	const float2 frameSize = imageSize + 2.0f * borderSize;
+
+	const float2 imagePos = framePos + borderSize;
 
 	const float2 uvPos = {0.0f, 0.0f};
 	const float2 uvSize = {1.0f, 1.0f};
 	UI_PushDrawList(ui, image);
-	UI_BeginWidget(ui, pos, size);
-	UI_AddQuad(ui, pos, size, uvPos, uvSize, UiColorWhite);
+	UI_BeginWidget(ui, imagePos, imageSize);
+	UI_AddQuad(ui, imagePos, imageSize, uvPos, uvSize, UiColorWhite);
 	const bool clicked = UI_WidgetClicked(ui);
 	UI_EndWidget(ui);
-	UI_CursorAdvance(ui, size);
+	UI_CursorAdvance(ui, imageSize);
 	UI_PopDrawList(ui);
 
 	if (flags & UIWidgetFlag_Outline )
@@ -2316,7 +2344,6 @@ void UI_EndFrame(UI &ui)
 	{
 		ui.avoidWindowInteraction = false;
 	}
-
 }
 
 void UI_Cleanup(const UI &ui)

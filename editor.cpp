@@ -5,7 +5,14 @@ static void AddEditorCommand(Editor &editor, const EditorCommand &command)
 	editor.commands[editor.commandCount++] = command;
 }
 
-static void EditorUpdateUI(Engine &engine)
+static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *name)
+{
+	const FilePath path = MakePath(ProjectDir, filename);
+	const ImageH handle = CreateImage(engine.gfx, path.str, name, false);
+	return handle;
+}
+
+static void EditorUpdateUI_MenuBar(Engine &engine)
 {
 	UI &ui = GetUI(engine);
 	Graphics &gfx = engine.gfx;
@@ -19,26 +26,31 @@ static void EditorUpdateUI(Engine &engine)
 		{
 			if ( UI_MenuItem(ui, "Load scene") )
 			{
-				// TODO
+				const EditorCommand command = { .type = EditorCommandLoadTxt };
+				AddEditorCommand(editor, command);
 			}
 			if ( UI_MenuItem(ui, "Save scene") )
 			{
-				// TODO
+				const EditorCommand command = { .type = EditorCommandSaveTxt };
+				AddEditorCommand(editor, command);
 			}
 
 			if ( UI_MenuItem(ui, "Clear scene") )
 			{
-				// TODO
+				const EditorCommand command = { .type = EditorCommandClean };
+				AddEditorCommand(editor, command);
 			}
 
-			//UI_Separator(ui);
+			UI_Separator(ui);
 
 			if ( UI_MenuItem(ui, "Build scene") )
 			{
-				// TODO
+				const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
+				const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+				BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
 			}
 
-			//UI_Separator(ui);
+			UI_Separator(ui);
 
 			if ( UI_MenuItem(ui, "Quit") )
 			{
@@ -52,22 +64,32 @@ static void EditorUpdateUI(Engine &engine)
 			{
 				editor.showDebugUI = !editor.showDebugUI;
 			}
-			if ( UI_MenuItem(ui, "Other") )
+			if ( UI_MenuItem(ui, "Assets", editor.showAssets) )
 			{
-				LOG(Debug, "Other\n");
+				editor.showAssets = !editor.showAssets;
 			}
 			UI_EndMenu(ui);
 		}
 		if (UI_BeginMenu(ui, "Help"))
 		{
+			if ( UI_MenuItem(ui, "About") )
+			{
+			}
 			UI_EndMenu(ui);
 		}
 
 		UI_EndMenuBar(ui);
 	}
+}
 
-	if ( editor.showDebugUI )
-	{
+static void EditorUpdateUI_DebugUI(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+	Editor &editor = engine.editor;
+	Platform &platform = engine.platform;
+
 	UI_BeginWindow(ui, "Debug UI");
 
 	if ( UI_Section(ui, "Audio") )
@@ -248,7 +270,7 @@ static void EditorUpdateUI(Engine &engine)
 			const Texture &texture = GetTexture(gfx, handle);
 
 			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
-			if (UI_Image(ui, texture.image, flags))
+			if (UI_Image(ui, texture.image, float2{32, 32}, flags))
 			{
 				selectedHandle = handle;
 			}
@@ -382,6 +404,74 @@ static void EditorUpdateUI(Engine &engine)
 #endif
 
 	UI_EndWindow(ui);
+}
+
+
+static bool IsWavFile(const char *filename)
+{
+	const bool isWav = HasFileExtension(filename, "wav");
+	return isWav;
+}
+
+static bool IsImgFile(const char *filename)
+{
+	const bool isImg =
+		HasFileExtension(filename, "png") ||
+		HasFileExtension(filename, "bmp") ||
+		HasFileExtension(filename, "jpg");
+	return isImg;
+}
+
+static void EditorUpdateUI_Assets(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+	Editor &editor = engine.editor;
+	Platform &platform = engine.platform;
+
+	UI_BeginWindow(ui, "Assets");
+
+	UI_BeginLayout(ui, UiLayoutItemBrowser);
+
+	Dir dir;
+	if ( OpenDir(dir, AssetDir) )
+	{
+		DirEntry entry;
+		while ( ReadDir(dir, entry) )
+		{
+			const ImageH icon =
+				IsWavFile(entry.name) ? editor.iconWav :
+				IsImgFile(entry.name) ? editor.iconImg :
+				editor.iconAsset;
+			UI_Image(ui, icon);
+		}
+		CloseDir(dir);
+	}
+
+	UI_EndLayout(ui);
+
+	UI_EndWindow(ui);
+}
+
+static void EditorUpdateUI(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+	Editor &editor = engine.editor;
+	Platform &platform = engine.platform;
+
+	EditorUpdateUI_MenuBar(engine);
+
+	if ( editor.showDebugUI )
+	{
+		EditorUpdateUI_DebugUI(engine);
+	}
+
+	if ( editor.showAssets )
+	{
+		EditorUpdateUI_Assets(engine);
 	}
 }
 
@@ -667,6 +757,9 @@ void EditorInitialize(Engine &engine)
 {
 	Editor &editor = engine.editor;
 
+	editor.showDebugUI = true;
+	editor.showAssets = true;
+
 	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
 	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
 	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
@@ -678,6 +771,10 @@ void EditorInitialize(Engine &engine)
 	engine.editor.cameraType = ProjectionPerspective;
 
 	engine.editor.selectedEntity = U32_MAX;
+
+	engine.editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
+	engine.editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
+	engine.editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
 }
 
 void EditorUpdate(Engine &engine)

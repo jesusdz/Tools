@@ -26,6 +26,7 @@ struct EditorCommand
 struct Editor
 {
 	bool showDebugUI;
+	bool showAssets;
 
 	bool selectEntity;
 	u32 selectedEntity;
@@ -36,6 +37,10 @@ struct Editor
 
 	EditorCommand commands[128];
 	u32 commandCount;
+
+	ImageH iconAsset;
+	ImageH iconWav;
+	ImageH iconImg;
 };
 
 struct Engine;

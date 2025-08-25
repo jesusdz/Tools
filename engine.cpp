@@ -761,6 +761,17 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
+ImageH CreateImage(Graphics &gfx, const char *filepath, const char *name, bool createMipmaps)
+{
+	ImagePixels img = ReadImagePixels(filepath);
+
+	const ImageH imageHandle = CreateImage(gfx, name, img.width, img.height, img.channelCount, createMipmaps, img.pixels);
+
+	FreeImagePixels(img);
+
+	return imageHandle;
+}
+
 ////////////////////////////////////////////////////////////////////////
 // Texture management
 
@@ -793,7 +804,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	FilePath imagePath = MakePath(ProjectDir, desc.filename);
 	ImagePixels img = ReadImagePixels(imagePath.str);
 
-	const ImageH imageHandle = CreateImage(gfx, desc.name, img.width, img.height, img.channelCount, desc.mipmap, img.pixels);
+	const ImageH imageHandle = CreateImage(gfx, imagePath.str, desc.name, desc.mipmap);
 
 	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
 
@@ -2834,6 +2845,7 @@ void OnPlatformUpdate(Platform &platform)
 
 	const Clock begin = GetClock();
 
+#if 0
 	// TODO(jesus): This is test code
 	static bool firstUpdate = true;
 	if ( firstUpdate )
@@ -2842,6 +2854,7 @@ void OnPlatformUpdate(Platform &platform)
 		LoadSceneFromBin(engine);
 		PlayAudioClip(engine, 1);
 	}
+#endif
 
 #if USE_IMGUI
 	UpdateImGui(gfx);

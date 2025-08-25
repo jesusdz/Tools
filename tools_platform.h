@@ -498,6 +498,15 @@ struct Scratch
 };
 
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Directories
+
+const char *BinDir = "";
+const char *DataDir = "";
+const char *AssetDir = "";
+const char *ProjectDir = "";
+
 bool IsAbsolutePath(const char *path)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
