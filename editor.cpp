@@ -68,6 +68,14 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showAssets = !editor.showAssets;
 			}
+
+			UI_Separator(ui);
+
+			if ( UI_MenuItem(ui, "Grid", editor.showGrid) )
+			{
+				editor.showGrid = !editor.showGrid;
+			}
+
 			UI_EndMenu(ui);
 		}
 		if (UI_BeginMenu(ui, "Help"))
@@ -758,7 +766,8 @@ void EditorInitialize(Engine &engine)
 	Editor &editor = engine.editor;
 
 	editor.showDebugUI = true;
-	editor.showAssets = true;
+	editor.showAssets = false;
+	editor.showGrid = true;
 
 	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
 	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};

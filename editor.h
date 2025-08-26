@@ -27,6 +27,7 @@ struct Editor
 {
 	bool showDebugUI;
 	bool showAssets;
+	bool showGrid;
 
 	bool selectEntity;
 	u32 selectedEntity;

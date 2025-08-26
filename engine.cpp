@@ -194,12 +194,14 @@ struct Graphics
 	TextureH skyTextureH;
 
 	ImageH pinkImageH;
+	ImageH grayImageH;
 	ImageH blackImageH;
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
 	PipelineH guiPipelineH;
 #if USE_EDITOR
+	PipelineH gridPipelineH;
 	PipelineH idPipelineH;
 #endif
 
@@ -363,6 +365,8 @@ static ShaderSourceDesc shaderSources[] = {
 	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .name = "fs_sky" },
 	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .name = "vs_shadowmap" },
 	{ .type = ShaderTypeFragment, .filename = "shadowmap.hlsl",      .entryPoint = "PSMain",      .name = "fs_shadowmap" },
+	{ .type = ShaderTypeVertex,   .filename = "grid.hlsl",           .entryPoint = "VSMain",      .name = "vs_grid" },
+	{ .type = ShaderTypeFragment, .filename = "grid.hlsl",           .entryPoint = "PSMain",      .name = "fs_grid" },
 	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .name = "vs_ui" },
 	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .name = "fs_ui" },
 	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .name = "vs_id" },
@@ -432,6 +436,27 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.depthTest = true,
 			.depthWrite = false,
 			.depthCompareOp = CompareOpGreaterOrEqual,
+		}
+	},
+	{
+		.vsName = "vs_grid",
+		.fsName = "fs_grid",
+		.renderPass = "main_renderpass",
+		.desc = {
+			.name = "pipeline_grid",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 2,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = false,
+			.depthCompareOp = CompareOpGreaterOrEqual,
+			.blending = true,
 		}
 	},
 	{
@@ -1248,6 +1273,7 @@ void LinkHandles(Graphics &gfx)
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
 #if USE_EDITOR
+	gfx.gridPipelineH = FindPipelineHandle(gfx, "pipeline_grid");
 	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
 #endif // USE_EDITOR
 
@@ -1460,6 +1486,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	// Builtin images
 	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
 	gfx.pinkImageH = CreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
+	const byte grayImagePixels[] = { 127, 127, 127, 255 };
+	gfx.grayImageH = CreateImage(gfx, "grayImage", 1, 1, 4, false, grayImagePixels);
 	const byte blackImagePixels[] = { 0, 0, 0, 0 };
 	gfx.blackImageH = CreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
 
@@ -2301,7 +2329,7 @@ bool RenderGraphics(Engine &engine)
 		}
 
 		{ // Sky
-			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.pinkImageH);
+			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.grayImageH);
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
@@ -2329,6 +2357,28 @@ bool RenderGraphics(Engine &engine)
 
 			EndDebugGroup(commandList);
 		}
+
+#if USE_EDITOR
+		// Grid
+		if (editor.showGrid)
+		{
+			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
+			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
+			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
+			const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+			const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+
+			BeginDebugGroup(commandList, "grid");
+
+			SetPipeline(commandList, gfx.gridPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+
+			EndDebugGroup(commandList);
+		}
+#endif
 
 #if USE_UI
 		{ // GUI

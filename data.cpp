@@ -4,7 +4,7 @@
 ////////////////////////////////////////////////////////////////////////
 // Shader compilation
 
-void CompileShaders()
+void CompileShader(const ShaderSourceDesc &desc)
 {
 	char text[MAX_PATH_LENGTH];
 
@@ -17,18 +17,15 @@ void CompileShaders()
 #endif
 	constexpr const char *flags = "-spirv -O3";
 
-	for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
-	{
-		const ShaderSourceDesc &desc = shaderSources[i];
-		const char *target =
-			desc.type == ShaderTypeVertex ? "vs_6_7" :
-			desc.type == ShaderTypeFragment ? "ps_6_7" :
-			desc.type == ShaderTypeCompute ? "cs_6_7" :
-			"unknown";
-		const char *entry = desc.entryPoint;
-		const char *output = desc.name;
-		const char *filename = desc.filename;
-		SPrintf(text,
+	const char *target =
+		desc.type == ShaderTypeVertex ? "vs_6_7" :
+		desc.type == ShaderTypeFragment ? "ps_6_7" :
+		desc.type == ShaderTypeCompute ? "cs_6_7" :
+		"unknown";
+	const char *entry = desc.entryPoint;
+	const char *output = desc.name;
+	const char *filename = desc.filename;
+	SPrintf(text,
 			"%s/%s "
 			"%s -T %s -E %s "
 			"-Fo %s/shaders/%s.spv -Fc %s/shaders/%s.dis "
@@ -37,8 +34,15 @@ void CompileShaders()
 			flags, target, entry,
 			DataDir, output, DataDir, output,
 			ProjectDir, filename );
-		LOG(Debug, "%s\n", text);
-		ExecuteProcess(text);
+	LOG(Debug, "%s\n", text);
+	ExecuteProcess(text);
+}
+
+void CompileShaders()
+{
+	for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
+	{
+		CompileShader(shaderSources[i]);
 	}
 }
 
