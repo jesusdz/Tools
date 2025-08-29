@@ -3168,13 +3168,8 @@ void android_main(struct android_app* app)
 	EngineMain(0, nullptr, app);
 }
 #else
-
-static void sighandler(int signum) {  }
-
 int main(int argc, char **argv)
 {
-  signal(SIGINT, sighandler);
-
 	EngineMain(argc, argv, NULL);
 	return 0;
 }

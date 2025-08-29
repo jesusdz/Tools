@@ -113,22 +113,18 @@ PixelOutput PSMain(PixelInput IN)
 	pixelPosWorld.y -= globals.cameraView[1][3];
 #endif
 
-	//float4 finalColor = float4(frac(pixelPosWorld.xy), 1.0, 1.0);// float4(frac(pixelPosWorld.xy), 1.0, 1.0);
 	float2 pattern = frac(pixelPosWorld.xy);
+	float2 dXY = fwidth(pixelPosWorld.xy);
 
-	//float patternWidth = 8.0;
-	//float lineWidth = 0.1;
-	//float edge = ( patternWidth - lineWidth ) / patternWidth;
-	float2 lineFactors = smoothstep(0.965.xx, 0.97.xx, pattern);
+	float2 lineFactors = step(pattern, dXY);
 	float lineFactor = max(lineFactors.x, lineFactors.y);
 
-	float bgValue = 0.05;
-	float lineValue = 0.3;
-	float col = lerp(bgValue, lineValue, lineFactor);
-	float4 finalColor = float4(col.xxx,1.0);
+	float bgColor = 0.05;
+	float lineColor = 0.3;
+	float finalColor = lerp(bgColor, lineColor, lineFactor);
 
 	PixelOutput OUT;
-	OUT.color = finalColor;
+	OUT.color = float4(finalColor.xxx, 1.0);
 	return OUT;
 }
 
