@@ -103,6 +103,7 @@ enum UIWidgetFlags
 {
 	UIWidgetFlag_None = 0,
 	UIWidgetFlag_Outline = (1<<0),
+	UIWidgetFlag_Expand = (1<<1),
 };
 
 struct UIWidget
@@ -1515,9 +1516,17 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	UI_CursorAdvance(ui, size);
 }
 
-bool UI_Image(UI &ui, ImageH image, float2 imageSize = float2{32, 32}, UIWidgetFlags flags = UIWidgetFlag_None)
+bool UI_Image(UI &ui, ImageH image, float2 proposedImageSize = float2{32, 32}, UIWidgetFlags flags = UIWidgetFlag_None)
 {
 	const float2 borderSize = { 1, 1 };
+
+	float2 imageSize = proposedImageSize;
+	if ( flags & UIWidgetFlag_Expand )
+	{
+		const UIWindow &window = UI_GetCurrentWindow(ui);
+		const f32 containerWidth = UI_GetContainerSize(window).x;
+		imageSize = float2{containerWidth, containerWidth} - 2.0f * borderSize;
+	}
 
 	const float2 framePos = UI_GetCursorPos(ui);
 	const float2 frameSize = imageSize + 2.0f * borderSize;
