@@ -23,10 +23,34 @@ struct EditorCommand
 	};
 };
 
+enum EditorInspectedType
+{
+	EditorInspectedType_None,
+	EditorInspectedType_Image,
+	EditorInspectedType_Audio,
+	EditorInspectedType_Count,
+};
+
+static const char *EditorInspectedTypeName[] = {
+	"None",
+	"Image",
+	"Audio",
+};
+CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
+
+struct EditorInspector
+{
+	EditorInspectedType inspectedType;
+	FilePath path;
+
+	ImageH image;
+};
+
 struct Editor
 {
 	bool showDebugUI;
 	bool showAssets;
+	bool showInspector;
 	bool showGrid;
 
 	bool selectEntity;
@@ -41,6 +65,8 @@ struct Editor
 	ImageH iconAsset;
 	ImageH iconWav;
 	ImageH iconImg;
+
+	EditorInspector inspector;
 };
 
 struct Engine;

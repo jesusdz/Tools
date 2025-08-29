@@ -68,6 +68,10 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showAssets = !editor.showAssets;
 			}
+			if ( UI_MenuItem(ui, "Inspector", editor.showInspector) )
+			{
+				editor.showInspector = !editor.showInspector;
+			}
 
 			UI_Separator(ui);
 
@@ -284,6 +288,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 			const Texture &texture = GetTexture(gfx, handle);
 
 			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+
 			if (UI_Image(ui, texture.image, float2{32, 32}, flags))
 			{
 				selectedHandle = handle;
@@ -442,11 +447,15 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
+	EditorInspector &inspector = editor.inspector;
 	Platform &platform = engine.platform;
 
 	UI_BeginWindow(ui, "Assets");
 
 	UI_BeginLayout(ui, UiLayoutItemBrowser);
+
+	static char selectedName[MAX_PATH_LENGTH] = {};
+	FilePath path;
 
 	Dir dir;
 	if ( OpenDir(dir, AssetDir) )
@@ -454,16 +463,65 @@ static void EditorUpdateUI_Assets(Engine &engine)
 		DirEntry entry;
 		while ( ReadDir(dir, entry) )
 		{
+			const bool isWav = IsWavFile(entry.name);
+			const bool isImg = IsImgFile(entry.name);
+
 			const ImageH icon =
-				IsWavFile(entry.name) ? editor.iconWav :
-				IsImgFile(entry.name) ? editor.iconImg :
+				isWav ? editor.iconWav :
+				isImg ? editor.iconImg :
 				editor.iconAsset;
-			UI_Image(ui, icon);
+
+			path = MakePath(AssetDir, entry.name);
+			const bool isSelected = StrEq(path.str, inspector.path.str);
+			const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+
+			if ( UI_Image(ui, icon, float2{64,64}, flags) )
+			{
+				const bool changed = !StrEq(inspector.path.str, path.str);
+				StrCopy(inspector.path.str, path.str);
+
+				if ( isWav )
+				{
+					editor.inspector.inspectedType = EditorInspectedType_Audio;
+				}
+				else if ( isImg )
+				{
+					editor.inspector.inspectedType = EditorInspectedType_Image;
+					if (changed)
+					{
+						WaitDeviceIdle(gfx.device);
+						DestroyImageH(gfx.device, inspector.image);
+						inspector.image = CreateImage(gfx, path.str, "inspected_image", true);
+					}
+				}
+				else
+				{
+					editor.inspector.inspectedType = EditorInspectedType_None;
+				}
+			}
 		}
 		CloseDir(dir);
 	}
 
 	UI_EndLayout(ui);
+
+	UI_EndWindow(ui);
+}
+
+static void EditorUpdateUI_Inspector(Engine &engine)
+{
+	UI &ui = engine.ui;
+	Editor &editor = engine.editor;
+	EditorInspector &inspector = editor.inspector;
+
+	UI_BeginWindow(ui, "Inspector");
+
+	UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
+
+	if (inspector.inspectedType == EditorInspectedType_Image)
+	{
+		UI_Image(ui, inspector.image, float2{0,0}, UIWidgetFlag_Expand);
+	}
 
 	UI_EndWindow(ui);
 }
@@ -486,6 +544,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showAssets )
 	{
 		EditorUpdateUI_Assets(engine);
+	}
+
+	if ( editor.showInspector )
+	{
+		EditorUpdateUI_Inspector(engine);
 	}
 }
 
