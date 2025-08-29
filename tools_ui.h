@@ -394,9 +394,20 @@ void UI_EndLayout(UI &ui)
 
 	if ( ui.layoutGroupCount )
 	{
-		const UILayoutGroup &group = ui.layoutGroups[ui.layoutGroupCount];
-		UI_SetCursorPos(ui, group.pos);
-		UI_CursorAdvance(ui, group.size);
+		const UILayoutGroup &endedGroup = ui.layoutGroups[ui.layoutGroupCount];
+		UI_SetCursorPos(ui, endedGroup.pos);
+		UI_CursorAdvance(ui, endedGroup.size);
+
+		// Grow the current layout group
+		UILayoutGroup &group = UI_GetLayoutGroup(ui);
+		const float2 maxLayoutPoint = group.pos + group.size;
+		const float2 maxPrevLayoutPoint = endedGroup.pos + endedGroup.size;
+		if (maxPrevLayoutPoint.x > maxLayoutPoint.x) {
+			group.size.x = maxPrevLayoutPoint.x - group.pos.x;
+		}
+		if (maxPrevLayoutPoint.y > maxLayoutPoint.y) {
+			group.size.y = maxPrevLayoutPoint.y - group.pos.y;
+		}
 	}
 }
 
@@ -812,7 +823,7 @@ void UI_AddBorder(UI &ui, float2 pos, float2 size, float borderSize)
 	const float2 rightPos = pos + float2{size.x-1, 1.0f};
 	const float2 bottomPos = pos + float2{0.0,size.y-1};
 	const float2 hSize = float2{size.x, 1.0f};
-	const float2 vSize = float2{1.0, size.y};
+	const float2 vSize = float2{1.0, size.y - 2.0f};
 	UI_AddQuad(ui, topPos, hSize, ui.whitePixelUv, uvSize, color);
 	UI_AddQuad(ui, leftPos, vSize, ui.whitePixelUv, uvSize, color);
 	UI_AddQuad(ui, rightPos, vSize, ui.whitePixelUv, uvSize, color);
