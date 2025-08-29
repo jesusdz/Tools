@@ -120,6 +120,8 @@ Here are some interesting links that I have been looking while writing some code
 * [ANSI C Yacc grammar (based on 2011 ISO C standard)](https://www.quut.com/c/ANSI-C-grammar-y.html)
 * [Grammars and Parsing](https://www.cs.cornell.edu/courses/cs211/2006sp/Sections/S3/grammars.html)
 * [Reverse Z (and why it's so awesome)](https://tomhultonharrop.com/mathematics/graphics/2023/08/06/reverse-z.html)
+* [The best darn grid shader (Yet)](https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8)
+* [Real-Time Fluid Dynamics for Games (by Jos Stam)](https://graphics.cs.cmu.edu/nsp/course/15-464/Fall09/papers/StamFluidforGames.pdf)
 
 
 ## License
