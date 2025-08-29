@@ -393,7 +393,7 @@ static const u16 screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
-static ShaderSourceDesc shaderSources[] = {
+static ShaderSourceDesc shaderSourceDescs[] = {
 	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .name = "vs_shading" },
 	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .name = "fs_shading" },
 	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .name = "vs_sky" },
@@ -626,6 +626,19 @@ void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 		sum += timeSamples.samples[i];
 	}
 	timeSamples.average = sum / ARRAY_COUNT(timeSamples.samples);
+}
+
+const ShaderSourceDesc &FindShaderSourceDesc(const char *name)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i) {
+		if ( StrEq(shaderSourceDescs[i].name, name) ) {
+			return shaderSourceDescs[i];
+		}
+	}
+	LOG(Warning, "Could not find ShaderSourceDesc <%s>.\n", name);
+	INVALID_CODE_PATH();
+	static const ShaderSourceDesc desc = {};
+	return desc;
 }
 
 RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
@@ -1723,8 +1736,8 @@ void CleanupGraphics(Graphics &gfx)
 AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 {
 	const AssetDescriptors assetDescs = {
-		.shaderDescs = shaderSources,
-		.shaderDescCount = ARRAY_COUNT(shaderSources),
+		.shaderDescs = shaderSourceDescs,
+		.shaderDescCount = ARRAY_COUNT(shaderSourceDescs),
 		.textureDescs = textures,
 		.textureDescCount = ARRAY_COUNT(textures),
 		.materialDescs = materialDescs,
@@ -1889,8 +1902,8 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 
 	Arena scratch = MakeSubArena(engine.platform.dataArena);
 	AssetDescriptors assetDescriptors = {};
-	assetDescriptors.shaderDescs = shaderSources;
-	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSources);
+	assetDescriptors.shaderDescs = shaderSourceDescs;
+	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSourceDescs);
 	BuildAssets(assetDescriptors, outBinFilepath, scratch);
 }
 

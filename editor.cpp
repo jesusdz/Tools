@@ -721,6 +721,11 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				case EditorCommandReloadGraphicsPipeline:
 				{
 					const u32 pipelineIndex = command.pipelineIndex;
+					const ShaderAndPipelineDesc &desc = pipelineDescs[pipelineIndex];
+					const ShaderSourceDesc &vertexShaderSourceDesc = FindShaderSourceDesc(desc.vsName);
+					const ShaderSourceDesc &fragmentShaderSourceDesc = FindShaderSourceDesc(desc.fsName);
+					CompileShader(vertexShaderSourceDesc);
+					CompileShader(fragmentShaderSourceDesc);
 					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
 					break;
 				}

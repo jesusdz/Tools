@@ -40,9 +40,9 @@ void CompileShader(const ShaderSourceDesc &desc)
 
 void CompileShaders()
 {
-	for (u32 i = 0; i < ARRAY_COUNT(shaderSources); ++i)
+	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i)
 	{
-		CompileShader(shaderSources[i]);
+		CompileShader(shaderSourceDescs[i]);
 	}
 }
 
