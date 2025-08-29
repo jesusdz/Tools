@@ -201,7 +201,8 @@ struct Graphics
 	PipelineH skyPipelineH;
 	PipelineH guiPipelineH;
 #if USE_EDITOR
-	PipelineH gridPipelineH;
+	PipelineH grid2dPipelineH;
+	PipelineH grid3dPipelineH;
 	PipelineH idPipelineH;
 #endif
 
@@ -272,6 +273,14 @@ struct ShaderAndComputeDesc
 	ComputeDesc desc;
 };
 
+enum EngineMode
+{
+	EngineModeEditor2D,
+	EngineModeEditor3D,
+	EngineModeGame2D,
+	EngineModeGame3D,
+};
+
 struct Engine
 {
 	Platform platform;
@@ -293,7 +302,33 @@ struct Engine
 
 	Arena dataArenaStates[4];
 	u32 dataArenaStateCount;
+
+	EngineMode mode;
 };
+
+inline bool IsEngineModeEditor(EngineMode engineMode)
+{
+	const bool res = engineMode == EngineModeEditor2D || engineMode == EngineModeEditor3D;
+	return res;
+}
+
+inline bool IsEngineModeGame(EngineMode engineMode)
+{
+	const bool res = !IsEngineModeEditor(engineMode);
+	return res;
+}
+
+inline bool IsEngineMode2D(EngineMode engineMode)
+{
+	const bool res = engineMode == EngineModeEditor2D || engineMode == EngineModeGame2D;
+	return res;
+}
+
+inline bool IsEngineMode3D(EngineMode engineMode)
+{
+	const bool res = !IsEngineMode2D(engineMode);
+	return res;
+}
 
 static const Vertex cubeVertices[] = {
 	// front
@@ -365,8 +400,10 @@ static ShaderSourceDesc shaderSources[] = {
 	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .name = "fs_sky" },
 	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .name = "vs_shadowmap" },
 	{ .type = ShaderTypeFragment, .filename = "shadowmap.hlsl",      .entryPoint = "PSMain",      .name = "fs_shadowmap" },
-	{ .type = ShaderTypeVertex,   .filename = "grid.hlsl",           .entryPoint = "VSMain",      .name = "vs_grid" },
-	{ .type = ShaderTypeFragment, .filename = "grid.hlsl",           .entryPoint = "PSMain",      .name = "fs_grid" },
+	{ .type = ShaderTypeVertex,   .filename = "grid_2d.hlsl",        .entryPoint = "VSMain",      .name = "vs_grid_2d" },
+	{ .type = ShaderTypeFragment, .filename = "grid_2d.hlsl",        .entryPoint = "PSMain",      .name = "fs_grid_2d" },
+	{ .type = ShaderTypeVertex,   .filename = "grid_3d.hlsl",        .entryPoint = "VSMain",      .name = "vs_grid_3d" },
+	{ .type = ShaderTypeFragment, .filename = "grid_3d.hlsl",        .entryPoint = "PSMain",      .name = "fs_grid_3d" },
 	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .name = "vs_ui" },
 	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .name = "fs_ui" },
 	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .name = "vs_id" },
@@ -439,11 +476,32 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 	{
-		.vsName = "vs_grid",
-		.fsName = "fs_grid",
+		.vsName = "vs_grid_2d",
+		.fsName = "fs_grid_2d",
 		.renderPass = "main_renderpass",
 		.desc = {
-			.name = "pipeline_grid",
+			.name = "pipeline_grid_2d",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 2,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = false,
+			.depthCompareOp = CompareOpGreaterOrEqual,
+			.blending = true,
+		}
+	},
+	{
+		.vsName = "vs_grid_3d",
+		.fsName = "fs_grid_3d",
+		.renderPass = "main_renderpass",
+		.desc = {
+			.name = "pipeline_grid_3d",
 			.vsFunction = "VSMain",
 			.fsFunction = "PSMain",
 			.vertexBufferCount = 1,
@@ -1273,7 +1331,8 @@ void LinkHandles(Graphics &gfx)
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
 #if USE_EDITOR
-	gfx.gridPipelineH = FindPipelineHandle(gfx, "pipeline_grid");
+	gfx.grid2dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_2d");
+	gfx.grid3dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_3d");
 	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
 #endif // USE_EDITOR
 
@@ -2058,21 +2117,36 @@ bool RenderGraphics(Engine &engine)
 
 	// Camera setup
 	float4x4 viewMatrix = Eye();
+	float4x4 inverseViewMatrix = Eye();
 	float4x4 viewportRotationMatrix = Eye();
 	float4x4 projectionMatrix = Eye();
 	float4 frustumTopLeft = {};
 	float4 frustumBottomRight = {};
 	float3 cameraPosition = {};
 
+	Camera camera = {};
 #if USE_EDITOR
-	const Camera &camera = editor.cameraType == ProjectionPerspective ? engine.editor.camera[ProjectionPerspective] : engine.editor.camera[ProjectionOrthographic];
-#else
-	const Camera camera = {
-		.projectionType = ProjectionPerspective,
-		.position = {0, 1, 2},
-		.orientation = {0, -0.45f},
-	};
+	if (engine.mode == EngineModeEditor3D) {
+		camera = engine.editor.camera[ProjectionPerspective];
+	} else if (engine.mode == EngineModeEditor2D) {
+		camera = engine.editor.camera[ProjectionOrthographic];
+	}
 #endif
+	if (engine.mode == EngineModeGame3D) {
+		camera = {
+			.projectionType = ProjectionPerspective,
+			.position = {0, 1, 2},
+			.orientation = {0, -0.45f},
+		};
+	} else if (engine.mode == EngineModeGame2D) {
+		// TODO: Set more appropriate values
+		camera = {
+			.projectionType = ProjectionPerspective,
+			.position = {0, 1, 2},
+			.orientation = {0, -0.45f},
+		};
+	}
+
 	if (camera.projectionType == ProjectionPerspective)
 	{
 		// Calculate camera matrices
@@ -2081,6 +2155,7 @@ bool RenderGraphics(Engine &engine)
 		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
 		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
+		inverseViewMatrix = Float4x4(Transpose(Float3x3(viewMatrix)));
 		const float fovy = 60.0f;
 		const float znear = 0.1f;
 		const float zfar = 1000.0f;
@@ -2112,20 +2187,22 @@ bool RenderGraphics(Engine &engine)
 	}
 	else
 	{
+		const f32 height = 8.0f;
 		// Calculate camera matrices
-		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
+		const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
 		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
 		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
+		//inverseViewMatrix = Inverse2D(viewMatrix);
 		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
 		//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
-		const float4x4 orthographicMatrix = Orthogonal(-8*ar, 8*ar, -8, 8, -10.0, 10.0);
+		const float4x4 orthographicMatrix = Orthogonal(-height*ar, height*ar, -height, height, -10.0, 10.0);
 		projectionMatrix = Mul(viewportRotationMatrix, orthographicMatrix);
 
 		// Frustum vectors
-		frustumTopLeft = Float4( Float3(-10*ar, 10, -10), 0.0f );
-		frustumBottomRight = Float4( Float3(10*ar, -10, 10), 0.0f );
+		frustumTopLeft = Float4( Float3(-height*ar, height, 0), 0.0f );
+		frustumBottomRight = Float4( Float3(height*ar, -height, 0), 0.0f );
 
 		cameraPosition = camera.position;
 
@@ -2147,7 +2224,7 @@ bool RenderGraphics(Engine &engine)
 	const float4x4 sunViewMatrix = LookAt(sunVrp, sunPos, sunUp);
 	const float4x4 sunProjMatrix = Orthogonal(-5.0f, 5.0f, -10.0f, 5.0f, -5.0f, 10.0f);
 
-	// Camera 2D
+	// Camera UI 2D
 	const f32 l = 0.0f;
 	const f32 r = displayWidth;
 	const f32 t = 0.0f;
@@ -2159,9 +2236,9 @@ bool RenderGraphics(Engine &engine)
 	// Update globals struct
 	const Globals globals = {
 		.cameraView = viewMatrix,
-		.cameraViewInv = Float4x4(Transpose(Float3x3(viewMatrix))),
+		.cameraViewInv = inverseViewMatrix,
 		.cameraProj = projectionMatrix,
-		.camera2dProj = camera2dProjection,
+		.camera2dProj = camera2dProjection, // UI
 		.viewportRotationMatrix = viewportRotationMatrix,
 		.cameraFrustumTopLeft = frustumTopLeft,
 		.cameraFrustumBottomRight = frustumBottomRight,
@@ -2241,6 +2318,7 @@ bool RenderGraphics(Engine &engine)
 	const SamplerH sampler = gfx.materialSamplerH;
 
 	// Shadow map
+	if (IsEngineMode3D(engine.mode))
 	{
 		BeginDebugGroup(commandList, "Shadow map");
 
@@ -2328,7 +2406,9 @@ bool RenderGraphics(Engine &engine)
 			EndDebugGroup(commandList);
 		}
 
-		{ // Sky
+		// Sky
+		if (IsEngineMode3D(engine.mode))
+		{
 			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.grayImageH);
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
@@ -2362,21 +2442,42 @@ bool RenderGraphics(Engine &engine)
 		// Grid
 		if (editor.showGrid)
 		{
-			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
-			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
-			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
-			const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
-			const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+			if (IsEngineMode3D(engine.mode))
+			{
+				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
+				const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
+				const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
+				const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
-			BeginDebugGroup(commandList, "grid");
+				BeginDebugGroup(commandList, "grid_3d");
 
-			SetPipeline(commandList, gfx.gridPipelineH);
-			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-			SetVertexBuffer(commandList, vertexBuffer);
-			SetIndexBuffer(commandList, indexBuffer);
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+				SetPipeline(commandList, gfx.grid3dPipelineH);
+				SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+				SetVertexBuffer(commandList, vertexBuffer);
+				SetIndexBuffer(commandList, indexBuffer);
+				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
 
-			EndDebugGroup(commandList);
+				EndDebugGroup(commandList);
+			}
+			else // if (IsEngineMode2D(engine.mode))
+			{
+				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
+				const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
+				const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
+				const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+
+				BeginDebugGroup(commandList, "grid_2d");
+
+				SetPipeline(commandList, gfx.grid2dPipelineH);
+				SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+				SetVertexBuffer(commandList, vertexBuffer);
+				SetIndexBuffer(commandList, indexBuffer);
+				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+
+				EndDebugGroup(commandList);
+			}
 		}
 #endif
 
@@ -3067,8 +3168,13 @@ void android_main(struct android_app* app)
 	EngineMain(0, nullptr, app);
 }
 #else
+
+static void sighandler(int signum) {  }
+
 int main(int argc, char **argv)
 {
+  signal(SIGINT, sighandler);
+
 	EngineMain(argc, argv, NULL);
 	return 0;
 }

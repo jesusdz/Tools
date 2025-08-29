@@ -100,6 +100,23 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	UI_BeginWindow(ui, "Debug UI");
 
+	if ( UI_Section(ui, "General") )
+	{
+		if (IsEngineModeEditor(engine.mode))
+		{
+			const char *radioOptions[] = { "3D mode", "2D mode" };
+			const EngineMode engineModes[] = { EngineModeEditor3D, EngineModeEditor2D };
+
+			for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
+			{
+				if ( UI_Radio(ui, radioOptions[i], engine.mode == engineModes[i]) )
+				{
+					engine.mode = engineModes[i];
+				}
+			}
+		}
+	}
+
 	if ( UI_Section(ui, "Audio") )
 	{
 		UI_SeparatorLabel(ui, "Sound");
@@ -224,18 +241,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	if ( UI_Section(ui, "Camera") )
 	{
-		const char *radioOptions[] = { "Perspective", "Orthographic" };
-		CT_ASSERT(ARRAY_COUNT(radioOptions) == ProjectionTypeCount);
-
-		for (u32 i = 0; i < ProjectionTypeCount; ++i)
-		{
-			if ( UI_Radio(ui, radioOptions[i], editor.cameraType == i) )
-			{
-				editor.cameraType = (ProjectionType)i;
-			}
-		}
-
-		if ( editor.cameraType == ProjectionPerspective )
+		if ( engine.mode == EngineModeEditor3D )
 		{
 			UI_SeparatorLabel(ui, "Perspective options");
 			UI_Checkbox(ui, "Orbit", &editor.cameraOrbit);
@@ -777,8 +783,6 @@ void EditorInitialize(Engine &engine)
 	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
 	engine.editor.camera[ProjectionOrthographic].orientation = {};
 
-	engine.editor.cameraType = ProjectionPerspective;
-
 	engine.editor.selectedEntity = U32_MAX;
 
 	engine.editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
@@ -795,7 +799,7 @@ void EditorUpdate(Engine &engine)
 
 	const bool handleInput = !engine.ui.wantsInput;
 
-	if (engine.editor.cameraType == ProjectionPerspective)
+	if (engine.mode == EngineModeEditor3D)
 	{
 		if (engine.editor.cameraOrbit)
 		{
@@ -806,7 +810,7 @@ void EditorUpdate(Engine &engine)
 			EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
 		}
 	}
-	else if (engine.editor.cameraType == ProjectionOrthographic)
+	else if (engine.mode == EngineModeEditor2D)
 	{
 		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}

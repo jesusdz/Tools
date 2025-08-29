@@ -32,7 +32,6 @@ struct Editor
 	bool selectEntity;
 	u32 selectedEntity;
 
-	ProjectionType cameraType;
 	Camera camera[ProjectionTypeCount];
 	bool cameraOrbit;
 
