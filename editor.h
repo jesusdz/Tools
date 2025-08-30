@@ -41,7 +41,7 @@ CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 struct EditorInspector
 {
 	EditorInspectedType inspectedType;
-	FilePath path;
+	FilePath inspectedFilePath;
 
 	ImageH image;
 };
@@ -55,6 +55,9 @@ struct Editor
 
 	bool selectEntity;
 	u32 selectedEntity;
+
+	bool addGridTile;
+	int2 addGridTileCoord;
 
 	Camera camera[ProjectionTypeCount];
 	bool cameraOrbit;

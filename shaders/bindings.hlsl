@@ -4,10 +4,11 @@
 #define BIND_GROUP_DYNAMIC  2
 
 #define BINDING_GLOBALS           0
-#define BINDING_SAMPLER           1
-#define BINDING_ENTITIES          2
-#define BINDING_SHADOWMAP         3
-#define BINDING_SHADOWMAP_SAMPLER 4
+#define BINDING_SAMPLER_POINT     1
+#define BINDING_SAMPLER_LINEAR    2
+#define BINDING_ENTITIES          3
+#define BINDING_SHADOWMAP         4
+#define BINDING_SHADOWMAP_SAMPLER 5
 
 #define BINDING_MATERIAL 0
 #define BINDING_ALBEDO   1

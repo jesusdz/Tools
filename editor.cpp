@@ -472,13 +472,13 @@ static void EditorUpdateUI_Assets(Engine &engine)
 				editor.iconAsset;
 
 			path = MakePath(AssetDir, entry.name);
-			const bool isSelected = StrEq(path.str, inspector.path.str);
+			const bool isSelected = StrEq(path.str, inspector.inspectedFilePath.str);
 			const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
 			if ( UI_Image(ui, icon, float2{64,64}, flags) )
 			{
-				const bool changed = !StrEq(inspector.path.str, path.str);
-				StrCopy(inspector.path.str, path.str);
+				const bool changed = !StrEq(inspector.inspectedFilePath.str, path.str);
+				StrCopy(inspector.inspectedFilePath.str, path.str);
 
 				if ( isWav )
 				{
@@ -521,6 +521,31 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	if (inspector.inspectedType == EditorInspectedType_Image)
 	{
 		UI_Image(ui, inspector.image, float2{0,0}, UIWidgetFlag_Expand);
+
+		if (UI_Section(ui, "Import settings"))
+		{
+			static bool isTileset = false;
+			static char name[64] = {};
+
+			UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+			UI_Checkbox(ui, "Tileset", &isTileset);
+
+			if (UI_Button(ui, "Import"))
+			{
+				if (isTileset)
+				{
+					const TileAtlasDesc tileAtlasDesc = {
+						.imagePath = inspector.inspectedFilePath.str,
+						.name = InternStringGfx(name),
+					};
+					CreateTileAtlas(engine, tileAtlasDesc);
+				}
+				else
+				{
+					LOG(Debug, "Import image\n");
+				}
+			}
+		}
 	}
 
 	UI_EndWindow(ui);
@@ -735,7 +760,7 @@ static void EditorUpdateCamera2D(const Window &window, const Input &input, Camer
 	speed = Mul(speed, 0.9);
 }
 
-static void EditorBeginEntitySelection(Engine &engine, const Mouse &mouse, bool handleInput)
+static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool handleInput)
 {
 	Editor &editor = engine.editor;
 
@@ -751,12 +776,29 @@ static void EditorBeginEntitySelection(Engine &engine, const Mouse &mouse, bool 
 		if (!mouseMoved && MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) {
 			editor.selectEntity = true;
 		}
+		if (engine.mode == EngineModeEditor2D && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT)) {
+			editor.addGridTile = true;
+			const Camera &camera = editor.camera[ProjectionOrthographic];
+			const int2 mousePos = { mouse.x, mouse.y };
+			editor.addGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
+		}
 	}
 }
 
-static void EditorEndEntitySelection(Engine &engine)
+static void EditorEndSceneEditing(Engine &engine)
 {
 	Editor &editor = engine.editor;
+
+	if ( editor.addGridTile )
+	{
+		editor.addGridTile = false;
+		const Tile tile = {
+			.used = 1,
+			.atlasId = 0,
+			.tileId = 0,
+		};
+		SetGridTileAtCoord(engine, tile, editor.addGridTileCoord);
+	}
 
 	if ( editor.selectEntity )
 	{
@@ -840,7 +882,8 @@ void EditorInitialize(Engine &engine)
 	Editor &editor = engine.editor;
 
 	editor.showDebugUI = true;
-	editor.showAssets = false;
+	editor.showAssets = true;
+	editor.showInspector = true;
 	editor.showGrid = true;
 
 	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
@@ -850,6 +893,7 @@ void EditorInitialize(Engine &engine)
 	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionOrthographic;
 	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
 	engine.editor.camera[ProjectionOrthographic].orientation = {};
+	engine.editor.camera[ProjectionOrthographic].height = 8.0;
 
 	engine.editor.selectedEntity = U32_MAX;
 
@@ -883,7 +927,7 @@ void EditorUpdate(Engine &engine)
 		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}
 
-	EditorBeginEntitySelection(engine, platform.window.mouse, handleInput);
+	EditorBeginSceneEditing(engine, platform.window.mouse, handleInput);
 
 	EditorProcessCommands(engine, engine.platform.frameArena);
 }
@@ -962,6 +1006,6 @@ void EditorRender(Engine &engine, CommandList &commandList)
 
 void EditorPostRender(Engine &engine)
 {
-	EditorEndEntitySelection(engine);
+	EditorEndSceneEditing(engine);
 }
 

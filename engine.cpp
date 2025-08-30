@@ -59,6 +59,8 @@ struct Vertex
 	float2 texCoord;
 };
 
+typedef u16 Index;
+
 struct Texture
 {
 	const char *name;
@@ -106,6 +108,7 @@ struct Camera
 	ProjectionType projectionType;
 	float3 position;
 	float2 orientation; // yaw and pitch
+	f32 height; // orthographic only
 };
 
 struct Entity
@@ -147,6 +150,8 @@ struct Graphics
 	BufferChunk planeIndices;
 	BufferChunk screenTriangleVertices;
 	BufferChunk screenTriangleIndices;
+	BufferChunk tileGridVertices;
+	BufferChunk tileGridIndices;
 
 	BufferH globalsBuffer[MAX_FRAMES_IN_FLIGHT];
 	BufferH entityBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -158,7 +163,8 @@ struct Graphics
 	BufferViewH selectionBufferViewH;
 #endif
 
-	SamplerH materialSamplerH;
+	SamplerH pointSamplerH;
+	SamplerH linearSamplerH;
 	SamplerH shadowmapSamplerH;
 	SamplerH skySamplerH;
 
@@ -253,10 +259,50 @@ struct Game
 	bool shouldRecompile;
 };
 
+struct TileAtlasDesc
+{
+	const char *imagePath;
+	const char *name;
+};
+
+struct TileAtlas
+{
+	ImageH imageH;
+	MaterialH materialH;
+};
+
+#define TILE_GRID_SIZE_X 20
+#define TILE_GRID_SIZE_Y 15
+
+union Tile
+{
+	u32 value;
+	struct
+	{
+		u32 used : 1;
+		u32 atlasId : 8;
+		u32 tileId : 8;
+		u32 unused : 15;
+	};
+};
+
+struct TileGrid
+{
+	Tile tiles[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y];
+	BufferChunk vertices;
+	BufferChunk indices;
+	u32 indexCount;
+	bool needsUpdate;
+};
+
 struct Scene
 {
 	Entity entities[MAX_ENTITIES];
 	HandleManager entityHandles;
+
+	TileAtlas tileAtlas;
+	TileGrid tileGrid;
+	u32 tileGridCount;
 };
 
 struct ShaderAndPipelineDesc
@@ -363,7 +409,7 @@ static const Vertex cubeVertices[] = {
 	{{ 0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
 };
 
-static const u16 cubeIndices[] = {
+static const Index cubeIndices[] = {
 	0,  1,  2,  2,  3,  0,  // front
 	4,  5,  6,  6,  7,  4,  // back
 	8,  9,  10, 10, 11, 8,  // right
@@ -379,7 +425,7 @@ static const Vertex planeVertices[] = {
 	{{-0.5f, 0.0f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
 };
 
-static const u16 planeIndices[] = {
+static const Index planeIndices[] = {
 	0, 1, 2, 2, 3, 0,
 };
 
@@ -389,13 +435,15 @@ static const Vertex screenTriangleVertices[] = {
 	{{ 3.0f,  1.0f, 0.0f}, {2.0f, 0.0f}},
 };
 
-static const u16 screenTriangleIndices[] = {
+static const Index screenTriangleIndices[] = {
 	0, 1, 2,
 };
 
 static ShaderSourceDesc shaderSourceDescs[] = {
 	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .name = "vs_shading" },
 	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .name = "fs_shading" },
+	{ .type = ShaderTypeVertex,   .filename = "shading_2d.hlsl",     .entryPoint = "VSMain",      .name = "vs_shading_2d" },
+	{ .type = ShaderTypeFragment, .filename = "shading_2d.hlsl",     .entryPoint = "PSMain",      .name = "fs_shading_2d" },
 	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .name = "vs_sky" },
 	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .name = "fs_sky" },
 	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .name = "vs_shadowmap" },
@@ -421,6 +469,27 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		.renderPass = "main_renderpass",
 		.desc = {
 			.name = "pipeline_shading",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = true,
+			.depthCompareOp = CompareOpGreater,
+		}
+	},
+	{
+		.vsName = "vs_shading_2d",
+		.fsName = "fs_shading_2d",
+		.renderPass = "main_renderpass",
+		.desc = {
+			.name = "pipeline_shading_2d",
 			.vsFunction = "VSMain",
 			.fsFunction = "PSMain",
 			.vertexBufferCount = 1,
@@ -760,12 +829,20 @@ BufferArena MakeBufferArena(Graphics &gfx, BufferH bufferHandle)
 	return arena;
 }
 
-BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena &arena, const void *data, u32 size, u32 alignment = 0)
+void UploadData(Graphics &gfx, const CommandList &commandList, const void *data, u32 size, BufferH destBuffer, u32 destOffset, u32 alignment = 0)
 {
 	StagedData staged = StageData(gfx, data, size, alignment);
 
 	// Copy contents from the staging to the final buffer
-	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, arena.buffer, arena.used, size);
+	CopyBufferToBuffer(commandList, staged.buffer, staged.offset, destBuffer, destOffset, size);
+}
+
+BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena &arena, const void *data, u32 size, u32 alignment = 0)
+{
+	if (data)
+	{
+		UploadData(gfx, commandList, data, size, arena.buffer, arena.used, alignment);
+	}
 
 	BufferChunk chunk = {};
 	chunk.buffer = arena.buffer;
@@ -981,7 +1058,9 @@ Material &GetMaterial(Graphics &gfx, MaterialH handle)
 	return material;
 }
 
-MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
+void CreateMaterialBindGroup(Graphics &gfx, MaterialH materialH);
+
+MaterialH CreateMaterial(Graphics &gfx, const MaterialDesc &desc)
 {
 	TextureH textureHandle = FindTextureHandle(gfx, desc.textureName);
 	PipelineH pipelineHandle = FindPipelineHandle(gfx, desc.pipelineName);
@@ -994,6 +1073,8 @@ MaterialH CreateMaterial( Graphics &gfx, const MaterialDesc &desc)
 	material.albedoTexture = textureHandle;
 	material.uvScale = desc.uvScale;
 	material.bufferOffset = materialHandle.idx * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
+
+	CreateMaterialBindGroup(gfx, materialHandle);
 
 	return materialHandle;
 }
@@ -1042,6 +1123,78 @@ void RemoveMaterial(Graphics &gfx, MaterialH materialH, bool freeHandle = true)
 	//gfx.shouldUpdateMaterialBindGroups = true;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// TileAtlas management
+
+void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
+{
+	Graphics &gfx = engine.gfx;
+
+	if ( !IsValid(engine.scene.tileAtlas.imageH))
+	{
+		const ImageH imageHandle = CreateImage(gfx, desc.imagePath, desc.name, false);
+		engine.scene.tileAtlas.imageH = imageHandle;
+
+		const MaterialDesc materialDesc = {
+			.name = desc.name,
+			.textureName = desc.name,
+			.pipelineName = "pipeline_shading_2d",
+			.uvScale = 1.0f,
+		};
+		const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
+		engine.scene.tileAtlas.materialH = materialHandle;
+
+		engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
+		engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
+		engine.scene.tileGridCount = 1;
+	}
+	else
+	{
+		LOG(Warning, "Cannot create more than one tile atlas.\n");
+	}
+}
+
+void DestroyTileAtlas(Engine &engine)
+{
+	if ( IsValid(engine.scene.tileAtlas.imageH) )
+	{
+		RemoveMaterial(engine.gfx, engine.scene.tileAtlas.materialH);
+		engine.scene.tileAtlas.materialH = {};
+
+		DestroyImageH(engine.gfx.device, engine.scene.tileAtlas.imageH);
+		engine.scene.tileAtlas.imageH = {};
+
+		engine.scene.tileGridCount = 0;
+	}
+}
+
+int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
+{
+	const uint2 windowSize = {engine.platform.window.width, engine.platform.window.height };
+	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
+	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
+	const f32 aspect = (f32)windowSize.x / (f32)windowSize.y;
+	const float2 scale = {camera.height * aspect, camera.height};
+	const float2 worldCoords = scale * ndcCoords + float2{camera.position.x, camera.position.y};
+	const int2 res = {(i32)Floor(worldCoords.x), (i32)Floor(worldCoords.y)};
+	//LOG(Debug, "Tile coord: (%f, %f)\n", uvCoords.x, uvCoords.y);
+	//LOG(Debug, "Tile coord: (%d, %d)\n", res.x, res.y);
+	return res;
+}
+
+void SetGridTileAtCoord(Engine &engine, Tile tile, int2 coord)
+{
+	if (coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
+		coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y )
+	{
+		TileGrid &tileGrid = engine.scene.tileGrid;
+		if ( tileGrid.tiles[coord.x][coord.y].value != tile.value ) {
+			tileGrid.tiles[coord.x][coord.y] = tile;
+			tileGrid.needsUpdate = true;
+		}
+	}
+}
 
 ////////////////////////////////////////////////////////////////////////
 // Builtin geometry
@@ -1441,6 +1594,13 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
 	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
 
+	const u32 numTileVertices = TILE_GRID_SIZE_X * TILE_GRID_SIZE_Y * 4;
+	const u32 numTileIndices = TILE_GRID_SIZE_X * TILE_GRID_SIZE_Y * 2 * 3;
+	const u32 tileVertexSize = numTileVertices * sizeof(Vertex);
+	const u32 tileIndexSize = numTileIndices * sizeof(Index);
+	gfx.tileGridVertices = PushData(gfx, commandList, gfx.globalVertexArena, nullptr, tileVertexSize);
+	gfx.tileGridIndices = PushData(gfx, commandList, gfx.globalIndexArena, nullptr, tileIndexSize);
+
 	EndUploadCommandList(gfx, commandList);
 
 	// Create globals buffer
@@ -1532,7 +1692,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	// Create global BindGroup layout
 	const ShaderBinding globalShaderBindings[] = {
 		{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit | SpvStageFlagsComputeBit },
-		{ .set = 0, .binding = BINDING_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_SAMPLER_POINT, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_SAMPLER_LINEAR, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
@@ -1564,18 +1725,26 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.blackImageH = CreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
 
 	// Samplers
+	const SamplerDesc pointSamplerDesc = {
+		.addressMode = AddressModeRepeat,
+		.filter = FilterNearest,
+	};
+	gfx.pointSamplerH = CreateSampler(gfx.device, pointSamplerDesc);
 	const SamplerDesc materialSamplerDesc = {
 		.addressMode = AddressModeRepeat,
+		.filter = FilterLinear,
 	};
-	gfx.materialSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
+	gfx.linearSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
+		.filter = FilterNearest,
 		.borderColor = BorderColorBlackFloat,
 		.compareOp = CompareOpGreater,
 	};
 	gfx.shadowmapSamplerH = CreateSampler(gfx.device, shadowmapSamplerDesc);
 	const SamplerDesc skySamplerDesc = {
 		.addressMode = AddressModeClampToEdge,
+		.filter = FilterLinear,
 	};
 	gfx.skySamplerH = CreateSampler(gfx.device, skySamplerDesc);
 
@@ -1622,7 +1791,8 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx, u32 frameIndex)
 		.layout = gfx.globalBindGroupLayout,
 		.bindings = {
 			{ .index = BINDING_GLOBALS, .buffer = gfx.globalsBuffer[frameIndex] },
-			{ .index = BINDING_SAMPLER, .sampler = gfx.materialSamplerH },
+			{ .index = BINDING_SAMPLER_POINT, .sampler = gfx.pointSamplerH },
+			{ .index = BINDING_SAMPLER_LINEAR, .sampler = gfx.linearSamplerH },
 			{ .index = BINDING_ENTITIES, .buffer = gfx.entityBuffer[frameIndex] },
 			{ .index = BINDING_SHADOWMAP, .image = gfx.renderTargets.shadowmapImage },
 			{ .index = BINDING_SHADOWMAP_SAMPLER, .sampler = gfx.shadowmapSamplerH },
@@ -1685,18 +1855,22 @@ void UploadMaterialData(Graphics &gfx)
 	EndUploadCommandList(gfx, commandList);
 }
 
+void CreateMaterialBindGroup(Graphics &gfx, MaterialH handle)
+{
+	const Material &material = GetMaterial(gfx, handle);
+	const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
+	gfx.materialBindGroups[handle.idx] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
+	gfx.shouldUpdateMaterialBindGroups = true;
+}
+
 void CreateMaterialBindGroups(Graphics &gfx)
 {
 	// BindGroups for materials
 	for (u32 i = 0; i < gfx.materialHandles.handleCount; ++i)
 	{
 		MaterialH handle = GetHandleAt(gfx.materialHandles, i);
-		const Material &material = GetMaterial(gfx, handle);
-		const Pipeline &pipeline = GetPipeline(gfx.device, material.pipelineH);
-		gfx.materialBindGroups[handle.idx] = CreateBindGroup(gfx.device, pipeline.layout.bindGroupLayouts[1], gfx.materialBindGroupAllocator);
+		CreateMaterialBindGroup(gfx, handle);
 	}
-
-	gfx.shouldUpdateMaterialBindGroups = true;
 }
 
 void WaitDeviceIdle(Graphics &gfx)
@@ -1797,7 +1971,6 @@ void LoadSceneFromTxt(Engine &engine)
 	}
 
 	UploadMaterialData(engine.gfx);
-	CreateMaterialBindGroups(engine.gfx);
 	LinkHandles(engine.gfx);
 }
 
@@ -1850,7 +2023,6 @@ void LoadSceneFromBin(Engine &engine)
 	}
 
 	UploadMaterialData(engine.gfx);
-	CreateMaterialBindGroups(engine.gfx);
 	LinkHandles(engine.gfx);
 }
 
@@ -1896,8 +2068,6 @@ void CleanScene(Engine &engine)
 #if USE_DATA_BUILD
 void BuildShaders(Engine &engine, const char *outBinFilepath)
 {
-	CreateDirectory( MakePath(ProjectDir, "build").str );
-	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
 	CompileShaders();
 
 	Arena scratch = MakeSubArena(engine.platform.dataArena);
@@ -1909,8 +2079,6 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 
 void BuildAssetsFromTxt(Engine &engine, const char *inTxtFilepath, const char *outBinFilepath)
 {
-	CreateDirectory( MakePath(ProjectDir, "build").str );
-
 	Arena scratch = MakeSubArena(engine.platform.dataArena);
 	AssetDescriptors assetDescriptors = ParseDescriptors(inTxtFilepath, scratch);
 	BuildAssets(assetDescriptors, outBinFilepath, scratch);
@@ -2200,7 +2368,7 @@ bool RenderGraphics(Engine &engine)
 	}
 	else
 	{
-		const f32 height = 8.0f;
+		const f32 height = camera.height;
 		// Calculate camera matrices
 		const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
@@ -2271,6 +2439,67 @@ bool RenderGraphics(Engine &engine)
 	Globals *globalsBufferPtr = (Globals*)GetBufferPtr(gfx.device, gfx.globalsBuffer[frameIndex]);
 	*globalsBufferPtr = globals;
 
+	// Update tile grids
+	if (scene.tileGrid.needsUpdate)
+	{
+		CommandList commandList = BeginUploadCommandList(gfx);
+
+		const TileGrid &grid = scene.tileGrid;
+
+		Arena scratch = engine.platform.frameArena;
+
+		// Count vertices and indices
+		u32 vertexCount = 0;
+		u32 indexCount = 0;
+		for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
+			for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
+				if (grid.tiles[x][y].value != 0) {
+					vertexCount += 4;
+					indexCount += 6;
+				}
+			}
+		}
+
+		scene.tileGrid.indexCount = indexCount;
+
+		Vertex *tileVertices = PushArray(scratch, Vertex, vertexCount);
+		Index *tileIndices = PushArray(scratch, Index, indexCount);
+		const u32 tileVertexSize = vertexCount * sizeof(Vertex);
+		const u32 tileIndexSize = indexCount * sizeof(Index);
+
+		Vertex *vertex = tileVertices;
+		Index *index = tileIndices;
+		u32 indexOffset = 0;
+		for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
+			for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
+				if (grid.tiles[x][y].value != 0) {
+					const f32 u0 = 0.0f;
+					const f32 u1 = 16.0f / 512.0f;
+					const f32 v0 = 0.0f;
+					const f32 v1 = 16.0f / 512.0f;
+					*vertex++ = Vertex{{(f32)(x + 0), (f32)(y + 0), 0}, {0,0,0}, {u0,v1}};
+					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 0), 0}, {0,0,0}, {u1,v1}};
+					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 1), 0}, {0,0,0}, {u1,v0}};
+					*vertex++ = Vertex{{(f32)(x + 0), (f32)(y + 1), 0}, {0,0,0}, {u0,v0}};
+					*index++ = indexOffset + 0;
+					*index++ = indexOffset + 1;
+					*index++ = indexOffset + 2;
+					*index++ = indexOffset + 0;
+					*index++ = indexOffset + 2;
+					*index++ = indexOffset + 3;
+					indexOffset += 4;
+				}
+			}
+		}
+
+		WaitDeviceIdle(gfx.device);
+		UploadData(gfx, commandList, tileVertices, tileVertexSize, scene.tileGrid.vertices.buffer, scene.tileGrid.vertices.offset);
+		UploadData(gfx, commandList, tileIndices, tileIndexSize, scene.tileGrid.indices.buffer, scene.tileGrid.indices.offset);
+		scene.tileGrid.needsUpdate = false;
+
+		EndUploadCommandList(gfx, commandList);
+	}
+
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
 	for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
@@ -2328,7 +2557,6 @@ bool RenderGraphics(Engine &engine)
 	const BufferH entityBuffer = gfx.entityBuffer[frameIndex];
 	const BufferH vertexBuffer = gfx.globalVertexArena.buffer;
 	const BufferH indexBuffer = gfx.globalIndexArena.buffer;
-	const SamplerH sampler = gfx.materialSamplerH;
 
 	// Shadow map
 	if (IsEngineMode3D(engine.mode))
@@ -2359,8 +2587,8 @@ bool RenderGraphics(Engine &engine)
 			SetIndexBuffer(commandList, indexBuffer);
 
 			// Draw!!!
-			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
-			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+			const uint32_t indexCount = entity.indices.size/sizeof(Index);
+			const uint32_t firstIndex = entity.indices.offset/sizeof(Index);
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
 		}
@@ -2387,6 +2615,37 @@ bool RenderGraphics(Engine &engine)
 		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
 
+		// TileGrid
+		for (u32 i = 0; i < scene.tileGridCount; ++i)
+		{
+			const TileGrid &tileGrid = scene.tileGrid;
+			const TileAtlas &tileAtlas = scene.tileAtlas;
+			const MaterialH materialH = tileAtlas.materialH;
+			const Material &material = GetMaterial(gfx, materialH);
+
+			BeginDebugGroup(commandList, "TileGrid");
+
+			// Pipeline
+			SetPipeline(commandList, material.pipelineH);
+
+			// Bind groups
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetBindGroup(commandList, 1, gfx.materialBindGroups[materialH.idx]);
+
+			// Geometry
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			// Draw!!!
+			const uint32_t indexCount = tileGrid.indexCount;
+			const uint32_t firstIndex = tileGrid.indices.offset/sizeof(Index);
+			const int32_t firstVertex = tileGrid.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+
+			EndDebugGroup(commandList);
+		}
+
+		// Entities
 		for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
 		{
 			const Handle handle = GetHandleAt(scene.entityHandles, entityIndex);
@@ -2411,8 +2670,8 @@ bool RenderGraphics(Engine &engine)
 			SetIndexBuffer(commandList, indexBuffer);
 
 			// Draw!!!
-			const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
-			const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
+			const uint32_t indexCount = entity.indices.size/sizeof(Index);
+			const uint32_t firstIndex = entity.indices.offset/sizeof(Index);
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
 
@@ -2426,8 +2685,8 @@ bool RenderGraphics(Engine &engine)
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
-			const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
-			const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+			const uint32_t indexCount = indices.size/sizeof(Index);
+			const uint32_t firstIndex = indices.offset/sizeof(Index);
 			const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
 			const BindGroupDesc bindGroupDesc = {
@@ -2452,15 +2711,15 @@ bool RenderGraphics(Engine &engine)
 		}
 
 #if USE_EDITOR
-		// Grid
+		// TileGrid
 		if (editor.showGrid)
 		{
 			if (IsEngineMode3D(engine.mode))
 			{
 				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 				const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
-				const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
-				const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+				const uint32_t indexCount = indices.size/sizeof(Index);
+				const uint32_t firstIndex = indices.offset/sizeof(Index);
 				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
 				BeginDebugGroup(commandList, "grid_3d");
@@ -2477,8 +2736,8 @@ bool RenderGraphics(Engine &engine)
 			{
 				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 				const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
-				const uint32_t indexCount = indices.size/2; // div 2 (2 bytes per index)
-				const uint32_t firstIndex = indices.offset/2; // div 2 (2 bytes per index)
+				const uint32_t indexCount = indices.size/sizeof(Index);
+				const uint32_t firstIndex = indices.offset/sizeof(Index);
 				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
 				BeginDebugGroup(commandList, "grid_2d");
@@ -2937,6 +3196,10 @@ bool OnPlatformInit(Platform &platform)
 	Graphics &gfx = engine.gfx;
 	Game &game = engine.game;
 
+#if USE_EDITOR
+	CompileShaders();
+#endif
+
 #if USE_IMGUI
 	InitializeImGuiContext();
 #endif
@@ -2992,6 +3255,9 @@ bool OnPlatformWindowInit(Platform &platform)
 
 #if USE_EDITOR
 		EditorInitialize(engine);
+#else
+		engine.mode = EngineModeGame3D;
+		LoadSceneFromBin(engine);
 #endif
 	}
 

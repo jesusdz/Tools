@@ -40,6 +40,9 @@ void CompileShader(const ShaderSourceDesc &desc)
 
 void CompileShaders()
 {
+	CreateDirectory( MakePath(ProjectDir, "build").str );
+	CreateDirectory( MakePath(ProjectDir, "build/shaders").str );
+
 	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i)
 	{
 		CompileShader(shaderSourceDescs[i]);
@@ -941,6 +944,8 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Arena tempArena)
 {
 	LOG(Info, "Building data\n");
+
+	CreateDirectory( MakePath(ProjectDir, "build").str );
 
 	FILE *file = fopen(filepath, "wb");
 	if ( file )
