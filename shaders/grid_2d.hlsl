@@ -116,15 +116,23 @@ PixelOutput PSMain(PixelInput IN)
 	float2 pattern = frac(pixelPosWorld.xy);
 	float2 dXY = fwidth(pixelPosWorld.xy);
 
+	float3 red = float3(1.0, 0.5, 0.5);
+	float3 green = float3(0.5, 1.0, 0.5);
+	float greenFactor = step( abs(pixelPosWorld.x), abs(ddx(pixelPosWorld.x)));
+	float redFactor = step( abs(pixelPosWorld.y), abs(ddy(pixelPosWorld.y)));
+	float3 lineColor = 0.3.xxx;
+	lineColor = lerp(lineColor, red, redFactor);
+	lineColor = lerp(lineColor, green, greenFactor);
+
+	float3 bgColor = 0.05.xxx;
+
 	float2 lineFactors = step(pattern, dXY);
 	float lineFactor = max(lineFactors.x, lineFactors.y);
 
-	float bgColor = 0.05;
-	float lineColor = 0.3;
-	float finalColor = lerp(bgColor, lineColor, lineFactor);
+	float3 finalColor = lerp(bgColor, lineColor, lineFactor);
 
 	PixelOutput OUT;
-	OUT.color = float4(finalColor.xxx, 1.0);
+	OUT.color = float4(finalColor, 1.0);
 	return OUT;
 }
 
