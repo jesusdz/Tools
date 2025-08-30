@@ -691,59 +691,59 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 static void EditorUpdateCamera2D(const Window &window, const Input &input, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	const Gamepad &gamepad = input.gamepad;
+	const Mouse &mouse = window.mouse;
+
+	// Interaction with the mouse
+	if ( handleInput )
+	{
+		static int2 clickPos = {};
+		static float3 cameraPositionOnClick = camera.position;
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_MIDDLE))
+		{
+			clickPos = {mouse.x, mouse.y};
+			cameraPositionOnClick = camera.position;
+		}
+		if (MouseButtonPressed(mouse, MOUSE_BUTTON_MIDDLE))
+		{
+			const f32 windowHeight = window.height;
+			const int2 mousePos = {mouse.x, mouse.y};
+			const int2 dragPixels = mousePos - clickPos;
+			const float2 dragNorm = {dragPixels.x/windowHeight, dragPixels.y/windowHeight};
+			const float2 dragScaled = 2.0f * camera.height * dragNorm;
+			camera.position.x = cameraPositionOnClick.x - dragScaled.x;
+			camera.position.y = cameraPositionOnClick.y + dragScaled.y;
+		}
+		if (mouse.wy != 0.0)
+		{
+			camera.height = Max(2.0f, camera.height + mouse.wy);
+		}
+	}
 
 	float3 dir = { 0, 0, 0 };
 
+	// Interaction with keyboard / gamepad
 	if ( handleInput )
 	{
-		// Camera rotation
-		f32 deltaYaw = 0.0f;
-		f32 deltaPitch = 0.0f;
-#if 0
-#if PLATFORM_ANDROID
-		u32 touchId;
-		if ( GetOrientationTouchId(window, &touchId) )
-		{
-			deltaYaw = - window.touches[touchId].dx * ToRadians * 0.2f;
-			deltaPitch = - window.touches[touchId].dy * ToRadians * 0.2f;
-		}
-#else
-		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
-			deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
-			deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
-		}
-#endif
-#endif
-		float2 angles = camera.orientation;
-		angles.x = angles.x + deltaYaw;
-		angles.y = Clamp(angles.y + deltaPitch, -Pi * 0.49, Pi * 0.49);
+		f32 dx = 0.0f;
+		f32 dy = 0.0f;
 
-		camera.orientation = angles;
+		// Keyboard
+		dy += KeyPressed(window.keyboard, K_W) ? 1.0f : 0.0f;
+		dx += KeyPressed(window.keyboard, K_A) ? -1.0f : 0.0f;
+		dy += KeyPressed(window.keyboard, K_S) ? -1.0f : 0.0f;
+		dx += KeyPressed(window.keyboard, K_D) ? 1.0f : 0.0f;
 
-		// Movement direction
-#if PLATFORM_ANDROID
-		if ( GetMovementTouchId(window, &touchId) )
-		{
-			const float3 forward = ForwardDirectionFromAngles(angles);
-			const float3 right = RightDirectionFromAngles(angles);
-			const float scaleForward = -window.touches[touchId].dy;
-			const float scaleRight = window.touches[touchId].dx;
-			dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
-		}
-#else
-		if ( KeyPressed(window.keyboard, K_W) ) { dir = Add(dir, UpDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, K_S) ) { dir = Add(dir, Negate( UpDirectionFromAngles(angles) )); }
-		if ( KeyPressed(window.keyboard, K_D) ) { dir = Add(dir, RightDirectionFromAngles(angles)); }
-		if ( KeyPressed(window.keyboard, K_A) ) { dir = Add(dir, Negate( RightDirectionFromAngles(angles) )); }
+		// Gamepad
+		dx += gamepad.leftAxis.x;
+		dy += gamepad.leftAxis.y;
 
-		dir = dir + gamepad.leftAxis.x * RightDirectionFromAngles(angles);
-		dir = dir + gamepad.leftAxis.y * UpDirectionFromAngles(angles);
-#endif
-		dir = NormalizeIfNotZero(dir);
+		const float3 upVector = {0, 1, 0};
+		const float3 rightVector = {1, 0, 0};
+		dir = NormalizeIfNotZero(dx * rightVector + dy * upVector);
 	}
 
 	// Accelerated translation
-	static constexpr f32 MAX_SPEED = 100.0f;
+	static constexpr f32 MAX_SPEED = 25.0f;
 	static constexpr f32 ACCELERATION = 50.0f;
 	static float3 speed = { 0, 0, 0 };
 	const float3 speed0 = speed;
@@ -757,7 +757,10 @@ static void EditorUpdateCamera2D(const Window &window, const Input &input, Camer
 	camera.position = Add(camera.position, translation);
 
 	// Apply deceleration
-	speed = Mul(speed, 0.9);
+	if ( Length2(dir) == 0.0f )
+	{
+		speed = Mul(speed, 0.9);
+	}
 }
 
 static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool handleInput)
