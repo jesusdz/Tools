@@ -254,6 +254,15 @@ static float2 dY(float2 v)
 	return res;
 }
 
+bool UI_IsMouseClickWithAnyButton(const UI &ui)
+{
+	const bool click =
+		ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS ||
+		ui.input.mouse.buttons[MOUSE_BUTTON_MIDDLE] == BUTTON_STATE_PRESS ||
+		ui.input.mouse.buttons[MOUSE_BUTTON_RIGHT] == BUTTON_STATE_PRESS;
+	return click;
+}
+
 bool UI_IsMouseClick(const UI &ui)
 {
 	const bool click = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS;
@@ -2268,7 +2277,7 @@ void UI_BeginFrame(UI &ui)
 	}
 
 	// Update active window
-	if ( UI_IsMouseClick(ui) )
+	if ( UI_IsMouseClickWithAnyButton(ui) )
 	{
 		if ( ui.hoveredWindow && ui.hoveredWindow->visible )
 		{
