@@ -183,6 +183,13 @@ enum AddressMode
 	AddressModeCount,
 };
 
+enum Filter
+{
+	FilterNearest,
+	FilterLinear,
+	FilterCount,
+};
+
 enum BufferUsageFlagBits
 {
 	BufferUsageTransferSrc = 1<<0,
@@ -464,6 +471,7 @@ struct Framebuffer
 struct SamplerDesc
 {
 	AddressMode addressMode;
+	Filter filter;
 	BorderColor borderColor;
 	CompareOp compareOp;
 };
@@ -901,6 +909,18 @@ static VkSamplerAddressMode AddressModeToVulkan(AddressMode mode)
 	ASSERT(mode < AddressModeCount);
 	const VkSamplerAddressMode vkAddressMode = vkAddressModes[mode];
 	return vkAddressMode;
+}
+
+static VkFilter FilterToVulkan(Filter filter)
+{
+	static const VkFilter vkFilters[] = {
+		VK_FILTER_NEAREST,
+		VK_FILTER_LINEAR,
+	};
+	CT_ASSERT(ARRAY_COUNT(vkFilters) == FilterCount);
+	ASSERT(filter < FilterCount);
+	const VkFilter vkFilter = vkFilters[filter];
+	return vkFilter;
 }
 
 static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
@@ -1465,6 +1485,12 @@ bool IsValid(const Image &image)
 bool IsValid(ImageH image)
 {
 	bool res = image.index != 0;
+	return res;
+}
+
+bool IsValid(const BindGroup &bindGroup)
+{
+	bool res = bindGroup.handle != VK_NULL_HANDLE;
 	return res;
 }
 
@@ -2813,8 +2839,8 @@ Sampler CreateSamplerInternal(const GraphicsDevice &device, const SamplerDesc &d
 
 	const VkSamplerCreateInfo samplerCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.magFilter = VK_FILTER_LINEAR,
-		.minFilter = VK_FILTER_LINEAR,
+		.magFilter = FilterToVulkan(desc.filter),
+		.minFilter = FilterToVulkan(desc.filter),
 		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
 		.addressModeU = AddressModeToVulkan(desc.addressMode),
 		.addressModeV = AddressModeToVulkan(desc.addressMode),
@@ -3452,6 +3478,9 @@ void CopyBufferToBuffer(const CommandList &commandBuffer, BufferH srcBufferH, u3
 	const GraphicsDevice &device = GetDevice(commandBuffer);
 	const Buffer &srcBuffer = GetBuffer(device, srcBufferH);
 	const Buffer &dstBuffer = GetBuffer(device, dstBufferH);
+
+	ASSERT(srcOffset + size <= srcBuffer.size);
+	ASSERT(dstOffset + size <= dstBuffer.size);
 
 	const VkBufferCopy copyRegion = {
 		srcOffset = srcOffset,
