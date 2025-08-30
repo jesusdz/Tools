@@ -121,7 +121,12 @@ Here are some interesting links that I have been looking while writing some code
 * [Grammars and Parsing](https://www.cs.cornell.edu/courses/cs211/2006sp/Sections/S3/grammars.html)
 * [Reverse Z (and why it's so awesome)](https://tomhultonharrop.com/mathematics/graphics/2023/08/06/reverse-z.html)
 * [The best darn grid shader (Yet)](https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8)
-* [Real-Time Fluid Dynamics for Games (by Jos Stam)](https://graphics.cs.cmu.edu/nsp/course/15-464/Fall09/papers/StamFluidforGames.pdf)
+* Fluid simulation
+	* [Real-Time Fluid Dynamics for Games (by Jos Stam)](https://graphics.cs.cmu.edu/nsp/course/15-464/Fall09/papers/StamFluidforGames.pdf)
+	* [Fluid simulation for dummies (by Mike Ash)](https://mikeash.com/pyblog/fluid-simulation-for-dummies.html)
+	* [(YouTube) Coding challenge (follows Mike Ask post)](https://www.youtube.com/watch?v=alhpH6ECFvQ)
+	* [(YouTube) But how DO fluid simulations work?](https://www.youtube.com/watch?v=qsYE1wMEMPA)
+	* [(YouTube) Fluid dynamics feel natural when you start with quantum mechanics](https://www.youtube.com/watch?v=MXs_vkc8hpY)
 
 
 ## License
