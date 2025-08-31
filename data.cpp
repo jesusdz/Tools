@@ -4,8 +4,13 @@
 ////////////////////////////////////////////////////////////////////////
 // Shader compilation
 
-void CompileShader(const ShaderSourceDesc &desc)
+u64 shaderSourceTimestamps[ARRAY_COUNT(shaderSourceDescs)] = {};
+
+void CompileShader(u32 index)
 {
+	ASSERT(index < ARRAY_COUNT(shaderSourceDescs));
+	const ShaderSourceDesc &desc = shaderSourceDescs[index];
+
 	char text[MAX_PATH_LENGTH];
 
 #if PLATFORM_WINDOWS
@@ -36,6 +41,13 @@ void CompileShader(const ShaderSourceDesc &desc)
 			ProjectDir, filename );
 	LOG(Debug, "%s\n", text);
 	ExecuteProcess(text);
+
+	char *spirvFilename = text;
+	SPrintf(spirvFilename, "%s/shaders/%s", ProjectDir, desc.filename);
+	u64 timestamp = 0;
+	if ( GetFileLastWriteTimestamp(spirvFilename, timestamp) ) {
+		shaderSourceTimestamps[index] = timestamp;
+	}
 }
 
 void CompileShaders()
@@ -45,8 +57,41 @@ void CompileShaders()
 
 	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i)
 	{
-		CompileShader(shaderSourceDescs[i]);
+		CompileShader(i);
 	}
+}
+
+bool CompileModifiedShaders()
+{
+	bool recompiled = false;
+
+	static Clock lastClock = GetClock();
+	Clock currentClock = GetClock();
+	if (GetSecondsElapsed(lastClock, currentClock) < 0.2f) {
+		return recompiled;
+	}
+	lastClock = currentClock;
+
+	char filename[MAX_PATH_LENGTH];
+
+	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i)
+	{
+		const ShaderSourceDesc &desc = shaderSourceDescs[i];
+		SPrintf(filename, "%s/shaders/%s", ProjectDir, desc.filename);
+
+		u64 timestamp = 0;
+		if ( GetFileLastWriteTimestamp(filename, timestamp) )
+		{
+			if ( timestamp > shaderSourceTimestamps[i] )
+			{
+				shaderSourceTimestamps[i] = timestamp;
+				CompileShader(i);
+				recompiled = true;
+			}
+		}
+	}
+
+	return recompiled;
 }
 
 

@@ -842,10 +842,10 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				{
 					const u32 pipelineIndex = command.pipelineIndex;
 					const ShaderAndPipelineDesc &desc = pipelineDescs[pipelineIndex];
-					const ShaderSourceDesc &vertexShaderSourceDesc = FindShaderSourceDesc(desc.vsName);
-					const ShaderSourceDesc &fragmentShaderSourceDesc = FindShaderSourceDesc(desc.fsName);
-					CompileShader(vertexShaderSourceDesc);
-					CompileShader(fragmentShaderSourceDesc);
+					const u32 vertexShaderIndex = FindShaderSourceDescIndex(desc.vsName);
+					const u32 fragmentShaderIndex = FindShaderSourceDescIndex(desc.fsName);
+					CompileShader(vertexShaderIndex);
+					CompileShader(fragmentShaderIndex);
 					CompileGraphicsPipeline(engine, scratch, pipelineIndex);
 					break;
 				}
@@ -962,6 +962,7 @@ void EditorInitialize(Engine &engine)
 	}
 	editor.root = nullptr;
 
+	// Read the asset directory contents into file nodes
 	Dir dir;
 	if ( OpenDir(dir, AssetDir) )
 	{

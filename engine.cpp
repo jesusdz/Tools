@@ -697,17 +697,16 @@ void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 	timeSamples.average = sum / ARRAY_COUNT(timeSamples.samples);
 }
 
-const ShaderSourceDesc &FindShaderSourceDesc(const char *name)
+const u32 FindShaderSourceDescIndex(const char *name)
 {
 	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i) {
 		if ( StrEq(shaderSourceDescs[i].name, name) ) {
-			return shaderSourceDescs[i];
+			return i;
 		}
 	}
 	LOG(Warning, "Could not find ShaderSourceDesc <%s>.\n", name);
 	INVALID_CODE_PATH();
-	static const ShaderSourceDesc desc = {};
-	return desc;
+	return U32_MAX;
 }
 
 RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
@@ -1523,6 +1522,20 @@ void LinkHandles(Graphics &gfx)
 	}
 }
 
+static void RecompilePipelines(Engine &engine, Arena scratch)
+{
+	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
+	{
+		CompileGraphicsPipeline(engine, scratch, i);
+	}
+
+	// Compute pipelines
+	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
+	{
+		CompileComputePipeline(engine, scratch, i);
+	}
+}
+
 bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 {
 	Graphics &gfx = engine.gfx;
@@ -1711,16 +1724,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	Initialize(gfx.materialHandles, globalArena, MAX_MATERIALS);
 
 	// Graphics pipelines
-	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
-	{
-		CompileGraphicsPipeline(engine, scratch, i);
-	}
-
-	// Compute pipelines
-	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i)
-	{
-		CompileComputePipeline(engine, scratch, i);
-	}
+	RecompilePipelines(engine, scratch);
 
 	// Builtin images
 	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
@@ -3301,6 +3305,13 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 
 #if USE_EDITOR
+	if ( CompileModifiedShaders() )
+	{
+		// NOTE(jesus): Recompiling all pipelines here even if likely only a shader was recompiled :-S
+		WaitDeviceIdle(gfx.device);
+		RecompilePipelines(engine, platform.frameArena);
+	}
+
 	EditorUpdate(engine);
 #endif
 
