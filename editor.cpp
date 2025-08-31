@@ -457,50 +457,52 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	static char selectedName[MAX_PATH_LENGTH] = {};
 	FilePath path;
 
-	Dir dir;
-	if ( OpenDir(dir, AssetDir) )
+	bool shouldReloadDirStructure = true;
+	if (shouldReloadDirStructure)
 	{
-		DirEntry entry;
-		while ( ReadDir(dir, entry) )
+	}
+
+	FileNode *node = editor.root;
+	while (node)
+	{
+		const bool isWav = IsWavFile(node->filename);
+		const bool isImg = IsImgFile(node->filename);
+
+		const ImageH icon =
+			isWav ? editor.iconWav :
+			isImg ? editor.iconImg :
+			editor.iconAsset;
+
+		path = MakePath(AssetDir, node->filename);
+		const bool isSelected = StrEq(path.str, inspector.inspectedFilePath.str);
+		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+
+		if ( UI_Image(ui, icon, float2{64,64}, flags) )
 		{
-			const bool isWav = IsWavFile(entry.name);
-			const bool isImg = IsImgFile(entry.name);
+			const bool changed = !StrEq(inspector.inspectedFilePath.str, path.str);
+			StrCopy(inspector.inspectedFilePath.str, path.str);
 
-			const ImageH icon =
-				isWav ? editor.iconWav :
-				isImg ? editor.iconImg :
-				editor.iconAsset;
-
-			path = MakePath(AssetDir, entry.name);
-			const bool isSelected = StrEq(path.str, inspector.inspectedFilePath.str);
-			const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
-
-			if ( UI_Image(ui, icon, float2{64,64}, flags) )
+			if ( isWav )
 			{
-				const bool changed = !StrEq(inspector.inspectedFilePath.str, path.str);
-				StrCopy(inspector.inspectedFilePath.str, path.str);
-
-				if ( isWav )
+				editor.inspector.inspectedType = EditorInspectedType_Audio;
+			}
+			else if ( isImg )
+			{
+				editor.inspector.inspectedType = EditorInspectedType_Image;
+				if (changed)
 				{
-					editor.inspector.inspectedType = EditorInspectedType_Audio;
-				}
-				else if ( isImg )
-				{
-					editor.inspector.inspectedType = EditorInspectedType_Image;
-					if (changed)
-					{
-						WaitDeviceIdle(gfx.device);
-						DestroyImageH(gfx.device, inspector.image);
-						inspector.image = CreateImage(gfx, path.str, "inspected_image", true);
-					}
-				}
-				else
-				{
-					editor.inspector.inspectedType = EditorInspectedType_None;
+					WaitDeviceIdle(gfx.device);
+					DestroyImageH(gfx.device, inspector.image);
+					inspector.image = CreateImage(gfx, path.str, "inspected_image", true);
 				}
 			}
+			else
+			{
+				editor.inspector.inspectedType = EditorInspectedType_None;
+			}
 		}
-		CloseDir(dir);
+
+		node = node->next;
 	}
 
 	UI_EndLayout(ui);
@@ -880,6 +882,39 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 	}
 }
 
+static FileNode *GetFreeFileNode(Editor &editor)
+{
+	ASSERT(editor.freeNodes != nullptr);
+	FileNode *res = editor.freeNodes;
+	editor.freeNodes = res->next;
+	if ( editor.freeNodes) { editor.freeNodes->prev = nullptr; }
+	res->isDirectory = false;
+	res->filename = nullptr;
+	res->next = nullptr;
+	res->prev = nullptr;
+	res->child = nullptr;
+	return res;
+}
+
+static void FreeFileNode(Editor &editor, FileNode *node)
+{
+	FileNode *first = editor.freeNodes;
+	if (first) { first->prev = node; }
+	node->prev = nullptr;
+	node->next = first;
+	editor.freeNodes = node;
+}
+
+static FileNode * InsertFileNode(FileNode *node, FileNode *first)
+{
+	if ( first ) {
+		first->prev = node;
+	}
+	node->next = first;
+	node->prev = nullptr;
+	return node;
+}
+
 void EditorInitialize(Engine &engine)
 {
 	Editor &editor = engine.editor;
@@ -889,20 +924,48 @@ void EditorInitialize(Engine &engine)
 	editor.showInspector = true;
 	editor.showGrid = true;
 
-	engine.editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
-	engine.editor.camera[ProjectionPerspective].position = {0, 1, 2};
-	engine.editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
+	editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
+	editor.camera[ProjectionPerspective].position = {0, 1, 2};
+	editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
 
-	engine.editor.camera[ProjectionOrthographic].projectionType = ProjectionOrthographic;
-	engine.editor.camera[ProjectionOrthographic].position = {0, 0, -5};
-	engine.editor.camera[ProjectionOrthographic].orientation = {};
-	engine.editor.camera[ProjectionOrthographic].height = 8.0;
+	editor.camera[ProjectionOrthographic].projectionType = ProjectionOrthographic;
+	editor.camera[ProjectionOrthographic].position = {0, 0, -5};
+	editor.camera[ProjectionOrthographic].orientation = {};
+	editor.camera[ProjectionOrthographic].height = 8.0;
 
-	engine.editor.selectedEntity = U32_MAX;
+	editor.selectedEntity = U32_MAX;
 
-	engine.editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
-	engine.editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
-	engine.editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
+	editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
+	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
+	editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
+
+	// Make a liked list of free file nodes
+	constexpr u32 maxFileNodes = 1024;
+	editor.freeNodes = PushZeroArray(engine.platform.globalArena, FileNode, maxFileNodes);
+	for (u32 i = 0; i < maxFileNodes; ++i) {
+		if ( i < maxFileNodes - 1) {
+			editor.freeNodes[i].next = &editor.freeNodes[i+1];
+		}
+		if ( i > 0 ) {
+			editor.freeNodes[i].prev = &editor.freeNodes[i-1];
+		}
+	}
+	editor.root = nullptr;
+
+	Dir dir;
+	if ( OpenDir(dir, AssetDir) )
+	{
+		DirEntry entry;
+		while ( ReadDir(dir, entry) )
+		{
+			FileNode *node = GetFreeFileNode(editor);
+			node->isDirectory = false;
+			node->filename = InternStringGfx(entry.name);
+			editor.root = InsertFileNode(node, editor.root);
+		}
+
+		CloseDir(dir);
+	}
 }
 
 void EditorUpdate(Engine &engine)

@@ -46,6 +46,15 @@ struct EditorInspector
 	ImageH image;
 };
 
+struct FileNode
+{
+	bool isDirectory;
+	const char *filename;
+	FileNode *next; // Next file in same directory
+	FileNode *prev; // Prev file in same directory
+	FileNode *child; // For directy contents
+};
+
 struct Editor
 {
 	bool showDebugUI;
@@ -70,6 +79,9 @@ struct Editor
 	ImageH iconImg;
 
 	EditorInspector inspector;
+
+	FileNode *root;
+	FileNode *freeNodes;
 };
 
 struct Engine;
