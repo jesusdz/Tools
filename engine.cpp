@@ -267,7 +267,7 @@ struct TileAtlasDesc
 
 struct TileAtlas
 {
-	ImageH imageH;
+	TextureH textureH;
 	MaterialH materialH;
 };
 
@@ -1130,11 +1130,14 @@ void RemoveMaterial(Graphics &gfx, MaterialH materialH, bool freeHandle = true)
 void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 {
 	Graphics &gfx = engine.gfx;
+	TileAtlas &tileAtlas = engine.scene.tileAtlas;
 
-	if ( !IsValid(engine.scene.tileAtlas.imageH))
+	if ( !IsValidHandle(gfx.textureHandles, tileAtlas.textureH))
 	{
 		const ImageH imageHandle = CreateImage(gfx, desc.imagePath, desc.name, false);
-		engine.scene.tileAtlas.imageH = imageHandle;
+
+		const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
+		tileAtlas.textureH = textureHandle;
 
 		const MaterialDesc materialDesc = {
 			.name = desc.name,
@@ -1143,7 +1146,7 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 			.uvScale = 1.0f,
 		};
 		const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
-		engine.scene.tileAtlas.materialH = materialHandle;
+		tileAtlas.materialH = materialHandle;
 
 		engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
 		engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
@@ -1157,13 +1160,16 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 
 void DestroyTileAtlas(Engine &engine)
 {
-	if ( IsValid(engine.scene.tileAtlas.imageH) )
-	{
-		RemoveMaterial(engine.gfx, engine.scene.tileAtlas.materialH);
-		engine.scene.tileAtlas.materialH = {};
+	Graphics &gfx = engine.gfx;
+	TileAtlas &tileAtlas = engine.scene.tileAtlas;
 
-		DestroyImageH(engine.gfx.device, engine.scene.tileAtlas.imageH);
-		engine.scene.tileAtlas.imageH = {};
+	if ( IsValidHandle(gfx.textureHandles, tileAtlas.textureH) )
+	{
+		RemoveMaterial(engine.gfx, tileAtlas.materialH);
+		tileAtlas.materialH = {};
+
+		RemoveTexture(engine.gfx, tileAtlas.textureH);
+		tileAtlas.textureH = {};
 
 		engine.scene.tileGridCount = 0;
 	}
