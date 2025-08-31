@@ -450,6 +450,11 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	EditorInspector &inspector = editor.inspector;
 	Platform &platform = engine.platform;
 
+	constexpr uint2 size = {500, 200};
+	constexpr float2 displacement = {10, -10 - (f32)size.y};
+	UI_SetNextWindowDefaultSize(ui, size);
+	UI_SetNextWindowAnchor(ui, UiAnchorBottomLeft, displacement);
+
 	UI_BeginWindow(ui, "Assets");
 
 	UI_BeginLayout(ui, UiLayoutItemBrowser);
@@ -515,6 +520,11 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	UI &ui = engine.ui;
 	Editor &editor = engine.editor;
 	EditorInspector &inspector = editor.inspector;
+
+	constexpr uint2 size = {200, 500};
+	constexpr float2 displacement = {-10 - (f32)size.x, 30};
+	UI_SetNextWindowDefaultSize(ui, size);
+	UI_SetNextWindowAnchor(ui, UiAnchorTopRight, displacement);
 
 	UI_BeginWindow(ui, "Inspector");
 

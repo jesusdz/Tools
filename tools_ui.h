@@ -75,6 +75,14 @@ enum UIWindowFlags
 	UIWindowFlag_ClipContents = 1 << 4,
 };
 
+enum UIAnchor
+{
+	UiAnchorTopLeft,
+	UiAnchorTopRight,
+	UiAnchorBottomLeft,
+	UiAnchorBottomRight,
+};
+
 struct UIWindow
 {
 	u32 id;
@@ -82,6 +90,8 @@ struct UIWindow
 	char caption[64];
 	float2 pos;
 	float2 size;
+	UIAnchor anchor;
+	float2 anchorDisplacement;
 	float2 containerSize;
 	float2 contentSize; // Only known after filling container
 	float contentOffset;
@@ -219,6 +229,10 @@ struct UI
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
+	UIAnchor defaultWindowAnchor;
+	float2 defaultWindowAnchorDislacement;
+	float2 defaultWindowSize;
+
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
 
@@ -241,6 +255,51 @@ struct UI
 	UIWindow *activeMenu;
 	UIVertex *activeMenuVertexPtr;
 };
+
+static void UI_SetNextWindowDefaultSize(UI &ui, uint2 size)
+{
+	ui.defaultWindowSize = {(f32)size.x, (f32)size.y};
+}
+
+static void UI_SetNextWindowAnchor(UI &ui, UIAnchor anchor, float2 disp)
+{
+	ui.defaultWindowAnchor = anchor;
+	ui.defaultWindowAnchorDislacement = disp;
+}
+
+static void UI_ResetWindowDefaults(UI &ui)
+{
+	ui.defaultWindowAnchor = UiAnchorTopLeft;
+	ui.defaultWindowAnchorDislacement = {100, 100};
+	ui.defaultWindowSize = float2{ 200, 300 };
+}
+
+static float2 UI_GetAnchorPos(uint2 viewportSize, UIAnchor anchor)
+{
+	float2 anchorPos = { 0, 0 };
+	if (anchor == UiAnchorTopRight) {
+		anchorPos = float2{(f32)viewportSize.x, 0.0f};
+	} else if (anchor == UiAnchorBottomLeft) {
+		anchorPos = float2{0.0f, (f32)viewportSize.y};
+	} else if (anchor == UiAnchorBottomRight) {
+		anchorPos = float2{(f32)viewportSize.x, (f32)viewportSize.y};
+	}
+	return anchorPos;
+}
+
+static float2 UI_CalculatePosFromAnchor(uint2 viewportSize, UIAnchor anchor, float2 displacement)
+{
+	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
+	const float2 res = anchorPos + displacement;
+	return res;
+}
+
+static float2 UI_CalculateAnchorDisplacement(uint2 viewportSize, UIAnchor anchor, float2 pos)
+{
+	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
+	const float2 res = pos - anchorPos;
+	return res;
+}
 
 static float2 dX(float2 v)
 {
@@ -926,6 +985,7 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 		UIWindow &window = ui.windows[i];
 		if ( window.id == windowId )
 		{
+			UI_ResetWindowDefaults(ui);
 			ASSERT(window.caption != 0);
 			return window;
 		}
@@ -935,16 +995,17 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	const u32 windowIndex = ui.windowCount++;
 	UIWindow &window = ui.windows[windowIndex];
 
-	// TODO: Remove test code to set initial window position.
-	static int start = 0;
 	window.id = windowId;
 	window.index = windowIndex;
 	StrCopy(window.caption, caption);
-	window.pos = {100.0f + start*20.0f, 100.0f+start*20.0f};
-	window.size = {200.0f, 300.0f};
 	window.layer = windowIndex;
+	window.anchor = ui.defaultWindowAnchor;
+	window.anchorDisplacement = ui.defaultWindowAnchorDislacement;
+	window.size = ui.defaultWindowSize;
+	window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.anchor, window.anchorDisplacement);
 	UI_RaiseWindow(ui, window);
-	start++;
+
+	UI_ResetWindowDefaults(ui);
 
 	return window;
 }
@@ -1133,7 +1194,9 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	return id;
 }
 
-void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents )
+constexpr u32 UIWindowFlags_Default = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
+
+void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlags_Default)
 {
 	const u32 windowId = UI_MakeID(ui, caption);
 	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, caption);
@@ -1438,8 +1501,9 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 
 		UIWindow &comboPanel = UI_FindOrCreateWindow(ui, comboId, "$combo");
 		UI_RaiseWindow(ui, comboPanel);
-		comboPanel.pos = panelPos;
 		comboPanel.size = panelSize;
+		comboPanel.pos = panelPos;
+		comboPanel.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, comboPanel.anchor, comboPanel.pos);
 
 		UI_BeginWindow(ui, comboId, UIWindowFlag_Border);
 
@@ -1890,6 +1954,8 @@ bool UI_BeginMenuBar(UI &ui)
 	UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 
 	window.pos = {0, 0};
+	window.anchor = UiAnchorTopLeft;
+	window.anchorDisplacement = {0, 0};
 	window.size = {(f32)ui.viewportSize.x, 22.0f};
 
 	const float2 pos = window.pos;
@@ -1964,6 +2030,9 @@ bool UI_BeginMenu(UI &ui, const char *name)
 	if ( showMenu )
 	{
 		window.pos = itemPos + dY(itemSize);
+		window.anchor = UiAnchorTopLeft;
+		window.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, window.anchor, window.pos);
+
 		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 		UI_RaiseWindow(ui, window);
 
@@ -2218,6 +2287,8 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	ui.fontAtlasSize = {fontAtlasWidth, fontAtlasHeight};
 
 	#undef globalArena
+
+	UI_ResetWindowDefaults(ui);
 }
 
 void UI_BeginFrame(UI &ui)
@@ -2231,6 +2302,13 @@ void UI_BeginFrame(UI &ui)
 	if (UI_IsMouseClick(ui))
 	{
 		ui.input.lastMouseClickPos = UI_MousePos(ui);
+	}
+
+	// Reposition windows based on its anchor
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		UIWindow &window = ui.windows[i];
+		window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.anchor, window.anchorDisplacement);
 	}
 
 	// Resize / move window interactions
@@ -2258,6 +2336,7 @@ void UI_BeginFrame(UI &ui)
 			else if ( window.dragging )
 			{
 				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
+				window.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, window.anchor, window.pos);
 			}
 		}
 	}
