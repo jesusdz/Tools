@@ -114,7 +114,9 @@ PixelOutput PSMain(PixelInput IN)
 #endif
 
 	float2 pattern = frac(pixelPosWorld.xy);
-	float2 dXY = fwidth(pixelPosWorld.xy);
+	float2 pattern10 = frac(pixelPosWorld.xy / 10.0f);
+	float dX = ddx(pixelPosWorld.x);
+	float dX10 = ddx(pixelPosWorld.x / 10.0f);
 
 	float3 red = float3(1.0, 0.5, 0.5);
 	float3 green = float3(0.5, 1.0, 0.5);
@@ -126,8 +128,15 @@ PixelOutput PSMain(PixelInput IN)
 
 	float3 bgColor = 0.05.xxx;
 
-	float2 lineFactors = step(pattern, dXY);
+	float2 lineFactors = step(pattern, dX.xx);
 	float lineFactor = max(lineFactors.x, lineFactors.y);
+	lineFactor *= min(1.0, 0.01 / dX);
+
+	float2 lineFactors10 = step(pattern10, dX10.xx);
+	float lineFactor10 = max(lineFactors10.x, lineFactors10.y);
+	lineFactor10 *= min(1.0, 0.03 / dX10);
+
+	lineFactor = max(lineFactor, lineFactor10);
 
 	float3 finalColor = lerp(bgColor, lineColor, lineFactor);
 
