@@ -113,30 +113,42 @@ PixelOutput PSMain(PixelInput IN)
 	pixelPosWorld.y -= globals.cameraView[1][3];
 #endif
 
-	float2 pattern = frac(pixelPosWorld.xy);
-	float2 pattern10 = frac(pixelPosWorld.xy / 10.0f);
-	float dX = ddx(pixelPosWorld.x);
-	float dX10 = ddx(pixelPosWorld.x / 10.0f);
+	float2 p = pixelPosWorld.xy;
+	float2 p10 = p / 10.0f;
+	float2 p100 = p / 100.0f;
+
+	float2 pattern = abs(2.0 * frac(p+ 0.5) - 1.0);
+	float2 pattern10 = abs(2.0 * frac(p10 + 0.5) - 1.0);
+	float2 pattern100 = abs(2.0 * frac(p100 + 0.5) - 1.0);
+	float2 dd = fwidth(p);
+	float2 dd10 = fwidth(p10);
+	float2 dd100 = fwidth(p100);
+
+	float2 lineFactors = 1.0 - smoothstep(0.0, 2.0*dd, pattern);
+	float lineFactor = max(lineFactors.x, lineFactors.y);
+	lineFactor *= min(1.0, 0.005 / max(dd.x,dd.y));
+
+	float2 lineFactors10 = 1.0 - smoothstep(0.0, 2.0*dd10, pattern10);
+	float lineFactor10 = max(lineFactors10.x, lineFactors10.y);
+	lineFactor10 *= min(1.0, 0.01 / max(dd10.x, dd10.y));
+
+	float2 lineFactors100 = 1.0 - smoothstep(0.0, 2.0*dd100, pattern100);
+	float lineFactor100 = max(lineFactors100.x, lineFactors100.y);
+	lineFactor100 *= min(1.0, 0.02 / max(dd100.x, dd100.y));
+
+	lineFactor = max(lineFactor, lineFactor10);
+	lineFactor = max(lineFactor, lineFactor100);
 
 	float3 red = float3(1.0, 0.5, 0.5);
 	float3 green = float3(0.5, 1.0, 0.5);
-	float greenFactor = step( abs(pixelPosWorld.x), abs(ddx(pixelPosWorld.x)));
-	float redFactor = step( abs(pixelPosWorld.y), abs(ddy(pixelPosWorld.y)));
-	float3 lineColor = 0.3.xxx;
-	lineColor = lerp(lineColor, red, redFactor);
-	lineColor = lerp(lineColor, green, greenFactor);
+	float3 gray = 0.3.xxx;
+
+	float3 lineColor =
+		step(abs(p.x), dd.x) > 0.5 ? green :
+		step(abs(p.y), dd.y) > 0.5 ? red :
+		gray;
 
 	float3 bgColor = 0.05.xxx;
-
-	float2 lineFactors = step(pattern, dX.xx);
-	float lineFactor = max(lineFactors.x, lineFactors.y);
-	lineFactor *= min(1.0, 0.01 / dX);
-
-	float2 lineFactors10 = step(pattern10, dX10.xx);
-	float lineFactor10 = max(lineFactors10.x, lineFactors10.y);
-	lineFactor10 *= min(1.0, 0.03 / dX10);
-
-	lineFactor = max(lineFactor, lineFactor10);
 
 	float3 finalColor = lerp(bgColor, lineColor, lineFactor);
 
