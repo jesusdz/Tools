@@ -65,6 +65,8 @@ struct Texture
 {
 	const char *name;
 	ImageH image;
+	TextureDesc desc;
+	u64 ts;
 };
 
 typedef Handle TextureH;
@@ -346,7 +348,7 @@ struct Engine
 	BinAssets shaderAssets;
 	BinAssets assets;
 
-	Arena dataArenaStates[4];
+	Arena dataArenaStates[1];
 	u32 dataArenaStateCount;
 
 	EngineMode mode;
@@ -962,23 +964,28 @@ Texture &GetTextureAt(Graphics &gfx, u32 index)
 	return texture;
 }
 
-TextureH CreateTexture(Graphics &gfx, const char *name, ImageH imageHandle)
+TextureH CreateTexture(Graphics &gfx)
 {
 	const TextureH textureHandle = NewHandle(gfx.textureHandles);
-	Texture &texture = GetTexture(gfx, textureHandle);
-	texture.name = name;
-	texture.image = imageHandle;
 	return textureHandle;
 }
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
-	FilePath imagePath = MakePath(ProjectDir, desc.filename);
+	const FilePath imagePath = MakePath(AssetDir, desc.filename);
+
 	ImagePixels img = ReadImagePixels(imagePath.str);
 
 	const ImageH imageHandle = CreateImage(gfx, imagePath.str, desc.name, desc.mipmap);
 
-	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
+	const TextureH textureHandle = CreateTexture(gfx);
+
+	Texture &texture = GetTexture(gfx, textureHandle);
+	texture.name = desc.name;
+	texture.image = imageHandle;
+	texture.desc = desc;
+
+	GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 
 	FreeImagePixels(img);
 
@@ -997,7 +1004,11 @@ TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
 
 	const ImageH imageHandle = CreateImage(gfx, name, width, height, channels, mipmap, pixels);
 
-	const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
+	const TextureH textureHandle = CreateTexture(gfx);
+
+	Texture &texture = GetTexture(gfx, textureHandle);
+	texture.name = desc.name;
+	texture.image = imageHandle;
 
 	return textureHandle;
 }
@@ -1035,15 +1046,64 @@ TextureH FindTextureHandle(Graphics &gfx, const char *name)
 
 void RemoveTexture(Graphics &gfx, TextureH textureH, bool freeHandle = true)
 {
-	Texture &texture = GetTexture(gfx, textureH);
-	DestroyImageH(gfx.device, texture.image);
-	texture = {};
+	if (IsValidHandle(gfx.textureHandles, textureH))
+	{
+		Texture &texture = GetTexture(gfx, textureH);
+		DestroyImageH(gfx.device, texture.image);
+		texture = {};
 
-	if (freeHandle) {
-		FreeHandle(gfx.textureHandles, textureH);
+		if (freeHandle) {
+			FreeHandle(gfx.textureHandles, textureH);
+		}
+
+		gfx.shouldUpdateMaterialBindGroups = true;
 	}
+}
 
-	gfx.shouldUpdateMaterialBindGroups = true;
+static void RecreateTextureIfModifed(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	Graphics &gfx = engine.gfx;
+
+	Texture &texture = GetTexture(gfx, handle);
+	const TextureDesc &desc = texture.desc;
+
+	const FilePath imagePath = MakePath(AssetDir, desc.filename);
+
+	u64 ts;
+	GetFileLastWriteTimestamp(imagePath.str, ts);
+
+	if ( ts > texture.ts )
+	{
+		WaitDeviceIdle(gfx.device);
+
+		texture.ts = ts;
+
+		DestroyImageH(gfx.device, texture.image);
+
+		ImagePixels img = ReadImagePixels(imagePath.str);
+
+		texture.image = CreateImage(gfx, imagePath.str, desc.name, desc.mipmap);
+
+		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
+
+		FreeImagePixels(img);
+
+		gfx.shouldUpdateMaterialBindGroups = true;
+	}
+}
+
+void RecreateModifiedTextures(Engine &engine)
+{
+	static Clock lastClock = GetClock();
+	const Clock currentClock = GetClock();
+	const f32 secondsSinceLastCheck  = GetSecondsElapsed(lastClock, currentClock);
+
+	if ( secondsSinceLastCheck > 0.2 )
+	{
+		lastClock = currentClock;
+		ForAllHandles(engine.gfx.textureHandles, RecreateTextureIfModifed, &engine);
+	}
 }
 
 
@@ -1133,9 +1193,13 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 
 	if ( !IsValidHandle(gfx.textureHandles, tileAtlas.textureH))
 	{
-		const ImageH imageHandle = CreateImage(gfx, desc.imagePath, desc.name, false);
+		const TextureDesc textureDesc = {
+			.name = desc.name,
+			.filename = desc.imagePath,
+			.mipmap = false,
+		};
 
-		const TextureH textureHandle = CreateTexture(gfx, desc.name, imageHandle);
+		const TextureH textureHandle = CreateTexture(gfx, textureDesc);
 		tileAtlas.textureH = textureHandle;
 
 		const MaterialDesc materialDesc = {
@@ -1936,52 +2000,62 @@ AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
 }
 #endif
 
-static void PushDataArenaState(Engine &engine)
+static bool PushDataArenaState(Engine &engine)
 {
-	ASSERT(engine.dataArenaStateCount < ARRAY_COUNT(engine.dataArenaStates));
-	engine.dataArenaStates[engine.dataArenaStateCount++] = engine.platform.dataArena;
+	const bool ok = engine.dataArenaStateCount < ARRAY_COUNT(engine.dataArenaStates);
+	if (ok)
+	{
+		engine.dataArenaStates[engine.dataArenaStateCount++] = engine.platform.dataArena;
+	}
+	return ok;
 }
 
-static void PopDataArenaState(Engine &engine)
+static bool PopDataArenaState(Engine &engine)
 {
-	ASSERT(engine.dataArenaStateCount > 0);
-	engine.platform.dataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
+	const bool ok = engine.dataArenaStateCount > 0;
+	if (ok)
+	{
+		engine.platform.dataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
+	}
+	return ok;
 }
 
 #if USE_DATA_BUILD
 void LoadSceneFromTxt(Engine &engine)
 {
-	PushDataArenaState(engine);
-	Arena &dataArena = engine.platform.dataArena;
-	const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-	AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
-
-	// Textures
-	for (u32 i = 0; i < assetDescriptors.textureDescCount; ++i)
+	if ( PushDataArenaState(engine) )
 	{
-		CreateTexture(engine.gfx, assetDescriptors.textureDescs[i]);
-	}
+		Arena &dataArena = engine.platform.dataArena;
+		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
 
-	// Materials
-	for (u32 i = 0; i < assetDescriptors.materialDescCount; ++i)
-	{
-		CreateMaterial(engine.gfx, assetDescriptors.materialDescs[i]);
-	}
+		// Textures
+		for (u32 i = 0; i < assetDescriptors.textureDescCount; ++i)
+		{
+			CreateTexture(engine.gfx, assetDescriptors.textureDescs[i]);
+		}
 
-	// Entities
-	for (u32 i = 0; i < assetDescriptors.entityDescCount; ++i)
-	{
-		CreateEntity(engine, assetDescriptors.entityDescs[i]);
-	}
+		// Materials
+		for (u32 i = 0; i < assetDescriptors.materialDescCount; ++i)
+		{
+			CreateMaterial(engine.gfx, assetDescriptors.materialDescs[i]);
+		}
 
-	// Audio clips
-	for (u32 i = 0; i < assetDescriptors.audioClipDescCount; ++i)
-	{
-		CreateAudioClip(engine, assetDescriptors.audioClipDescs[i]);
-	}
+		// Entities
+		for (u32 i = 0; i < assetDescriptors.entityDescCount; ++i)
+		{
+			CreateEntity(engine, assetDescriptors.entityDescs[i]);
+		}
 
-	UploadMaterialData(engine.gfx);
-	LinkHandles(engine.gfx);
+		// Audio clips
+		for (u32 i = 0; i < assetDescriptors.audioClipDescCount; ++i)
+		{
+			CreateAudioClip(engine, assetDescriptors.audioClipDescs[i]);
+		}
+
+		UploadMaterialData(engine.gfx);
+		LinkHandles(engine.gfx);
+	}
 }
 
 void SaveSceneToTxt(Engine &engine)
@@ -2003,37 +2077,38 @@ void LoadShadersFromBin(Engine &engine)
 
 void LoadSceneFromBin(Engine &engine)
 {
-	PushDataArenaState(engine);
-
-	const FilePath filepath = MakePath(DataDir, "assets.dat");
-	engine.assets = OpenAssets(engine.platform.dataArena, filepath.str);
-
-	// Textures
-	for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
+	if (PushDataArenaState(engine))
 	{
-		CreateTexture(engine.gfx, engine.assets.images[i]);
-	}
+		const FilePath filepath = MakePath(DataDir, "assets.dat");
+		engine.assets = OpenAssets(engine.platform.dataArena, filepath.str);
 
-	// Materials
-	for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
-	{
-		CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
-	}
+		// Textures
+		for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
+		{
+			CreateTexture(engine.gfx, engine.assets.images[i]);
+		}
 
-	// Entities
-	for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
-	{
-		CreateEntity(engine, engine.assets.entityDescs[i]);
-	}
+		// Materials
+		for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
+		{
+			CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
+		}
 
-	// Audio clips
-	for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
-	{
-		CreateAudioClip(engine, engine.assets.audioClips[i]);
-	}
+		// Entities
+		for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
+		{
+			CreateEntity(engine, engine.assets.entityDescs[i]);
+		}
 
-	UploadMaterialData(engine.gfx);
-	LinkHandles(engine.gfx);
+		// Audio clips
+		for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
+		{
+			CreateAudioClip(engine, engine.assets.audioClips[i]);
+		}
+
+		UploadMaterialData(engine.gfx);
+		LinkHandles(engine.gfx);
+	}
 }
 
 void CleanTexture(Handle handle, void* data)
@@ -2062,17 +2137,21 @@ void CleanAudioClip(Handle handle, void* data)
 
 void CleanScene(Engine &engine)
 {
-	ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
-	FreeAllHandles(engine.gfx.textureHandles);
-	ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
-	FreeAllHandles(engine.gfx.materialHandles);
-	ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
-	FreeAllHandles(engine.scene.entityHandles);
-	ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
-	FreeAllHandles(engine.audio.clipHandles);
-	CloseAssets(engine.assets);
-	ResetBindGroupAllocator( engine.gfx.device, engine.gfx.materialBindGroupAllocator );
-	PopDataArenaState(engine);
+	WaitDeviceIdle(engine.gfx.device);
+
+	if (PopDataArenaState(engine))
+	{
+		ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
+		FreeAllHandles(engine.gfx.textureHandles);
+		ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
+		FreeAllHandles(engine.gfx.materialHandles);
+		ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
+		FreeAllHandles(engine.scene.entityHandles);
+		ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
+		FreeAllHandles(engine.audio.clipHandles);
+		CloseAssets(engine.assets);
+		ResetBindGroupAllocator( engine.gfx.device, engine.gfx.materialBindGroupAllocator );
+	}
 }
 
 #if USE_DATA_BUILD
@@ -3311,6 +3390,8 @@ void OnPlatformUpdate(Platform &platform)
 		WaitDeviceIdle(gfx.device);
 		RecompilePipelines(engine, platform.frameArena);
 	}
+
+	RecreateModifiedTextures(engine);
 
 	EditorUpdate(engine);
 #endif

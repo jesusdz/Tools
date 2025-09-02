@@ -2,22 +2,22 @@
 // Textures ////////////////////////////////////////////////////////////
 
 Texture tex_diamond = {
- .filename = "assets/diamond.png",
+ .filename = "diamond.png",
  .mipmap = 1,
 };
 
 Texture tex_dirt = {
- .filename = "assets/dirt.jpg",
+ .filename = "dirt.jpg",
  .mipmap = 1,
 };
 
 Texture tex_grass = {
- .filename = "assets/grass.jpg",
+ .filename = "grass.jpg",
  .mipmap = 1,
 };
 
 Texture tex_sky = {
- .filename = "assets/sky01.png",
+ .filename = "sky01.png",
  .mipmap = 0,
 };
 
@@ -84,6 +84,10 @@ Entity ent_plane = {
 // Audio clips /////////////////////////////////////////////////////////
 
 AudioClip aclip_bell = {
- .filename = "assets/bell.wav",
+ .filename = "bell.wav",
+};
+
+AudioClip aclip_music = {
+ .filename = "music.wav",
 };
 

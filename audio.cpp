@@ -97,7 +97,9 @@ struct WAVE_fmt
 
 bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip, void **outSamples)
 {
-	FILE *file = fopen(filename, "rb");
+	FilePath path = MakePath(AssetDir, filename);
+
+	FILE *file = fopen(path.str, "rb");
 	if (file != nullptr)
 	{
 		WAVE_header Header;
@@ -166,7 +168,9 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 
 bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount)
 {
-	FILE *file = fopen(filename, "rb");
+	FilePath path = MakePath(AssetDir, filename);
+
+	FILE *file = fopen(path.str, "rb");
 	if (file != nullptr)
 	{
 		WAVE_header Header;

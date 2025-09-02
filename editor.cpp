@@ -497,8 +497,13 @@ static void EditorUpdateUI_Assets(Engine &engine)
 				if (changed)
 				{
 					WaitDeviceIdle(gfx.device);
-					DestroyImageH(gfx.device, inspector.image);
-					inspector.image = CreateImage(gfx, path.str, "inspected_image", true);
+					RemoveTexture(gfx, inspector.textureH);
+					const TextureDesc desc = {
+						.name = "inspected_image",
+						.filename = node->filename,
+						.mipmap = true,
+					};
+					inspector.textureH = CreateTexture(gfx, desc);
 				}
 			}
 			else
@@ -532,7 +537,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 
 	if (inspector.inspectedType == EditorInspectedType_Image)
 	{
-		UI_Image(ui, inspector.image, float2{0,0}, UIWidgetFlag_Expand);
+		const ImageH imageH = GetTextureImage(engine.gfx, inspector.textureH, engine.gfx.grayImageH);
+		UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
 
 		if (UI_Section(ui, "Import settings"))
 		{

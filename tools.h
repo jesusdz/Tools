@@ -1310,6 +1310,7 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	{
 		Win32ReportError("GetFileLastWriteTimestamp");
 		ok = false;
+		ts = 0;
 	}
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 	struct stat attrib;
@@ -1323,6 +1324,7 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 		SPrintf(text, "stat %s", filename);
 		LinuxReportError(text);
 		ok = false;
+		ts = 0;
 	}
 #endif
 

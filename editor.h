@@ -43,7 +43,7 @@ struct EditorInspector
 	EditorInspectedType inspectedType;
 	FilePath inspectedFilePath;
 
-	ImageH image;
+	TextureH textureH;
 };
 
 struct FileNode
