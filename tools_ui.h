@@ -238,6 +238,9 @@ struct UI
 
 	u32 activeWidgetId;
 
+	float2 lastWidgetPos;
+	float2 lastWidgetSize;
+
 	UILayoutGroup layoutGroups[16];
 	u32 layoutGroupCount;
 
@@ -350,6 +353,24 @@ int2 UI_LastMouseClickPos(const UI &ui)
 {
 	const int2 pos = { .x = ui.input.lastMouseClickPos.x, .y = ui.input.lastMouseClickPos.y };
 	return pos;
+}
+
+int2 UI_LastMouseClickPosInWidget(const UI &ui)
+{
+	const int2 widgetPos = { .x = (i32)ui.lastWidgetPos.x, .y = (i32)ui.lastWidgetPos.y };
+	const int2 mousePos = UI_LastMouseClickPos(ui);
+	const int2 relativePos = mousePos - widgetPos;
+	return relativePos;
+}
+
+float2 UI_LastMouseClickPosInWidgetNormalized(const UI &ui)
+{
+	const int2 relativePos = UI_LastMouseClickPosInWidget(ui);
+	const float2 normalizedPos = {
+		.x = (f32)relativePos.x / ui.lastWidgetSize.x,
+		.y = (f32)relativePos.y / ui.lastWidgetSize.y,
+	};
+	return normalizedPos;
 }
 
 float2 UI_GetCursorPos(const UI &ui)
@@ -772,6 +793,8 @@ void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction
 void UI_EndWidget(UI &ui)
 {
 	ASSERT(ui.widgetStackSize > 0);
+	ui.lastWidgetPos = ui.widgetStack[ui.widgetStackSize-1].pos;
+	ui.lastWidgetSize = ui.widgetStack[ui.widgetStackSize-1].size;
 	ui.widgetStackSize--;
 }
 

@@ -166,6 +166,8 @@ enum HeapType
 	HeapType_COUNT,
 };
 
+constexpr u32 HeapSize_General = MB(64);
+
 enum BorderColor
 {
 	BorderColorBlackInt,
@@ -675,7 +677,7 @@ struct GraphicsDevice
 	u32 renderPassCount;
 };
 
-static OffsetAllocator::Allocator generalAllocator(MB(16));
+static OffsetAllocator::Allocator generalAllocator(HeapSize_General);
 
 
 
@@ -2265,7 +2267,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 
 
 	// Create heaps
-	device.heaps[HeapType_General] = CreateHeap(device, HeapType_General, MB(16), false);
+	device.heaps[HeapType_General] = CreateHeap(device, HeapType_General, HeapSize_General, false);
 	device.heaps[HeapType_RTs] = CreateHeap(device, HeapType_RTs, MB(64), false);
 	device.heaps[HeapType_Staging] = CreateHeap(device, HeapType_Staging, MB(16), true);
 	device.heaps[HeapType_Dynamic] = CreateHeap(device, HeapType_Dynamic, MB(16), true);
@@ -2567,6 +2569,9 @@ Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
 
 		const u32 totalSize = size + alignment;
 		const OffsetAllocator::Allocation allocation = generalAllocator.allocate(totalSize);
+		if (allocation.offset == OffsetAllocator::Allocation::NO_SPACE) {
+			LOG(Error, "HeapAlloc - Could not allocate size(%uB) with alignment (%uB)\n", size, alignment);
+		}
 
 		const VkDeviceSize offset = AlignUp( allocation.offset, alignment );
 

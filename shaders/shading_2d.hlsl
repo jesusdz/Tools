@@ -27,8 +27,10 @@ VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 
 float4 PSMain(PixelInput IN) : SV_Target
 {
-	float3 albedo = albedoTexture.Sample(pointSampler, IN.texCoord).rgb;
+	float4 albedo = albedoTexture.Sample(pointSampler, IN.texCoord);
+	if (albedo.a == 0.0)
+		discard;
 
-	return float4(albedo, 1.0);
+	return albedo;
 }
 

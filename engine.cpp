@@ -229,6 +229,44 @@ struct Graphics
 	f32 deltaSeconds;
 };
 
+struct TileAtlasDesc
+{
+	const char *imagePath;
+	const char *name;
+	f32 tileSize;
+};
+
+struct TileAtlas
+{
+	TextureH textureH;
+	MaterialH materialH;
+	f32 size;
+	f32 tileSize;
+};
+
+union Tile
+{
+	u32 value;
+	struct
+	{
+		u32 used : 1;
+		u32 atlasId : 8;
+		u32 tileId : 23;
+	};
+};
+
+#define TILE_GRID_SIZE_X 20
+#define TILE_GRID_SIZE_Y 15
+
+struct TileGrid
+{
+	Tile tiles[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y];
+	BufferChunk vertices;
+	BufferChunk indices;
+	u32 indexCount;
+	bool needsUpdate;
+};
+
 // Editor API
 #if USE_EDITOR
 #include "editor.h"
@@ -259,42 +297,6 @@ struct Game
 
 	GameState state;
 	bool shouldRecompile;
-};
-
-struct TileAtlasDesc
-{
-	const char *imagePath;
-	const char *name;
-};
-
-struct TileAtlas
-{
-	TextureH textureH;
-	MaterialH materialH;
-};
-
-#define TILE_GRID_SIZE_X 20
-#define TILE_GRID_SIZE_Y 15
-
-union Tile
-{
-	u32 value;
-	struct
-	{
-		u32 used : 1;
-		u32 atlasId : 8;
-		u32 tileId : 8;
-		u32 unused : 15;
-	};
-};
-
-struct TileGrid
-{
-	Tile tiles[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y];
-	BufferChunk vertices;
-	BufferChunk indices;
-	u32 indexCount;
-	bool needsUpdate;
 };
 
 struct Scene
@@ -505,6 +507,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.depthTest = true,
 			.depthWrite = true,
 			.depthCompareOp = CompareOpGreater,
+			.blending = true,
 		}
 	},
 	{
@@ -1206,6 +1209,8 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 		if ( IsValidHandle(gfx.textureHandles, textureHandle) )
 		{
 			tileAtlas.textureH = textureHandle;
+			const Texture &texture = GetTexture(gfx, textureHandle);
+			const Image &image = GetImage(gfx.device, texture.image);
 
 			const MaterialDesc materialDesc = {
 				.name = desc.name,
@@ -1215,7 +1220,10 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 			};
 			const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
 			tileAtlas.materialH = materialHandle;
+			tileAtlas.size = image.width;
+			tileAtlas.tileSize = desc.tileSize;
 
+			// TODO(jesus): Put this in a better place
 			engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
 			engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
 			engine.scene.tileGridCount = 1;
@@ -1244,6 +1252,20 @@ void DestroyTileAtlas(Engine &engine)
 	}
 }
 
+bool IsTileAtlasValid(const Engine &engine)
+{
+	const Graphics &gfx = engine.gfx;
+	const TileAtlas &tileAtlas = engine.scene.tileAtlas;
+	const bool res = IsValidHandle(gfx.textureHandles, tileAtlas.textureH);
+	return res;
+}
+
+const TileAtlas &GetTileAtlas(const Engine &engine)
+{
+	const TileAtlas &tileAtlas = engine.scene.tileAtlas;
+	return tileAtlas;
+}
+
 int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
 {
 	const uint2 windowSize = {engine.platform.window.width, engine.platform.window.height };
@@ -1260,13 +1282,23 @@ int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoor
 
 void SetGridTileAtCoord(Engine &engine, Tile tile, int2 coord)
 {
-	if (coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
-		coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y )
+	//LOG(Debug, "Tile %u %u %u\n", (u32)tile.used, tile.atlasId, tile.tileId);
+	Graphics &gfx = engine.gfx;
+	TileAtlas &tileAtlas = engine.scene.tileAtlas;
+
+	const bool tileAtlasValid = IsValidHandle(gfx.textureHandles, tileAtlas.textureH);
+	const bool tileGridValid = engine.scene.tileGridCount > 0;
+
+	if (tileAtlasValid && tileGridValid)
 	{
-		TileGrid &tileGrid = engine.scene.tileGrid;
-		if ( tileGrid.tiles[coord.x][coord.y].value != tile.value ) {
-			tileGrid.tiles[coord.x][coord.y] = tile;
-			tileGrid.needsUpdate = true;
+		if (coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
+				coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y )
+		{
+			TileGrid &tileGrid = engine.scene.tileGrid;
+			if ( tileGrid.tiles[coord.x][coord.y].value != tile.value ) {
+				tileGrid.tiles[coord.x][coord.y] = tile;
+				tileGrid.needsUpdate = true;
+			}
 		}
 	}
 }
@@ -2557,6 +2589,12 @@ bool RenderGraphics(Engine &engine)
 
 		scene.tileGrid.indexCount = indexCount;
 
+		const f32 atlasSize = scene.tileAtlas.size;
+		const f32 tileSize = scene.tileAtlas.tileSize;
+		const f32 du = tileSize / atlasSize;
+		const f32 dv = tileSize / atlasSize;
+		const u32 atlasCellCountX = (u32)atlasSize / (u32)tileSize;
+
 		Vertex *tileVertices = PushArray(scratch, Vertex, vertexCount);
 		Index *tileIndices = PushArray(scratch, Index, indexCount);
 		const u32 tileVertexSize = vertexCount * sizeof(Vertex);
@@ -2568,10 +2606,12 @@ bool RenderGraphics(Engine &engine)
 		for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
 			for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
 				if (grid.tiles[x][y].value != 0) {
-					const f32 u0 = 0.0f;
-					const f32 u1 = 16.0f / 512.0f;
-					const f32 v0 = 0.0f;
-					const f32 v1 = 16.0f / 512.0f;
+					const f32 atlasX = grid.tiles[x][y].tileId % atlasCellCountX;
+					const f32 atlasY = grid.tiles[x][y].tileId / atlasCellCountX;
+					const f32 u0 = atlasX * du;
+					const f32 u1 = u0 + du;
+					const f32 v0 = atlasY * dv;
+					const f32 v1 = v0 + dv;
 					*vertex++ = Vertex{{(f32)(x + 0), (f32)(y + 0), 0}, {0,0,0}, {u0,v1}};
 					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 0), 0}, {0,0,0}, {u1,v1}};
 					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 1), 0}, {0,0,0}, {u1,v0}};

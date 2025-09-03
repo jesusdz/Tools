@@ -41,9 +41,21 @@ CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 struct EditorInspector
 {
 	EditorInspectedType inspectedType;
-	FilePath inspectedFilePath;
+	FilePath inspectedFilename;
 
 	TextureH textureH;
+};
+
+enum EditorDrawTool
+{
+	EditorDrawTool_Draw,
+	EditorDrawTool_Erase,
+};
+
+struct EditorTilesets
+{
+	Tile tile;
+	EditorDrawTool selectedTool;
 };
 
 struct FileNode
@@ -60,13 +72,14 @@ struct Editor
 	bool showDebugUI;
 	bool showAssets;
 	bool showInspector;
+	bool showTilesets;
 	bool showGrid;
 
 	bool selectEntity;
 	u32 selectedEntity;
 
-	bool addGridTile;
-	int2 addGridTileCoord;
+	bool setGridTile;
+	int2 setGridTileCoord;
 
 	Camera camera[ProjectionTypeCount];
 	bool cameraOrbit;
@@ -79,6 +92,7 @@ struct Editor
 	ImageH iconImg;
 
 	EditorInspector inspector;
+	EditorTilesets tilesets;
 
 	FileNode *root;
 	FileNode *freeNodes;

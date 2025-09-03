@@ -75,6 +75,10 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showInspector = !editor.showInspector;
 			}
+			if ( UI_MenuItem(ui, "Tilesets", editor.showTilesets) )
+			{
+				editor.showTilesets = !editor.showTilesets;
+			}
 
 			UI_Separator(ui);
 
@@ -482,13 +486,13 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			editor.iconAsset;
 
 		path = MakePath(AssetDir, node->filename);
-		const bool isSelected = StrEq(path.str, inspector.inspectedFilePath.str);
+		const bool isSelected = StrEq(path.str, inspector.inspectedFilename.str);
 		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
 		if ( UI_Image(ui, icon, float2{64,64}, flags) )
 		{
-			const bool changed = !StrEq(inspector.inspectedFilePath.str, path.str);
-			StrCopy(inspector.inspectedFilePath.str, path.str);
+			const bool changed = !StrEq(inspector.inspectedFilename.str, node->filename);
+			StrCopy(inspector.inspectedFilename.str, node->filename);
 
 			if ( isWav )
 			{
@@ -556,8 +560,9 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				if (isTileset)
 				{
 					const TileAtlasDesc tileAtlasDesc = {
-						.imagePath = inspector.inspectedFilePath.str,
+						.imagePath = inspector.inspectedFilename.str,
 						.name = InternStringGfx(name),
+						.tileSize = 32.0f,
 					};
 					CreateTileAtlas(engine, tileAtlasDesc);
 				}
@@ -566,6 +571,55 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					LOG(Debug, "Import image\n");
 				}
 			}
+		}
+	}
+
+	UI_EndWindow(ui);
+}
+
+static void EditorUpdateUI_Tilesets(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	Graphics &gfx = engine.gfx;
+	Editor &editor = engine.editor;
+
+	UI_BeginWindow(ui, "Tilesets");
+
+	UI_SeparatorLabel(ui, "TileAtlas");
+
+	if ( IsTileAtlasValid(engine) )
+	{
+		const TileAtlas &tileAtlas = GetTileAtlas(engine);
+		const i32 tileCountPerSide = Floor(tileAtlas.size / tileAtlas.tileSize);
+		const f32 normalizedTileSize = tileAtlas.tileSize / tileAtlas.size;
+		const Texture &texture = GetTexture(gfx, tileAtlas.textureH);
+		if (UI_Image(ui, texture.image, float2{0, 0}, UIWidgetFlag_Expand))
+		{
+			const float2 normalizedCoord = UI_LastMouseClickPosInWidgetNormalized(ui);
+			const int2 tileCoord = {
+				.x = Clamp((i32) (normalizedCoord.x / normalizedTileSize), 0, tileCountPerSide - 1),
+				.y = Clamp((i32) (normalizedCoord.y / normalizedTileSize), 0, tileCountPerSide - 1),
+			};
+
+			editor.tilesets.tile.used = editor.tilesets.selectedTool == EditorDrawTool_Draw ? 1 : 0;
+			editor.tilesets.tile.atlasId = 0;
+			editor.tilesets.tile.tileId = tileCoord.y * tileCountPerSide + tileCoord.x;
+			//LOG(Debug, "Pos %u %u %u\n", tileCoord.x, tileCoord.y, editor.tilesets.tile.tileId);
+		}
+	}
+	else
+	{
+		UI_Label(ui, "No tile atlas available");
+	}
+
+	UI_SeparatorLabel(ui, "Action");
+
+	EditorTilesets &tilesets = editor.tilesets;
+	const char *radioOptionStrs[] { "Draw", "Erase" };
+	const EditorDrawTool radioOptions[] = { EditorDrawTool_Draw, EditorDrawTool_Erase };
+	for (u32 i = 0; i < ARRAY_COUNT(radioOptionStrs); ++i) {
+		if ( UI_Radio(ui, radioOptionStrs[i], tilesets.selectedTool == radioOptions[i]) ) {
+			tilesets.selectedTool = radioOptions[i];
 		}
 	}
 
@@ -595,6 +649,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showInspector )
 	{
 		EditorUpdateUI_Inspector(engine);
+	}
+
+	if ( editor.showTilesets )
+	{
+		EditorUpdateUI_Tilesets(engine);
 	}
 }
 
@@ -801,10 +860,10 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 			editor.selectEntity = true;
 		}
 		if (engine.mode == EngineModeEditor2D && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT)) {
-			editor.addGridTile = true;
+			editor.setGridTile = true;
 			const Camera &camera = editor.camera[ProjectionOrthographic];
 			const int2 mousePos = { mouse.x, mouse.y };
-			editor.addGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
+			editor.setGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
 		}
 	}
 }
@@ -813,15 +872,11 @@ static void EditorEndSceneEditing(Engine &engine)
 {
 	Editor &editor = engine.editor;
 
-	if ( editor.addGridTile )
+	if ( editor.setGridTile )
 	{
-		editor.addGridTile = false;
-		const Tile tile = {
-			.used = 1,
-			.atlasId = 0,
-			.tileId = 0,
-		};
-		SetGridTileAtCoord(engine, tile, editor.addGridTileCoord);
+		editor.setGridTile = false;
+		const Tile tile = editor.tilesets.tile;
+		SetGridTileAtCoord(engine, tile, editor.setGridTileCoord);
 	}
 
 	if ( editor.selectEntity )
@@ -938,9 +993,10 @@ void EditorInitialize(Engine &engine)
 {
 	Editor &editor = engine.editor;
 
-	editor.showDebugUI = true;
+	editor.showDebugUI = false;
 	editor.showAssets = true;
 	editor.showInspector = true;
+	editor.showTilesets = false;
 	editor.showGrid = true;
 
 	editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
