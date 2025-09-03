@@ -1308,7 +1308,9 @@ bool GetFileLastWriteTimestamp(const char* filename, u64 &ts)
 	}
 	else
 	{
-		Win32ReportError("GetFileLastWriteTimestamp");
+		char text[MAX_PATH_LENGTH];
+		SPrintf(text, "GetFileLastWriteTimestamp %s", filename);
+		Win32ReportError(text);
 		ok = false;
 		ts = 0;
 	}

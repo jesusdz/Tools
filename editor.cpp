@@ -8,7 +8,9 @@ static void AddEditorCommand(Editor &editor, const EditorCommand &command)
 static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *name)
 {
 	const FilePath path = MakePath(ProjectDir, filename);
-	const ImageH handle = CreateImage(engine.gfx, path.str, name, false);
+	ImagePixels imagePixels = ReadImagePixels(path.str);
+	const ImageH handle = CreateImage(engine.gfx, imagePixels, name, false);
+	FreeImagePixels(imagePixels);
 	return handle;
 }
 

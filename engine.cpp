@@ -935,14 +935,9 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
-ImageH CreateImage(Graphics &gfx, const char *filepath, const char *name, bool createMipmaps)
+ImageH CreateImage(Graphics &gfx, const ImagePixels &img, const char *name, bool createMipmaps)
 {
-	ImagePixels img = ReadImagePixels(filepath);
-
 	const ImageH imageHandle = CreateImage(gfx, name, img.width, img.height, img.channelCount, createMipmaps, img.pixels);
-
-	FreeImagePixels(img);
-
 	return imageHandle;
 }
 
@@ -976,7 +971,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 	ImagePixels img = ReadImagePixels(imagePath.str);
 
-	const ImageH imageHandle = CreateImage(gfx, imagePath.str, desc.name, desc.mipmap);
+	const ImageH imageHandle = CreateImage(gfx, img, desc.name, desc.mipmap);
 
 	const TextureH textureHandle = CreateTexture(gfx);
 
@@ -1083,7 +1078,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 
 		ImagePixels img = ReadImagePixels(imagePath.str);
 
-		texture.image = CreateImage(gfx, imagePath.str, desc.name, desc.mipmap);
+		texture.image = CreateImage(gfx, img, desc.name, desc.mipmap);
 
 		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 
