@@ -872,9 +872,10 @@ struct ImagePixels
 	bool constPixels;
 };
 
-ImagePixels ReadImagePixels(const char *filepath)
+bool ReadImagePixels(const char *filepath, ImagePixels &image)
 {
-	ImagePixels image = {};
+	bool ok = true;
+	image = {};
 	image.pixels = stbi_load(filepath, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
 	image.channelCount = 4; // Because we use STBI_rgb_alpha
 	if ( !image.pixels )
@@ -885,8 +886,9 @@ ImagePixels ReadImagePixels(const char *filepath)
 		image.width = image.height = 1;
 		image.channelCount = 4;
 		image.constPixels = true;
+		ok = false;
 	}
-	return image;
+	return ok;
 }
 
 void FreeImagePixels(ImagePixels &image)

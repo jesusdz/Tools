@@ -967,22 +967,27 @@ TextureH CreateTexture(Graphics &gfx)
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
+	TextureH textureHandle = InvalidHandle;
+
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
-	ImagePixels img = ReadImagePixels(imagePath.str);
+	ImagePixels img;
+	if ( ReadImagePixels(imagePath.str, img) )
+	{
 
-	const ImageH imageHandle = CreateImage(gfx, img, desc.name, desc.mipmap);
+		const ImageH imageHandle = CreateImage(gfx, img, desc.name, desc.mipmap);
 
-	const TextureH textureHandle = CreateTexture(gfx);
+		textureHandle = CreateTexture(gfx);
 
-	Texture &texture = GetTexture(gfx, textureHandle);
-	texture.name = desc.name;
-	texture.image = imageHandle;
-	texture.desc = desc;
+		Texture &texture = GetTexture(gfx, textureHandle);
+		texture.name = desc.name;
+		texture.image = imageHandle;
+		texture.desc = desc;
 
-	GetFileLastWriteTimestamp(imagePath.str, texture.ts);
+		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 
-	FreeImagePixels(img);
+		FreeImagePixels(img);
+	}
 
 	return textureHandle;
 }
@@ -1070,21 +1075,24 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 
 	if ( ts > texture.ts )
 	{
-		WaitDeviceIdle(gfx.device);
+		ImagePixels img;
 
-		texture.ts = ts;
+		if ( ReadImagePixels(imagePath.str, img) )
+		{
+			WaitDeviceIdle(gfx.device);
 
-		DestroyImageH(gfx.device, texture.image);
+			texture.ts = ts;
 
-		ImagePixels img = ReadImagePixels(imagePath.str);
+			DestroyImageH(gfx.device, texture.image);
 
-		texture.image = CreateImage(gfx, img, desc.name, desc.mipmap);
+			texture.image = CreateImage(gfx, img, desc.name, desc.mipmap);
 
-		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
+			GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 
-		FreeImagePixels(img);
+			FreeImagePixels(img);
 
-		gfx.shouldUpdateMaterialBindGroups = true;
+			gfx.shouldUpdateMaterialBindGroups = true;
+		}
 	}
 }
 
@@ -1195,20 +1203,23 @@ void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
 		};
 
 		const TextureH textureHandle = CreateTexture(gfx, textureDesc);
-		tileAtlas.textureH = textureHandle;
+		if ( IsValidHandle(gfx.textureHandles, textureHandle) )
+		{
+			tileAtlas.textureH = textureHandle;
 
-		const MaterialDesc materialDesc = {
-			.name = desc.name,
-			.textureName = desc.name,
-			.pipelineName = "pipeline_shading_2d",
-			.uvScale = 1.0f,
-		};
-		const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
-		tileAtlas.materialH = materialHandle;
+			const MaterialDesc materialDesc = {
+				.name = desc.name,
+				.textureName = desc.name,
+				.pipelineName = "pipeline_shading_2d",
+				.uvScale = 1.0f,
+			};
+			const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
+			tileAtlas.materialH = materialHandle;
 
-		engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
-		engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
-		engine.scene.tileGridCount = 1;
+			engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
+			engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
+			engine.scene.tileGridCount = 1;
+		}
 	}
 	else
 	{
@@ -1843,7 +1854,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	icons = PushArray(globalArena, UIIcon, iconCount);
 	for (u32 i = 0; i < iconCount; ++i) {
 		FilePath filepath = MakePath(ProjectDir, iconFilenames[i]);
-		icons[i].image = ReadImagePixels(filepath.str);
+		ReadImagePixels(filepath.str, icons[i].image);
 	}
 #endif
 	UI_Initialize(engine.ui, gfx, gfx.device, globalArena, icons, iconCount);
