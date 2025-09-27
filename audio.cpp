@@ -236,6 +236,13 @@ AudioClip &GetAudioClip(Audio &audio, Handle handle)
 	return audioClip;
 }
 
+AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle)
+{
+	ASSERT( IsValidHandle(audio.clipHandles, handle) );
+	AudioClipDesc &audioClipDesc = audio.clipDescs[handle.idx];
+	return audioClipDesc;
+}
+
 void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 {
 	Audio &audio = engine.audio;
@@ -269,6 +276,8 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 
 	if ( IsValidHandle(audio.clipHandles, handle) )
 	{
+		audio.clipDescs[handle.idx] = audioClipDesc;
+
 		AudioClip &audioClip = GetAudioClip(audio, handle);
 		//ASSERT(!audioClip.samples);
 

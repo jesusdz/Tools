@@ -175,9 +175,11 @@ struct Graphics
 	RenderPassH idRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
+	TextureDesc textureDescs[MAX_TEXTURES];
 	HandleManager textureHandles;
 
 	Material materials[MAX_MATERIALS];
+	MaterialDesc materialDescs[MAX_MATERIALS];
 	HandleManager materialHandles;
 
 	BindGroupAllocator globalBindGroupAllocator;
@@ -302,6 +304,7 @@ struct Game
 struct Scene
 {
 	Entity entities[MAX_ENTITIES];
+	EntityDesc entityDescs[MAX_ENTITIES];
 	HandleManager entityHandles;
 
 	TileAtlas tileAtlas;
@@ -954,6 +957,13 @@ Texture &GetTexture(Graphics &gfx, TextureH handle)
 	return texture;
 }
 
+TextureDesc &GetTextureDesc(Graphics &gfx, TextureH handle)
+{
+	ASSERT( IsValidHandle(gfx.textureHandles, handle) );
+	TextureDesc &textureDesc = gfx.textureDescs[handle.idx];
+	return textureDesc;
+}
+
 Texture &GetTextureAt(Graphics &gfx, u32 index)
 {
 	const u16 handleIndex = gfx.textureHandles.indices[index];
@@ -981,6 +991,8 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 		const ImageH imageHandle = CreateImage(gfx, img, desc.name, desc.mipmap);
 
 		textureHandle = CreateTexture(gfx);
+
+		gfx.textureDescs[textureHandle.idx] = desc;
 
 		Texture &texture = GetTexture(gfx, textureHandle);
 		texture.name = desc.name;
@@ -1123,6 +1135,13 @@ Material &GetMaterial(Graphics &gfx, MaterialH handle)
 	return material;
 }
 
+MaterialDesc &GetMaterialDesc(Graphics &gfx, MaterialH handle)
+{
+	ASSERT( IsValidHandle(gfx.materialHandles, handle) );
+	MaterialDesc &materialDesc = gfx.materialDescs[handle.idx];
+	return materialDesc;
+}
+
 void CreateMaterialBindGroup(Graphics &gfx, MaterialH materialH);
 
 MaterialH CreateMaterial(Graphics &gfx, const MaterialDesc &desc)
@@ -1138,6 +1157,8 @@ MaterialH CreateMaterial(Graphics &gfx, const MaterialDesc &desc)
 	material.albedoTexture = textureHandle;
 	material.uvScale = desc.uvScale;
 	material.bufferOffset = materialHandle.idx * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
+
+	gfx.materialDescs[materialHandle.idx] = desc;
 
 	CreateMaterialBindGroup(gfx, materialHandle);
 
@@ -1339,6 +1360,13 @@ Entity &GetEntity(Scene &scene, Handle handle)
 	return entity;
 }
 
+EntityDesc &GetEntityDesc(Scene &scene, Handle handle)
+{
+	ASSERT( IsValidHandle(scene.entityHandles, handle) );
+	EntityDesc &entityDesc = scene.entityDescs[handle.idx];
+	return entityDesc;
+}
+
 Entity &GetEntityAt(Scene &scene, u32 index)
 {
 	const u16 handleIndex = scene.entityHandles.indices[index];
@@ -1363,6 +1391,8 @@ void CreateEntity(Engine &engine, const EntityDesc &desc)
 	entity.vertices = vertices;
 	entity.indices = indices;
 	entity.materialH = FindMaterialHandle(engine.gfx, desc.materialName);
+
+	scene.entityDescs[handle.idx] = desc;
 }
 
 void CreateEntity(Engine &engine, const BinEntityDesc &desc)
@@ -2018,25 +2048,51 @@ void CleanupGraphics(Graphics &gfx)
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
 
-#if 0
-AssetDescriptors GetAssetDescriptorsFromGlobalArrays()
+AssetDescriptors GetAssetDescriptors(Engine &engine)
 {
+	static TextureDesc textureDescs[MAX_TEXTURES];
+	const u32 textureCount = engine.gfx.textureHandles.handleCount;
+	for ( u32 i = 0; i < textureCount; ++i) {
+		Handle handle = engine.gfx.textureHandles.handles[i];
+		textureDescs[i] = GetTextureDesc(engine.gfx, handle);
+	}
+
+	static MaterialDesc materialDescs[MAX_MATERIALS];
+	const u32 materialCount = engine.gfx.materialHandles.handleCount;
+	for ( u32 i = 0; i < materialCount; ++i) {
+		Handle handle = engine.gfx.materialHandles.handles[i];
+		materialDescs[i] = GetMaterialDesc(engine.gfx, handle);
+	}
+
+	static EntityDesc entityDescs[MAX_ENTITIES];
+	const u32 entityCount = engine.scene.entityHandles.handleCount;
+	for ( u32 i = 0; i < entityCount; ++i) {
+		Handle handle = engine.scene.entityHandles.handles[i];
+		entityDescs[i] = GetEntityDesc(engine.scene, handle);
+	}
+
+	static AudioClipDesc audioClipDescs[MAX_AUDIO_CLIPS];
+	const u32 audioClipCount = engine.audio.clipHandles.handleCount;
+	for ( u32 i = 0; i < audioClipCount; ++i) {
+		Handle handle = engine.audio.clipHandles.handles[i];
+		audioClipDescs[i] = GetAudioClipDesc(engine.audio, handle);
+	}
+
 	const AssetDescriptors assetDescs = {
-		.shaderDescs = shaderSourceDescs,
-		.shaderDescCount = ARRAY_COUNT(shaderSourceDescs),
-		.textureDescs = textures,
-		.textureDescCount = ARRAY_COUNT(textures),
+		.shaderDescs = nullptr, // shaderSourceDescs,
+		.shaderDescCount = 0, //ARRAY_COUNT(shaderSourceDescs),
+		.textureDescs = textureDescs,
+		.textureDescCount = textureCount,
 		.materialDescs = materialDescs,
-		.materialDescCount = ARRAY_COUNT(materialDescs),
+		.materialDescCount = materialCount,
 		.entityDescs = entityDescs,
-		.entityDescCount = ARRAY_COUNT(entityDescs),
+		.entityDescCount = entityCount,
 		.audioClipDescs = audioClipDescs,
-		.audioClipDescCount = ARRAY_COUNT(audioClipDescs),
+		.audioClipDescCount = audioClipCount,
 	};
 
 	return assetDescs;
 }
-#endif
 
 static bool PushDataArenaState(Engine &engine)
 {
@@ -2098,12 +2154,10 @@ void LoadSceneFromTxt(Engine &engine)
 
 void SaveSceneToTxt(Engine &engine)
 {
-#if 0 && USE_DATA_BUILD
-	const AssetDescriptors assetDescs = GetAssetDescriptorsFromGlobalArrays();
+	const AssetDescriptors assetDescs = GetAssetDescriptors(engine);
 
-	FilePath path = MakePath(AssetDir, "assets.txt");
+	FilePath path = MakePath(AssetDir, "assets_new.txt");
 	SaveAssetDescriptors(path.str, assetDescs);
-#endif // USE_DATA_BUILD
 }
 #endif // USE_DATA_BUILD
 

@@ -51,6 +51,7 @@ struct AudioChunk
 struct Audio
 {
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
+	AudioClipDesc clipDescs[MAX_AUDIO_CLIPS] = {};
 	HandleManager clipHandles;
 
 	AudioSource sources[MAX_AUDIO_SOURCES] = {};
@@ -73,6 +74,7 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount);
 
 AudioClip &GetAudioClip(Audio &audio, Handle handle);
+AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle);
 void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);
 void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc);
 void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle = true);
