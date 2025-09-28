@@ -165,6 +165,10 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 				StopAudioSource(engine, audioSourceMusic);
 			}
 		}
+
+		if ( UI_Button(ui, "Play MOD track") ) {
+			PlayModTrack(engine);
+		}
 	}
 
 	if ( UI_Section(ui, "Profiling" ) )

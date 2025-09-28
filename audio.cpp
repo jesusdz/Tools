@@ -575,3 +575,30 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// MOD music  tracks
+
+Module LoadModule(byte* data, u32 size)
+{
+	Module module = {};
+	return module;
+}
+
+void PlayModTrack(Engine &engine)
+{
+	static bool modLoaded = false;
+	if ( !modLoaded )
+	{
+		FilePath filePath = MakePath( AssetDir, "aurora.mod" );
+		DataChunk *chunk = PushFile( engine.platform.globalArena, filePath.str );
+		if ( chunk != nullptr )
+		{
+			LOG(Info, "aurora.mod loaded correctly from disk\n");
+
+			engine.audio.module = LoadModule(chunk->bytes, chunk->size);
+			modLoaded = true;
+		}
+	}
+}
+

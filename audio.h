@@ -1,6 +1,8 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#include "tools_mod.h"
+
 #define MAX_AUDIO_CLIPS 16
 #define MAX_AUDIO_SOURCES 16
 #define AUDIO_CHUNK_SAMPLE_COUNT (48000u/4u)
@@ -60,6 +62,9 @@ struct Audio
 	AudioChunk audioChunkSentinel;
 
 	bool initialized;
+
+	// WIP
+	Module module;
 };
 
 
@@ -86,5 +91,8 @@ void ResumeAudioSource(Engine &engine, u32 audioSourceIndex);
 void StopAudioSource(Engine &engine, u32 audioSourceIndex);
 
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
+
+Module LoadModule(byte *data, u32 size);
+void PlayModTrack(Engine &engine);
 
 #endif // AUDIO_H
