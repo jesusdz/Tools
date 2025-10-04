@@ -4,14 +4,34 @@
 ////////////////////////////////////////////////////////////////////////
 // Shader compilation
 
-u64 shaderSourceTimestamps[ARRAY_COUNT(shaderSourceDescs)] = {};
+static FilePath GetShaderHlslFilePath(u32 index)
+{
+	FilePath filepath;
+	const ShaderSourceDesc &desc = shaderSourceDescs[index];
+	SPrintf(filepath.str, "%s/shaders/%s", ProjectDir, desc.filename);
+	return filepath;
+}
+
+static FilePath GetShaderSpirvFilePath(u32 index)
+{
+	FilePath filepath;
+	const ShaderSourceDesc &desc = shaderSourceDescs[index];
+	SPrintf(filepath.str, "%s/shaders/%s.spv", DataDir, desc.name);
+	return filepath;
+}
+
+static FilePath GetShaderDisasmFilePath(u32 index)
+{
+	FilePath filepath;
+	const ShaderSourceDesc &desc = shaderSourceDescs[index];
+	SPrintf(filepath.str, "%s/shaders/%s.dis", DataDir, desc.name);
+	return filepath;
+}
 
 void CompileShader(u32 index)
 {
 	ASSERT(index < ARRAY_COUNT(shaderSourceDescs));
 	const ShaderSourceDesc &desc = shaderSourceDescs[index];
-
-	char text[MAX_PATH_LENGTH];
 
 #if PLATFORM_WINDOWS
 	constexpr const char *dxc = "dxc/windows/bin/x64/dxc.exe";
@@ -28,26 +48,23 @@ void CompileShader(u32 index)
 		desc.type == ShaderTypeCompute ? "cs_6_7" :
 		"unknown";
 	const char *entry = desc.entryPoint;
-	const char *output = desc.name;
-	const char *filename = desc.filename;
-	SPrintf(text,
+
+	const FilePath filepathSpirv = GetShaderSpirvFilePath(index);
+	const FilePath filepathDisasm = GetShaderDisasmFilePath(index);
+	const FilePath filepathHlsl = GetShaderHlslFilePath(index);
+
+	char commandline[MAX_PATH_LENGTH];
+	SPrintf(commandline,
 			"%s/%s "
 			"%s -T %s -E %s "
-			"-Fo %s/shaders/%s.spv -Fc %s/shaders/%s.dis "
-			"%s/shaders/%s",
+			"-Fo %s -Fc %s "
+			"%s",
 			ProjectDir, dxc,
 			flags, target, entry,
-			DataDir, output, DataDir, output,
-			ProjectDir, filename );
-	LOG(Debug, "%s\n", text);
-	ExecuteProcess(text);
-
-	char *spirvFilename = text;
-	SPrintf(spirvFilename, "%s/shaders/%s", ProjectDir, desc.filename);
-	u64 timestamp = 0;
-	if ( GetFileLastWriteTimestamp(spirvFilename, timestamp) ) {
-		shaderSourceTimestamps[index] = timestamp;
-	}
+			filepathSpirv.str, filepathDisasm,
+			filepathHlsl.str);
+	LOG(Debug, "%s\n", commandline);
+	ExecuteProcess(commandline);
 }
 
 void CompileShaders()
@@ -65,29 +82,22 @@ bool CompileModifiedShaders()
 {
 	bool recompiled = false;
 
-	static Clock lastClock = GetClock();
-	Clock currentClock = GetClock();
-	if (GetSecondsElapsed(lastClock, currentClock) < 0.2f) {
-		return recompiled;
-	}
-	lastClock = currentClock;
-
-	char filename[MAX_PATH_LENGTH];
-
 	for (u32 i = 0; i < ARRAY_COUNT(shaderSourceDescs); ++i)
 	{
-		const ShaderSourceDesc &desc = shaderSourceDescs[i];
-		SPrintf(filename, "%s/shaders/%s", ProjectDir, desc.filename);
+		const FilePath filepathHlsl = GetShaderHlslFilePath(i);
+		const FilePath filepathSpirv = GetShaderSpirvFilePath(i);
 
-		u64 timestamp = 0;
-		if ( GetFileLastWriteTimestamp(filename, timestamp) )
+		u64 timestampHlsl = 0;
+		u64 timestampSpirv = 0;
+		const bool success1 = GetFileLastWriteTimestamp(filepathHlsl.str, timestampHlsl);
+		const bool success2 = GetFileLastWriteTimestamp(filepathSpirv.str, timestampSpirv);
+		const bool someError = !success1 || !success2;
+
+		// In case of error recovering the timestamp, we compile just in case
+		if (someError || timestampHlsl > timestampSpirv)
 		{
-			if ( timestamp > shaderSourceTimestamps[i] )
-			{
-				shaderSourceTimestamps[i] = timestamp;
-				CompileShader(i);
-				recompiled = true;
-			}
+			CompileShader(i);
+			recompiled = true;
 		}
 	}
 

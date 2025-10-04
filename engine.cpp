@@ -1113,15 +1113,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 
 void RecreateModifiedTextures(Engine &engine)
 {
-	static Clock lastClock = GetClock();
-	const Clock currentClock = GetClock();
-	const f32 secondsSinceLastCheck  = GetSecondsElapsed(lastClock, currentClock);
-
-	if ( secondsSinceLastCheck > 0.2 )
-	{
-		lastClock = currentClock;
-		ForAllHandles(engine.gfx.textureHandles, RecreateTextureIfModifed, &engine);
-	}
+	ForAllHandles(engine.gfx.textureHandles, RecreateTextureIfModifed, &engine);
 }
 
 
@@ -3386,7 +3378,7 @@ bool OnPlatformInit(Platform &platform)
 	Game &game = engine.game;
 
 #if USE_EDITOR
-	CompileShaders();
+	CompileModifiedShaders();
 #endif
 
 #if USE_IMGUI
@@ -3484,14 +3476,23 @@ void OnPlatformUpdate(Platform &platform)
 #endif
 
 #if USE_EDITOR
-	if ( CompileModifiedShaders() )
-	{
-		// NOTE(jesus): Recompiling all pipelines here even if likely only a shader was recompiled :-S
-		WaitDeviceIdle(gfx.device);
-		RecompilePipelines(engine, platform.frameArena);
-	}
+	static Clock lastClock = GetClock();
+	const Clock currentClock = GetClock();
+	const f32 secondsSinceLastCheck  = GetSecondsElapsed(lastClock, currentClock);
 
-	RecreateModifiedTextures(engine);
+	if ( secondsSinceLastCheck > 0.2 )
+	{
+		lastClock = currentClock;
+
+		if ( CompileModifiedShaders() )
+		{
+			// NOTE(jesus): Recompiling all pipelines here even if likely only a shader was recompiled :-S
+			WaitDeviceIdle(gfx.device);
+			RecompilePipelines(engine, platform.frameArena);
+		}
+
+		RecreateModifiedTextures(engine);
+	}
 
 	EditorUpdate(engine);
 #endif

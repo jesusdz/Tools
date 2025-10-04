@@ -1503,6 +1503,7 @@ bool InitializeWindow(
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
 	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+	wc.hbrBackground = GetSysColorBrush(COLOR_GRAYTEXT); //(HBRUSH)GetStockObject(GRAY_BRUSH); //CreateSolidBrush(RGB(20,20,20));
 	ATOM classAtom = RegisterClassA(&wc);
 
 	if (classAtom == 0)
