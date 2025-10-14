@@ -111,18 +111,27 @@
 
 #define MAX_PATH_LENGTH 512
 
+enum LogVerbosityLevel
+{
+	Error,
+	Warning,
+	Info,
+	Debug,
+	LogVerbosityLevelCount,
+};
+
+#define LOG_VERBOSITY Info
+
 #if PLATFORM_ANDROID
-#define Debug ANDROID_LOG_DEBUG
-#define Info ANDROID_LOG_INFO
-#define Warning ANDROID_LOG_WARN
-#define Error ANDROID_LOG_ERROR
-#define LOG(channel, fmt, ...) ((void)__android_log_print(channel, "tools", fmt, ##__VA_ARGS__))
+static const int __android_log_channel[] = {
+	ANDROID_LOG_ERROR,
+	ANDROID_LOG_WARN,
+	ANDROID_LOG_INFO,
+	ANDROID_LOG_DEBUG,
+};
+#define LOG(channel, fmt, ...) if ( channel <= LOG_VERBOSITY ) { ((void)__android_log_print(__android_log_channel[channel], "tools", fmt, ##__VA_ARGS__)); }
 #else
-#define Debug 0
-#define Info 1
-#define Warning 2
-#define Error 3
-#define LOG(channel, fmt, ...) printf(fmt, ##__VA_ARGS__)
+#define LOG(channel, fmt, ...) if ( channel <= LOG_VERBOSITY ) { printf(fmt, ##__VA_ARGS__); }
 #endif
 
 #if PLATFORM_ANDROID
@@ -176,11 +185,17 @@ CT_ASSERT(sizeof(f32) == 4);
 CT_ASSERT(sizeof(f64) == 8);
 CT_ASSERT(sizeof(byte) == 1);
 
-#define I8_MAX 128
+#define I8_MIN -128
+#define I8_MAX 127
+#define U8_MIN 0
 #define U8_MAX 255
+#define I16_MIN -32768
 #define I16_MAX 32767
+#define U16_MIN 0
 #define U16_MAX 65535
+#define I32_MIN -2147483648
 #define I32_MAX 2147483647
+#define U32_MIN 0
 #define U32_MAX 4294967295
 
 #if PLATFORM_WINDOWS
@@ -206,6 +221,20 @@ u32 U64ToU32(u64 value)
 	return res;
 }
 
+i32 U32ToI32(u32 value)
+{
+	ASSERT( value >= I32_MIN && value < I32_MAX );
+	const i32 res = (i32)value;
+	return res;
+}
+
+i16 I32ToI16(i32 value)
+{
+	ASSERT( value >= I16_MIN && value < I16_MAX );
+	const i16 res = (i16)value;
+	return res;
+}
+
 u16 I32ToU16(i32 value)
 {
 	ASSERT( value >= 0 && value < U16_MAX );
@@ -219,6 +248,14 @@ u8 I32ToU8(i32 value)
 	const u8 res = (u8)value;
 	return res;
 }
+
+i16 ClipI32ToI16(i32 value)
+{
+	if ( value < I16_MIN ) { return I16_MIN; }
+	if ( value > I16_MAX ) { return I16_MAX; }
+	return value;
+}
+
 
 
 
