@@ -409,6 +409,7 @@ struct Platform
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
 	void (*RenderGraphicsCallback)(Platform &);
+	void (*PreRenderAudioCallback)(Platform &);
 	void (*RenderAudioCallback)(Platform &, SoundBuffer &soundBuffer);
 	void (*CleanupCallback)(Platform &);
 	bool (*WindowInitCallback)(Platform &);
@@ -1503,7 +1504,7 @@ bool InitializeWindow(
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
 	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = GetSysColorBrush(COLOR_GRAYTEXT); //(HBRUSH)GetStockObject(GRAY_BRUSH); //CreateSolidBrush(RGB(20,20,20));
+	//wc.hbrBackground = GetSysColorBrush(COLOR_GRAYTEXT); //(HBRUSH)GetStockObject(GRAY_BRUSH); //CreateSolidBrush(RGB(20,20,20));
 	ATOM classAtom = RegisterClassA(&wc);
 
 	if (classAtom == 0)
@@ -2290,6 +2291,11 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 	// NOTE(jesus): AAudio makes an async call to AAudioFillAudioBuffer.
 
 #endif
+
+	if ( platform.PreRenderAudioCallback )
+	{
+		platform.PreRenderAudioCallback(platform);
+	}
 }
 
 #if USE_AUDIO_THREAD
@@ -2328,6 +2334,11 @@ bool InitializeAudio(Platform &platform)
 	{
 		LOG(Info, "- RenderAudioCallback not provided, sound system not required\n");
 		return true;
+	}
+
+	if ( platform.PreRenderAudioCallback == nullptr )
+	{
+		LOG(Info, "- PreRenderAudioCallback not provided (you might want it to pre-render costly stuff)\n");
 	}
 
 	AudioDevice &audio = platform.audio;

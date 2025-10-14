@@ -1587,18 +1587,18 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 	}
 
 
-	LOG(Info, "Swapchain:\n");
+	LOG(Debug, "Swapchain:\n");
 #if PLATFORM_ANDROID
 	const u32 baseWidth = swapchain.extent.width;
 	const u32 baseHeight = swapchain.extent.height;
 	swapchain.extent.width = Max(baseWidth/2, surfaceCapabilities.minImageExtent.width);
 	swapchain.extent.height = Max(baseHeight/2, surfaceCapabilities.minImageExtent.height);
-	LOG(Info, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
-	LOG(Info, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
-	LOG(Info, "- base extent (%ux%u)\n", baseWidth, baseHeight);
+	LOG(Debug, "- min extent (%ux%u)\n", surfaceCapabilities.minImageExtent.width, surfaceCapabilities.minImageExtent.height);
+	LOG(Debug, "- max extent (%ux%u)\n", surfaceCapabilities.maxImageExtent.width, surfaceCapabilities.maxImageExtent.height);
+	LOG(Debug, "- base extent (%ux%u)\n", baseWidth, baseHeight);
 #endif
-	LOG(Info, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
-	LOG(Info, "- format %s\n", FormatName(FormatFromVulkan(swapchainInfo.format)));
+	LOG(Debug, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
+	LOG(Debug, "- format %s\n", FormatName(FormatFromVulkan(swapchainInfo.format)));
 
 
 	// Pre transform
@@ -1633,7 +1633,7 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 	} else {
 		INVALID_CODE_PATH();
 	}
-	LOG(Info, "- preRotationDegrees: %f\n", swapchain.preRotationDegrees);
+	LOG(Debug, "- preRotationDegrees: %f\n", swapchain.preRotationDegrees);
 
 
 	// Image count
@@ -3989,7 +3989,7 @@ bool Present(GraphicsDevice &device, SubmitResult submitResult)
 
 	if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR)
 	{
-		LOG(Warning, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
+		LOG(Debug, "vkQueuePresentKHR - result: VK_ERROR_OUT_OF_DATE_KHR || VK_SUBOPTIMAL_KHR\n");
 		device.swapchain.valid = false;
 	}
 	else if (presentResult != VK_SUCCESS)
