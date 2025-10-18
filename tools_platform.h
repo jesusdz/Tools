@@ -2932,17 +2932,17 @@ bool PlatformInitialize(Platform &platform, int argc, char **argv)
 	ASSERT( platform.WindowCleanupCallback );
 
 	byte *globalMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
-	platform.globalArena = MakeArena(globalMemory, platform.globalMemorySize);
+	platform.globalArena = MakeArena(globalMemory, platform.globalMemorySize, "Global arena");
 
 	byte *frameMemory = (byte*)AllocateVirtualMemory(platform.frameMemorySize);
-	platform.frameArena = MakeArena(frameMemory, platform.frameMemorySize);
+	platform.frameArena = MakeArena(frameMemory, platform.frameMemorySize, "Frame arena");
 
 	byte *stringMemory = (byte*)AllocateVirtualMemory(platform.stringMemorySize);
-	platform.stringArena = MakeArena(stringMemory, platform.stringMemorySize);
+	platform.stringArena = MakeArena(stringMemory, platform.stringMemorySize, "String arena");
 	platform.stringInterning = StringInterningCreate(&platform.stringArena);
 
 	byte *dataMemory = (byte*)AllocateVirtualMemory(platform.dataMemorySize);
-	platform.dataArena = MakeArena(dataMemory, platform.dataMemorySize);
+	platform.dataArena = MakeArena(dataMemory, platform.dataMemorySize, "Data arena");
 
 #if PLATFORM_ANDROID
 	ASSERT( platform.androidApp );

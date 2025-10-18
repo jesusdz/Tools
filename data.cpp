@@ -1075,7 +1075,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			shaderHeader.location.offset = payloadOffset;
 			shaderHeader.location.size = U64ToU32(payloadSize);
 
-			Arena scratch = MakeSubArena(tempArena);
+			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
 			void *shaderPayload = PushSize(scratch, payloadSize);
 			ReadEntireFile(filepath, shaderPayload, payloadSize);
 
@@ -1133,7 +1133,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
 
 			AudioClip audioClip;
-			Arena scratch = MakeSubArena(tempArena);
+			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
 			void *samples = nullptr;
 			const bool ok = LoadAudioClipFromWAVFile(path.str, scratch, audioClip, &samples);
 

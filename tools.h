@@ -806,41 +806,57 @@ struct Arena
 	byte* base;
 	u32 used;
 	u32 size;
+	const char *name;
 };
 
-Arena MakeArena(byte* base, u32 size)
+Arena MakeArena(byte* base, u32 size, const char *name)
 {
-	ASSERT(base != NULL && "MakeArena needs a non-null base pointer.");
-	ASSERT(size > 0 && "MakeArena needs a greater-than-zero size.");
+	ASSERTMSG(base != NULL, "MakeArena needs a non-null base pointer.");
+	ASSERTMSG(size > 0, "MakeArena needs a size greater-than-zero.");
 	Arena arena = {};
 	arena.base = base;
 	arena.size = size;
 	arena.used = 0;
+	arena.name = name;
 	return arena;
 }
 
-Arena MakeSubArena(Arena &arena, u32 size)
+Arena MakeSubArena(Arena &arena, u32 size, const char *name)
 {
-	ASSERT(arena.used + size <= arena.size && "MakeSubArena of bounds of the memory arena.");
+	ASSERTMSG(arena.used + size <= arena.size,
+			"MakeSubArena out of bounds of the memory arena.\n"
+			"- Arena: %s\n"
+			"- Subarena: %s\n",
+			arena.name, name);
 	Arena subarena = {};
 	subarena.base = arena.base + arena.used;
 	subarena.size = size;
 	subarena.used = 0;
+	subarena.name = name;
 	return subarena;
 }
 
-Arena MakeSubArena(Arena &arena)
+Arena MakeSubArena(Arena &arena, const char *name)
 {
 	u32 remainingSize = arena.size - arena.used;
-	Arena subarena = MakeSubArena(arena, remainingSize);
+	Arena subarena = MakeSubArena(arena, remainingSize, name);
 	return subarena;
+}
+
+Arena PushSubArena(Arena &arena, u32 size, const char *name)
+{
+	Arena subArena = MakeSubArena(arena, size, name);
+	arena.used += size;
+	return subArena;
 }
 
 byte* PushSize(Arena &arena, u32 size)
 {
 	ASSERTMSG(arena.used + size <= arena.size,
-		"PushSize of bounds of the memory arena\n"
+		"PushSize out of bounds of the memory arena.\n"
+		"- Arena: %s\n"
 		"- push size: %u\n- arena size: %u\n- arena remaining size: %u\n).",
+		arena.name,
 		size, arena.size, arena.size - arena.used);
 	byte* head = arena.base + arena.used;
 	arena.used += size;

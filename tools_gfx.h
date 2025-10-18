@@ -1957,7 +1957,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 		u32 deviceScore = 0;
 		VkPhysicalDevice physicalDevice = physicalDevices[i];
 
-		Arena scratch2 = MakeSubArena(scratch);
+		Arena scratch2 = MakeSubArena(scratch, "Scratch - InitializeGraphicsDevice");
 
 		// Prioritize discrete GPUs over integrated ones
 		VkPhysicalDeviceProperties properties;
@@ -2898,7 +2898,7 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
 Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
-	Arena scratch = MakeSubArena(arena);
+	Arena scratch = MakeSubArena(arena, "Scratch - CreateGraphicsPipelineInternal");
 
 	// Create pipeline
 	const ShaderSource vertexShaderSource = desc.vertexShaderSource;

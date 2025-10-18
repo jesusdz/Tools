@@ -61,6 +61,8 @@ struct AudioChunk
 
 struct Audio
 {
+	Arena arena;
+
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
 	AudioClipDesc clipDescs[MAX_AUDIO_CLIPS] = {};
 	HandleManager clipHandles;
@@ -116,7 +118,7 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
 
 //struct module LoadModule(const byte *data, u32 size);
 
-void MusicLoad(Engine &engine);
+void MusicLoad(Audio &audio);
 void MusicPlay(Engine &engine);
 void MusicPause(Engine &engine);
 void MusicStop(Engine &engine);

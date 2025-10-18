@@ -9,6 +9,10 @@
 
 bool InitializeAudio(Audio &audio, Arena &globalArena)
 {
+	// Arena
+
+	audio.arena = PushSubArena(globalArena, MB(16), "Audio arena");
+
 	// Allocate audio chunks
 
 	const u32 totalChunkCount = AUDIO_CHUNK_MEMORY / sizeof(AudioChunk);
@@ -22,7 +26,7 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 		return false;
 	}
 
-	AudioChunk *chunks = PushArray(globalArena, AudioChunk, totalChunkCount);
+	AudioChunk *chunks = PushArray(audio.arena, AudioChunk, totalChunkCount);
 	if ( chunks == nullptr )
 	{
 		LOG(Error, "- Could not allocate memory for %u audio chunks\n", totalChunkCount);
@@ -47,7 +51,7 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 	// Allocate music buffer
 
 	const u32 musicMonoSampleCount = AUDIO_MUSIC_MEMORY / sizeof(i16);
-	audio.musicBuffer = PushArray(globalArena, i16, musicMonoSampleCount);
+	audio.musicBuffer = PushArray(audio.arena, i16, musicMonoSampleCount);
 	audio.musicBufferSampleCount = musicMonoSampleCount;
 
 	audio.musicBufferReadSampleIndex = 0;
@@ -57,9 +61,12 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 
 	//audio.moduleClip = InvalidHandle;
 
+	// TODO(jesus): Should not be loaded here. Left here temporarilly.
+	MusicLoad(audio);
+
 	// Audio clips
 
-	Initialize(audio.clipHandles, globalArena, MAX_AUDIO_SOURCES);
+	Initialize(audio.clipHandles, audio.arena, MAX_AUDIO_SOURCES);
 
 	FullWriteBarrier();
 	audio.initialized = true;
@@ -182,6 +189,12 @@ bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &aud
 		LOG(Warning, "Could not load sound file %s\n", filename);
 		return false;
 	}
+}
+
+bool LoadAudioClipFromWAVFile(const char *filename, AudioClip &audioClip)
+{
+	Arena dummyArena = {};
+	return LoadAudioClipFromWAVFile(filename, dummyArena, audioClip, nullptr);
 }
 
 bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSampleIndex, u32 sampleCount)
@@ -356,8 +369,16 @@ Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 		AudioClip &audioClip = GetAudioClip(audio, handle);
 		//ASSERT(!audioClip.samples);
 
-		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip, nullptr);
-		audioClip.loadSource = AUDIO_CLIP_LOAD_SOURCE_WAV;
+		if ( LoadAudioClipFromWAVFile(audioClipDesc.filename, audioClip) )
+		{
+			audioClip.loadSource = AUDIO_CLIP_LOAD_SOURCE_WAV;
+		}
+		else
+		{
+			LOG(Warning, "Could not load audio clip %s (not enough memory for audio clips)\n", audioClipDesc.filename);
+			FreeHandle(audio.clipHandles, handle);
+			handle = InvalidHandle;
+		}
 	}
 	else
 	{
@@ -744,17 +765,15 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 ////////////////////////////////////////////////////////////////////////
 // MOD music  tracks
 
-void MusicLoad(Engine &engine)
+void MusicLoad(Audio &audio)
 {
-	Audio &audio = engine.audio;
-
 	if ( !audio.moduleLoaded )
 	{
 		//const char *filename = "ssi_intro.s3m";
 		//const char *filename = "strshine.s3m";
 		const char *filename = "aurora.mod";
 		FilePath filePath = MakePath( AssetDir, filename );
-		DataChunk *chunk = PushFile( engine.platform.globalArena, filePath.str );
+		DataChunk *chunk = PushFile( audio.arena, filePath.str );
 		if ( chunk != nullptr )
 		{
 			LOG(Info, "%s loaded correctly from disk\n", filename);
@@ -763,7 +782,7 @@ void MusicLoad(Engine &engine)
 			struct data data;
 			data.buffer = (char*)chunk->bytes;
 			data.length = chunk->size;
-			//audio.module = ModuleLoad(chunk->bytes, chunk->size, engine.platform.globalArena );
+			//audio.module = ModuleLoad(chunk->bytes, chunk->size, audio.arena);
 			audio.module = module_load(&data, message);
 
 			//audio.moduleReplay = ModuleReplayCreate(audio.module, 48000, 0);
@@ -801,9 +820,6 @@ void MusicLoad(Engine &engine)
 void MusicPlay(Engine &engine)
 {
 	Audio &audio = engine.audio;
-
-	// TODO(jesus): Should not be loaded here. Left here temporarilly.
-	MusicLoad(engine);
 
 	if ( audio.moduleLoaded )
 	{

@@ -2249,7 +2249,7 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 {
 	CompileShaders();
 
-	Arena scratch = MakeSubArena(engine.platform.dataArena);
+	Arena scratch = MakeSubArena(engine.platform.dataArena, "Scratch - BuildShaders");
 	AssetDescriptors assetDescriptors = {};
 	assetDescriptors.shaderDescs = shaderSourceDescs;
 	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSourceDescs);
@@ -2258,7 +2258,7 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 
 void BuildAssetsFromTxt(Engine &engine, const char *inTxtFilepath, const char *outBinFilepath)
 {
-	Arena scratch = MakeSubArena(engine.platform.dataArena);
+	Arena scratch = MakeSubArena(engine.platform.dataArena, "Scratch - BuildAssetsFromTxt");
 	AssetDescriptors assetDescriptors = ParseDescriptors(inTxtFilepath, scratch);
 	BuildAssets(assetDescriptors, outBinFilepath, scratch);
 }
