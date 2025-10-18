@@ -2,7 +2,10 @@
 ////////////////////////////////////////////////////////////////////////
 // Audio system init
 
-#define AUDIO_CHUNK_MEMORY MB(1)
+// At 48000 Hz, 2 channels, 2 bytes per mono sample, 1MB is about 6 seconds of audio
+
+#define AUDIO_CHUNK_MEMORY MB(4)
+#define AUDIO_MUSIC_MEMORY MB(4)
 
 bool InitializeAudio(Audio &audio, Arena &globalArena)
 {
@@ -15,7 +18,7 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 	// in sequences of chunks, so we play one and prefetch the next one.
 	if (totalChunkCount < MAX_AUDIO_SOURCES * 2)
 	{
-		LOG(Error, "- totalChunkCount (%u) must be <= MAX_AUDIO_SOURCES * 2 (%u)\n", totalChunkCount, MAX_AUDIO_SOURCES * 2);
+		LOG(Error, "- totalChunkCount (%u) must be >= MAX_AUDIO_SOURCES * 2 (%u)\n", totalChunkCount, MAX_AUDIO_SOURCES * 2);
 		return false;
 	}
 
@@ -40,6 +43,21 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 	last->next = &audio.audioChunkSentinel;
 	audio.audioChunkSentinel.next = first;
 	audio.audioChunkSentinel.prev = last;
+
+	// Allocate music buffer
+
+	const u32 musicMonoSampleCount = AUDIO_MUSIC_MEMORY / sizeof(i16);
+	audio.musicBuffer = PushArray(globalArena, i16, musicMonoSampleCount);
+	audio.musicBufferSampleCount = musicMonoSampleCount;
+
+	audio.musicBufferReadSampleIndex = 0;
+	audio.musicBufferWriteSampleIndex = 0;
+
+	// Mod track
+
+	//audio.moduleClip = InvalidHandle;
+
+	// Audio clips
 
 	Initialize(audio.clipHandles, globalArena, MAX_AUDIO_SOURCES);
 
@@ -224,6 +242,61 @@ bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSample
 	}
 }
 
+static i32 mixedSamples[48000/3];
+
+void LoadSamplesFromModFile(struct replay *replay, void *samples, u32 firstSampleIndex, u32 sampleCount)
+{
+	ASSERT(firstSampleIndex % 2 == 0);
+	ASSERT(sampleCount % 2 == 0);
+	i32 stereoSampleCount = U32ToI32(sampleCount/2);
+	i32 firstStereoSample = U32ToI32(firstSampleIndex/2);
+	i32 lastStereoSample = firstStereoSample + stereoSampleCount;
+
+	//i32 currentStereoSample = ModuleReplaySetSamplePos(replay, firstStereoSample);
+	i32 currentStereoSample = replay_seek(replay, firstStereoSample);
+	ASSERT(currentStereoSample <= firstStereoSample);
+
+	LOG(Info, "SetPos(%d) vs. WantPos(%u)\n", currentStereoSample, firstStereoSample);
+
+	i16 *dstSamples = (i16*)samples;
+
+	while (currentStereoSample < lastStereoSample)
+	{
+		i32 *srcSamples = mixedSamples;
+		//i32 renderedStereoSampleCount = ModuleReplayGetAudio(replay, srcSamples, 0);
+		i32 renderedStereoSampleCount = replay_get_audio(replay, srcSamples, 0 );
+		LOG(Info, "- Rendered %u stereo samples\n", renderedStereoSampleCount);
+
+		for (u32 i = 0; i < renderedStereoSampleCount && currentStereoSample < lastStereoSample; ++i)
+		{
+			if ( currentStereoSample >= firstStereoSample && currentStereoSample < lastStereoSample )
+			{
+				*dstSamples++ = ClipI32ToI16( *srcSamples++ );
+				*dstSamples++ = ClipI32ToI16( *srcSamples++ );
+			}
+			++currentStereoSample;
+		}
+	}
+}
+
+// returns the number of mono samples loaded
+u32 LoadSamplesFromModFile(struct replay *replay, void *samples, u32 sampleCount)
+{
+	i16 *dstSamples = (i16*)samples;
+	i32 *srcSamples = mixedSamples;
+	//i32 renderedStereoSampleCount = ModuleReplayGetAudio(replay, srcSamples, 0);
+	i32 renderedStereoSampleCount = replay_get_audio(replay, srcSamples, 0);
+	ASSERT(renderedStereoSampleCount * 2 <= sampleCount);
+
+	for (u32 i = 0; i < renderedStereoSampleCount; ++i)
+	{
+		*dstSamples++ = ClipI32ToI16( *srcSamples++ );
+		*dstSamples++ = ClipI32ToI16( *srcSamples++ );
+	}
+
+	return renderedStereoSampleCount * 2;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -243,7 +316,7 @@ AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle)
 	return audioClipDesc;
 }
 
-void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
+Handle CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 {
 	Audio &audio = engine.audio;
 
@@ -258,16 +331,18 @@ void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 		audioClip.samplingRate = desc.samplingRate;
 		audioClip.channelCount = desc.channelCount;
 		audioClip.sampleCount = desc.sampleCount;
-		audioClip.loadedFromAssetsFile = true;
+		audioClip.loadSource = AUDIO_CLIP_LOAD_SOURCE_ASSETS;
 		audioClip.location = desc.location;
 	}
 	else
 	{
 		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", "<audio-clip>");
 	}
+
+	return handle;
 }
 
-void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
+Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 {
 	Audio &audio = engine.audio;
 	Arena &arena = engine.platform.dataArena;
@@ -282,12 +357,14 @@ void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 		//ASSERT(!audioClip.samples);
 
 		LoadAudioClipFromWAVFile(audioClipDesc.filename, arena, audioClip, nullptr);
-		audioClip.loadedFromAssetsFile = false;
+		audioClip.loadSource = AUDIO_CLIP_LOAD_SOURCE_WAV;
 	}
 	else
 	{
 		LOG(Warning, "Could not load audio clip %s (no more space left for audio clips)\n", audioClipDesc.filename);
 	}
+
+	return handle;
 }
 
 void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle)
@@ -318,35 +395,48 @@ void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle)
 //	return audioClipIndex;
 //}
 
+u32 FindFreeAudioSource(Engine &engine)
+{
+	Audio &audio = engine.audio;
+
+	for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
+	{
+		if (audio.sources[i].state == AUDIO_SOURCE_STATE_IDLE)
+		{
+			return i;
+		}
+	}
+
+	return INVALID_AUDIO_SOURCE;
+}
+
 u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
 {
 	Audio &audio = engine.audio;
+
 	u32 audioSourceIndex = INVALID_AUDIO_SOURCE;
 
 	if (audioClipIndex < audio.clipHandles.handleCount)
 	{
-		Handle clipHandle = GetHandleAt(audio.clipHandles, audioClipIndex);
-		AudioClip &audioClip = GetAudioClip(audio, clipHandle);
+		audioSourceIndex = FindFreeAudioSource(engine);
 
-		for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
+		if (audioSourceIndex == INVALID_AUDIO_SOURCE)
 		{
-			AudioSource &audioSource = audio.sources[i];
+			LOG(Warning, "No available source to play audio clip %u\n", audioClipIndex);
+		}
+		else
+		{
+			AudioSource &audioSource = audio.sources[audioSourceIndex];
+			audioSource.clip = GetHandleAt(audio.clipHandles, audioClipIndex);
+			audioSource.lastWriteSampleIndex = 0;
 
-			if (audioSource.state == AUDIO_SOURCE_STATE_IDLE)
-			{
-				audioSource.clip = clipHandle;
-				audioSource.lastWriteSampleIndex = 0;
-				audioSourceIndex = i;
-
-				FullWriteBarrier();
-				audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
-				break;
-			}
+			FullWriteBarrier();
+			audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
 		}
 	}
-
-	if (audioSourceIndex == INVALID_AUDIO_SOURCE) {
-		LOG(Warning, "Could not play audio clip %u\n", audioClipIndex);
+	else
+	{
+		LOG(Warning, "Could not play not existing audio clip %u\n", audioClipIndex);
 	}
 
 	return audioSourceIndex;
@@ -417,25 +507,75 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 
 
 ////////////////////////////////////////////////////////////////////////
+// Music pre-render
+
+void PreRenderAudio(Engine &engine)
+{
+	Audio &audio = engine.audio;
+
+	Clock beginClock = GetClock();
+
+	if (audio.musicIsPlaying)
+	{
+		struct replay *replay = audio.moduleReplay;
+
+		const float budgetSeconds = 0.007f;
+		const float elapsedSeconds = GetSecondsElapsed(beginClock, GetClock());
+
+		while (/*audio.moduleSampleIndex < audio.moduleSampleCount &&*/ elapsedSeconds < budgetSeconds)
+		{
+			u32 writtenSampleCount = audio.musicBufferWriteSampleIndex - audio.musicBufferReadSampleIndex;
+			ASSERT(writtenSampleCount <= audio.musicBufferSampleCount);
+
+			// If music is not being read, don't load any more samples
+			if ( writtenSampleCount > audio.musicBufferSampleCount * 0.7 )
+			{
+				break;
+			}
+
+			// If we are writting far in the music buffer... place samples back at the beginning
+			if (audio.musicBufferWriteSampleIndex > audio.musicBufferSampleCount * 0.7 )
+			{
+
+				const u32 prevReadSampleIndex = audio.musicBufferReadSampleIndex;
+				for (u32 i = 0; i < writtenSampleCount; ++i)
+				{
+					audio.musicBuffer[i] = audio.musicBuffer[prevReadSampleIndex + i];
+				}
+				audio.musicBufferReadSampleIndex = 0;
+				audio.musicBufferWriteSampleIndex = writtenSampleCount;
+			}
+
+			void *samples = audio.musicBuffer + audio.musicBufferWriteSampleIndex;
+			u32 sampleCount = audio.musicBufferSampleCount - audio.musicBufferWriteSampleIndex;
+			u32 loadedSampleCount = LoadSamplesFromModFile(replay, samples, sampleCount);
+			audio.musicBufferWriteSampleIndex += loadedSampleCount;
+
+			if ( loadedSampleCount == 0 )
+			{
+				audio.musicIsPlaying = false;
+			}
+			//audio.moduleSampleIndex += loadedSampleCount;
+		}
+	}
+}
+
+////////////////////////////////////////////////////////////////////////
 // Audio mixer
 
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 {
-	// Wave parameters
-	const u32 ToneHz = 256;
-	const i32 ToneVolume = 4000;
-	const u32 WavePeriod = soundBuffer.samplesPerSecond / ToneHz;
-	static f32 tSine = 0.0f;
-
-	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
-
-#if 1
 	Audio &audio = engine.audio;
 
 	if (!audio.initialized) {
 		return;
 	}
 
+	if ( soundBuffer.sampleCount == 0 ) {
+		return;
+	}
+
+#if 1
 	Scratch scratch;
 
 	f32 *realSamples = PushArray(scratch.arena, f32, soundBuffer.sampleCount * 2.0f );
@@ -448,6 +588,23 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 		*samplePtr++ = 0.0f;
 	}
 
+	// Render music
+	if (audio.musicIsPlaying)
+	{
+		u32 availableMusicSampleCount = audio.musicBufferWriteSampleIndex - audio.musicBufferReadSampleIndex;
+		u32 musicSampleCount = Min((u32)soundBuffer.sampleCount * 2, availableMusicSampleCount);
+		//LOG(Info, "%u / %u (%u)\n", audio.musicBufferReadSampleIndex, audio.musicBufferWriteSampleIndex, availableMusicSampleCount);
+		i16 *srcSample = audio.musicBuffer + audio.musicBufferReadSampleIndex;
+		f32 *dstSample = realSamples;
+		for (u32 i = 0; i < musicSampleCount; ++i)
+		{
+			*dstSample++ = (f32)*srcSample++;
+		}
+		audio.musicBufferReadSampleIndex += musicSampleCount;
+	}
+
+
+	// Render audio clips
 	for (u32 i = 0; i < ARRAY_COUNT(audio.sources); ++i)
 	{
 		AudioSource &audioSource = audio.sources[i];
@@ -495,12 +652,12 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 					chunk->index = chunkIndex;
 
 					const u32 chunkSampleCount = (chunkIndex == chunkCount - 1) ? audioClip.sampleCount % AUDIO_CHUNK_SAMPLE_COUNT : AUDIO_CHUNK_SAMPLE_COUNT;
-					if ( audioClip.loadedFromAssetsFile )
+					if ( audioClip.loadSource == AUDIO_CLIP_LOAD_SOURCE_ASSETS )
 					{
 						FileSeek(engine.assets.file, audioClip.location.offset + firstSampleIndex * sizeof(i16));
 						ReadFromFile(engine.assets.file, chunk->samples, chunkSampleCount * sizeof(i16));
 					}
-					else
+					else // id ( audioClip.loadSource == AUDIO_CLIP_LOAD_SOURCE_WAV )
 					{
 						LoadSamplesFromWAVFile(audioClip.filename, chunk->samples, firstSampleIndex, chunkSampleCount);
 					}
@@ -559,6 +716,14 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 		*dstSample++ = (i16)*srcSample++;
 	}
 #else
+	// Wave parameters
+	const u32 ToneHz = 256;
+	const i32 ToneVolume = 4000;
+	const u32 WavePeriod = soundBuffer.samplesPerSecond / ToneHz;
+	static f32 tSine = 0.0f;
+
+	//LOG(Debug, "bitrate:%u, wavePeriod:%u\n", soundBuffer.samplesPerSecond, WavePeriod);
+
 	samplePtr = soundBuffer.samples;
 	for (u32 i = 0; i < soundBuffer.sampleCount; ++i)
 	{
@@ -579,26 +744,108 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 ////////////////////////////////////////////////////////////////////////
 // MOD music  tracks
 
-Module LoadModule(byte* data, u32 size)
+void MusicLoad(Engine &engine)
 {
-	Module module = {};
-	return module;
-}
+	Audio &audio = engine.audio;
 
-void PlayModTrack(Engine &engine)
-{
-	static bool modLoaded = false;
-	if ( !modLoaded )
+	if ( !audio.moduleLoaded )
 	{
-		FilePath filePath = MakePath( AssetDir, "aurora.mod" );
+		//const char *filename = "ssi_intro.s3m";
+		//const char *filename = "strshine.s3m";
+		const char *filename = "aurora.mod";
+		FilePath filePath = MakePath( AssetDir, filename );
 		DataChunk *chunk = PushFile( engine.platform.globalArena, filePath.str );
 		if ( chunk != nullptr )
 		{
-			LOG(Info, "aurora.mod loaded correctly from disk\n");
+			LOG(Info, "%s loaded correctly from disk\n", filename);
 
-			engine.audio.module = LoadModule(chunk->bytes, chunk->size);
-			modLoaded = true;
+			char message[64];
+			struct data data;
+			data.buffer = (char*)chunk->bytes;
+			data.length = chunk->size;
+			//audio.module = ModuleLoad(chunk->bytes, chunk->size, engine.platform.globalArena );
+			audio.module = module_load(&data, message);
+
+			//audio.moduleReplay = ModuleReplayCreate(audio.module, 48000, 0);
+			audio.moduleReplay = new_replay(audio.module, 48000, 0);
+			//audio.moduleSampleCount = ModuleReplaySampleCount(audio.moduleReplay) * 2;
+			audio.moduleSampleCount = replay_calculate_duration( audio.moduleReplay ) * 2;
+
+//			// TODO: Remove
+//			ASSERT(audio.moduleSampleCount <= AUDIO_MUSIC_MEMORY / sizeof(i16));
+//			u32 totalSamples = 0;
+//			while (totalSamples < audio.moduleSampleCount) {
+//				totalSamples += LoadSamplesFromModFile(audio.moduleReplay, audio.musicBuffer + totalSamples, audio.moduleSampleCount - totalSamples);
+//			}
+//			audio.musicBufferReadSampleIndex = 0;
+//			audio.musicBufferWriteSampleIndex = totalSamples;
+//			LOG(Info, "musicBufferWriteSampleIndex: %u\n", audio.musicBufferWriteSampleIndex);
+
+//			// Create module clip
+//			Handle clipHandle = NewHandle(audio.clipHandles);
+//			if ( IsValidHandle(audio.clipHandles, clipHandle) )
+//			{
+//				audio.moduleClip = clipHandle;
+//				AudioClip &audioClip = GetAudioClip(audio, clipHandle);
+//				audioClip.loadSource = AUDIO_CLIP_LOAD_SOURCE_MOD;
+//				audioClip.sampleCount = ModuleReplaySampleCount(audio.moduleReplay) * 2;
+//			}
+
+			FullWriteBarrier();
+			audio.moduleLoaded = true;
 		}
 	}
+
+}
+
+void MusicPlay(Engine &engine)
+{
+	Audio &audio = engine.audio;
+
+	// TODO(jesus): Should not be loaded here. Left here temporarilly.
+	MusicLoad(engine);
+
+	if ( audio.moduleLoaded )
+	{
+		audio.musicIsPlaying = true;
+	}
+
+//	if ( audio.moduleLoaded )
+//	{
+//		const u32 audioSourceIndex = FindFreeAudioSource(engine);
+//		if (audioSourceIndex != INVALID_AUDIO_SOURCE)
+//		{
+//			AudioSource &audioSource = engine.audio.sources[audioSourceIndex];
+//			audioSource.clip = audio.moduleClip;
+//			audioSource.lastWriteSampleIndex = 0;
+//
+//			FullWriteBarrier();
+//			audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
+//		}
+//	}
+}
+
+void MusicPause(Engine &engine)
+{
+	Audio &audio = engine.audio;
+	audio.musicIsPlaying = false;
+}
+
+void MusicStop(Engine &engine)
+{
+	Audio &audio = engine.audio;
+	if ( audio.moduleLoaded )
+	{
+		audio.musicIsPlaying = false;
+		audio.musicBufferReadSampleIndex = 0;
+		audio.musicBufferWriteSampleIndex = 0;
+		replay_set_sequence_pos( audio.moduleReplay, 0 );
+	}
+}
+
+bool MusicIsPlaying(Engine &engine)
+{
+	Audio &audio = engine.audio;
+	return audio.musicIsPlaying;
 }
 

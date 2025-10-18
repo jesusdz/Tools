@@ -1,7 +1,9 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
-#include "tools_mod.h"
+//#include "tools_mod.h"
+#include "ibxm/ibxm.h"
+
 
 #define MAX_AUDIO_CLIPS 16
 #define MAX_AUDIO_SOURCES 16
@@ -10,13 +12,20 @@
 ////////////////////////////////////////////////////////////////////////
 // Types
 
+enum AudioClipLoadSource
+{
+	AUDIO_CLIP_LOAD_SOURCE_WAV,
+	//AUDIO_CLIP_LOAD_SOURCE_MOD,
+	AUDIO_CLIP_LOAD_SOURCE_ASSETS,
+};
+
 struct AudioClip
 {
 	u32 sampleCount;
 	u32 samplingRate;
 	u16 sampleSize;
 	u16 channelCount;
-	bool loadedFromAssetsFile;
+	AudioClipLoadSource loadSource;
 	union
 	{
 		BinLocation location;
@@ -61,10 +70,22 @@ struct Audio
 	// Circular list of audio chunks
 	AudioChunk audioChunkSentinel;
 
-	bool initialized;
+	// Music ring buffer
+	i16 *musicBuffer;
+	u32 musicBufferSampleCount; // Mono samples count
 
-	// WIP
-	Module module;
+	// Music play state
+	bool musicIsPlaying;
+	u32 musicBufferReadSampleIndex;
+	u32 musicBufferWriteSampleIndex;
+
+	// MOD tracks
+	struct module *module;
+	bool moduleLoaded;
+	u32 moduleSampleCount;
+	struct replay *moduleReplay;
+
+	bool initialized;
 };
 
 
@@ -80,8 +101,8 @@ bool LoadSamplesFromWAVFile(const char *filename, void *samples, u32 firstSample
 
 AudioClip &GetAudioClip(Audio &audio, Handle handle);
 AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle);
-void CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);
-void CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc);
+Handle CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);
+Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc);
 void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle = true);
 u32 PlayAudioClip(Engine &engine, u32 audioClipIndex);
 bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex);
@@ -90,9 +111,15 @@ void PauseAudioSource(Engine &engine, u32 audioSourceIndex);
 void ResumeAudioSource(Engine &engine, u32 audioSourceIndex);
 void StopAudioSource(Engine &engine, u32 audioSourceIndex);
 
+void PreRenderAudio(Engine &engine);
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
 
-Module LoadModule(byte *data, u32 size);
-void PlayModTrack(Engine &engine);
+//struct module LoadModule(const byte *data, u32 size);
+
+void MusicLoad(Engine &engine);
+void MusicPlay(Engine &engine);
+void MusicPause(Engine &engine);
+void MusicStop(Engine &engine);
+bool MusicIsPlaying(Engine &engine);
 
 #endif // AUDIO_H

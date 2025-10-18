@@ -689,8 +689,8 @@ UI &GetUI(Engine &engine)
 
 void OnPlatformPreRenderAudio(Platform &platform)
 {
-	//Engine &engine = GetEngine(platform);
-	//PreRenderAudio(engine);
+	Engine &engine = GetEngine(platform);
+	PreRenderAudio(engine);
 }
 
 void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
@@ -3668,7 +3668,7 @@ int main(int argc, char **argv)
 #if USE_EDITOR
 #include "editor.cpp"
 #endif
-//#include "ibxm/ibxm.c"
+#include "ibxm/ibxm.c"
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.

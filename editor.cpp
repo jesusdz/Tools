@@ -140,6 +140,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 		UI_SeparatorLabel(ui, "Music");
 
+#if 0
 		static u32 audioSourceMusic = INVALID_AUDIO_SOURCE;
 		if ( !IsActiveAudioSource(engine, audioSourceMusic) ) {
 			audioSourceMusic = INVALID_AUDIO_SOURCE;
@@ -165,9 +166,18 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 				StopAudioSource(engine, audioSourceMusic);
 			}
 		}
+#endif
 
-		if ( UI_Button(ui, "Play MOD track") ) {
-			PlayModTrack(engine);
+		if ( MusicIsPlaying(engine) ) {
+			if ( UI_Button(ui, "Pause music") ) {
+				MusicPause(engine);
+			} if ( UI_Button(ui, "Stop music") ) {
+				MusicStop(engine);
+			}
+		} else {
+			if ( UI_Button(ui, "Play music") ) {
+				MusicPlay(engine);
+			}
 		}
 	}
 
