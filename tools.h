@@ -850,6 +850,13 @@ Arena PushSubArena(Arena &arena, u32 size, const char *name)
 	return subArena;
 }
 
+Arena PushSubArena(Arena &arena, const char *name)
+{
+	Arena subArena = MakeSubArena(arena, name);
+	arena.used = arena.size;
+	return subArena;
+}
+
 byte* PushSize(Arena &arena, u32 size)
 {
 	ASSERTMSG(arena.used + size <= arena.size,
@@ -907,9 +914,9 @@ void ResetArena(Arena &arena)
 
 #define ZeroStruct( pointer ) MemSet(pointer, sizeof(*pointer), 0)
 #define PushStruct( arena, struct_type ) (struct_type*)PushSize(arena, sizeof(struct_type))
-#define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * count)
+#define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * (count))
 #define PushZeroStruct( arena, struct_type ) (struct_type*)PushZeroSize(arena, sizeof(struct_type))
-#define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * count)
+#define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * (count))
 
 
 
