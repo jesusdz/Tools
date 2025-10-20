@@ -1,6 +1,16 @@
 
 /* ibxm/ac mod/xm/s3m replay (c)mumart@gmail.com */
 
+/*
+Changes to IBXM library by Jesus Diaz
+This library has been slightly modified to not use calloc/free and use custom
+allocation based on linear arenas instead.
+- calloc has been replaced by PushZeroArray and PushZeroStruct, which are now
+  only needed at module and replay objects creation time.
+- free is not needed, deallocation happens at once when resetting the arena.
+  Consequently, dispose methods have also been removed from the libray.
+*/
+
 #ifndef IBXM_H
 #define IBXM_H
 
@@ -49,13 +59,9 @@ struct module {
 
 /* Allocate and initialize a module from the specified data, returns NULL on error.
    Message must point to a 64-character buffer to receive error messages. */
-struct module* module_load( struct data *data, char *message );
-/* Deallocate the specified module. */
-void dispose_module( struct module *module );
+struct module* module_load( struct data *data, char *message, struct Arena *arena );
 /* Allocate and initialize a replay with the specified module and sampling rate. */
-struct replay* new_replay( struct module *module, int sample_rate, int interpolation );
-/* Deallocate the specified replay. */
-void dispose_replay( struct replay *replay );
+struct replay* new_replay( struct module *module, int sample_rate, int interpolation, struct Arena *arena );
 /* Returns the song duration in samples at the current sampling rate. */
 int replay_calculate_duration( struct replay *replay );
 /* Seek to approximately the specified sample position.

@@ -6,13 +6,10 @@
 
 #define AUDIO_CHUNK_MEMORY MB(4)
 #define AUDIO_MUSIC_MEMORY MB(4)
+#define AUDIO_MODULE_MEMORY MB(2)
 
 bool InitializeAudio(Audio &audio, Arena &globalArena)
 {
-	// Arena
-
-	audio.arena = PushSubArena(globalArena, MB(16), "Audio arena");
-
 	// Allocate audio chunks
 
 	const u32 totalChunkCount = AUDIO_CHUNK_MEMORY / sizeof(AudioChunk);
@@ -26,7 +23,7 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 		return false;
 	}
 
-	AudioChunk *chunks = PushArray(audio.arena, AudioChunk, totalChunkCount);
+	AudioChunk *chunks = PushArray(globalArena, AudioChunk, totalChunkCount);
 	if ( chunks == nullptr )
 	{
 		LOG(Error, "- Could not allocate memory for %u audio chunks\n", totalChunkCount);
@@ -48,10 +45,14 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 	audio.audioChunkSentinel.next = first;
 	audio.audioChunkSentinel.prev = last;
 
+	// Audio clips
+
+	Initialize(audio.clipHandles, globalArena, MAX_AUDIO_SOURCES);
+
 	// Allocate music buffer
 
 	const u32 musicMonoSampleCount = AUDIO_MUSIC_MEMORY / sizeof(i16);
-	audio.musicBuffer = PushArray(audio.arena, i16, musicMonoSampleCount);
+	audio.musicBuffer = PushArray(globalArena, i16, musicMonoSampleCount);
 	audio.musicBufferSampleCount = musicMonoSampleCount;
 
 	audio.musicBufferReadSampleIndex = 0;
@@ -59,14 +60,11 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 
 	// Mod track
 
-	//audio.moduleClip = InvalidHandle;
-
 	// TODO(jesus): Should not be loaded here. Left here temporarilly.
+	audio.moduleArena = PushSubArena(globalArena, AUDIO_MODULE_MEMORY, "MOD arena");
 	MusicLoad(audio);
 
-	// Audio clips
-
-	Initialize(audio.clipHandles, audio.arena, MAX_AUDIO_SOURCES);
+	// Initialized!
 
 	FullWriteBarrier();
 	audio.initialized = true;
@@ -276,7 +274,6 @@ void LoadSamplesFromModFile(struct replay *replay, void *samples, u32 firstSampl
 	while (currentStereoSample < lastStereoSample)
 	{
 		i32 *srcSamples = mixedSamples;
-		//i32 renderedStereoSampleCount = ModuleReplayGetAudio(replay, srcSamples, 0);
 		i32 renderedStereoSampleCount = replay_get_audio(replay, srcSamples, 0 );
 		LOG(Info, "- Rendered %u stereo samples\n", renderedStereoSampleCount);
 
@@ -297,9 +294,9 @@ u32 LoadSamplesFromModFile(struct replay *replay, void *samples, u32 sampleCount
 {
 	i16 *dstSamples = (i16*)samples;
 	i32 *srcSamples = mixedSamples;
-	//i32 renderedStereoSampleCount = ModuleReplayGetAudio(replay, srcSamples, 0);
 	i32 renderedStereoSampleCount = replay_get_audio(replay, srcSamples, 0);
 	ASSERT(renderedStereoSampleCount * 2 <= sampleCount);
+	ASSERT(renderedStereoSampleCount * 2 <= ARRAY_COUNT(mixedSamples));
 
 	for (u32 i = 0; i < renderedStereoSampleCount; ++i)
 	{
@@ -543,7 +540,7 @@ void PreRenderAudio(Engine &engine)
 		const float budgetSeconds = 0.007f;
 		const float elapsedSeconds = GetSecondsElapsed(beginClock, GetClock());
 
-		while (/*audio.moduleSampleIndex < audio.moduleSampleCount &&*/ elapsedSeconds < budgetSeconds)
+		while (elapsedSeconds < budgetSeconds)
 		{
 			u32 writtenSampleCount = audio.musicBufferWriteSampleIndex - audio.musicBufferReadSampleIndex;
 			ASSERT(writtenSampleCount <= audio.musicBufferSampleCount);
@@ -551,13 +548,14 @@ void PreRenderAudio(Engine &engine)
 			// If music is not being read, don't load any more samples
 			if ( writtenSampleCount > audio.musicBufferSampleCount * 0.7 )
 			{
+				//LOG(Info, "Break\n");
 				break;
 			}
 
 			// If we are writting far in the music buffer... place samples back at the beginning
 			if (audio.musicBufferWriteSampleIndex > audio.musicBufferSampleCount * 0.7 )
 			{
-
+				//LOG(Info, "Copy\n");
 				const u32 prevReadSampleIndex = audio.musicBufferReadSampleIndex;
 				for (u32 i = 0; i < writtenSampleCount; ++i)
 				{
@@ -569,6 +567,10 @@ void PreRenderAudio(Engine &engine)
 
 			void *samples = audio.musicBuffer + audio.musicBufferWriteSampleIndex;
 			u32 sampleCount = audio.musicBufferSampleCount - audio.musicBufferWriteSampleIndex;
+
+			static u32 counter = 0;
+			//LOG(Info, "%u - LoadSamplesFromModFile %d\n", counter++, sampleCount);
+
 			u32 loadedSampleCount = LoadSamplesFromModFile(replay, samples, sampleCount);
 			audio.musicBufferWriteSampleIndex += loadedSampleCount;
 
@@ -576,7 +578,6 @@ void PreRenderAudio(Engine &engine)
 			{
 				audio.musicIsPlaying = false;
 			}
-			//audio.moduleSampleIndex += loadedSampleCount;
 		}
 	}
 }
@@ -773,7 +774,7 @@ void MusicLoad(Audio &audio)
 		//const char *filename = "strshine.s3m";
 		const char *filename = "aurora.mod";
 		FilePath filePath = MakePath( AssetDir, filename );
-		DataChunk *chunk = PushFile( audio.arena, filePath.str );
+		DataChunk *chunk = PushFile( audio.moduleArena, filePath.str );
 		if ( chunk != nullptr )
 		{
 			LOG(Info, "%s loaded correctly from disk\n", filename);
@@ -782,12 +783,9 @@ void MusicLoad(Audio &audio)
 			struct data data;
 			data.buffer = (char*)chunk->bytes;
 			data.length = chunk->size;
-			//audio.module = ModuleLoad(chunk->bytes, chunk->size, audio.arena);
-			audio.module = module_load(&data, message);
+			audio.module = module_load(&data, message, &audio.moduleArena);
 
-			//audio.moduleReplay = ModuleReplayCreate(audio.module, 48000, 0);
-			audio.moduleReplay = new_replay(audio.module, 48000, 0);
-			//audio.moduleSampleCount = ModuleReplaySampleCount(audio.moduleReplay) * 2;
+			audio.moduleReplay = new_replay(audio.module, 48000, 0, &audio.moduleArena);
 			audio.moduleSampleCount = replay_calculate_duration( audio.moduleReplay ) * 2;
 
 //			// TODO: Remove

@@ -61,8 +61,6 @@ struct AudioChunk
 
 struct Audio
 {
-	Arena arena;
-
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
 	AudioClipDesc clipDescs[MAX_AUDIO_CLIPS] = {};
 	HandleManager clipHandles;
@@ -82,6 +80,7 @@ struct Audio
 	u32 musicBufferWriteSampleIndex;
 
 	// MOD tracks
+	Arena moduleArena;
 	struct module *module;
 	bool moduleLoaded;
 	u32 moduleSampleCount;

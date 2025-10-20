@@ -212,62 +212,28 @@ static void sample_ping_pong( struct sample *sample ) {
 	int loop_length = sample->loop_length;
 	int loop_end = loop_start + loop_length;
 	short *sample_data = sample->data;
-	short *new_data = (short*)calloc( loop_end + loop_length + 1, sizeof( short ) );
-	if( new_data ) {
-		memcpy( new_data, sample_data, loop_end * sizeof( short ) );
-		for( idx = 0; idx < loop_length; idx++ ) {
-			new_data[ loop_end + idx ] = sample_data[ loop_end - idx - 1 ];
-		}
-		free( sample->data );
-		sample->data = new_data;
-		sample->loop_length *= 2;
-		sample->data[ loop_start + sample->loop_length ] = sample->data[ loop_start ];
+	for( idx = 0; idx < loop_length; idx++ ) { // fill mirrored loop at the end of sample data
+		sample_data[ loop_end + idx ] = sample_data[ loop_end - idx - 1 ];
 	}
+	sample->loop_length *= 2;
+	sample->data[ loop_start + sample->loop_length ] = sample->data[ loop_start ];
 }
 
-/* Deallocate the specified module. */
-void dispose_module( struct module *module ) {
-	int idx, sam;
-	struct instrument *instrument;
-	free( module->default_panning );
-	free( module->sequence );
-	if( module->patterns ) {
-		for( idx = 0; idx < module->num_patterns; idx++ ) {
-			free( module->patterns[ idx ].data );
-		}
-		free( module->patterns );
-	}
-	if( module->instruments ) {
-		for( idx = 0; idx <= module->num_instruments; idx++ ) {
-			instrument = &module->instruments[ idx ];
-			if( instrument->samples ) {
-				for( sam = 0; sam < instrument->num_samples; sam++ ) {
-					free( instrument->samples[ sam ].data );
-				}
-				free( instrument->samples );
-			}
-		}
-		free( module->instruments );
-	}
-	free( module );
-}
-
-static struct module* module_load_xm( struct data *data, char *message ) {
+static struct module* module_load_xm( struct data *data, char *message, struct Arena *arena ) {
 	int delta_env, offset, next_offset, idx, entry;
 	int num_rows, num_notes, pat_data_len, pat_data_offset;
 	int sam, sam_head_offset, sam_data_bytes, sam_data_samples;
-	int num_samples, sam_loop_start, sam_loop_length, amp;
+	int num_samples, sam_loop_start, sam_loop_length, sam_ping_pong_loop_length, amp;
 	int note, flags, key, ins, vol, fxc, fxp;
 	int point, point_tick, point_offset;
 	int looped, ping_pong, sixteen_bit;
 	char ascii[ 16 ], *pattern_data;
 	struct instrument *instrument;
 	struct sample *sample;
-	struct module *module = (struct module*)calloc( 1, sizeof( struct module ) );
+	struct module *module = PushZeroStruct(*arena, struct module);
 	if( module ) {
 		if( data_u16le( data, 58 ) != 0x0104 ) {
 			strcpy( message, "XM format version must be 0x0104!" );
-			dispose_module( module );
 			return NULL;
 		}
 		data_ascii( data, 17, 20, module->name );
@@ -284,32 +250,28 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 		module->default_tempo = data_u16le( data, 78 );
 		module->c2_rate = 8363;
 		module->gain = 64;
-		module->default_panning = (unsigned char*)calloc( module->num_channels, sizeof( unsigned char ) );
+		module->default_panning = PushZeroArray(*arena, unsigned char, module->num_channels);
 		if( !module->default_panning ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->num_channels; idx++ ) {
 			module->default_panning[ idx ] = 128;
 		}
-		module->sequence = (unsigned char*)calloc( module->sequence_len, sizeof( unsigned char ) );
+		module->sequence = PushZeroArray(*arena, unsigned char, module->sequence_len);
 		if( !module->sequence ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->sequence_len; idx++ ) {
 			entry = data_u8( data, 80 + idx );
 			module->sequence[ idx ] = entry < module->num_patterns ? entry : 0;
 		}
-		module->patterns = (struct pattern *)calloc( module->num_patterns, sizeof( struct pattern ) );
+		module->patterns = PushZeroArray(*arena, struct pattern, module->num_patterns);
 		if( !module->patterns ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->num_patterns; idx++ ) {
 			if( data_u8( data, offset + 4 ) ) {
 				strcpy( message, "Unknown pattern packing type!" );
-				dispose_module( module );
 				return NULL;
 			}
 			num_rows = data_u16le( data, offset + 5 );
@@ -320,9 +282,8 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 			offset += data_u32le( data, offset );
 			next_offset = offset + pat_data_len;
 			num_notes = num_rows * module->num_channels;
-			pattern_data = (char *)calloc( num_notes, 5 );
+			pattern_data = PushZeroArray(*arena, char, num_notes * 5);
 			if( !pattern_data ) {
-				dispose_module( module );
 				return NULL;
 			}
 			module->patterns[ idx ].num_channels = module->num_channels;
@@ -354,15 +315,13 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 			}
 			offset = next_offset;
 		}
-		module->instruments = (struct instrument *)calloc( module->num_instruments + 1, sizeof( struct instrument ) );
+		module->instruments = PushZeroArray(*arena, struct instrument, module->num_instruments + 1);
 		if( !module->instruments ) {
-			dispose_module( module );
 			return NULL;
 		}
 		instrument = &module->instruments[ 0 ];
-		instrument->samples = (struct sample *)calloc( 1, sizeof( struct sample ) );
+		instrument->samples = PushZeroStruct(*arena, struct sample);
 		if( !instrument->samples ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( ins = 1; ins <= module->num_instruments; ins++ ) {
@@ -370,9 +329,8 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 			data_ascii( data, offset + 4, 22, instrument->name );
 			num_samples = data_u16le( data, offset + 27 );
 			instrument->num_samples = ( num_samples > 0 ) ? num_samples : 1;
-			instrument->samples = (struct sample *)calloc( instrument->num_samples, sizeof( struct sample ) );
+			instrument->samples = PushZeroArray(*arena, struct sample, instrument->num_samples);
 			if( !instrument->samples ) {
-				dispose_module( module );
 				return NULL;
 			}
 			if( num_samples > 0 ) {
@@ -448,7 +406,8 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 				}
 				sample->loop_start = sam_loop_start;
 				sample->loop_length = sam_loop_length;
-				sample->data = (short *)calloc( sam_data_samples + 1, sizeof( short ) );
+				sam_ping_pong_loop_length = ping_pong ? sam_loop_length : 0;
+				sample->data = PushZeroArray(*arena, short, sam_data_samples + sam_ping_pong_loop_length + 1);
 				if( sample->data ) {
 					if( sixteen_bit ) {
 						data_sam_s16le( data, offset, sam_data_samples, sample->data );
@@ -466,7 +425,6 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 						sample_ping_pong( sample );
 					}
 				} else {
-					dispose_module( module );
 					return NULL;
 				}
 				offset += sam_data_bytes;
@@ -476,7 +434,7 @@ static struct module* module_load_xm( struct data *data, char *message ) {
 	return module;
 }
 
-static struct module* module_load_s3m( struct data *data, char *message ) {
+static struct module* module_load_s3m( struct data *data, char *message, struct Arena *arena ) {
 	int idx, module_data_idx, inst_offset, flags;
 	int version, sixteen_bit, tune, signed_samples;
 	int stereo_mode, default_pan, channel_map[ 32 ];
@@ -486,7 +444,7 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 	char *pattern_data;
 	struct instrument *instrument;
 	struct sample *sample;
-	struct module *module = (struct module *)calloc( 1, sizeof( struct module ) );
+	struct module *module = PushZeroStruct(*arena, struct module);
 	if( module ) {
 		data_ascii( data, 0, 28, module->name );
 		module->sequence_len = data_u16le( data, 32 );
@@ -498,7 +456,6 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 		signed_samples = data_u16le( data, 42 ) == 1;
 		if( data_u32le( data, 44 ) != 0x4d524353 ) {
 			strcpy( message, "Not an S3M file!" );
-			dispose_module( module );
 			return NULL;
 		}
 		module->default_gvol = data_u8( data, 48 );
@@ -514,33 +471,29 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 				channel_map[ idx ] = module->num_channels++;
 			}
 		}
-		module->sequence = (unsigned char *)calloc( module->sequence_len, sizeof( unsigned char ) );
+		module->sequence = PushZeroArray(*arena, unsigned char, module->sequence_len);
 		if( !module->sequence ){
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->sequence_len; idx++ ) {
 			module->sequence[ idx ] = data_u8( data, 96 + idx );
 		}
 		module_data_idx = 96 + module->sequence_len;
-		module->instruments = (struct instrument *)calloc( module->num_instruments + 1, sizeof( struct instrument ) );
+		module->instruments = PushZeroArray(*arena, struct instrument, module->num_instruments + 1);
 		if( !module->instruments ) {
-			dispose_module( module );
 			return NULL;
 		}
 		instrument = &module->instruments[ 0 ];
 		instrument->num_samples = 1;
-		instrument->samples = (struct sample *)calloc( 1, sizeof( struct sample ) );
+		instrument->samples = PushZeroStruct(*arena, struct sample);
 		if( !instrument->samples ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( ins = 1; ins <= module->num_instruments; ins++ ) {
 			instrument = &module->instruments[ ins ];
 			instrument->num_samples = 1;
-			instrument->samples = (struct sample *)calloc( 1, sizeof( struct sample ) );
+			instrument->samples = PushZeroStruct(*arena, struct sample);
 			if( !instrument->samples ) {
-				dispose_module( module );
 				return NULL;
 			}
 			sample = &instrument->samples[ 0 ];
@@ -556,7 +509,6 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 				sample->volume = data_u8( data, inst_offset + 28 );
 				if( data_u8( data, inst_offset + 30 ) != 0 ) {
 					strcpy( message, "Packed samples not supported!" );
-					dispose_module( module );
 					return NULL;
 				}
 				if( loop_start + loop_length > sample_length ) {
@@ -573,7 +525,7 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 				tune = ( log_2( data_u32le( data, inst_offset + 32 ) ) - log_2( module->c2_rate ) ) * 12;
 				sample->rel_note = tune >> FP_SHIFT;
 				sample->fine_tune = ( tune & FP_MASK ) >> ( FP_SHIFT - 7 );
-				sample->data = (short *)calloc( sample_length + 1, sizeof( short ) );
+				sample->data = PushZeroArray(*arena, short, sample_length + 1);
 				if( sample->data ) {
 					if( sixteen_bit ) {
 						data_sam_s16le( data, sample_offset, sample_length, sample->data );
@@ -587,22 +539,19 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 					}
 					sample->data[ loop_start + loop_length ] = sample->data[ loop_start ];
 				} else {
-					dispose_module( module );
 					return NULL;
 				}
 			}
 		}
-		module->patterns = (struct pattern *)calloc( module->num_patterns, sizeof( struct pattern ) );
+		module->patterns = PushZeroArray(*arena, struct pattern, module->num_patterns);
 		if( !module->patterns ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->num_patterns; idx++ ) {
 			module->patterns[ idx ].num_channels = module->num_channels;
 			module->patterns[ idx ].num_rows = 64;
-			pattern_data = (char *)calloc( module->num_channels * 64, 5 );
+			pattern_data = PushZeroArray(*arena, char, module->num_channels * 64 * 5);
 			if( !pattern_data ) {
-				dispose_module( module );
 				return NULL;
 			}
 			module->patterns[ idx ].data = pattern_data;
@@ -656,7 +605,7 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 			}
 			module_data_idx += 2;
 		}
-		module->default_panning = (unsigned char *)calloc( module->num_channels, sizeof( unsigned char ) );
+		module->default_panning = PushZeroArray(*arena, unsigned char, module->num_channels);
 		if( module->default_panning ) {
 			for( chan = 0; chan < 32; chan++ ) {
 				if( channel_map[ chan ] >= 0 ) {
@@ -677,21 +626,20 @@ static struct module* module_load_s3m( struct data *data, char *message ) {
 				}
 			}
 		} else {
-			dispose_module( module );
 			return NULL;
 		}
 	}
 	return module;
 }
 
-static struct module* module_load_mod( struct data *data, char *message ) {
+static struct module* module_load_mod( struct data *data, char *message, struct Arena *arena ) {
 	int idx, pat, module_data_idx, pat_data_len, pat_data_idx;
 	int period, key, ins, effect, param, fine_tune;
 	int sample_length, loop_start, loop_length;
 	char *pattern_data;
 	struct instrument *instrument;
 	struct sample *sample;
-	struct module *module = (struct module *)calloc( 1, sizeof( struct module ) );
+	struct module *module = PushZeroStruct(*arena, struct module);
 	if( module ) {
 		data_ascii( data, 0, 20, module->name );
 		module->sequence_len = data_u8( data, 950 ) & 0x7F;
@@ -699,9 +647,8 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 		if( module->restart_pos >= module->sequence_len ) {
 			module->restart_pos = 0;
 		}
-		module->sequence = (unsigned char *)calloc( 128, sizeof( unsigned char ) );
+		module->sequence = PushZeroArray(*arena, unsigned char, 128);
 		if( !module->sequence ){
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < 128; idx++ ) {
@@ -732,15 +679,13 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 				break;
 			default:
 				strcpy( message, "MOD Format not recognised!" );
-				dispose_module( module );
 				return NULL;
 		}
 		module->default_gvol = 64;
 		module->default_speed = 6;
 		module->default_tempo = 125;
-		module->default_panning = (unsigned char *)calloc( module->num_channels, sizeof( unsigned char ) );
+		module->default_panning = PushZeroArray(*arena, unsigned char, module->num_channels);
 		if( !module->default_panning ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( idx = 0; idx < module->num_channels; idx++ ) {
@@ -750,18 +695,16 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 			}
 		}
 		module_data_idx = 1084;
-		module->patterns = (struct pattern *)calloc( module->num_patterns, sizeof( struct pattern ) );
+		module->patterns = PushZeroArray(*arena, struct pattern, module->num_patterns);
 		if( !module->patterns ) {
-			dispose_module( module );
 			return NULL;
 		}
 		pat_data_len = module->num_channels * 64 * 5;
 		for( pat = 0; pat < module->num_patterns; pat++ ) {
 			module->patterns[ pat ].num_channels = module->num_channels;
 			module->patterns[ pat ].num_rows = 64;
-			pattern_data = (char *)calloc( 1, pat_data_len );
+			pattern_data = PushZeroArray(*arena, char, pat_data_len);
 			if( !pattern_data ) {
-				dispose_module( module );
 				return NULL;
 			}
 			module->patterns[ pat ].data = pattern_data;
@@ -799,24 +742,21 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 			}
 		}
 		module->num_instruments = 31;
-		module->instruments = (struct instrument *)calloc( module->num_instruments + 1, sizeof( struct instrument ) );
+		module->instruments = PushZeroArray(*arena, struct instrument, module->num_instruments + 1);
 		if( !module->instruments ) {
-			dispose_module( module );
 			return NULL;
 		}
 		instrument = &module->instruments[ 0 ];
 		instrument->num_samples = 1;
-		instrument->samples = (struct sample *)calloc( 1, sizeof( struct sample ) );
+		instrument->samples = PushZeroStruct(*arena, struct sample);
 		if( !instrument->samples ) {
-			dispose_module( module );
 			return NULL;
 		}
 		for( ins = 1; ins <= module->num_instruments; ins++ ) {
 			instrument = &module->instruments[ ins ];
 			instrument->num_samples = 1;
-			instrument->samples = (struct sample *)calloc( 1, sizeof( struct sample ) );
+			instrument->samples = PushZeroStruct(*arena, struct sample);
 			if( !instrument->samples ) {
-				dispose_module( module );
 				return NULL;
 			}
 			sample = &instrument->samples[ 0 ];
@@ -844,12 +784,11 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 			}
 			sample->loop_start = loop_start;
 			sample->loop_length = loop_length;
-			sample->data = (short *)calloc( sample_length + 1, sizeof( short ) );
+			sample->data = PushZeroArray(*arena, short, sample_length + 1);
 			if( sample->data ) {
 				data_sam_s8( data, module_data_idx, sample_length, sample->data );
 				sample->data[ loop_start + loop_length ] = sample->data[ loop_start ];
 			} else {
-				dispose_module( module );
 				return NULL;
 			}
 			module_data_idx += sample_length;
@@ -860,15 +799,15 @@ static struct module* module_load_mod( struct data *data, char *message ) {
 
 /* Allocate and initialize a module from the specified data, returns NULL on error.
    Message must point to a 64-character buffer to receive error messages. */
-struct module* module_load( struct data *data, char *message ) {
+struct module* module_load( struct data *data, char *message, struct Arena *arena ) {
 	char ascii[ 16 ];
 	struct module* module;
 	if( !memcmp( data_ascii( data, 0, 16, ascii ), "Extended Module:", 16 ) ) {
-		module = module_load_xm( data, message );
+		module = module_load_xm( data, message, arena );
 	} else if( !memcmp( data_ascii( data, 44, 4, ascii ), "SCRM", 4 ) ) {
-		module = module_load_s3m( data, message );
+		module = module_load_s3m( data, message, arena );
 	} else {
-		module = module_load_mod( data, message );
+		module = module_load_mod( data, message, arena );
 	}
 	return module;
 }
@@ -1805,15 +1744,7 @@ void replay_set_sequence_pos( struct replay *replay, int pos ) {
 	replay->speed = module->default_speed > 0 ? module->default_speed : 6;
 	replay->tempo = module->default_tempo > 0 ? module->default_tempo : 125;
 	replay->pl_count = replay->pl_chan = -1;
-	if( replay->play_count ) {
-		free( replay->play_count[ 0 ] );
-		free( replay->play_count );
-	}
-	replay->play_count = (char **)calloc( module->sequence_len, sizeof( char * ) );
-	if( replay->play_count ) {
-		replay->play_count[ 0 ] = (char *)calloc( module_init_play_count( module, NULL ), sizeof( char ) );
-		module_init_play_count( module, replay->play_count );
-	}
+	int res = module_init_play_count( module, replay->play_count );
 	for( idx = 0; idx < module->num_channels; idx++ ) {
 		channel_init( &replay->channels[ idx ], replay, idx );
 	}
@@ -1821,30 +1752,24 @@ void replay_set_sequence_pos( struct replay *replay, int pos ) {
 	replay_tick( replay );
 }
 
-/* Deallocate the specified replay. */
-void dispose_replay( struct replay *replay ) {
-	if( replay->play_count ) {
-		free( replay->play_count[ 0 ] );
-		free( replay->play_count );
-	}
-	free( replay->ramp_buf );
-	free( replay->channels );
-	free( replay );
-}
-
 /* Allocate and initialize a replay with the specified sampling rate and interpolation. */
-struct replay* new_replay( struct module *module, int sample_rate, int interpolation ) {
-	struct replay *replay = (struct replay *)calloc( 1, sizeof( struct replay ) );
+struct replay* new_replay( struct module *module, int sample_rate, int interpolation, Arena *arena ) {
+	struct replay *replay = PushZeroStruct(*arena, struct replay);
 	if( replay ) {
 		replay->module = module;
 		replay->sample_rate = sample_rate;
 		replay->interpolation = interpolation;
-		replay->ramp_buf = (int *)calloc( 128, sizeof( int ) );
-		replay->channels = (struct channel *)calloc( module->num_channels, sizeof( struct channel ) );
-		if( replay->ramp_buf && replay->channels ) {
-			replay_set_sequence_pos( replay, 0 );
+		replay->ramp_buf = PushZeroArray(*arena, int, 128);
+		replay->channels = PushZeroArray(*arena, struct channel, module->num_channels);
+		replay->play_count = PushZeroArray(*arena, char*, module->sequence_len);
+		if( replay->ramp_buf && replay->channels && replay->play_count ) {
+			replay->play_count[ 0 ] = PushZeroArray(*arena, char, module_init_play_count( module, NULL ));
+			if ( replay->play_count[ 0 ] ) {
+				replay_set_sequence_pos( replay, 0 );
+			} else {
+				replay = NULL;
+			}
 		} else {
-			dispose_replay( replay );
 			replay = NULL;
 		}
 	}
