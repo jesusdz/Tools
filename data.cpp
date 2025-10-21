@@ -1089,7 +1089,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		{
 			const TextureDesc &textureDesc = descriptors.textureDescs[i];
 
-			const FilePath imagePath = MakePath(ProjectDir, textureDesc.filename);
+			const FilePath imagePath = MakePath(AssetDir, textureDesc.filename);
 
 			int texWidth, texHeight, texChannels;
 			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -1130,7 +1130,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		{
 			const AudioClipDesc &audioClipDesc = descriptors.audioClipDescs[i];
 
-			const FilePath path = MakePath(ProjectDir, audioClipDesc.filename);
+			const FilePath path = MakePath(AssetDir, audioClipDesc.filename);
 
 			AudioClip audioClip;
 			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");

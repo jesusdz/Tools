@@ -120,9 +120,15 @@ struct WAVE_fmt
 
 bool LoadAudioClipFromWAVFile(const char *filename, Arena &arena, AudioClip &audioClip, void **outSamples)
 {
+	// TODO(jesus): maybe revisit where MakePath is needed?
 	FilePath path = MakePath(AssetDir, filename);
 
 	FILE *file = fopen(path.str, "rb");
+
+	if ( file == nullptr ) { // try if filename is a filepath per se
+		file = fopen(filename, "rb");
+	}
+
 	if (file != nullptr)
 	{
 		WAVE_header Header;

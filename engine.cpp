@@ -1796,7 +1796,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT,
 			.storageBufferCount = MAX_FRAMES_IN_FLIGHT,
 			.textureCount = 1000,
-			.samplerCount = MAX_FRAMES_IN_FLIGHT * 2,
+			.samplerCount = MAX_FRAMES_IN_FLIGHT * 4,
 			.groupCount = MAX_FRAMES_IN_FLIGHT,
 		};
 		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);

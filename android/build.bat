@@ -39,19 +39,6 @@ REM ######################################################
 : build
 
 REM ------------------------------------------------------
-REM Compile dependencies
-
-pushd ..
-echo:
-echo Compiling reflex tool...
-call build.bat reflex
-call build\reflex.exe assets\assets.h > assets.reflex.h
-echo:
-echo Compiling shaders...
-call build.bat shaders
-popd
-
-REM ------------------------------------------------------
 REM Compile native Android code
 
 rmdir /S /Q obj lib 2> nul
@@ -78,8 +65,8 @@ call %GCC% %GCC_FLAGS% -c %NATIVE_APP_GLUE_DIR%\android_native_app_glue.c -o and
 echo %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 call %AR% rcs libandroid_native_app_glue.a android_native_app_glue.o
 
-echo %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\main_vulkan.cpp -o main.o
-call %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\main_vulkan.cpp -o main.o
+echo %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\engine.cpp -o main.o
+call %GXX% --sysroot=%TOOLCHAIN%\sysroot -I%NATIVE_APP_GLUE_DIR% %INCLUDES% %GXX_FLAGS% -c %CODE_DIR%\engine.cpp -o main.o
 
 echo %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -laaudio -shared -o ..\%OUT_LIB_DIR%\libgame.so
 call %GXX% main.o -L. -landroid_native_app_glue -u ANativeActivity_onCreate -landroid -llog -laaudio -shared -o ..\%OUT_LIB_DIR%\libgame.so

@@ -145,9 +145,10 @@ static const int __android_log_channel[] = {
 		QUIT_ABNORMALLY(); \
 	}
 #define ASSERTMSG(expression, message, ...) if ( !(expression) ) { \
-		LOG(Error, "Assertion failed: ASSERT(" #expression " )\nAssertion message: " message, __VA_ARGS__); \
+		LOG(Error, "Assertion failed: ASSERT(" #expression " )\nAssertion message: " message, ##__VA_ARGS__); \
 		QUIT_ABNORMALLY(); \
 	}
+
 #define INVALID_CODE_PATH() ASSERT(0 && "Invalid code path")
 #define INVALID_CODE_PATH_MSG(message) ASSERT(0 && message)
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
@@ -223,7 +224,7 @@ u32 U64ToU32(u64 value)
 
 i32 U32ToI32(u32 value)
 {
-	ASSERT( value >= I32_MIN && value < I32_MAX );
+	ASSERT( value < I32_MAX );
 	const i32 res = (i32)value;
 	return res;
 }
