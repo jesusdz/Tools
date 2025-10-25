@@ -58,6 +58,12 @@ struct AudioClipDesc
 	const char *filename;
 };
 
+struct MusicFileDesc
+{
+	const char *name;
+	const char *filename;
+};
+
 struct AssetDescriptors
 {
 	ShaderSourceDesc *shaderDescs;
@@ -74,6 +80,9 @@ struct AssetDescriptors
 
 	AudioClipDesc *audioClipDescs;
 	u32 audioClipDescCount;
+
+	MusicFileDesc *musicFileDescs;
+	u32 musicFileDescCount;
 };
 
 // Functions
@@ -128,6 +137,12 @@ struct BinAudioClipDesc
 	BinLocation location;
 };
 
+struct BinMusicFileDesc
+{
+	char name[32];
+	BinLocation location;
+};
+
 struct BinMaterialDesc
 {
 	char name[32];
@@ -154,6 +169,8 @@ struct BinAssetsHeader
 	u32 imageCount;
 	u32 audioClipsOffset;
 	u32 audioClipCount;
+	u32 musicFilesOffset;
+	u32 musicFileCount;
 	u32 materialsOffset;
 	u32 materialCount;
 	u32 entitiesOffset;
@@ -179,6 +196,12 @@ struct BinAudioClip
 	void *samples;
 };
 
+struct BinMusicFile
+{
+	BinMusicFileDesc *desc;
+	void *bytes;
+};
+
 struct BinAssets
 {
 	File file;
@@ -188,6 +211,7 @@ struct BinAssets
 	BinShader *shaders;
 	BinImage *images;
 	BinAudioClip *audioClips;
+	BinMusicFile *musicFiles;
 	BinMaterialDesc *materialDescs;
 	BinEntityDesc *entityDescs;
 };

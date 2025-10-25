@@ -9,6 +9,8 @@
 #define MAX_AUDIO_SOURCES 16
 #define AUDIO_CHUNK_SAMPLE_COUNT (48000u/4u)
 
+#define MAX_MUSIC_FILES 16
+
 ////////////////////////////////////////////////////////////////////////
 // Types
 
@@ -59,6 +61,22 @@ struct AudioChunk
 	AudioChunk *next;
 };
 
+enum LoadSource
+{
+	LOAD_SOURCE_MOD_FILE,
+	LOAD_SOURCE_ASSET_FILE,
+};
+
+struct MusicFile
+{
+	LoadSource loadSource;
+	union
+	{
+		BinLocation location;
+		const char *filename;
+	};
+};
+
 struct Audio
 {
 	AudioClip clips[MAX_AUDIO_CLIPS] = {};
@@ -79,10 +97,15 @@ struct Audio
 	u32 musicBufferReadSampleIndex;
 	u32 musicBufferWriteSampleIndex;
 
+	MusicFile musicFiles[MAX_MUSIC_FILES] = {};
+	MusicFileDesc musicFileDescs[MAX_MUSIC_FILES] = {};
+	HandleManager musicHandles;
+
+	u32 musicFileIndex;
+
 	// MOD tracks
 	Arena moduleArena;
 	struct module *module;
-	bool moduleLoaded;
 	u32 moduleSampleCount;
 	struct replay *moduleReplay;
 
@@ -115,10 +138,9 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex);
 void PreRenderAudio(Engine &engine);
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
 
-//struct module LoadModule(const byte *data, u32 size);
-
-void MusicLoad(Audio &audio);
-void MusicPlay(Engine &engine);
+Handle CreateMusicFile(Engine &engine, const BinMusicFile &binMusicFile);
+Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc);
+void MusicPlay(Engine &engine, u32 musicFileIndex);
 void MusicPause(Engine &engine);
 void MusicStop(Engine &engine);
 bool MusicIsPlaying(Engine &engine);

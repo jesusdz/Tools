@@ -1027,6 +1027,8 @@ TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
 
 	const TextureH textureHandle = CreateTexture(gfx);
 
+	ZeroStruct( &gfx.textureDescs[textureHandle.idx] );
+
 	Texture &texture = GetTexture(gfx, textureHandle);
 	texture.name = desc.name;
 	texture.image = imageHandle;
@@ -1088,6 +1090,9 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 
 	Texture &texture = GetTexture(gfx, handle);
 	const TextureDesc &desc = texture.desc;
+
+	// TODO(jesus): Textures loaded from bin data file do not have descriptor...
+	if ( desc.name == nullptr ) { return; };
 
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
@@ -2145,6 +2150,12 @@ void LoadSceneFromTxt(Engine &engine)
 			CreateAudioClip(engine, assetDescriptors.audioClipDescs[i]);
 		}
 
+		// Music files
+		for (u32 i = 0; i < assetDescriptors.musicFileDescCount; ++i)
+		{
+			CreateMusicFile(engine, assetDescriptors.musicFileDescs[i]);
+		}
+
 		UploadMaterialData(engine.gfx);
 		LinkHandles(engine.gfx);
 	}
@@ -2194,6 +2205,12 @@ void LoadSceneFromBin(Engine &engine)
 		for (u32 i = 0; i < engine.assets.header.audioClipCount; ++i)
 		{
 			CreateAudioClip(engine, engine.assets.audioClips[i]);
+		}
+
+		// Music files
+		for (u32 i = 0; i < engine.assets.header.musicFileCount; ++i)
+		{
+			CreateMusicFile(engine, engine.assets.musicFiles[i]);
 		}
 
 		UploadMaterialData(engine.gfx);
@@ -3462,14 +3479,14 @@ void OnPlatformUpdate(Platform &platform)
 
 	const Clock begin = GetClock();
 
-#if 0
+#if PLATFORM_ANDROID
 	// TODO(jesus): This is test code
 	static bool firstUpdate = true;
 	if ( firstUpdate )
 	{
 		firstUpdate = false;
-		LoadSceneFromBin(engine);
-		PlayAudioClip(engine, 1);
+		//LoadSceneFromBin(engine);
+		MusicPlay(engine, 0);
 	}
 #endif
 

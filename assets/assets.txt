@@ -87,7 +87,11 @@ AudioClip aclip_bell = {
  .filename = "bell.wav",
 };
 
-AudioClip aclip_music = {
- .filename = "music.wav",
+//AudioClip aclip_music = {
+// .filename = "music.wav",
+//};
+
+MusicFile music_aurora = {
+ .filename = "aurora.mod",
 };
 

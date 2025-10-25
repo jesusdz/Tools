@@ -176,7 +176,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 			}
 		} else {
 			if ( UI_Button(ui, "Play music") ) {
-				MusicPlay(engine);
+				MusicPlay(engine, 0);
 			}
 		}
 	}
