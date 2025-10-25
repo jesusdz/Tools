@@ -61,7 +61,7 @@ void CompileShader(u32 index)
 			"%s",
 			ProjectDir, dxc,
 			flags, target, entry,
-			filepathSpirv.str, filepathDisasm,
+			filepathSpirv.str, filepathDisasm.str,
 			filepathHlsl.str);
 	LOG(Debug, "%s\n", commandline);
 	ExecuteProcess(commandline);
