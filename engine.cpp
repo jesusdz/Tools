@@ -5,6 +5,7 @@
 
 #include "tools_platform.h"
 
+#define TOOLS_GFX_IMPLEMENTATION
 #include "tools_gfx.h"
 
 #define USE_EDITOR ( PLATFORM_LINUX || PLATFORM_WINDOWS )
