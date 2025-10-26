@@ -101,7 +101,19 @@
 #include <vulkan/vulkan_core.h>
 #if VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan_win32.h>
+#elif VK_USE_PLATFORM_XCB_KHR
+#include <vulkan/vulkan_xcb.h>
+#elif VK_USE_PLATFORM_ANDROID_KHR
+#include <vulkan/vulkan_android.h>
 #endif
+#endif
+
+#if VK_USE_PLATFORM_WIN32_KHR
+extern PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
+#elif VK_USE_PLATFORM_XCB_KHR
+extern PFN_vkCreateXcbSurfaceKHR vkCreateXcbSurfaceKHR;
+#elif VK_USE_PLATFORM_ANDROID_KHR
+extern PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR;
 #endif
 
 extern PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
@@ -153,7 +165,6 @@ extern PFN_vkCreateSampler vkCreateSampler;
 extern PFN_vkCreateSemaphore vkCreateSemaphore;
 extern PFN_vkCreateShaderModule vkCreateShaderModule;
 extern PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR;
-extern PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
 extern PFN_vkDestroyBuffer vkDestroyBuffer;
 extern PFN_vkDestroyBufferView vkDestroyBufferView;
 extern PFN_vkDestroyCommandPool vkDestroyCommandPool;
@@ -4294,6 +4305,14 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 
 #ifdef TOOLS_GFX_IMPLEMENTATION
 
+#if VK_USE_PLATFORM_WIN32_KHR
+PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
+#elif VK_USE_PLATFORM_XCB_KHR
+PFN_vkCreateXcbSurfaceKHR vkCreateXcbSurfaceKHR;
+#elif VK_USE_PLATFORM_ANDROID_KHR
+PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR;
+#endif
+
 PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
 PFN_vkAllocateCommandBuffers vkAllocateCommandBuffers;
 PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets;
@@ -4343,7 +4362,6 @@ PFN_vkCreateSampler vkCreateSampler;
 PFN_vkCreateSemaphore vkCreateSemaphore;
 PFN_vkCreateShaderModule vkCreateShaderModule;
 PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR;
-PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
 PFN_vkDestroyBuffer vkDestroyBuffer;
 PFN_vkDestroyBufferView vkDestroyBufferView;
 PFN_vkDestroyCommandPool vkDestroyCommandPool;
@@ -4625,7 +4643,7 @@ static void VulkanLoadInstanceFunctions2(void* context, PFN_vkVoidFunction (*loa
 #endif /* defined(VK_KHR_win32_surface) */
 #if defined(VK_KHR_xcb_surface)
 	vkCreateXcbSurfaceKHR = (PFN_vkCreateXcbSurfaceKHR)load(context, "vkCreateXcbSurfaceKHR");
-	vkGetPhysicalDeviceXcbPresentationSupportKHR = (PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR)load(context, "vkGetPhysicalDeviceXcbPresentationSupportKHR");
+	//vkGetPhysicalDeviceXcbPresentationSupportKHR = (PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR)load(context, "vkGetPhysicalDeviceXcbPresentationSupportKHR");
 #endif /* defined(VK_KHR_xcb_surface) */
 #if defined(VK_KHR_xlib_surface)
 	//vkCreateXlibSurfaceKHR = (PFN_vkCreateXlibSurfaceKHR)load(context, "vkCreateXlibSurfaceKHR");

@@ -25,7 +25,7 @@ main_interpreter: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter main_interpreter.cpp
 
 engine: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine  engine.cpp -I"vulkan/include" -DVK_NO_PROTOTYPES -lxcb -lpthread
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine  engine.cpp -I"vulkan/include" -lxcb -lpthread
 
 game:
 	${CXX} -fPIC -g -Wall -c game.cpp -o ${BUILD_DIR}/game.o
