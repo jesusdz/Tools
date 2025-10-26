@@ -2889,7 +2889,8 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 
 	return 0;
 }
-#endif // USE_AUDIO_THREAD
+
+#endif // USE_UPDATE_THREAD
 
 bool InitializeUpdateThread(Platform &platform)
 {
