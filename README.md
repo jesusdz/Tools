@@ -84,7 +84,6 @@ To the greatest extent possible, the projects and tools here present will not ha
 
 This is the list of the dependencies currently included in this repository:
 
-* [Volk](https://github.com/zeux/volk) (a meta-loader for Vulkan by Zeux)
 * [stb_image](https://github.com/nothings/stb) (public domain image loader by Seann Barrett)
 * [stb_truetype](https://github.com/nothings/stb) (public domain truetype font rasterizer by Seann Barrett)
 * [stb_rect_pack](https://github.com/nothings/stb) (public domain rectangle packing lib by Seann Barrett)

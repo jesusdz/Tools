@@ -93,19 +93,15 @@
 // An example of this could be Apple machines with MoltenVK on top of Metal.
 #define USE_VK_EXT_PORTABILITY_ENUMERATION 0
 
-#if 0
-#define VOLK_IMPLEMENTATION
-#include "volk/volk.h"
-#else
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
+
 #if VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan_win32.h>
 #elif VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan_xcb.h>
 #elif VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan_android.h>
-#endif
 #endif
 
 #if VK_USE_PLATFORM_WIN32_KHR
