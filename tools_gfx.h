@@ -246,29 +246,6 @@ VK_INIT_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
 VK_INSTANCE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
 VK_DEVICE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
 
-#if USE_IMGUI
-
-// Unity build Dear ImGui files
-#include "imgui/imgui.cpp"
-#include "imgui/imgui_draw.cpp"
-#include "imgui/imgui_tables.cpp"
-#include "imgui/imgui_widgets.cpp"
-#include "imgui/imgui_demo.cpp"
-
-#if PLATFORM_WINDOWS
-#include "imgui/imgui_impl_win32.cpp"
-#elif PLATFORM_LINUX
-#include "imgui/imgui_impl_xcb.cpp"
-#else
-#error "Missing ImGui implementation file"
-#endif
-
-// Undefining VK_NO_PROTOTYPES here to avoid ImGui to retrieve Vulkan functions again.
-#undef VK_NO_PROTOTYPES
-#include "imgui/imgui_impl_vulkan.cpp"
-
-#endif // USE_IMGUI
-
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
 #define SPV_IMPLEMENTATION
@@ -1257,13 +1234,6 @@ static void CheckVulkanResult(VkResult result, const char *callString)
 	if (result < VK_SUCCESS)
 		QUIT_ABNORMALLY();
 }
-
-#if USE_IMGUI
-static void CheckVulkanResultImGui(VkResult result)
-{
-	CheckVulkanResult(result, "ImGui");
-}
-#endif
 
 static Heap CreateHeap(const GraphicsDevice &device, HeapType heapType, u32 size, bool mapMemory)
 {

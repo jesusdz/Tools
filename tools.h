@@ -40,11 +40,6 @@
 #endif
 
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
-#define USE_IMGUI 0
-#endif
-
-
 #if PLATFORM_WINDOWS
 
 #define NOMINMAX

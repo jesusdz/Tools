@@ -697,22 +697,10 @@ void PrintModifiers(uint32_t mask)
 
 #include "xcb_key_mappings.h"
 
-#if USE_IMGUI
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include "imgui/imgui.h"
-// Forward declare message handler from imgui_impl_win32.cpp
-extern IMGUI_IMPL_API bool ImGui_ImplXcb_HandleInputEvent(xcb_generic_event_t *event);
-#endif
-
 void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
 	ASSERT(sPlatform);
 	Platform &platform = *sPlatform;
-
-#if USE_IMGUI
-	if (ImGui_ImplXcb_HandleInputEvent(event))
-		return;
-#endif
 
 	u32 eventType = event->response_type & ~0x80;
 
@@ -877,39 +865,6 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 			LOG(Info, "Unknown window event: %d\n", event->response_type);
 			break;
 	}
-
-#if USE_IMGUI
-	const Mouse &mouse = window.mouse;
-
-	ImGuiIO& io = ImGui::GetIO();
-	if (MouseChanged(mouse))
-	{
-		if (MouseMoved(mouse))
-		{
-			io.AddMousePosEvent(mouse.x, mouse.y);
-		}
-		int button = -1;
-		bool press = true;
-		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT)) { button = 0; press = true; }
-		if (MouseButtonPress(mouse, MOUSE_BUTTON_RIGHT)) { button = 1; press = true; }
-		if (MouseButtonPress(mouse, MOUSE_BUTTON_MIDDLE)) { button = 2; press = true; }
-		if (MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) { button = 0; press = false; }
-		if (MouseButtonRelease(mouse, MOUSE_BUTTON_RIGHT)) { button = 1; press = false; }
-		if (MouseButtonRelease(mouse, MOUSE_BUTTON_MIDDLE)) { button = 2; press = false; }
-		if ( button != -1 )
-		{
-			io.AddMouseButtonEvent(button, press);
-			io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
-		}
-	}
-
-	// TODO: When we detect the mouse leves the window
-	// io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-
-	// Clear mouse/keyboard events if handled by ImGui
-	if ( io.WantCaptureMouse ) window.mouse = {};
-	if ( io.WantCaptureKeyboard ) window.keyboard = {};
-#endif // USE_IMGUI
 }
 
 #elif USE_ANDROID
@@ -1054,13 +1009,6 @@ int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
 
 #include "win32_key_mappings.h"
 
-#if USE_IMGUI
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include "imgui/imgui.h"
-// Forward declare message handler from imgui_impl_win32.cpp
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-#endif
-
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	ASSERT(sPlatform);
@@ -1072,18 +1020,6 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
 	bool processMouseEvents = true;
 	bool processKeyboardEvents = true;
-#if USE_IMGUI
-	if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
-	{
-		return true;
-	}
-	if (ImGui::GetCurrentContext() != nullptr)
-	{
-		const ImGuiIO& io = ImGui::GetIO();
-		processKeyboardEvents = !io.WantCaptureKeyboard;
-		processMouseEvents = !io.WantCaptureMouse;
-	}
-#endif
 
 	switch (uMsg)
 	{

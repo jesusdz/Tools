@@ -12,7 +12,7 @@
 #define USE_UI ( PLATFORM_LINUX || PLATFORM_WINDOWS )
 #define USE_DATA_BUILD ( PLATFORM_LINUX || PLATFORM_WINDOWS )
 
-#if USE_UI && !USE_IMGUI
+#if USE_UI
 
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb/stb_rect_pack.h"
@@ -20,7 +20,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb/stb_truetype.h"
 
-#endif
+#endif // #if USE_UI
 
 #if USE_UI
 #include "tools_ui.h"
@@ -186,9 +186,6 @@ struct Graphics
 	BindGroupAllocator globalBindGroupAllocator;
 	BindGroupAllocator materialBindGroupAllocator;
 	BindGroupAllocator dynamicBindGroupAllocator[MAX_FRAMES_IN_FLIGHT];
-#if USE_IMGUI
-	BindGroupAllocator imGuiBindGroupAllocator;
-#endif
 
 	BindGroupLayout globalBindGroupLayout;
 
@@ -1832,18 +1829,6 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		gfx.dynamicBindGroupAllocator[i] = CreateBindGroupAllocator(gfx.device, allocatorCounts);
 	}
 
-#if USE_IMGUI
-	// Create Imgui BindGroup allocator
-	{
-		const BindGroupAllocatorCounts allocatorCounts = {
-			.combinedImageSamplerCount = 1,
-			.groupCount = 1,
-			.allowIndividualFrees = true,
-		};
-		gfx.imGuiBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
-	}
-#endif
-
 	// Create global BindGroup layout
 	const ShaderBinding globalShaderBindings[] = {
 		{ .set = 0, .binding = BINDING_GLOBALS, .type = SpvTypeUniformBuffer, .stageFlags = SpvStageFlagsVertexBit | SpvStageFlagsFragmentBit | SpvStageFlagsComputeBit },
@@ -2041,9 +2026,6 @@ void CleanupGraphics(Graphics &gfx)
 	{
 		DestroyBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[i] );
 	}
-#if USE_IMGUI
-	DestroyBindGroupAllocator( gfx.device, gfx.imGuiBindGroupAllocator );
-#endif
 
 	CleanupGraphicsDevice( gfx.device );
 
@@ -2997,16 +2979,6 @@ bool RenderGraphics(Engine &engine)
 		}
 #endif
 
-#if USE_IMGUI
-		BeginDebugGroup(commandList, "ImGui");
-
-		// Record dear imgui primitives into command buffer
-		ImDrawData* draw_data = ImGui::GetDrawData();
-		ImGui_ImplVulkan_RenderDrawData(draw_data, commandList.handle);
-
-		EndDebugGroup(commandList);
-#endif
-
 		EndRenderPass(commandList);
 
 		EndDebugGroup(commandList);
@@ -3035,185 +3007,6 @@ bool RenderGraphics(Engine &engine)
 	return true;
 }
 
-
-
-#if USE_IMGUI
-void InitializeImGuiContext()
-{
-	// Setup Dear ImGui context
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO();
-	io.FontGlobalScale = 1.0f;
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;	 // Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	  // Enable Gamepad Controls
-
-	// Setup Dear ImGui style
-	ImGui::StyleColorsDark();
-	//ImGui::StyleColorsLight();
-}
-
-void InitializeImGuiGraphics(Graphics &gfx, const Window &window)
-{
-	// Setup Platform/Renderer backends
-#if USE_WINAPI
-	ImGui_ImplWin32_Init(window.hWnd);
-#elif USE_XCB
-	ImGui_ImplXcb_Init(window.connection, window.window);
-#else
-#error "Missing codepath"
-#endif
-
-	const RenderPass &renderPass = GetRenderPass(gfx.device, gfx.litRenderPassH);
-
-	ImGui_ImplVulkan_InitInfo init_info = {};
-	init_info.Instance = gfx.device.instance;
-	init_info.PhysicalDevice = gfx.device.physicalDevice;
-	init_info.Device = gfx.device.handle;
-	init_info.QueueFamily = gfx.device.graphicsQueueFamilyIndex;
-	init_info.Queue = gfx.device.graphicsQueue;
-	init_info.PipelineCache = gfx.device.pipelineCache;
-	init_info.DescriptorPool = gfx.imGuiBindGroupAllocator.handle;
-	init_info.Subpass = 0;
-	init_info.MinImageCount = gfx.device.swapchain.imageCount;
-	init_info.ImageCount = gfx.device.swapchain.imageCount;
-	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-	init_info.Allocator = VULKAN_ALLOCATORS;
-	init_info.CheckVkResultFn = CheckVulkanResultImGui;
-	ImGui_ImplVulkan_Init(&init_info, renderPass.handle);
-
-	// Upload Fonts
-	{
-		CommandList commandList = BeginTransientCommandList(gfx.device);
-
-		ImGui_ImplVulkan_CreateFontsTexture(commandList.handle);
-
-		EndTransientCommandList(gfx.device, commandList);
-
-		ImGui_ImplVulkan_DestroyFontUploadObjects();
-	}
-}
-
-void UpdateImGui(Graphics &gfx)
-{
-	// Start the Dear ImGui frame
-	ImGui_ImplVulkan_NewFrame();
-#if USE_WINAPI
-	ImGui_ImplWin32_NewFrame();
-#elif USE_XCB
-	ImGui_ImplXcb_NewFrame();
-#else
-#error "Missing codepath"
-#endif
-	ImGui::NewFrame();
-
-	static bool open = true;
-	ImGui::ShowDemoWindow(&open);
-
-	ImGui::Begin("Hello, world!");
-
-	ImGui::Separator();
-
-	char tmpString[4092] = {};
-	VkPhysicalDeviceMemoryProperties memoryProperties;
-	vkGetPhysicalDeviceMemoryProperties(gfx.device.physicalDevice, &memoryProperties);
-
-
-	ImGui::Text("Memory units");
-	static int unit = 1;
-	static const char *unitSuffix[] = {"B", "KB", "MB"};
-	static const u32 unitBytes[] = {1, KB(1), MB(1)};
-	if (ImGui::BeginTable("##mem_units", 3)) {
-		for (int i = 0; i < ARRAY_COUNT(unitSuffix); i++) {
-			ImGui::TableNextColumn();
-			if (ImGui::RadioButton(unitSuffix[i], i == unit)) {
-				unit = i;
-			}
-		}
-		ImGui::EndTable();
-	}
-
-	if ( ImGui::CollapsingHeader("Vulkan memory types", ImGuiTreeNodeFlags_None) )
-	{
-		for ( u32 i = 0; i < memoryProperties.memoryTypeCount; ++i )
-		{
-			const VkMemoryType &memoryType = memoryProperties.memoryTypes[i];
-
-			// Some devices expose memory types we cannot use
-			if ( memoryType.propertyFlags == 0 ) continue;
-
-			ImGui::Text("- type[%u]", i);
-			ImGui::Text("- propertyFlags: %s", VkMemoryPropertyFlagsToString(memoryType.propertyFlags, tmpString));
-			ImGui::Text("- heapIndex: %u", memoryType.heapIndex);
-			ImGui::Separator();
-		}
-	}
-
-	if ( ImGui::CollapsingHeader("Vulkan memory heaps", ImGuiTreeNodeFlags_None) )
-	{
-		for ( u32 i = 0; i < memoryProperties.memoryHeapCount; ++i )
-		{
-			const VkMemoryHeap &memoryHeap = memoryProperties.memoryHeaps[i];
-			ImGui::Text("- heap[%u]", i );
-			ImGui::Text("- size: %u %s", memoryHeap.size / unitBytes[unit], unitSuffix[unit]);
-			ImGui::Text("- flags: %s", VkMemoryHeapFlagsToString(memoryHeap.flags, tmpString));
-			ImGui::Separator();
-		}
-	}
-
-	if ( ImGui::CollapsingHeader("Application memory heaps", ImGuiTreeNodeFlags_None) )
-	{
-		for ( u32 i = 0; i < HeapType_COUNT; ++i )
-		{
-			const Heap &heap = gfx.device.heaps[i];
-			ImGui::Text("- %s", HeapTypeToString((HeapType)i));
-			ImGui::Text("  - size: %u %s\n", heap.size / unitBytes[unit], unitSuffix[unit]);
-			ImGui::Text("  - used: %u %s\n", heap.used / unitBytes[unit], unitSuffix[unit]);
-			ImGui::Text("  - memoryTypeIndex: %u\n", heap.memoryTypeIndex);
-			ImGui::Separator();
-		}
-	}
-	if ( ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_None) )
-	{
-		ImGui::Text("Entity count: %u", scene.entityCount);
-		ImGui::Separator();
-
-		for ( u32 i = 0; i < scene.entityCount; ++i )
-		{
-			const Entity &entity = scene.entities[i];
-			const Heap &heap = gfx.device.heaps[i];
-			ImGui::Text("- entity[%u]", i);
-			ImGui::Text("  - position: (%f, %f, %f)", entity.position.x, entity.position.y, entity.position.z);
-			ImGui::Text("  - materialIndex: %u", entity.materialIndex);
-			ImGui::Separator();
-		}
-	}
-
-	const ImGuiIO& io = ImGui::GetIO();
-	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-
-	const TimestampPool &timestampPool = gfx.timestampPools[gfx.device.frameIndex];
-	const Timestamp t0 = ReadTimestamp(timestampPool, 0);
-	const Timestamp t1 = ReadTimestamp(timestampPool, 1);
-	ImGui::Text("Application graphics frame time (ms): %f", t1.millis - t0.millis);
-
-	ImGui::End();
-	ImGui::Render(); // Generate the draw data
-}
-
-void CleanupImGui()
-{
-	ImGui_ImplVulkan_Shutdown();
-#if USE_WINAPI
-	ImGui_ImplWin32_Shutdown();
-#elif USE_XCB
-	ImGui_ImplXcb_Shutdown();
-#else
-#error "Missing codepath"
-#endif
-	ImGui::DestroyContext();
-}
-#endif // USE_IMGUI
 
 #if USE_UI
 
@@ -3405,10 +3198,6 @@ bool OnPlatformInit(Platform &platform)
 	CompileModifiedShaders();
 #endif
 
-#if USE_IMGUI
-	InitializeImGuiContext();
-#endif
-
 	// Initialize graphics
 	if ( !InitializeGraphicsDriver(gfx.device, platform.globalArena) )
 	{
@@ -3466,10 +3255,6 @@ bool OnPlatformWindowInit(Platform &platform)
 #endif
 	}
 
-#if USE_IMGUI
-	InitializeImGuiGraphics(gfx, platform.window);
-#endif
-
 	return true;
 }
 
@@ -3489,10 +3274,6 @@ void OnPlatformUpdate(Platform &platform)
 		//LoadSceneFromBin(engine);
 		MusicPlay(engine, 0);
 	}
-#endif
-
-#if USE_IMGUI
-	UpdateImGui(gfx);
 #endif
 
 #if USE_UI
@@ -3591,9 +3372,6 @@ void OnPlatformCleanup(Platform &platform)
 
 	WaitDeviceIdle(gfx);
 
-#if USE_IMGUI
-	CleanupImGui();
-#endif
 #if USE_UI
 	UI_Cleanup(engine.ui);
 #endif
