@@ -84,10 +84,10 @@ To the greatest extent possible, the projects and tools here present will not ha
 
 This is the list of the dependencies currently included in this repository:
 
+* [offset_allocator]() (Fast hard realtime O(1) offset allocator with minimal fragmentation by Sebastian Aaltonen)
 * [stb_image](https://github.com/nothings/stb) (public domain image loader by Seann Barrett)
 * [stb_truetype](https://github.com/nothings/stb) (public domain truetype font rasterizer by Seann Barrett)
 * [stb_rect_pack](https://github.com/nothings/stb) (public domain rectangle packing lib by Seann Barrett)
-* [Dear ImGui](https://github.com/ocornut/imgui) (bloat-free graphical user interface library for C++ by Omar Cornut)
 * [DXC](https://github.com/microsoft/DirectXShaderCompiler) (the DirectX Shader Compiler binary and library)
 * [Android SDK](https://developer.android.com/studio) (actually all the tools and packages required to build and deploy .APK files)
 
