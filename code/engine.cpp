@@ -1,7 +1,7 @@
+#include "tools.h"
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
-
-#include "tools.h"
 
 #include "tools_platform.h"
 
@@ -50,6 +50,19 @@
 static constexpr bool sLoadShadersFromText = true;
 #else
 static constexpr bool sLoadShadersFromText = false;
+#endif
+
+
+#if PLATFORM_LINUX
+#define GlobalArena engine.platform.globalArena
+#define FrameArena engine.platform.frameArena
+#define StringArena engine.platform.stringArena
+#define DataArena engine.platform.dataArena
+#else
+#define GlobalArena sPlatform->globalArena
+#define FrameArena sPlatform->frameArena
+#define StringArena sPlatform->stringArena
+#define DataArena sPlatform->dataArena
 #endif
 
 
@@ -334,7 +347,9 @@ enum EngineMode
 
 struct Engine
 {
+#if !PLATFORM_WINDOWS
 	Platform platform;
+#endif
 	Graphics gfx;
 	Game game;
 #if USE_UI
@@ -675,7 +690,22 @@ Engine &GetEngine(Platform &platform)
 
 Window &GetWindow(Engine &engine)
 {
+#if PLATFORM_WINDOWS
+	ASSERT( sPlatform != nullptr );
+	return sPlatform->window;
+#else
 	return engine.platform.window;
+#endif
+}
+
+const Window &GetWindow(const Engine &engine)
+{
+#if PLATFORM_WINDOWS
+	ASSERT( sPlatform != nullptr );
+	return sPlatform->window;
+#else
+	return engine.platform.window;
+#endif
 }
 
 #if USE_UI
@@ -1290,7 +1320,8 @@ const TileAtlas &GetTileAtlas(const Engine &engine)
 
 int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
 {
-	const uint2 windowSize = {engine.platform.window.width, engine.platform.window.height };
+	const Window &window = GetWindow(engine);
+	const uint2 windowSize = { window.width, window.height };
 	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
 	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
 	const f32 aspect = (f32)windowSize.x / (f32)windowSize.y;
@@ -2085,7 +2116,7 @@ static bool PushDataArenaState(Engine &engine)
 	const bool ok = engine.dataArenaStateCount < ARRAY_COUNT(engine.dataArenaStates);
 	if (ok)
 	{
-		engine.dataArenaStates[engine.dataArenaStateCount++] = engine.platform.dataArena;
+		engine.dataArenaStates[engine.dataArenaStateCount++] = DataArena;
 	}
 	return ok;
 }
@@ -2095,7 +2126,7 @@ static bool PopDataArenaState(Engine &engine)
 	const bool ok = engine.dataArenaStateCount > 0;
 	if (ok)
 	{
-		engine.platform.dataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
+		DataArena = engine.dataArenaStates[--engine.dataArenaStateCount];
 	}
 	return ok;
 }
@@ -2105,7 +2136,7 @@ void LoadSceneFromTxt(Engine &engine)
 {
 	if ( PushDataArenaState(engine) )
 	{
-		Arena &dataArena = engine.platform.dataArena;
+		Arena &dataArena = DataArena;
 		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
 		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
 
@@ -2156,7 +2187,7 @@ void SaveSceneToTxt(Engine &engine)
 void LoadShadersFromBin(Engine &engine)
 {
 	const FilePath filepath = MakePath(DataDir, "shaders.dat");
-	engine.shaderAssets = OpenAssets(engine.platform.dataArena, filepath.str);
+	engine.shaderAssets = OpenAssets(DataArena, filepath.str);
 }
 
 void LoadSceneFromBin(Engine &engine)
@@ -2164,7 +2195,7 @@ void LoadSceneFromBin(Engine &engine)
 	if (PushDataArenaState(engine))
 	{
 		const FilePath filepath = MakePath(DataDir, "assets.dat");
-		engine.assets = OpenAssets(engine.platform.dataArena, filepath.str);
+		engine.assets = OpenAssets(DataArena, filepath.str);
 
 		// Textures
 		for (u32 i = 0; i < engine.assets.header.imageCount; ++i)
@@ -2249,7 +2280,7 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 {
 	CompileShaders();
 
-	Arena scratch = MakeSubArena(engine.platform.dataArena, "Scratch - BuildShaders");
+	Arena scratch = MakeSubArena(DataArena, "Scratch - BuildShaders");
 	AssetDescriptors assetDescriptors = {};
 	assetDescriptors.shaderDescs = shaderSourceDescs;
 	assetDescriptors.shaderDescCount = ARRAY_COUNT(shaderSourceDescs);
@@ -2258,7 +2289,7 @@ void BuildShaders(Engine &engine, const char *outBinFilepath)
 
 void BuildAssetsFromTxt(Engine &engine, const char *inTxtFilepath, const char *outBinFilepath)
 {
-	Arena scratch = MakeSubArena(engine.platform.dataArena, "Scratch - BuildAssetsFromTxt");
+	Arena scratch = MakeSubArena(DataArena, "Scratch - BuildAssetsFromTxt");
 	AssetDescriptors assetDescriptors = ParseDescriptors(inTxtFilepath, scratch);
 	BuildAssets(assetDescriptors, outBinFilepath, scratch);
 }
@@ -2444,7 +2475,7 @@ bool RenderGraphics(Engine &engine)
 {
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
-	Window &window = engine.platform.window;
+	Window &window = GetWindow(engine);
 #if USE_EDITOR
 	Editor &editor = engine.editor;
 #endif
@@ -2625,7 +2656,7 @@ bool RenderGraphics(Engine &engine)
 
 		const TileGrid &grid = scene.tileGrid;
 
-		Arena scratch = engine.platform.frameArena;
+		Arena scratch = FrameArena;
 
 		// Count vertices and indices
 		u32 vertexCount = 0;
@@ -3184,6 +3215,46 @@ void GameUpdate(Engine &engine)
 
 
 
+bool OnPlatformPreInit(Platform &platform)
+{
+	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
+	ASSERT( enginePtr != nullptr );
+	platform.userData = (void*) enginePtr;
+
+	Engine &engine = GetEngine(platform);
+
+#if USE_DATA_BUILD
+	bool buildAssets = false;
+	bool exitAfterBuild = false;
+	for ( u32 i = 0; i < platform.argc; ++i ) {
+		if ( StrEq(platform.argv[i], "--build-assets") ) {
+			buildAssets = true;
+			exitAfterBuild = true;
+		}
+	}
+
+	const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
+	if ( !ExistsFile(assetsFilepath.str) ) {
+		buildAssets = true;
+	}
+
+	if ( buildAssets ) {
+		const FilePath shadersFilepath = MakePath(DataDir, "shaders.dat");
+		BuildShaders(engine, shadersFilepath.str);
+		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
+		BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
+		if (exitAfterBuild) {
+			PlatformQuit();
+		}
+	}
+#endif // USE_DATA_BUILD
+
+	return true;
+}
+
+
+
+
 bool OnPlatformInit(Platform &platform)
 {
 	gStringInterning = &platform.stringInterning;
@@ -3191,6 +3262,7 @@ bool OnPlatformInit(Platform &platform)
 	SetGraphicsStringInterning(gStringInterning);
 
 	Engine &engine = GetEngine(platform);
+
 	Graphics &gfx = engine.gfx;
 	Game &game = engine.game;
 
@@ -3385,6 +3457,7 @@ void OnPlatformCleanup(Platform &platform)
 }
 
 
+#if PLATFORM_LINUX
 void EngineMain( int argc, char **argv,  void *userData )
 {
 	Engine engine = {};
@@ -3396,6 +3469,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 	engine.platform.frameMemorySize = MB(16);
 
 	// Callbacks
+	engine.platform.PreInitCallback = OnPlatformPreInit;
 	engine.platform.InitCallback = OnPlatformInit;
 	engine.platform.UpdateCallback = OnPlatformUpdate;
 	engine.platform.RenderGraphicsCallback = OnPlatformRenderGraphics;
@@ -3442,19 +3516,22 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	PlatformRun(engine.platform);
 }
+#endif // PLATFORM_LINUX
 
-#if PLATFORM_ANDROID
-void android_main(struct android_app* app)
-{
-	EngineMain(0, nullptr, app);
-}
-#else
+//#if PLATFORM_ANDROID
+//void android_main(struct android_app* app)
+//{
+//	EngineMain(0, nullptr, app);
+//}
+//#elif PLATFORM_LINUX
+#if PLATFORM_LINUX
 int main(int argc, char **argv)
 {
 	EngineMain(argc, argv, NULL);
 	return 0;
 }
 #endif
+//#endif
 
 // Implementations
 

@@ -92,6 +92,9 @@
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
 
+// Not nice... but we are using stb_image here
+#include "stb/stb_image.h"
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

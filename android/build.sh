@@ -45,8 +45,8 @@ if [[ ${target} = "build" ]]; then
 	echo ""
 
 	echo "main.o:"
-	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/engine.cpp -o main.o
-	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/engine.cpp -o main.o
+	echo ${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/platform.cpp -o main.o
+	${GXX} -I${NATIVE_APP_GLUE_DIR} ${INCLUDES} ${GXX_FLAGS} -c ${CODE_DIR}/platform.cpp -o main.o
 	echo ""
 
 	echo "libgame.so:"

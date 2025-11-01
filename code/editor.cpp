@@ -21,7 +21,6 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
-	Platform &platform = engine.platform;
 
 	if ( UI_BeginMenuBar(ui) )
 	{
@@ -57,7 +56,7 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 
 			if ( UI_MenuItem(ui, "Quit") )
 			{
-				PlatformQuit(platform);
+				PlatformQuit();
 			}
 			UI_EndMenu(ui);
 		}
@@ -107,7 +106,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
-	Platform &platform = engine.platform;
 
 	UI_BeginWindow(ui, "Debug UI");
 
@@ -213,10 +211,10 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 		const char *unitsStr = unitsStrArray[units];
 		const u32 unitsSize = unitsSizeArray[units];
-		UI_Label(ui, "- Global Arena: %u / %u %s", platform.globalArena.used / unitsSize, platform.globalArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- Frame Arena: %u / %u %s", platform.frameArena.used / unitsSize, platform.frameArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- String Arena: %u / %u %s", platform.stringArena.used / unitsSize, platform.stringArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- Data Arena: %u / %u %s", platform.dataArena.used / unitsSize, platform.dataArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Global Arena: %u / %u %s", GlobalArena.used / unitsSize, GlobalArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Frame Arena: %u / %u %s", FrameArena.used / unitsSize, FrameArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- String Arena: %u / %u %s", StringArena.used / unitsSize, StringArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Data Arena: %u / %u %s", DataArena.used / unitsSize, DataArena.size / unitsSize, unitsStr);
 	}
 
 	if ( UI_Section(ui, "Scene") )
@@ -469,7 +467,6 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
 	EditorInspector &inspector = editor.inspector;
-	Platform &platform = engine.platform;
 
 	constexpr uint2 size = {500, 200};
 	constexpr float2 displacement = {10, -10 - (f32)size.y};
@@ -646,7 +643,6 @@ static void EditorUpdateUI(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
-	Platform &platform = engine.platform;
 
 	EditorUpdateUI_MenuBar(engine);
 
@@ -1030,7 +1026,7 @@ void EditorInitialize(Engine &engine)
 
 	// Make a liked list of free file nodes
 	constexpr u32 maxFileNodes = 1024;
-	editor.freeNodes = PushZeroArray(engine.platform.globalArena, FileNode, maxFileNodes);
+	editor.freeNodes = PushZeroArray(GlobalArena, FileNode, maxFileNodes);
 	for (u32 i = 0; i < maxFileNodes; ++i) {
 		if ( i < maxFileNodes - 1) {
 			editor.freeNodes[i].next = &editor.freeNodes[i+1];
@@ -1060,7 +1056,7 @@ void EditorInitialize(Engine &engine)
 
 void EditorUpdate(Engine &engine)
 {
-	Platform &platform = engine.platform;
+	Platform &platform = *sPlatform;
 	Graphics &gfx = engine.gfx;
 
 	EditorUpdateUI(engine);
@@ -1085,7 +1081,7 @@ void EditorUpdate(Engine &engine)
 
 	EditorBeginSceneEditing(engine, platform.window.mouse, handleInput);
 
-	EditorProcessCommands(engine, engine.platform.frameArena);
+	EditorProcessCommands(engine, FrameArena);
 }
 
 void EditorRender(Engine &engine, CommandList &commandList)

@@ -362,7 +362,7 @@ Handle CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip)
 Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 {
 	Audio &audio = engine.audio;
-	Arena &arena = engine.platform.dataArena;
+	Arena &arena = DataArena;
 
 	Handle handle = NewHandle(audio.clipHandles);
 
@@ -812,7 +812,7 @@ Handle CreateMusicFile(Engine &engine, const BinMusicFile &binMusicFile)
 Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc)
 {
 	Audio &audio = engine.audio;
-	Arena &arena = engine.platform.dataArena;
+	Arena &arena = DataArena;
 
 	Handle handle = NewHandle(audio.musicHandles);
 
