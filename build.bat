@@ -63,7 +63,7 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
-cl %CommonCompilerFlags% ..\reflex.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\reflex.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -78,9 +78,9 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-REM cl %CommonCompilerFlags% ..\reflex.cpp /link %CommonLinkerFlags%
-REM reflex.exe ..\assets\assets.h > ..\assets.reflex.h
-cl %CommonCompilerFlags% ..\engine.cpp /link %CommonLinkerFlags%
+REM cl %CommonCompilerFlags% ..\code\reflex.cpp /link %CommonLinkerFlags%
+REM reflex.exe ..\assets\assets.h > ..\code\assets.reflex.h
+cl %CommonCompilerFlags% ..\code\engine.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -93,7 +93,7 @@ REM ######################################################
 
 call vcenv.bat
 pushd build
-cl %CommonCompilerFlags% /LD ..\game.cpp
+cl %CommonCompilerFlags% /LD ..\code\game.cpp
 popd
 exit /b 0
 
@@ -108,7 +108,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\main_interpreter.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\main_interpreter.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -123,7 +123,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib d3dcompiler.lib
 pushd build
-cl %CommonCompilerFlags% ..\main_d3d12.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\main_d3d12.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -138,7 +138,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\main_atof.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\main_atof.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -153,7 +153,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\main_spirv.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\main_spirv.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -168,7 +168,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\cast.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\cast.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -183,7 +183,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\main_reflect_serialize.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\main_reflect_serialize.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -226,8 +226,8 @@ REM Reflection
 REM ######################################################
 : reflection
 
-echo build\reflex.exe assets\assets.h ^> assets.reflex.h
-build\reflex.exe assets\assets.h > assets.reflex.h
+echo build\reflex.exe assets\assets.h > code\assets.reflex.h
+build\reflex.exe assets\assets.h > code\assets.reflex.h
 exit /b 0
 
 

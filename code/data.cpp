@@ -8,7 +8,7 @@ static FilePath GetShaderHlslFilePath(u32 index)
 {
 	FilePath filepath;
 	const ShaderSourceDesc &desc = shaderSourceDescs[index];
-	SPrintf(filepath.str, "%s/shaders/%s", ProjectDir, desc.filename);
+	SPrintf(filepath.str, "%s/code/shaders/%s", ProjectDir, desc.filename);
 	return filepath;
 }
 

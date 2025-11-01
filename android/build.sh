@@ -27,7 +27,7 @@ if [[ ${target} = "build" ]]; then
 	pushd obj
 	echo ""
 
-	CODE_DIR="../.."
+	CODE_DIR="../../code"
 	INCLUDES="-I../../"
 	GCC_FLAGS="-fPIC"
 	GCC_FLAGS="${GCC_FLAGS} -g -O0" # With debug info

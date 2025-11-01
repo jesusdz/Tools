@@ -47,7 +47,7 @@ mkdir %OUT_LIB_DIR% 2> nul
 
 pushd obj
 
-set CODE_DIR="../.."
+set CODE_DIR="../../code"
 set INCLUDES="-I../../"
 set GCC_FLAGS=-fPIC
 set GCC_FLAGS=%GCC_FLAGS% -g -O0
