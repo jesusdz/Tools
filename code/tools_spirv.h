@@ -8,7 +8,7 @@ These are the publicly exposed functions:
 ```
 	SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
 	SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
-	bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
+	bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList, void *tempMem, spv_u32 tempMemSize);
 	void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
 	void SpvPrintDisassembly(SpvParser *parser);
 ```
@@ -227,7 +227,7 @@ struct SpvDescriptorSetList
 
 SpvParser SpvParserInit( spv_u8 *bytes, spv_u32 byteCount );
 SpvParser SpvParserInit( spv_u32 *words, spv_u32 wordCount );
-bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList);
+bool SpvParseDescriptors(SpvParser *parser, SpvDescriptorSetList *descriptorSetList, void *tempMem, spv_u32 tempMemSize);
 #if defined(SPV_PRINT_FUNCTIONS)
 void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
 void SpvPrintDisassembly(SpvParser *parser);

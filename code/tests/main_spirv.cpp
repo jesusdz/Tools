@@ -1,10 +1,10 @@
-#include "tools.h"
+#include "../tools.h"
 
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
 #define SPV_IMPLEMENTATION
 #define SPV_PRINT_FUNCTIONS
-#include "tools_spirv.h"
+#include "../tools_spirv.h"
 
 #define PRINT_DISASSEMBLY 0
 
@@ -26,7 +26,10 @@ int main(int argc, char **argv)
 	// Create a memory arena
 	u32 memorySize = MB(1);
 	byte *memory = (byte*)AllocateVirtualMemory(memorySize);
-	Arena arena = MakeArena(memory, memorySize);
+	Arena arena = MakeArena(memory, memorySize, "Main arena");
+	
+	const u32 spvIdCount = 4096;
+	SpvId *spvIds = PushArray(arena, SpvId, spvIdCount);
 
 #if PRINT_DISASSEMBLY
 	for (u32 i = 0; i < shaderFileCount; ++i)
@@ -40,7 +43,7 @@ int main(int argc, char **argv)
 		}
 
 		// Prepare a SpvParser
-		SpvParser spirvParser = SpvParserInit( chunk->data, chunk->size );
+		SpvParser spirvParser = SpvParserInit( chunk->bytes, chunk->size );
 
 		// Parse spirv bytecode
 		SpvPrintDisassembly(&spirvParser);
@@ -60,9 +63,9 @@ int main(int argc, char **argv)
 		}
 
 		// Prepare a SpvParser
-		SpvParser spirvParser = SpvParserInit( chunk->data, chunk->size );
+		SpvParser spirvParser = SpvParserInit( chunk->bytes, chunk->size );
 
-		const bool ok = SpvParseDescriptors(&spirvParser, &descriptorSetList);
+		const bool ok = SpvParseDescriptors(&spirvParser, &descriptorSetList, spvIds, sizeof(SpvId) * spvIdCount );
 	}
 
 	SpvPrintDescriptorSetList(&descriptorSetList);

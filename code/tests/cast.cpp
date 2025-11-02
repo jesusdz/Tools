@@ -1,4 +1,4 @@
-#include "tools.h"
+#include "../tools.h"
 
 #define CAST_IMPLEMENTATION
 #define CAST_PRINT
@@ -19,7 +19,7 @@ int main(int argc, char **argv)
 	{
 		u32 globalArenaSize = MB(4);
 		byte *globalArenaBase = (byte*)AllocateVirtualMemory(globalArenaSize);
-		Arena globalArena = MakeArena(globalArenaBase, globalArenaSize);
+		Arena globalArena = MakeArena(globalArenaBase, globalArenaSize, "globalArena");
 
 		char* bytes = PushArray(globalArena, char, fileSize + 1);
 		if ( ReadEntireFile(filename, bytes, fileSize) )

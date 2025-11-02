@@ -1,6 +1,6 @@
-#include "tools.h"
+#include "../tools.h"
 #include "reflex.h"
-#include "assets.h"
+#include "../../assets/assets.h"
 #include <cstddef> // offsetof
 
 ////////////////////////////////////////////////////////////////////////

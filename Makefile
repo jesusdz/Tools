@@ -21,9 +21,6 @@ build_and_debug: engine
 	i3 workspace debug
 	gf2 ./build/engine; i3 workspace 2
 
-main_interpreter: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/main_interpreter.cpp
-
 engine: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine  code/platform.cpp -I"vulkan/include" -lxcb -lpthread
 
@@ -31,27 +28,30 @@ game:
 	${CXX} -fPIC -g -Wall -c code/game.cpp -o ${BUILD_DIR}/game.o
 	${CXX} ${BUILD_DIR}/game.o -shared -o ${BUILD_DIR}/game.so
 
+main_interpreter: directories
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/tests/main_interpreter.cpp
+
 main_spirv: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_spirv code/main_spirv.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_spirv code/tests/main_spirv.cpp
 
 reflex: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/reflex code/reflex.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/reflex code/tests/reflex.cpp
 
 main_reflect_serialize: reflex
 	./build/reflex assets/assets.h > code/assets.reflex.h
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_reflect_serialize code/main_reflect_serialize.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_reflect_serialize code/tests/main_reflect_serialize.cpp
 
 main_clon: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_clon code/main_clon.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_clon code/tests/main_clon.cpp
 
 cast: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/cast code/cast.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/cast code/tests/cast.cpp
 
 main_alsa: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_alsa code/main_alsa.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_alsa code/tests/main_alsa.cpp
 
 main_gamepad: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_gamepad code/main_gamepad.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_gamepad code/tests/main_gamepad.cpp
 
 directories:
 	mkdir -p build

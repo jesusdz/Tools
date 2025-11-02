@@ -922,6 +922,8 @@ void ResetArena(Arena &arena)
 ////////////////////////////////////////////////////////////////////////
 // Image loading
 
+#ifdef TOOLS_IMAGE_PIXELS
+
 struct ImagePixels
 {
 	stbi_uc* pixels;
@@ -958,6 +960,8 @@ void FreeImagePixels(ImagePixels &image)
 	}
 	image = {};
 }
+
+#endif // #ifdef TOOLS_IMAGE_PIXELS
 
 
 

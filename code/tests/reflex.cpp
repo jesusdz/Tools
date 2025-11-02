@@ -1,6 +1,6 @@
 #define CAST_IMPLEMENTATION
 #include "cast.h"
-#include "tools.h"
+#include "../tools.h"
 
 #define StringPrintfArgs(string) string.size, string.str
 
@@ -285,7 +285,7 @@ int main(int argc, char **argv)
 	{
 		u32 globalArenaSize = MB(4);
 		byte *globalArenaBase = (byte*)AllocateVirtualMemory(globalArenaSize);
-		Arena globalArena = MakeArena(globalArenaBase, globalArenaSize);
+		Arena globalArena = MakeArena(globalArenaBase, globalArenaSize, "globalArena");
 
 		char* bytes = PushArray(globalArena, char, fileSize + 1);
 		if ( ReadEntireFile(filename, bytes, fileSize) )

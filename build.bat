@@ -63,7 +63,7 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
-cl %CommonCompilerFlags% ..\code\reflex.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\reflex.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -108,7 +108,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\main_interpreter.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\main_interpreter.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -123,7 +123,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags% d3d12.lib dxgi.lib dxguid.lib user32.lib d3dcompiler.lib
 pushd build
-cl %CommonCompilerFlags% ..\code\main_d3d12.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\main_d3d12.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -138,7 +138,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\main_atof.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tets\main_atof.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -153,7 +153,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\main_spirv.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\main_spirv.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -168,7 +168,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\cast.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\cast.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
@@ -183,7 +183,7 @@ call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\main_reflect_serialize.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\main_reflect_serialize.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 

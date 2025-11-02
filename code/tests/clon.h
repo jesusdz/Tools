@@ -8,7 +8,7 @@
 #ifndef CLON_H
 #define CLON_H
 
-#include "tools.h"
+#include "../tools.h"
 
 #define CAST_IMPLEMENTATION
 #include "cast.h"

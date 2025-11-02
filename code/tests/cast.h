@@ -46,7 +46,7 @@
 #endif // #ifndef CAST_USE_TOOLS
 
 #if CAST_USE_TOOLS
-#include "tools.h"
+#include "../tools.h"
 #define CAST_LOG LOG
 #define CAST_ASSERT ASSERT
 #define CAST_ARRAY_COUNT ARRAY_COUNT

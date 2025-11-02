@@ -1,4 +1,4 @@
-#include "tools.h"
+#include "../tools.h"
 
 
 
@@ -1253,7 +1253,7 @@ int main(int argc, char **argv)
 	u32 globalArenaSize = MB(2);
 	byte *globalArenaBase = (byte*)AllocateVirtualMemory(globalArenaSize);
 
-	Arena globalArena = MakeArena(globalArenaBase, globalArenaSize);
+	Arena globalArena = MakeArena(globalArenaBase, globalArenaSize, "Global Arena");
 
 	if ( argc > 2 )
 	{
@@ -1269,7 +1269,7 @@ int main(int argc, char **argv)
 		RunPrompt(globalArena);
 	}
 
-	PrintArenaUsage(globalArena);
+	//PrintArenaUsage(globalArena);
 
 	return 0;
 }

@@ -1,7 +1,7 @@
-#include "tools.h"
+#include "../tools.h"
 #include "clon.h"
 
-#include "assets/assets.h"
+#include "../../assets/assets.h"
 
 int main(int argc, char **argv)
 {
