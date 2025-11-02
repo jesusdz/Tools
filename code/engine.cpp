@@ -3,8 +3,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-#include "tools_platform.h"
-
 #define TOOLS_GFX_IMPLEMENTATION
 #include "tools_gfx.h"
 
@@ -53,17 +51,10 @@ static constexpr bool sLoadShadersFromText = false;
 #endif
 
 
-#if PLATFORM_LINUX
-#define GlobalArena engine.platform.globalArena
-#define FrameArena engine.platform.frameArena
-#define StringArena engine.platform.stringArena
-#define DataArena engine.platform.dataArena
-#else
 #define GlobalArena sPlatform->globalArena
 #define FrameArena sPlatform->frameArena
 #define StringArena sPlatform->stringArena
 #define DataArena sPlatform->dataArena
-#endif
 
 
 struct Vertex
@@ -347,9 +338,6 @@ enum EngineMode
 
 struct Engine
 {
-#if !PLATFORM_WINDOWS
-	Platform platform;
-#endif
 	Graphics gfx;
 	Game game;
 #if USE_UI
@@ -690,22 +678,14 @@ Engine &GetEngine(Platform &platform)
 
 Window &GetWindow(Engine &engine)
 {
-#if PLATFORM_WINDOWS
 	ASSERT( sPlatform != nullptr );
 	return sPlatform->window;
-#else
-	return engine.platform.window;
-#endif
 }
 
 const Window &GetWindow(const Engine &engine)
 {
-#if PLATFORM_WINDOWS
 	ASSERT( sPlatform != nullptr );
 	return sPlatform->window;
-#else
-	return engine.platform.window;
-#endif
 }
 
 #if USE_UI
@@ -3457,81 +3437,6 @@ void OnPlatformCleanup(Platform &platform)
 }
 
 
-#if PLATFORM_LINUX
-void EngineMain( int argc, char **argv,  void *userData )
-{
-	Engine engine = {};
-
-	// Memory
-	engine.platform.stringMemorySize = KB(16);
-	engine.platform.dataMemorySize = MB(64);
-	engine.platform.globalMemorySize = MB(64);
-	engine.platform.frameMemorySize = MB(16);
-
-	// Callbacks
-	engine.platform.PreInitCallback = OnPlatformPreInit;
-	engine.platform.InitCallback = OnPlatformInit;
-	engine.platform.UpdateCallback = OnPlatformUpdate;
-	engine.platform.RenderGraphicsCallback = OnPlatformRenderGraphics;
-	engine.platform.PreRenderAudioCallback = OnPlatformPreRenderAudio;
-	engine.platform.RenderAudioCallback = OnPlatformRenderAudio;
-	engine.platform.CleanupCallback = OnPlatformCleanup;
-	engine.platform.WindowInitCallback = OnPlatformWindowInit;
-	engine.platform.WindowCleanupCallback = OnPlatformWindowCleanup;
-
-#if PLATFORM_ANDROID
-	engine.platform.androidApp = (android_app*)userData;
-#endif
-
-	// User data
-	engine.platform.userData = &engine;
-
-	PlatformInitialize(engine.platform, argc, argv);
-
-#if USE_DATA_BUILD
-	bool buildAssets = false;
-	bool exitAfterBuild = false;
-	for ( u32 i = 0; i < argc; ++i ) {
-		if ( StrEq(argv[i], "--build-assets") ) {
-			buildAssets = true;
-			exitAfterBuild = true;
-		}
-	}
-
-	const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
-	if ( !ExistsFile(assetsFilepath.str) ) {
-		buildAssets = true;
-	}
-
-	if ( buildAssets ) {
-		const FilePath shadersFilepath = MakePath(DataDir, "shaders.dat");
-		BuildShaders(engine, shadersFilepath.str);
-		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-		BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
-		if (exitAfterBuild) {
-			return;
-		}
-	}
-#endif // USE_DATA_BUILD
-
-	PlatformRun(engine.platform);
-}
-#endif // PLATFORM_LINUX
-
-//#if PLATFORM_ANDROID
-//void android_main(struct android_app* app)
-//{
-//	EngineMain(0, nullptr, app);
-//}
-//#elif PLATFORM_LINUX
-#if PLATFORM_LINUX
-int main(int argc, char **argv)
-{
-	EngineMain(argc, argv, NULL);
-	return 0;
-}
-#endif
-//#endif
 
 // Implementations
 
