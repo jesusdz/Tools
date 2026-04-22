@@ -1,6 +1,3 @@
-#define TOOLS_IMAGE_PIXELS
-#include "tools.h"
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
