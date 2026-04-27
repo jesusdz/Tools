@@ -28,6 +28,9 @@ game:
 	${CXX} -fPIC -g -Wall -c code/game.cpp -o ${BUILD_DIR}/game.o
 	${CXX} ${BUILD_DIR}/game.o -shared -o ${BUILD_DIR}/game.so
 
+unit_test_tools: directories
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/unit_test_tools code/tests/unit_test_tools.cpp
+
 main_interpreter: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/tests/main_interpreter.cpp
 

@@ -3,8 +3,23 @@
  * Unit tests for code/tools.h
  */
 
+#define STB_IMAGE_IMPLEMENTATION
 #define TOOLS_IMAGE_PIXELS
 #include "../tools.h"
+
+// ANSI color codes
+#ifdef _WIN32
+#include <windows.h>
+#define ANSI_RESET   "\x1b[0m"
+#define ANSI_BOLD    "\x1b[1m"
+#define ANSI_RED     "\x1b[31m"
+#define ANSI_GREEN   "\x1b[32m"
+#else
+#define ANSI_RESET
+#define ANSI_BOLD
+#define ANSI_RED
+#define ANSI_GREEN
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Test framework
@@ -15,15 +30,15 @@ static u32 gTestsFailed = 0;
 #define TEST(name, expression) \
     do { \
         if (expression) { \
-            LOG(Info, "[PASS] %s\n", name); \
+            LOG(Info, ANSI_GREEN "[PASS]" ANSI_RESET " %s\n", name); \
             gTestsPassed++; \
         } else { \
-            LOG(Error, "[FAIL] %s  (line %d)\n", name, __LINE__); \
+            LOG(Error, ANSI_RED "[FAIL]" ANSI_RESET " %s  (line %d)\n", name, __LINE__); \
             gTestsFailed++; \
         } \
     } while(0)
 
-#define TEST_SECTION(name) LOG(Info, "\n--- %s ---\n", name)
+#define TEST_SECTION(name) LOG(Info, ANSI_BOLD "\n--- %s ---\n" ANSI_RESET, name)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Truncation tests
@@ -1296,7 +1311,7 @@ void TestAlignment()
         TEST("AlignUp already aligned", AlignUp(8, 4) == 8);
         TEST("AlignUp not aligned", AlignUp(5, 4) == 8);
         TEST("AlignUp 1 to 4", AlignUp(1, 4) == 4);
-        TEST("AlignUp 0 to 4", AlignUp(0, 4) == 4); // Note: 0 is not power of two, but alignment is
+        TEST("AlignUp 0 to 4", AlignUp(0, 4) == 0);
         TEST("AlignUp 15 to 16", AlignUp(15, 16) == 16);
         TEST("AlignUp 16 to 16", AlignUp(16, 16) == 16);
         TEST("AlignUp 17 to 16", AlignUp(17, 16) == 32);
@@ -1370,9 +1385,18 @@ void TestSizedTypes()
 
 int main()
 {
-    LOG(Info, "====================================\n");
-    LOG(Info, "  tools.h Unit Tests\n");
-    LOG(Info, "====================================\n");
+#ifdef _WIN32
+    // Enable colors
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    SetConsoleMode(hOut, dwMode);
+#endif
+
+    LOG(Info, ANSI_BOLD "====================================\n" ANSI_RESET);
+    LOG(Info, ANSI_BOLD "  tools.h Unit Tests\n" ANSI_RESET);
+    LOG(Info, ANSI_BOLD "====================================\n" ANSI_RESET);
 
     TestSizedTypes();
     TestTruncations();
@@ -1387,9 +1411,14 @@ int main()
     TestAlignment();
     TestClock();
 
-    LOG(Info, "\n====================================\n");
-    LOG(Info, "  Results: %u passed, %u failed\n", gTestsPassed, gTestsFailed);
-    LOG(Info, "====================================\n");
+    LOG(Info, "\n" ANSI_BOLD "====================================\n" ANSI_RESET);
+    if (gTestsFailed == 0) {
+        LOG(Info, ANSI_BOLD ANSI_GREEN "  Results: %u passed, %u failed\n" ANSI_RESET, gTestsPassed, gTestsFailed);
+    } else {
+        LOG(Info, ANSI_BOLD "  Results: " ANSI_GREEN "%u passed" ANSI_RESET ANSI_BOLD ", " ANSI_RED "%u failed\n" ANSI_RESET, gTestsPassed, gTestsFailed);
+    }
+    LOG(Info, ANSI_BOLD "====================================\n" ANSI_RESET);
+
 
     return gTestsFailed > 0 ? 1 : 0;
 }

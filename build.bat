@@ -38,6 +38,7 @@ REM ######################################################
 
 set target=%1
 if [%target%] == [] goto engine
+if "%target%" == "unit_test_tools" goto unit_test_tools
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
 if "%target%" == "engine" goto engine
@@ -154,6 +155,21 @@ set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
 cl %CommonCompilerFlags% ..\code\tests\main_spirv.cpp /link %CommonLinkerFlags%
+popd
+exit /b 0
+
+
+
+REM ######################################################
+REM unit_test_tools
+REM ######################################################
+: unit_test_tools
+
+call vcenv.bat
+set CommonCompilerFlags=%CommonCompilerFlags%
+set CommonLinkerFlags=%CommonLinkerFlags%
+pushd build
+cl %CommonCompilerFlags% ..\code\tests\unit_test_tools.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 
