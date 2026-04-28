@@ -780,7 +780,7 @@ static const String sEntityStr = MakeString("Entity");
 static const String sAudioClipStr = MakeString("AudioClip");
 static const String sMusicFileStr = MakeString("MusicFile");
 
-static void DParseDescriptorCounts(DParser &parser)
+static void DParseDescriptors(DParser &parser, bool countOnly)
 {
 	AssetDescriptors &descriptors = *parser.descriptors;
 
@@ -790,40 +790,14 @@ static void DParseDescriptorCounts(DParser &parser)
 		{
 			const String type = DParser_GetPreviousToken(parser).lexeme;
 
+			// Texture
 			if ( StrEq(type, sTextureStr) ) {
-				descriptors.textureDescCount++;
-			} else if ( StrEq(type, sMaterialStr) ) {
-				descriptors.materialDescCount++;
-			} else if ( StrEq(type, sEntityStr) ) {
-				descriptors.entityDescCount++;
-			} else if ( StrEq(type, sAudioClipStr) ) {
-				descriptors.audioClipDescCount++;
-			} else if ( StrEq(type, sMusicFileStr) ) {
-				descriptors.musicFileDescCount++;
-			}
 
-			DParser_ConsumeUntil(parser, TOKEN_SEMICOLON);
-		}
-		else
-		{
-			DParser_Consume(parser);
-		}
-	}
-}
+				const uint index = descriptors.textureDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
 
-static void DParseDescriptors(DParser &parser)
-{
-	AssetDescriptors &descriptors = *parser.descriptors;
-
-	while ( !DParser_HasFinished( parser ) )
-	{
-		if ( DParser_TryConsume(parser, TOKEN_IDENTIFIER) )
-		{
-			const String type = DParser_GetPreviousToken(parser).lexeme;
-
-			if ( StrEq(type, sTextureStr) ) {
+				TextureDesc &desc = descriptors.textureDescs[index];
 				const String name = DParser_ConsumeLexeme( parser );
-				TextureDesc &desc = descriptors.textureDescs[descriptors.textureDescCount++];
 				desc.name = PushString(*parser.arena, name);
 				DParser_TryConsume( parser, TOKEN_EQUAL );
 				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
@@ -845,9 +819,15 @@ static void DParseDescriptors(DParser &parser)
 
 					DParser_TryConsume( parser, TOKEN_COMMA );
 				}
+
+			// Material
 			} else if ( StrEq(type, sMaterialStr) ) {
+
+				const uint index = descriptors.materialDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				MaterialDesc &desc = descriptors.materialDescs[index];
 				const String name = DParser_ConsumeLexeme( parser );
-				MaterialDesc &desc = descriptors.materialDescs[descriptors.materialDescCount++];
 				desc.name = PushString(*parser.arena, name);
 				DParser_TryConsume( parser, TOKEN_EQUAL );
 				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
@@ -873,9 +853,15 @@ static void DParseDescriptors(DParser &parser)
 
 					DParser_TryConsume( parser, TOKEN_COMMA );
 				}
+
+			// Entity
 			} else if ( StrEq(type, sEntityStr) ) {
+
+				const uint index = descriptors.entityDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				EntityDesc &desc = descriptors.entityDescs[index];
 				const String name = DParser_ConsumeLexeme( parser );
-				EntityDesc &desc = descriptors.entityDescs[descriptors.entityDescCount++];
 				desc.name = PushString(*parser.arena, name);
 				DParser_TryConsume( parser, TOKEN_EQUAL );
 				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
@@ -904,9 +890,15 @@ static void DParseDescriptors(DParser &parser)
 
 					DParser_ConsumeUntil( parser, TOKEN_COMMA );
 				}
+
+			// AudioClip
 			} else if ( StrEq(type, sAudioClipStr) ) {
+
+				const uint index = descriptors.audioClipDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				AudioClipDesc &desc = descriptors.audioClipDescs[index];
 				const String name = DParser_ConsumeLexeme( parser );
-				AudioClipDesc &desc = descriptors.audioClipDescs[descriptors.audioClipDescCount++];
 				desc.name = PushString(*parser.arena, name);
 				DParser_TryConsume( parser, TOKEN_EQUAL );
 				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
@@ -925,9 +917,15 @@ static void DParseDescriptors(DParser &parser)
 
 					DParser_TryConsume( parser, TOKEN_COMMA );
 				}
+
+			// MusicFile
 			} else if ( StrEq(type, sMusicFileStr) ) {
+
+				const uint index = descriptors.musicFileDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				MusicFileDesc &desc = descriptors.musicFileDescs[index];
 				const String name = DParser_ConsumeLexeme( parser );
-				MusicFileDesc &desc = descriptors.musicFileDescs[descriptors.musicFileDescCount++];
 				desc.name = PushString(*parser.arena, name);
 				DParser_TryConsume( parser, TOKEN_EQUAL );
 				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
@@ -946,7 +944,13 @@ static void DParseDescriptors(DParser &parser)
 
 					DParser_TryConsume( parser, TOKEN_COMMA );
 				}
+
+			// Unknown
+			} else {
+				LOG(Warning, "Unexpected descriptor\n");
 			}
+
+			parse_descriptors_continue:
 
 			DParser_ConsumeUntil(parser, TOKEN_SEMICOLON);
 		}
@@ -968,7 +972,7 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 		if ( tokenList.valid )
 		{
 			DParser parser = DParser_Init(tokenList, arena, descriptors);
-			DParseDescriptorCounts(parser);
+			DParseDescriptors(parser, true);
 
 			if (!parser.hasErrors)
 			{
@@ -985,7 +989,7 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 				descriptors.musicFileDescCount = 0;
 
 				parser = DParser_Init(tokenList, arena, descriptors);
-				DParseDescriptors(parser);
+				DParseDescriptors(parser, false);
 
 				if ( parser.hasErrors )
 				{
