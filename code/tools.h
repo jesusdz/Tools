@@ -1199,7 +1199,7 @@ bool FileSeek(File file, u64 offset)
 	return ok;
 }
 
-byte *PushFileData(Arena &arena, File file, u64 offset, u64 size)
+byte *PushDataFromFile(Arena &arena, File file, u64 offset, u64 size)
 {
 	if ( FileSeek(file, offset) ) {
 		Arena modifiedArena = arena;
