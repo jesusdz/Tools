@@ -1688,7 +1688,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 
 	// Global render pass
 	{
-		const Format format = FormatFromVulkan(gfx.device.swapchainInfo.format);
+		const Format format = gfx.device.swapchainInfo.format;
 #if USE_EDITOR
 		const StoreOp storeOp = StoreOpStore;
 #else

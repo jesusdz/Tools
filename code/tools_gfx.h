@@ -612,7 +612,8 @@ struct Sampler
 
 struct SwapchainInfo
 {
-	VkFormat format;
+	Format format;
+	VkFormat vkFormat;
 	VkColorSpaceKHR colorSpace;
 	VkPresentModeKHR presentMode;
 };
@@ -1706,7 +1707,10 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 		swapchain.extent.height = Clamp( window.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height );
 	}
 
+	// Format
+	const Format format = device.swapchainInfo.format;
 
+	// Log info
 	LOG(Debug, "Swapchain:\n");
 #if PLATFORM_ANDROID
 	const u32 baseWidth = swapchain.extent.width;
@@ -1718,7 +1722,7 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 	LOG(Debug, "- base extent (%ux%u)\n", baseWidth, baseHeight);
 #endif
 	LOG(Debug, "- extent (%ux%u)\n", swapchain.extent.width, swapchain.extent.height);
-	LOG(Debug, "- format %s\n", FormatName(FormatFromVulkan(swapchainInfo.format)));
+	LOG(Debug, "- format %s\n", FormatName(format));
 
 
 	// Pre transform
@@ -1799,7 +1803,7 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface = device.surface,
 		.minImageCount = imageCount,
-		.imageFormat = swapchainInfo.format,
+		.imageFormat = swapchainInfo.vkFormat,
 		.imageColorSpace = swapchainInfo.colorSpace,
 		.imageExtent = swapchain.extent,
 		.imageArrayLayers = 1,
@@ -1824,14 +1828,12 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 	ASSERT( swapchain.imageCount <= ARRAY_COUNT(swapchainImages) );
 	vkGetSwapchainImagesKHR( device.handle, swapchain.handle, &swapchain.imageCount, swapchainImages );
 
-
 	// Create image views
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
 	{
 		const VkImage imageHandle = swapchainImages[i];
-		const Format format = FormatFromVulkan(swapchainInfo.format);
 		const u32 mipLevels = 1;
-		const VkImageView imageViewHandle = CreateImageView(device, imageHandle, swapchainInfo.format, FormatToVulkanAspect(format), mipLevels);
+		const VkImageView imageViewHandle = CreateImageView(device, imageHandle, swapchainInfo.vkFormat, FormatToVulkanAspect(format), mipLevels);
 		const Image image = {
 			.handle = imageHandle,
 			.imageViewHandle = imageViewHandle,
@@ -2181,7 +2183,7 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 		u32 selectedEntryIndex = U32_MAX;
 		u32 surfaceFormatIndex = 0;
 
-		device.swapchainInfo.format = VK_FORMAT_MAX_ENUM;
+		device.swapchainInfo.vkFormat = VK_FORMAT_MAX_ENUM;
 		LOG(Info, "Available surface formats:\n");
 		for ( u32 i = 0; i < surfaceFormatCount; ++i )
 		{
@@ -2210,7 +2212,8 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 		}
 
 		LOG(Info, "- Selected surface format: %d\n", surfaceFormatIndex);
-		device.swapchainInfo.format = surfaceFormats[surfaceFormatIndex].format;
+		device.swapchainInfo.vkFormat = surfaceFormats[surfaceFormatIndex].format;
+		device.swapchainInfo.format = FormatFromVulkan(device.swapchainInfo.vkFormat);
 		device.swapchainInfo.colorSpace = surfaceFormats[surfaceFormatIndex].colorSpace;
 
 		// Swapchain present mode
