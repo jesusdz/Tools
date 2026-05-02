@@ -2184,13 +2184,13 @@ void LoadSceneFromBin(Engine &engine)
 		// Materials
 		for (u32 i = 0; i < engine.assets.header.materialCount; ++i)
 		{
-			CreateMaterial(engine.gfx, engine.assets.materialDescs[i]);
+			CreateMaterial(engine.gfx, *engine.assets.materials[i].desc);
 		}
 
 		// Entities
 		for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
 		{
-			CreateEntity(engine, engine.assets.entityDescs[i]);
+			CreateEntity(engine, *engine.assets.entities[i].desc);
 		}
 
 		// Audio clips

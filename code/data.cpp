@@ -1034,6 +1034,29 @@ u32 PostIncrement(u32 *value, u32 incr)
 	return ret;
 }
 
+struct DataStringPool
+{
+	char *str;
+	u32 size;
+};
+
+static const char *DataInternString( DataStringPool &stringPool, const char *str )
+{
+	u32 offset = stringPool.size;
+	char *dst = stringPool.str + offset;
+	while (*str) { *dst++ = *str++; stringPool.size++; }
+	*dst = '\0';
+	stringPool.size++;
+	const char *offsetPtr = (const char*)(uintptr_t)offset;
+	return offsetPtr;
+}
+
+static const char *DataGetString( const char *stringPool, const char *offsetPtr )
+{
+	const char *str = stringPool + (uintptr_t)offsetPtr;
+	return str;
+}
+
 void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Arena tempArena)
 {
 	LOG(Info, "Build assets: %s\n", filepath);
@@ -1071,25 +1094,11 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 		const u32 basePayloadOffset = offset;
 
-		// Write file header
-		const BinAssetsHeader fileHeader = {
-			.magicNumber = U32FromChars('I', 'R', 'I', 'S'),
-			.shadersOffset = shadersOffset,
-			.shaderCount = shaderCount,
-			.imagesOffset = imagesOffset,
-			.imageCount = imageCount,
-			.audioClipsOffset = audioClipsOffset,
-			.audioClipCount = audioClipCount,
-			.musicFilesOffset = musicFilesOffset,
-			.musicFileCount = musicFileCount,
-			.materialsOffset = materialsOffset,
-			.materialCount = materialCount,
-			.entitiesOffset = entitiesOffset,
-			.entityCount = entityCount,
-		};
-		fwrite(&fileHeader, sizeof(fileHeader), 1, file);
-
 		u32 payloadOffset = basePayloadOffset;
+
+		const u32 maxStringPoolSize = KB(128);
+		char *stringPoolBase = PushArray(tempArena, char, maxStringPoolSize);
+		DataStringPool stringPool = { stringPoolBase };
 
 		// Reserve space for asset descs
 		BinShaderDesc *binShaderDescs = PushArray(tempArena, BinShaderDesc, shaderCount);
@@ -1101,26 +1110,25 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 		// Prepare asset descs and write asset payloads
 
-		fseek(file, payloadOffset, SEEK_SET);
+		fseek(file, basePayloadOffset, SEEK_SET);
 
 		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
 		{
-			const ShaderSourceDesc &shaderSourceDesc = descriptors.shaderDescs[i];
+			const ShaderSourceDesc &desc = descriptors.shaderDescs[i];
 
 			char filepath[MAX_PATH_LENGTH];
-			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, shaderSourceDesc.name);
+			SPrintf(filepath, "%s/shaders/%s.spv", DataDir, desc.name);
 
 			u64 payloadSize = 0;
 			GetFileSize(filepath, payloadSize);
 
-			// Save asset desc info
-			BinShaderDesc &shaderHeader = binShaderDescs[i];
-			StrCopy(shaderHeader.name, shaderSourceDesc.name);
-			StrCopy(shaderHeader.entryPoint, shaderSourceDesc.entryPoint);
-			shaderHeader.type = shaderSourceDesc.type;
-			shaderHeader.location.offset = payloadOffset;
-			shaderHeader.location.size = U64ToU32(payloadSize);
+			BinShaderDesc &d = binShaderDescs[i];
+			d.name       = DataInternString(stringPool, desc.name);
+			d.entryPoint = DataInternString(stringPool, desc.entryPoint);
+			d.type = desc.type;
+			d.location.offset = payloadOffset;
+			d.location.size = U64ToU32(payloadSize);
 
 			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
 			void *shaderPayload = PushSize(scratch, payloadSize);
@@ -1134,9 +1142,9 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		// Images
 		for (u32 i = 0; i < imageCount; ++i)
 		{
-			const TextureDesc &textureDesc = descriptors.textureDescs[i];
+			const TextureDesc &desc = descriptors.textureDescs[i];
 
-			const FilePath imagePath = MakePath(AssetDir, textureDesc.filename);
+			const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
 			int texWidth, texHeight, texChannels;
 			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -1153,15 +1161,15 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			const u64 payloadSize = texWidth * texHeight * texChannels;
 
-			// Save asset desc info
-			BinImageDesc &imageHeader = binImageDescs[i];
-			StrCopy(imageHeader.name, textureDesc.name);
-			imageHeader.width = I32ToU16(texWidth),
-			imageHeader.height = I32ToU16(texHeight),
-			imageHeader.channels = I32ToU8(texChannels),
-			imageHeader.mipmap = textureDesc.mipmap,
-			imageHeader.location.offset = payloadOffset,
-			imageHeader.location.size = U64ToU32(payloadSize),
+			BinImageDesc &d = binImageDescs[i];
+			d.name     = DataInternString(stringPool, desc.name);
+			d.width    = I32ToU16(texWidth);
+			d.height   = I32ToU16(texHeight);
+			d.channels = I32ToU8(texChannels);
+			d.mipmap   = desc.mipmap;
+			d.unused   = 0;
+			d.location.offset = payloadOffset;
+			d.location.size   = U64ToU32(payloadSize);
 
 			fwrite(pixels, payloadSize, 1, file);
 
@@ -1175,9 +1183,9 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		// AudioClips
 		for (u32 i = 0; i < audioClipCount; ++i)
 		{
-			const AudioClipDesc &audioClipDesc = descriptors.audioClipDescs[i];
+			const AudioClipDesc &desc = descriptors.audioClipDescs[i];
 
-			const FilePath path = MakePath(AssetDir, audioClipDesc.filename);
+			const FilePath path = MakePath(AssetDir, desc.filename);
 
 			AudioClip audioClip;
 			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
@@ -1186,7 +1194,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			const u64 payloadSize = audioClip.sampleCount * audioClip.sampleSize;
 
-			const BinAudioClipDesc audioClipHeader = {
+			const BinAudioClipDesc d = {
 				.sampleCount = audioClip.sampleCount,
 				.samplingRate = audioClip.samplingRate,
 				.sampleSize = audioClip.sampleSize,
@@ -1196,7 +1204,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 					.size = U64ToU32(payloadSize),
 				},
 			};
-			binAudioClipDescs[i] = audioClipHeader;
+			binAudioClipDescs[i] = d;
 
 			if ( ok ) {
 				fwrite(samples, payloadSize, 1, file);
@@ -1222,14 +1230,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			const u64 payloadSize = fileChunk->size;
 
-			const BinMusicFileDesc binMusicFileDesc = {
-				.location = {
-					.offset = payloadOffset,
-					.size = U64ToU32(payloadSize),
-				},
-			};
-			binMusicFileDescs[i] = binMusicFileDesc;
-			StrCopy(binMusicFileDescs[i].name, desc.name);
+			BinMusicFileDesc &d = binMusicFileDescs[i];
+			d.name            = DataInternString(stringPool, desc.name);
+			d.location.offset = payloadOffset;
+			d.location.size   = U64ToU32(payloadSize);
 
 			fwrite(fileChunk->bytes, payloadSize, 1, file);
 
@@ -1239,37 +1243,62 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		// Materials
 		for (u32 i = 0; i < materialCount; ++i)
 		{
-			const MaterialDesc &materialDesc = descriptors.materialDescs[i];
+			const MaterialDesc &desc = descriptors.materialDescs[i];
 
-			BinMaterialDesc &binMaterialDesc = binMaterialDescs[i];
-			StrCopy(binMaterialDesc.name, materialDesc.name);
-			StrCopy(binMaterialDesc.textureName, materialDesc.textureName);
-			StrCopy(binMaterialDesc.pipelineName, materialDesc.pipelineName);
-			binMaterialDesc.uvScale = materialDesc.uvScale;
+			BinMaterialDesc &d = binMaterialDescs[i];
+			d.name         = DataInternString(stringPool, desc.name);
+			d.textureName  = DataInternString(stringPool, desc.textureName);
+			d.pipelineName = DataInternString(stringPool, desc.pipelineName);
+			d.uvScale = desc.uvScale;
 		}
 
 		// Entities
 		for (u32 i = 0; i < entityCount; ++i)
 		{
-			const EntityDesc &entityDesc = descriptors.entityDescs[i];
+			const EntityDesc &desc = descriptors.entityDescs[i];
 
-			BinEntityDesc &binEntityDesc = binEntityDescs[i];
-			StrCopy(binEntityDesc.name, entityDesc.name);
-			StrCopy(binEntityDesc.materialName, entityDesc.materialName);
-			binEntityDesc.pos = entityDesc.pos;
-			binEntityDesc.scale = entityDesc.scale;
-			binEntityDesc.geometryType = entityDesc.geometryType;
+			BinEntityDesc &d = binEntityDescs[i];
+			d.name         = DataInternString(stringPool, desc.name);
+			d.materialName = DataInternString(stringPool, desc.materialName);
+			d.pos          = desc.pos;
+			d.scale        = desc.scale;
+			d.geometryType = desc.geometryType;
 		}
 
-		// Write asset descs
+		// Write string pool after payloads
+		const u32 stringPoolOffset = payloadOffset;
+		const u32 stringPoolSize   = stringPool.size;
+		fwrite(stringPool.str, stringPoolSize, 1, file);
 
-		fseek(file, sizeof(fileHeader), SEEK_SET);
-		fwrite(binShaderDescs, sizeof(binShaderDescs[0]), shaderCount, file);
-		fwrite(binImageDescs, sizeof(binImageDescs[0]), imageCount, file);
+		// Write asset descs
+		fseek(file, sizeof(BinAssetsHeader), SEEK_SET);
+		fwrite(binShaderDescs,    sizeof(binShaderDescs[0]),    shaderCount,    file);
+		fwrite(binImageDescs,     sizeof(binImageDescs[0]),     imageCount,     file);
 		fwrite(binAudioClipDescs, sizeof(binAudioClipDescs[0]), audioClipCount, file);
 		fwrite(binMusicFileDescs, sizeof(binMusicFileDescs[0]), musicFileCount, file);
-		fwrite(binMaterialDescs, sizeof(binMaterialDescs[0]), materialCount, file);
-		fwrite(binEntityDescs, sizeof(binEntityDescs[0]), entityCount, file);
+		fwrite(binMaterialDescs,  sizeof(binMaterialDescs[0]),  materialCount,  file);
+		fwrite(binEntityDescs,    sizeof(binEntityDescs[0]),    entityCount,    file);
+
+		// Write file header last (string pool offset is now known)
+		const BinAssetsHeader fileHeader = {
+			.magicNumber      = U32FromChars('I', 'R', 'I', 'S'),
+			.shadersOffset    = shadersOffset,
+			.shaderCount      = shaderCount,
+			.imagesOffset     = imagesOffset,
+			.imageCount       = imageCount,
+			.audioClipsOffset = audioClipsOffset,
+			.audioClipCount   = audioClipCount,
+			.musicFilesOffset = musicFilesOffset,
+			.musicFileCount   = musicFileCount,
+			.materialsOffset  = materialsOffset,
+			.materialCount    = materialCount,
+			.entitiesOffset   = entitiesOffset,
+			.entityCount      = entityCount,
+			.stringPoolOffset = stringPoolOffset,
+			.stringPoolSize   = stringPoolSize,
+		};
+		fseek(file, 0, SEEK_SET);
+		fwrite(&fileHeader, sizeof(fileHeader), 1, file);
 
 		fclose(file);
 	}
@@ -1315,56 +1344,75 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 	assets.images = PushArray(dataArena, BinImage, assets.header.imageCount);
 	assets.audioClips = PushArray(dataArena, BinAudioClip, assets.header.audioClipCount);
 	assets.musicFiles = PushArray(dataArena, BinMusicFile, assets.header.musicFileCount);
+	assets.materials = PushArray(dataArena, BinMaterial, assets.header.materialCount);
+	assets.entities = PushArray(dataArena, BinEntity, assets.header.entityCount);
 
-	const u32 shaderDescsOffset = assets.header.shadersOffset;
-	const u32 shaderDescsSize = assets.header.shaderCount * sizeof(BinShaderDesc);
-	const u32 imageDescsOffset = assets.header.imagesOffset;
-	const u32 imageDescsSize = assets.header.imageCount * sizeof(BinImageDesc);
-	const u32 audioClipDescsOffset = assets.header.audioClipsOffset;
-	const u32 audioClipDescsSize = assets.header.audioClipCount * sizeof(BinAudioClipDesc);
-	const u32 musicFileDescsOffset = assets.header.musicFilesOffset;
-	const u32 musicFileDescsSize = assets.header.musicFileCount * sizeof(BinMusicFileDesc);
-	const u32 materialDescsOffset = assets.header.materialsOffset;
-	const u32 materialDescsSize = assets.header.materialCount * sizeof(BinMaterialDesc);
-	const u32 entityDescsOffset = assets.header.entitiesOffset;
-	const u32 entityDescsSize = assets.header.entityCount * sizeof(BinEntityDesc);
+	const char *stringPool = (const char*)PushDataFromFile(
+		dataArena, file, assets.header.stringPoolOffset, assets.header.stringPoolSize);
 
-	BinShaderDesc *binShaderDescs = (BinShaderDesc*) PushDataFromFile(dataArena, file, shaderDescsOffset, shaderDescsSize);
-
+	// Shaders
+	BinShaderDesc *binShaderDescs = (BinShaderDesc*)PushDataFromFile(
+		dataArena, file, assets.header.shadersOffset, assets.header.shaderCount * sizeof(BinShaderDesc));
 	for (u32 i = 0; i < assets.header.shaderCount; ++i)
 	{
-		BinShader &shader = assets.shaders[i];
-		shader.desc = binShaderDescs + i;
-		shader.spirv = PushDataFromFile(dataArena, file, shader.desc->location.offset, shader.desc->location.size);
+		BinShaderDesc &d = binShaderDescs[i];
+		d.name       = DataGetString( stringPool, d.name );
+		d.entryPoint = DataGetString( stringPool, d.entryPoint );
+		assets.shaders[i].desc  = &d;
+		assets.shaders[i].spirv = PushDataFromFile(dataArena, file, d.location.offset, d.location.size);
 	}
 
-	BinImageDesc *binImageDescs = (BinImageDesc*) PushDataFromFile(dataArena, file, imageDescsOffset, imageDescsSize);
-
+	// Images
+	BinImageDesc *binImageDescs = (BinImageDesc*)PushDataFromFile(
+		dataArena, file, assets.header.imagesOffset, assets.header.imageCount * sizeof(BinImageDesc));
 	for (u32 i = 0; i < assets.header.imageCount; ++i)
 	{
-		BinImage &image = assets.images[i];
-		image.desc = binImageDescs + i;
-		image.pixels = PushDataFromFile(dataArena, file, image.desc->location.offset, image.desc->location.size);
+		BinImageDesc &d = binImageDescs[i];
+		d.name = DataGetString( stringPool, d.name );
+		assets.images[i].desc   = &d;
+		assets.images[i].pixels = PushDataFromFile(dataArena, file, d.location.offset, d.location.size);
 	}
 
-	BinAudioClipDesc *binAudioClipDescs = (BinAudioClipDesc*) PushDataFromFile(dataArena, file, audioClipDescsOffset, audioClipDescsSize);
-
+	// AudioClips
+	BinAudioClipDesc *binAudioClipDescs = (BinAudioClipDesc*)PushDataFromFile(
+		dataArena, file, assets.header.audioClipsOffset, assets.header.audioClipCount * sizeof(BinAudioClipDesc));
 	for (u32 i = 0; i < assets.header.audioClipCount; ++i)
 	{
-		BinAudioClip &audioClip = assets.audioClips[i];
-		audioClip.desc = binAudioClipDescs + i;
+		assets.audioClips[i].desc = binAudioClipDescs + i;
 	}
 
-	BinMusicFileDesc *binMusicFileDescs = (BinMusicFileDesc*) PushDataFromFile(dataArena, file, musicFileDescsOffset, musicFileDescsSize);
-
+	// MusicFiles
+	BinMusicFileDesc *binMusicFileDescs = (BinMusicFileDesc*)PushDataFromFile(
+		dataArena, file, assets.header.musicFilesOffset, assets.header.musicFileCount * sizeof(BinMusicFileDesc));
 	for (u32 i = 0; i < assets.header.musicFileCount; ++i)
 	{
-		BinMusicFile &musicFile = assets.musicFiles[i];
-		musicFile.desc = binMusicFileDescs + i;
+		BinMusicFileDesc &d = binMusicFileDescs[i];
+		d.name = DataGetString( stringPool, d.name );
+		assets.musicFiles[i].desc = &d;
 	}
 
-	assets.materialDescs = (BinMaterialDesc*) PushDataFromFile(dataArena, file, materialDescsOffset, materialDescsSize);
-	assets.entityDescs = (BinEntityDesc*) PushDataFromFile(dataArena, file, entityDescsOffset, entityDescsSize);
+	// Materials
+	BinMaterialDesc *materialDescs = (BinMaterialDesc*)PushDataFromFile(
+		dataArena, file, assets.header.materialsOffset, assets.header.materialCount * sizeof(BinMaterialDesc));
+	for (u32 i = 0; i < assets.header.materialCount; ++i)
+	{
+		BinMaterialDesc &d = materialDescs[i];
+		d.name         = DataGetString( stringPool, d.name );
+		d.textureName  = DataGetString( stringPool, d.textureName );
+		d.pipelineName = DataGetString( stringPool, d.pipelineName );
+		assets.materials[i].desc = &d;
+	}
+
+	// Entities
+	BinEntityDesc *entityDescs = (BinEntityDesc*)PushDataFromFile(
+		dataArena, file, assets.header.entitiesOffset, assets.header.entityCount * sizeof(BinEntityDesc));
+	for (u32 i = 0; i < assets.header.entityCount; ++i)
+	{
+		BinEntityDesc &d = entityDescs[i];
+		d.name         = DataGetString( stringPool, d.name );
+		d.materialName = DataGetString( stringPool, d.materialName );
+		assets.entities[i].desc = &d;
+	}
 
 	assets.file = file;
 

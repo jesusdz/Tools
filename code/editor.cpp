@@ -45,11 +45,16 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 
 			UI_Separator(ui);
 
-			if ( UI_MenuItem(ui, "Build scene") )
+			if ( UI_MenuItem(ui, "Load scene (BIN)") )
 			{
-				const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
-				const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-				BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
+				const EditorCommand command = { .type = EditorCommandLoadBin };
+				AddEditorCommand(editor, command);
+			}
+
+			if ( UI_MenuItem(ui, "Build scene (BIN)") )
+			{
+				const EditorCommand command = { .type = EditorCommandBuildBin };
+				AddEditorCommand(editor, command);
 			}
 
 			UI_Separator(ui);

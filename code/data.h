@@ -111,15 +111,15 @@ struct BinLocation
 
 struct BinShaderDesc
 {
-	char name[32];
-	char entryPoint[32];
+	const char *name;
+	const char *entryPoint;
 	ShaderType type;
 	BinLocation location;
 };
 
 struct BinImageDesc
 {
-	char name[32];
+	const char *name;
 	u16 width;
 	u16 height;
 	u8  channels;
@@ -139,22 +139,22 @@ struct BinAudioClipDesc
 
 struct BinMusicFileDesc
 {
-	char name[32];
+	const char *name;
 	BinLocation location;
 };
 
 struct BinMaterialDesc
 {
-	char name[32];
-	char textureName[32];
-	char pipelineName[32];
+	const char *name;
+	const char *textureName;
+	const char *pipelineName;
 	float uvScale;
 };
 
 struct BinEntityDesc
 {
-	char name[32];
-	char materialName[32];
+	const char *name;
+	const char *materialName;
 	float3 pos;
 	float scale;
 	GeometryType geometryType;
@@ -175,8 +175,9 @@ struct BinAssetsHeader
 	u32 materialCount;
 	u32 entitiesOffset;
 	u32 entityCount;
+	u32 stringPoolOffset;
+	u32 stringPoolSize;
 };
-#pragma pack(pop)
 
 struct BinShader
 {
@@ -193,14 +194,25 @@ struct BinImage
 struct BinAudioClip
 {
 	BinAudioClipDesc *desc;
-	void *samples;
 };
 
 struct BinMusicFile
 {
 	BinMusicFileDesc *desc;
-	void *bytes;
 };
+
+struct BinMaterial
+{
+	BinMaterialDesc *desc;
+};
+
+struct BinEntity
+{
+	BinEntityDesc *desc;
+};
+
+#pragma pack(pop)
+
 
 struct BinAssets
 {
@@ -212,8 +224,8 @@ struct BinAssets
 	BinImage *images;
 	BinAudioClip *audioClips;
 	BinMusicFile *musicFiles;
-	BinMaterialDesc *materialDescs;
-	BinEntityDesc *entityDescs;
+	BinMaterial *materials;
+	BinEntity *entities;
 };
 
 // Functions
