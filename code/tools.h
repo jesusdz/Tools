@@ -40,6 +40,15 @@
 #endif
 
 
+#if PLATFORM_LINUX
+#	define USE_XCB 1
+#elif PLATFORM_ANDROID
+#	define USE_ANDROID 1
+#elif PLATFORM_WINDOWS
+#	define USE_WINAPI 1
+#endif
+
+
 #if PLATFORM_WINDOWS
 
 #define NOMINMAX

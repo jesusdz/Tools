@@ -1,54 +1,9 @@
 
-#ifndef PLATFORM_H
-#define PLATFORM_H
+#include "platform.h"
 
-#define TOOLS_IMAGE_PIXELS
-#include "tools.h"
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Thread IDs
-
-#define WORK_QUEUE_WORKER_COUNT 8
-
-enum ThreadID
-{
-	THREAD_ID_UPDATE,
-	THREAD_ID_AUDIO,
-	THREAD_ID_WORKER_0,
-	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
-};
-
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
-#define USE_UPDATE_THREAD 1
-#else
-#define USE_UPDATE_THREAD 0
-#endif
-
-#if PLATFORM_LINUX || PLATFORM_WINDOWS
-#define USE_AUDIO_THREAD 1
-#elif PLATFORM_ANDROID
-#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
-#endif
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Window and input
-
-#if PLATFORM_LINUX
-#	define USE_XCB 1
-#elif PLATFORM_ANDROID
-#	define USE_ANDROID 1
-#elif PLATFORM_WINDOWS
-#	define USE_WINAPI 1
-#endif
-
+static Platform platform = {};
 
 #if USE_XCB
-#	include <xcb/xcb.h>
-#	include <stdlib.h> // free
-
 void XcbReportError( int xcbErrorCode, const char *context )
 {
 	static const char *xcbErrorMessages[] = {
@@ -69,440 +24,14 @@ void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, co
 	// TODO: Find a better way to report XCB generic errors
 	LOG(Error, "Xcb generic error (%s)\n", context);
 }
-
 #endif
-
-
-
-enum Key
-{
-	K_NULL,
-	K_LEFT, K_RIGHT, K_UP, K_DOWN,
-	K_ESCAPE,
-	K_SPACE,
-	K_BACKSPACE,
-	K_DELETE,
-	K_RETURN,
-	K_TAB,
-	K_CONTROL,
-	K_SHIFT,
-	K_ALT,
-	K_0, K_1, K_2,
-	K_3, K_4, K_5,
-	K_6, K_7, K_8, K_9,
-	K_A, K_B, K_C, K_D,
-	K_E, K_F, K_G, K_H,
-	K_I, K_J, K_K, K_L,
-	K_M, K_N, K_O, K_P,
-	K_Q, K_R, K_S, K_T,
-	K_U, K_V, K_W, K_X,
-	K_Y, K_Z,
-	K_COUNT,
-};
-
-enum MouseButton
-{
-	MOUSE_BUTTON_LEFT,
-	MOUSE_BUTTON_RIGHT,
-	MOUSE_BUTTON_MIDDLE,
-	MOUSE_BUTTON_COUNT,
-};
-
-enum KeyState
-{
-	KEY_STATE_IDLE,
-	KEY_STATE_PRESS,
-	KEY_STATE_PRESSED,
-	KEY_STATE_RELEASE,
-};
-
-enum ButtonState
-{
-	BUTTON_STATE_IDLE,
-	BUTTON_STATE_PRESS,
-	BUTTON_STATE_PRESSED,
-	BUTTON_STATE_RELEASE,
-};
-
-enum TouchState
-{
-	TOUCH_STATE_IDLE,
-	TOUCH_STATE_PRESS,
-	TOUCH_STATE_PRESSED,
-	TOUCH_STATE_RELEASE,
-};
-
-struct Keyboard
-{
-	KeyState keys[K_COUNT];
-};
-
-struct Mouse
-{
-	i32 x, y;
-	i32 dx, dy;
-	i32 wx, wy; // wheel x and y
-	ButtonState buttons[MOUSE_BUTTON_COUNT];
-};
-
-#define MAX_INPUT_CHARS 16
-
-struct Chars
-{
-	char chars[MAX_INPUT_CHARS];
-	u32 charCount;
-	bool shift;
-	bool ctrl;
-	bool alt;
-};
-
-struct Touch
-{
-	f32 x0, y0;
-	f32 x, y;
-	f32 dx, dy;
-	TouchState state;
-};
-
-bool KeyPress(const Keyboard &keyboard, Key key)
-{
-	ASSERT(key < K_COUNT);
-	return keyboard.keys[key] == KEY_STATE_PRESS;
-}
-
-bool KeyPressed(const Keyboard &keyboard, Key key)
-{
-	ASSERT(key < K_COUNT);
-	return keyboard.keys[key] == KEY_STATE_PRESSED;
-}
-
-bool KeyRelease(const Keyboard &keyboard, Key key)
-{
-	ASSERT(key < K_COUNT);
-	return keyboard.keys[key] == KEY_STATE_RELEASE;
-}
-
-bool ButtonPress(ButtonState state)
-{
-	return state == BUTTON_STATE_PRESS;
-}
-
-bool ButtonPressed(ButtonState state)
-{
-	return state == BUTTON_STATE_PRESSED;
-}
-
-bool ButtonRelease(ButtonState state)
-{
-	return state == BUTTON_STATE_RELEASE;
-}
-
-bool MouseMoved(const Mouse &mouse)
-{
-	return mouse.dx != 0 || mouse.dy != 0;
-}
-
-bool MouseButtonPress(const Mouse &mouse, MouseButton button)
-{
-	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return ButtonPress(mouse.buttons[button]);
-}
-
-bool MouseButtonPressed(const Mouse &mouse, MouseButton button)
-{
-	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return ButtonPressed(mouse.buttons[button]);
-}
-
-bool MouseButtonRelease(const Mouse &mouse, MouseButton button)
-{
-	ASSERT(button < MOUSE_BUTTON_COUNT);
-	return ButtonRelease(mouse.buttons[button]);
-}
-
-bool MouseButtonChanged(const Mouse &mouse, MouseButton button)
-{
-	return MouseButtonPress(mouse, button) || MouseButtonRelease(mouse, button);
-}
-
-bool MouseChanged(const Mouse &mouse)
-{
-	return MouseMoved(mouse)
-		|| MouseButtonChanged(mouse, MOUSE_BUTTON_LEFT)
-		|| MouseButtonChanged(mouse, MOUSE_BUTTON_RIGHT)
-		|| MouseButtonChanged(mouse, MOUSE_BUTTON_MIDDLE);
-}
-
-enum WindowFlags
-{
-	WindowFlags_WasCreated  = 1 << 0,
-	WindowFlags_WillDestroy = 1 << 1,
-	WindowFlags_WasResized  = 1 << 2,
-	WindowFlags_Exit        = 1 << 3,
-};
-
-struct Window
-{
-#if USE_XCB
-	xcb_connection_t *connection;
-	xcb_window_t window;
-	xcb_atom_t closeAtom;
-#elif USE_ANDROID
-	ANativeWindow *nativeWindow;
-#elif USE_WINAPI
-	HINSTANCE hInstance;
-	HWND hWnd;
-#endif
-	u32 width;
-	u32 height;
-	u32 flags;
-
-	Keyboard keyboard;
-	Mouse mouse;
-	Chars chars;
-	Touch touches[2];
-};
-
-struct Gamepad
-{
-	union {
-		struct {
-			ButtonState start;
-			ButtonState back;
-			ButtonState up;
-			ButtonState down;
-			ButtonState left;
-			ButtonState right;
-			ButtonState a;
-			ButtonState b;
-			ButtonState x;
-			ButtonState y;
-			ButtonState leftShoulder;
-			ButtonState rightShoulder;
-		};
-		ButtonState buttons[12];
-	};
-	float leftTrigger;
-	float rightTrigger;
-	float2 leftAxis;
-	float2 rightAxis;
-};
-
-struct Input
-{
-#if PLATFORM_WINDOWS
-	DynamicLibrary library;
-#elif PLATFORM_LINUX
-	int fd; // file descriptor
-#endif
-
-	Gamepad gamepad;
-};
 
 #if PLATFORM_WINDOWS
 typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
 #endif
 
-struct AudioDevice
-{
-	// Config
-	u16 channelCount;
-	u16 bytesPerSample;
-	u16 samplesPerSecond;
-	u16 bufferSize;
-	u16 latencyFrameCount;
-	u16 latencySampleCount;
-	u16 safetyBytes;
-	u32 runningSampleIndex;
 
-#if PLATFORM_WINDOWS
-	DynamicLibrary library;
-	LPDIRECTSOUNDBUFFER buffer;
-#elif PLATFORM_LINUX
-	DynamicLibrary library;
-	snd_pcm_t *pcm;
-#elif PLATFORM_ANDROID
-	AAudioStream *stream;
-#endif
 
-	bool initialized;
-	bool isPlaying;
-	bool soundIsValid;
-
-	i16 *outputSamples;
-};
-
-struct SoundBuffer
-{
-	u16 samplesPerSecond;
-	u16 sampleCount;
-	i16* samples;
-};
-
-enum PlatformEventType
-{
-	PlatformEventTypeWindowWasCreated,
-	PlatformEventTypeWindowWillDestroy,
-	PlatformEventTypeWindowResize,
-	PlatformEventTypeKeyPress,
-	PlatformEventTypeMouseClick,
-	PlatformEventTypeMouseMove,
-	PlatformEventTypeMouseWheel,
-	PlatformEventTypeQuit,
-	PlatformEventTypeCount,
-};
-
-struct PlatformEventWindowResize
-{
-	u16 width, height;
-};
-
-struct PlatformEventKeyPress
-{
-	Key code;
-	KeyState state;
-};
-
-struct PlatformEventMouseClick
-{
-	MouseButton button;
-	ButtonState state;
-};
-
-struct PlatformEventMouseMove
-{
-	i16 x, y;
-};
-
-struct PlatformEventMouseWheel
-{
-	i16 dx, dy;
-};
-
-struct PlatformEvent
-{
-	PlatformEventType type;
-	union
-	{
-		PlatformEventWindowResize windowResize;
-		PlatformEventKeyPress keyPress;
-		PlatformEventMouseClick mouseClick;
-		PlatformEventMouseMove mouseMove;
-		PlatformEventMouseWheel mouseWheel;
-	};
-};
-
-struct PlatformConfig
-{
-#if PLATFORM_ANDROID
-	struct android_app *androidApp;
-#endif // PLATFORM_ANDROID
-};
-
-#define MAX_SCRATCH_ARENAS 8
-
-struct Platform
-{
-	i32 argc;
-	char **argv;
-
-	u32 globalMemorySize = MB(64);
-	u32 frameMemorySize = MB(16);
-	u32 stringMemorySize = KB(16);
-	u32 dataMemorySize = MB(16);
-
-	bool (*PreInitCallback)(Platform &);
-	bool (*InitCallback)(Platform &);
-	void (*UpdateCallback)(Platform &);
-	void (*RenderGraphicsCallback)(Platform &);
-	void (*PreRenderAudioCallback)(Platform &);
-	void (*RenderAudioCallback)(Platform &, SoundBuffer &soundBuffer);
-	void (*CleanupCallback)(Platform &);
-	bool (*WindowInitCallback)(Platform &);
-	void (*WindowCleanupCallback)(Platform &);
-
-	void *userData;
-
-#if PLATFORM_ANDROID
-	struct android_app *androidApp;
-#endif // PLATFORM_ANDROID
-
-	// Platform components
-
-	Arena globalArena;
-	Arena frameArena;
-	Arena stringArena;
-	Arena dataArena;
-
-	Arena scratchArenas[MAX_SCRATCH_ARENAS];
-	volatile_u32 scratchArenaLockMask;
-
-	StringInterning stringInterning;
-	Window window;
-	Input input;
-	AudioDevice audio;
-	f32 deltaSeconds;
-	f32 totalSeconds;
-
-	volatile_i64 eventTail;
-	volatile_i64 eventHead;
-	PlatformEvent events[128];
-
-	bool mainThreadRunning;
-	bool updateThreadRunning;
-	bool windowInitialized;
-
-	Semaphore updateThreadFinished;
-};
-
-static Platform *sPlatform = nullptr;
-
-u32 AcquireScratchArena(Arena &outArena)
-{
-	// Max MAX_SCRATCH_ARENAS attempts to get a scratch arena
-	for (u32 i = 0; i < MAX_SCRATCH_ARENAS; ++i)
-	{
-		// Get the first bit not set
-		const u32 oldValue = sPlatform->scratchArenaLockMask;
-		const u32 index = FBZ(oldValue);
-		ASSERT(index < MAX_SCRATCH_ARENAS);
-
-		// Try to change it
-		const u32 newValue = oldValue | (1<<index);
-		if (AtomicSwap(&sPlatform->scratchArenaLockMask, oldValue, newValue))
-		{
-			Arena &arena = sPlatform->scratchArenas[index];
-			if (!arena.base)
-			{
-				const u32 size = MB(1);
-				arena.base = (byte*)AllocateVirtualMemory(size);
-				arena.size = size;
-			}
-			outArena = arena;
-			outArena.used = 0;
-			return index;
-		}
-	}
-	INVALID_CODE_PATH();
-	return U32_MAX;
-}
-
-void ReleaseScratchArena(u32 index)
-{
-	const u32 oldValue = sPlatform->scratchArenaLockMask;
-	const u32 newValue = oldValue & ~(1<<index);
-	const bool swapped = AtomicSwap(&sPlatform->scratchArenaLockMask, oldValue, newValue);
-	ASSERT(swapped);
-}
-
-struct Scratch
-{
-	Arena arena;
-	u32 lockedBit;
-
-	Scratch() { lockedBit = AcquireScratchArena(arena); }
-	~Scratch() { ReleaseScratchArena(lockedBit); }
-};
 
 
 
@@ -609,6 +138,10 @@ void InitializeDirectories(Platform &platform)
 	DataDir = "/sdcard/Android/data/com.tools.game/files";
 	BinDir = DataDir;
 	ProjectDir = "";
+	platform.BinDir     = BinDir;
+	platform.DataDir    = DataDir;
+	platform.AssetDir   = AssetDir;
+	platform.ProjectDir = ProjectDir;
 
 #else
 
@@ -653,6 +186,11 @@ void InitializeDirectories(Platform &platform)
 	AssetDir = PushString(platform.stringArena, directory);
 
 #endif
+
+	platform.BinDir    = BinDir;
+	platform.DataDir   = DataDir;
+	platform.AssetDir  = AssetDir;
+	platform.ProjectDir = ProjectDir;
 
 	LOG(Info, "Directories:\n");
 	LOG(Info, "- BinDir: %s\n", BinDir);
@@ -705,9 +243,6 @@ void PrintModifiers(uint32_t mask)
 
 void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
-	ASSERT(sPlatform);
-	Platform &platform = *sPlatform;
-
 	u32 eventType = event->response_type & ~0x80;
 
 	switch ( eventType )
@@ -1017,9 +552,6 @@ int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
 
 LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	ASSERT(sPlatform);
-	Platform &platform = *sPlatform;
-
 #if !USE_UPDATE_THREAD
 	Window *window = &platform.window;
 #endif
@@ -1258,21 +790,21 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 		case WM_SYSCOMMAND:
 			{
 				WPARAM param = ( wParam & 0xFFF0 );
-				AudioDevice &audio = sPlatform->audio;
+				AudioDevice &audio = platform.audio;
 
 				if (param == SC_MINIMIZE)
 				{
 					if ( audio.initialized && audio.isPlaying ) {
-						sPlatform->audio.buffer->Stop();
+						platform.audio.buffer->Stop();
 						audio.isPlaying = false;
 					}
 				}
 				else if (param == SC_RESTORE)
 				{
 					if ( audio.initialized && !audio.isPlaying ) {
-						sPlatform->audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
+						platform.audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
 						audio.isPlaying = true;
-						sPlatform->audio.soundIsValid = false;
+						platform.audio.soundIsValid = false;
 					}
 				}
 
@@ -1702,6 +1234,8 @@ bool InitializeGamepad(Platform &platform)
 
 #if PLATFORM_WINDOWS
 
+	bool found = false;
+
 	const char *libraryNames[] = {
 		"xinput1_4.dll",
 		"xinput9_1_0.dll",
@@ -1727,18 +1261,24 @@ bool InitializeGamepad(Platform &platform)
 		if ( getState != nullptr ) {
 			LOG(Info, "- XInputGetState symbol loaded successfully\n");
 			FP_XInputGetState = getState;
+			found = true;
 		} else {
 			LOG(Warning, "- Error loading XInputGetState symbol\n");
 			FP_XInputGetState = XInputGetStateStub;
+			found = false;
 		}
 		if ( setState != nullptr ) {
 			LOG(Info, "- XInputSetState symbol loaded successfully\n");
 			FP_XInputSetState = setState;
+			found = found && true;
 		} else {
 			LOG(Warning, "- Error loading XInputSetState\n");
 			FP_XInputSetState = XInputSetStateStub;
+			found = false;
 		}
 	}
+
+	return found;
 
 #elif PLATFORM_LINUX
 
@@ -2326,7 +1866,7 @@ bool InitializeAudio(Platform &platform)
 							audio.buffer = secondaryBuffer;
 
 							MemSet(audio.outputSamples, audio.bufferSize, 0);
-							Win32FillAudioBuffer(sPlatform->audio, 0, sPlatform->audio.bufferSize, audio.outputSamples);
+							Win32FillAudioBuffer(platform.audio, 0, platform.audio.bufferSize, audio.outputSamples);
 
 							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
 							{
@@ -2511,9 +2051,6 @@ bool InitializeAudio(Platform &platform)
 static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
-
-	ASSERT( sPlatform );
-	Platform &platform = *sPlatform;
 
 	Clock lastClock = GetClock();
 
@@ -2803,9 +2340,6 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
 
-	ASSERT( sPlatform );
-	Platform &platform = *sPlatform;
-
 	Clock lastClock = GetClock();
 
 	while ( platform.updateThreadRunning )
@@ -2866,17 +2400,12 @@ bool InitializeUpdateThread(Platform &platform)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform
 
-bool PlatformPreInitialize(Platform &platform)
+bool InitializeArenas(Platform &platform)
 {
-	ASSERT( platform.globalMemorySize > 0 );
-	ASSERT( platform.frameMemorySize > 0 );
-	ASSERT( platform.PreInitCallback );
-	ASSERT( platform.InitCallback );
-	ASSERT( platform.UpdateCallback );
-	ASSERT( platform.RenderGraphicsCallback );
-	ASSERT( platform.CleanupCallback );
-	ASSERT( platform.WindowInitCallback );
-	ASSERT( platform.WindowCleanupCallback );
+	platform.stringMemorySize = KB(16);
+	platform.dataMemorySize = MB(64);
+	platform.globalMemorySize = MB(64);
+	platform.frameMemorySize = MB(16);
 
 	byte *globalMemory = (byte*)AllocateVirtualMemory(platform.globalMemorySize);
 	platform.globalArena = MakeArena(globalMemory, platform.globalMemorySize, "Global arena");
@@ -2891,25 +2420,110 @@ bool PlatformPreInitialize(Platform &platform)
 	byte *dataMemory = (byte*)AllocateVirtualMemory(platform.dataMemorySize);
 	platform.dataArena = MakeArena(dataMemory, platform.dataMemorySize, "Data arena");
 
+	return true;
+}
+
+static void PlatformQuit()
+{
+	//platform.window.flags |= WindowFlags_Exit;
+	exit(0);
+}
+
+static u32 AcquireScratchArena(Arena &outArena)
+{
+	for (u32 i = 0; i < MAX_SCRATCH_ARENAS; ++i)
+	{
+		const u32 oldValue = platform.scratchArenaLockMask;
+		const u32 index = FBZ(oldValue);
+		ASSERT(index < MAX_SCRATCH_ARENAS);
+
+		const u32 newValue = oldValue | (1<<index);
+		if (AtomicSwap(&platform.scratchArenaLockMask, oldValue, newValue))
+		{
+			Arena &arena = platform.scratchArenas[index];
+			if (!arena.base)
+			{
+				const u32 size = MB(1);
+				arena.base = (byte*)AllocateVirtualMemory(size);
+				arena.size = size;
+			}
+			outArena = arena;
+			outArena.used = 0;
+			return index;
+		}
+	}
+	INVALID_CODE_PATH();
+	return U32_MAX;
+}
+
+static void ReleaseScratchArena(u32 index)
+{
+	const u32 oldValue = platform.scratchArenaLockMask;
+	const u32 newValue = oldValue & ~(1<<index);
+	const bool swapped = AtomicSwap(&platform.scratchArenaLockMask, oldValue, newValue);
+	ASSERT(swapped);
+}
+
+bool InitializeEngine(Platform &platform)
+{
+#if PLATFORM_LINUX || PLATFORM_ANDROID
+	const FilePath engineLibPath = MakePath(BinDir, "engine.so");
+#elif PLATFORM_WINDOWS
+	const FilePath engineLibPath = MakePath(BinDir, "engine.dll");
+	LOG(Info, "%s", engineLibPath.str);
+#else
+#error "Missing implementation"
+#endif
+
+	platform.engineLib = OpenLibrary(engineLibPath.str);
+	ASSERT(platform.engineLib);
+
+	// Engine interface exposed to platform
+	platform.PreInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
+	platform.InitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformInit");
+	platform.UpdateCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformUpdate");
+	platform.RenderGraphicsCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformRenderGraphics");
+	platform.PreRenderAudioCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreRenderAudio");
+	platform.RenderAudioCallback = (void (*)(Platform &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
+	platform.CleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformCleanup");
+	platform.WindowInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowInit");
+	platform.WindowCleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowCleanup");
+
+	ASSERT( platform.PreInitCallback );
+	ASSERT( platform.InitCallback );
+	ASSERT( platform.UpdateCallback );
+	ASSERT( platform.RenderGraphicsCallback );
+	ASSERT( platform.CleanupCallback );
+	ASSERT( platform.WindowInitCallback );
+	ASSERT( platform.WindowCleanupCallback );
+
+	// Platform interface exposed to engine
+	platform.api.PlatformQuit        = PlatformQuit;
+	platform.api.AcquireScratchArena = AcquireScratchArena;
+	platform.api.ReleaseScratchArena = ReleaseScratchArena;
+
 #if PLATFORM_ANDROID
 	ASSERT( platform.androidApp );
-	platform.androidApp = platform.androidApp;
 	platform.androidApp->onAppCmd = AndroidHandleAppCommand;
 	platform.androidApp->onInputEvent = AndroidHandleInputEvent;
 	platform.androidApp->userData = &platform;
 #endif // PLATFORM_ANDROID
 
-	InitializeDirectories(platform);
-
-	sPlatform = &platform;
-
-	platform.PreInitCallback(platform);
-
 	return true;
+}
+
+void FinalizeEngine(Platform &platform)
+{
+	CloseLibrary(platform.engineLib);
 }
 
 bool PlatformRun(Platform &platform)
 {
+	if ( !platform.PreInitCallback(platform) )
+	{
+		return false;
+	}
+
 	if ( !InitializeWindow(platform.window) )
 	{
 		return false;
@@ -2918,7 +2532,7 @@ bool PlatformRun(Platform &platform)
 	const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
 	SendPlatformEvent(platform, event);
 
-	if ( InitializeGamepad(platform) )
+	if ( !InitializeGamepad(platform) )
 	{
 		// Do nothing
 	}
@@ -3027,54 +2641,25 @@ bool PlatformRun(Platform &platform)
 	return false;
 }
 
-void PlatformQuit()
-{
-	exit(0);
-}
-
-// TODO(jesus): Declare this somewhere else not here
-bool OnPlatformPreInit(Platform &);
-bool OnPlatformInit(Platform &);
-void OnPlatformUpdate(Platform &);
-void OnPlatformRenderGraphics(Platform &);
-void OnPlatformPreRenderAudio(Platform &);
-void OnPlatformRenderAudio(Platform &, SoundBuffer &soundBuffer);
-void OnPlatformCleanup(Platform &);
-bool OnPlatformWindowInit(Platform &);
-void OnPlatformWindowCleanup(Platform &);
 
 void EngineMain( int argc, char **argv,  void *userData )
 {
-	Platform platform = {};
-
 	// Input args
 	platform.argc = argc;
 	platform.argv = argv;
-
-	// Memory
-	platform.stringMemorySize = KB(16);
-	platform.dataMemorySize = MB(64);
-	platform.globalMemorySize = MB(64);
-	platform.frameMemorySize = MB(16);
-
-	// Callbacks
-	platform.PreInitCallback = OnPlatformPreInit;
-	platform.InitCallback = OnPlatformInit;
-	platform.UpdateCallback = OnPlatformUpdate;
-	platform.RenderGraphicsCallback = OnPlatformRenderGraphics;
-	platform.PreRenderAudioCallback = OnPlatformPreRenderAudio;
-	platform.RenderAudioCallback = OnPlatformRenderAudio;
-	platform.CleanupCallback = OnPlatformCleanup;
-	platform.WindowInitCallback = OnPlatformWindowInit;
-	platform.WindowCleanupCallback = OnPlatformWindowCleanup;
-
 #if PLATFORM_ANDROID
 	platform.androidApp = (android_app*)userData;
 #endif
 
-	PlatformPreInitialize(platform);
+	InitializeArenas(platform);
+
+	InitializeDirectories(platform);
+
+	InitializeEngine(platform);
 
 	PlatformRun(platform);
+
+	FinalizeEngine(platform);
 }
 
 
@@ -3091,7 +2676,4 @@ int main(int argc, char **argv)
 }
 #endif
 
-#endif // #ifndef PLATFORM_H
-
-#include "engine.cpp"
 

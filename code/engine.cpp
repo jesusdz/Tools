@@ -1,5 +1,9 @@
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
+#define TOOLS_IMAGE_PIXELS
+#include "tools.h"
+
+#define PLATFORM_API
+#include "platform.h"
 
 #include "tools_gfx.h"
 
@@ -46,12 +50,6 @@ static constexpr bool sLoadShadersFromText = true;
 #else
 static constexpr bool sLoadShadersFromText = false;
 #endif
-
-
-#define GlobalArena sPlatform->globalArena
-#define FrameArena sPlatform->frameArena
-#define StringArena sPlatform->stringArena
-#define DataArena sPlatform->dataArena
 
 
 struct Vertex
@@ -671,18 +669,6 @@ Engine &GetEngine(Platform &platform)
 	return *engine;
 }
 
-Window &GetWindow(Engine &engine)
-{
-	ASSERT( sPlatform != nullptr );
-	return sPlatform->window;
-}
-
-const Window &GetWindow(const Engine &engine)
-{
-	ASSERT( sPlatform != nullptr );
-	return sPlatform->window;
-}
-
 #if USE_UI
 UI &GetUI(Engine &engine)
 {
@@ -690,13 +676,13 @@ UI &GetUI(Engine &engine)
 }
 #endif
 
-void OnPlatformPreRenderAudio(Platform &platform)
+ENGINE_API void OnPlatformPreRenderAudio(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	PreRenderAudio(engine);
 }
 
-void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
+ENGINE_API void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
 {
 	Engine &engine = GetEngine(platform);
 	RenderAudio(engine, soundBuffer);
@@ -1295,7 +1281,7 @@ const TileAtlas &GetTileAtlas(const Engine &engine)
 
 int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
 {
-	const Window &window = GetWindow(engine);
+	const Window &window = sPlatform->window;
 	const uint2 windowSize = { window.width, window.height };
 	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
 	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
@@ -2450,7 +2436,7 @@ bool RenderGraphics(Engine &engine)
 {
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
-	Window &window = GetWindow(engine);
+	Window &window = sPlatform->window;
 #if USE_EDITOR
 	Editor &editor = engine.editor;
 #endif
@@ -3019,7 +3005,7 @@ bool RenderGraphics(Engine &engine)
 void UIBeginFrameRecording(Engine &engine)
 {
 	UI &ui = GetUI(engine);
-	const Window &window = GetWindow(engine);
+	const Window &window = sPlatform->window;
 	Graphics &gfx = engine.gfx;
 
 	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
@@ -3190,8 +3176,10 @@ void GameUpdate(Engine &engine)
 
 
 
-bool OnPlatformPreInit(Platform &platform)
+ENGINE_API bool OnPlatformPreInit(Platform &platform)
 {
+	SetPlatformAPI(platform);
+
 	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
 	ASSERT( enginePtr != nullptr );
 	platform.userData = (void*) enginePtr;
@@ -3230,7 +3218,7 @@ bool OnPlatformPreInit(Platform &platform)
 
 
 
-bool OnPlatformInit(Platform &platform)
+ENGINE_API bool OnPlatformInit(Platform &platform)
 {
 	SetGraphicsStringInterning(&platform.stringInterning);
 
@@ -3261,7 +3249,7 @@ bool OnPlatformInit(Platform &platform)
 	return true;
 }
 
-bool OnPlatformWindowInit(Platform &platform)
+ENGINE_API bool OnPlatformWindowInit(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3303,7 +3291,7 @@ bool OnPlatformWindowInit(Platform &platform)
 	return true;
 }
 
-void OnPlatformUpdate(Platform &platform)
+ENGINE_API void OnPlatformUpdate(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3358,7 +3346,7 @@ void OnPlatformUpdate(Platform &platform)
 	AddTimeSample( gfx.cpuFrameTimes, updateMillis );
 }
 
-void OnPlatformRenderGraphics(Platform &platform)
+ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3396,7 +3384,7 @@ void OnPlatformRenderGraphics(Platform &platform)
 	}
 }
 
-void OnPlatformWindowCleanup(Platform &platform)
+ENGINE_API void OnPlatformWindowCleanup(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3407,7 +3395,7 @@ void OnPlatformWindowCleanup(Platform &platform)
 	CleanupGraphicsSurface(gfx.device);
 }
 
-void OnPlatformCleanup(Platform &platform)
+ENGINE_API void OnPlatformCleanup(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3432,6 +3420,9 @@ void OnPlatformCleanup(Platform &platform)
 
 
 // Implementations
+
+#define PLATFORM_API_IMPLEMENTATION
+#include "platform.h"
 
 #include "data.cpp"
 #include "audio.cpp"
