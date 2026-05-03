@@ -805,15 +805,146 @@ struct GraphicsDevice
 	u32 renderPassCount;
 };
 
-static OffsetAllocator::Allocator generalAllocator(HeapSize_General);
+struct TimestampPool
+{
+	VkQueryPool handle;
+	u32 queryCount;
+	u32 maxQueries;
+	VkDevice deviceHandle;
+	float nanosPerTick;
+};
 
+struct Timestamp
+{
+	double millis;
+};
+
+
+////////////////////////////////////////////////////////////////////////
+// Declarations
+////////////////////////////////////////////////////////////////////////
+
+void SetGraphicsStringInterning(StringInterning *stringInterning);
+bool IsValid(const Pipeline &pipeline);
+bool IsValid(PipelineH pipeline);
+bool IsValid(const Image &image);
+bool IsValid(ImageH image);
+bool IsValid(const BindGroup &bindGroup);
+void WaitQueueIdle(const GraphicsDevice &device);
+void WaitDeviceIdle(const GraphicsDevice &device);
+void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor = {0.0f, 0.0f, 0.0f, 0.0f});
+void EndDebugGroup(const CommandList &cmd);
+void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor = {0.0f, 0.0f, 0.0f, 0.0f});
+void SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *name);
+void CreateSwapchain(GraphicsDevice &device, Window &window);
+void DestroySwapchain(GraphicsDevice &device);
+bool IsValidSwapchain(const GraphicsDevice &device);
+bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch);
+bool InitializeGraphicsSurface(GraphicsDevice &device, const Window &window);
+bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch);
+bool IsValidGraphicsDevice(const GraphicsDevice &device);
+BindGroupAllocator CreateBindGroupAllocator(const GraphicsDevice &device, const BindGroupAllocatorCounts &counts);
+void DestroyBindGroupAllocator(const GraphicsDevice &device, const BindGroupAllocator &bindGroupAllocator);
+void ResetBindGroupAllocator(const GraphicsDevice &device, BindGroupAllocator &bindGroupAllocator);
+BindGroupLayout CreateBindGroupLayout(GraphicsDevice &device, const ShaderBinding bindings[], u8 bindingCount);
+void DestroyBindGroupLayout(const GraphicsDevice &device, const BindGroupLayout &bindGroupLayout);
+BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator);
+void UpdateBindGroup(const GraphicsDevice &device, const BindGroupDesc &bindGroupDesc, BindGroup &bindGroup);
+BindGroup CreateBindGroup(const GraphicsDevice &device, const BindGroupDesc &desc, BindGroupAllocator &allocator);
+Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment);
+void HeapFree(Alloc alloc);
+Buffer CreateBufferInternal(GraphicsDevice &device, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType);
+BufferH CreateBuffer(GraphicsDevice &device, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType);
+Buffer &GetBuffer(GraphicsDevice &device, BufferH handle);
+const Buffer &GetBuffer(const GraphicsDevice &device, BufferH handle);
+void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer);
+BufferView CreateBufferViewInternal(const GraphicsDevice &device, const Buffer &buffer, Format format, u32 offset = 0, u32 size = 0);
+BufferViewH CreateBufferView(GraphicsDevice &device, BufferH bufferHandle, Format format, u32 offset = 0, u32 size = 0);
+const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle);
+void DestroyBufferView(const GraphicsDevice &device, const BufferView &bufferView);
+Image CreateImageInternal(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, ImageUsageFlags usage, HeapType heapType);
+ImageH CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels, Format format, ImageUsageFlags usage, HeapType heapType);
+Image &GetImage(GraphicsDevice &device, ImageH imageH);
+const Image &GetImage(const GraphicsDevice &device, ImageH imageH);
+bool IsSwapchainImage(ImageH image);
+void DestroyImage(const GraphicsDevice &device, const Image &image);
+void DestroyImageH(GraphicsDevice &device, ImageH imageH);
+Sampler CreateSamplerInternal(const GraphicsDevice &device, const SamplerDesc &desc);
+SamplerH CreateSampler(GraphicsDevice &device, const SamplerDesc &desc);
+const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
+void DestroySampler(const GraphicsDevice &device, const Sampler &sampler);
+Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle);
+bool IsSamePipeline(PipelineH a, PipelineH b);
+void DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline);
+void DestroyPipeline(GraphicsDevice &device, PipelineH handle);
+RenderPass CreateRenderPassInternal(const GraphicsDevice &device, const RenderpassDesc &desc);
+RenderPassH CreateRenderPass(GraphicsDevice &device, const RenderpassDesc &desc);
+const RenderPass &GetRenderPass(const GraphicsDevice &device, RenderPassH handle);
+void DestroyRenderPass(const GraphicsDevice &device, const RenderPass &renderPass);
+Framebuffer CreateFramebuffer(const GraphicsDevice &device, const FramebufferDesc &desc);
+void DestroyFramebuffer(const GraphicsDevice &device, const Framebuffer &framebuffer);
+CommandList BeginCommandList(const GraphicsDevice &device);
+void EndCommandList(const CommandList &commandList);
+CommandList BeginTransientCommandList(const GraphicsDevice &device);
+void EndTransientCommandList(GraphicsDevice &device, const CommandList &commandList);
+void *GetBufferPtr(const GraphicsDevice &device, BufferH bufferH);
+void CopyBufferToBuffer(const CommandList &commandBuffer, BufferH srcBufferH, u32 srcOffset, BufferH dstBufferH, u32 dstOffset, u64 size);
+void CopyBufferToImage(const CommandList &commandBuffer, BufferH bufferH, u32 bufferOffset, ImageH imageH);
+void Blit(const CommandList &commandBuffer, const Image &srcImage, const BlitRegion &srcRegion, const Image &dstImage, const BlitRegion &dstRegion);
+void TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, ImageState oldState, ImageState newState, u32 baseMipLevel, u32 levelCount);
+void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer);
+void SetViewport(const CommandList &commandList, uint2 size);
+void SetScissor(const CommandList &commandList, rect r);
+void SetViewportAndScissor(const CommandList &commandList, uint2 size);
+void SetClearColor(CommandList &commandList, u32 renderTargetIndex, float4 color);
+void SetClearColor(CommandList &commandList, u32 renderTargetIndex, u32 color);
+void SetClearDepth(CommandList &commandList, u32 renderTargetIndex, float depth);
+void SetClearStencil(CommandList &commandList, u32 renderTargetIndex, u32 stencil);
+void SetPipeline(CommandList &commandList, PipelineH pipelineH);
+void SetBindGroup(CommandList &commandList, u32 bindGroupIndex, const BindGroup &bindGroup);
+void SetVertexBuffer(CommandList &commandList, BufferH bufferH);
+void SetIndexBuffer(CommandList &commandList, BufferH bufferH);
+void Draw(CommandList &commandList, u32 vertexCount, u32 firstVertex);
+void DrawIndexed(CommandList &commandList, u32 indexCount, u32 firstIndex, u32 firstVertex, u32 instanceIndex);
+void Dispatch(CommandList &commandList, u32 x, u32 y, u32 z);
+void EndRenderPass(const CommandList &commandList);
+TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries);
+void DestroyTimestampPool(const GraphicsDevice &device, const TimestampPool &pool);
+void ResetTimestampPool(const CommandList &commandBuffer, TimestampPool &pool);
+u32 WriteTimestamp(const CommandList &commandBuffer, TimestampPool &pool, PipelineStage stage);
+Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex);
+SubmitResult Submit(GraphicsDevice &device, const CommandList &commandList);
+bool Present(GraphicsDevice &device, SubmitResult submitResult);
+bool BeginFrame(GraphicsDevice &device);
+void EndFrame(GraphicsDevice &device);
+void CleanupGraphicsDevice(const GraphicsDevice &device);
+void CleanupGraphicsSurface(const GraphicsDevice &device);
+void CleanupGraphicsDriver(GraphicsDevice &device);
+const char *FormatName(Format format);
+
+
+#endif // TOOLS_GFX_H
+
+
+#ifdef TOOLS_GFX_IMPLEMENTATION
+#ifndef TOOLS_GFX_IMPLEMENTATION_INCLUDED
+#define TOOLS_GFX_IMPLEMENTATION_INCLUDED
+
+////////////////////////////////////////////////////////////////////////
+// Offset allocator
+////////////////////////////////////////////////////////////////////////
+
+static OffsetAllocator::Allocator generalAllocator(HeapSize_General);
 
 
 ////////////////////////////////////////////////////////////////////////
 // String interning
 ////////////////////////////////////////////////////////////////////////
 
-#define InternStringGfx(str) MakeStringIntern(gStringInterningGfx, str)
 static StringInterning *gStringInterningGfx = nullptr;
 
 void SetGraphicsStringInterning(StringInterning *stringInterning)
@@ -822,20 +953,7 @@ void SetGraphicsStringInterning(StringInterning *stringInterning)
 	gStringInterningGfx = stringInterning;
 }
 
-
-////////////////////////////////////////////////////////////////////////
-// Prototypes
-////////////////////////////////////////////////////////////////////////
-
-Buffer &GetBuffer(GraphicsDevice &device, BufferH handle);
-const Buffer &GetBuffer(const GraphicsDevice &device, BufferH handle);
-const BufferView &GetBufferView(const GraphicsDevice &device, BufferViewH handle);
-Image &GetImage(GraphicsDevice &device, ImageH handle);
-const Image &GetImage(const GraphicsDevice &device, ImageH handle);
-const Sampler &GetSampler(const GraphicsDevice &device, SamplerH handle);
-const Pipeline &GetPipeline(const GraphicsDevice &device, PipelineH handle);
-const RenderPass &GetRenderPass(const GraphicsDevice &device, RenderPassH handle);
-
+#define InternStringGfx(str) MakeStringIntern(gStringInterningGfx, str)
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -988,7 +1106,7 @@ static Format FormatFromVulkan(VkFormat format)
 	return FormatInvalid;
 }
 
-static const char *FormatName(Format format)
+const char *FormatName(Format format)
 {
 	static const char *names[] = {
 		"VK_FORMAT_R32_UINT",
@@ -1639,7 +1757,7 @@ void WaitDeviceIdle(const GraphicsDevice &device)
 
 static constexpr float4 s_defaultDebugLabelColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor = s_defaultDebugLabelColor )
+void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor)
 {
 	const VkDebugUtilsLabelEXT label = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -1655,7 +1773,7 @@ void EndDebugGroup(const CommandList &cmd)
 	vkCmdEndDebugUtilsLabelEXT(cmd.handle);
 }
 
-void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor = s_defaultDebugLabelColor )
+void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor)
 {
 	const VkDebugUtilsLabelEXT label = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2808,7 +2926,7 @@ void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer)
 // BufferView
 //////////////////////////////
 
-BufferView CreateBufferViewInternal(const GraphicsDevice &device, const Buffer &buffer, Format format, u32 offset = 0, u32 size = 0)
+BufferView CreateBufferViewInternal(const GraphicsDevice &device, const Buffer &buffer, Format format, u32 offset, u32 size)
 {
 	const VkBufferViewCreateInfo bufferViewCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
@@ -2827,7 +2945,7 @@ BufferView CreateBufferViewInternal(const GraphicsDevice &device, const Buffer &
 	return bufferView;
 }
 
-BufferViewH CreateBufferView(GraphicsDevice &device, BufferH bufferHandle, Format format, u32 offset = 0, u32 size = 0)
+BufferViewH CreateBufferView(GraphicsDevice &device, BufferH bufferHandle, Format format, u32 offset, u32 size)
 {
 	const Buffer &buffer = GetBuffer(device, bufferHandle);
 
@@ -3962,20 +4080,6 @@ void EndRenderPass(const CommandList &commandList)
 // Timestamp queries
 //////////////////////////////
 
-struct TimestampPool
-{
-	VkQueryPool handle;
-	u32 queryCount;
-	u32 maxQueries;
-	VkDevice deviceHandle;
-	float nanosPerTick;
-};
-
-struct Timestamp
-{
-	double millis;
-};
-
 TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries)
 {
 	const VkQueryPoolCreateInfo createInfo = {
@@ -4297,10 +4401,6 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 //	VK_CALL( vkFlushMappedMemoryRanges(device.handle, 1, range) );
 //}
 
-#endif // #ifndef TOOLS_GFX_H
-
-#ifdef TOOLS_GFX_IMPLEMENTATION
-
 PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 
 // Expand device function prototypes
@@ -4359,5 +4459,5 @@ static void VulkanLoadDeviceFunctions(VkDevice device)
 	VK_DEVICE_FUNCTION_LIST(EXPAND_VK_GET_DEVICE_PROC_ADDR)
 }
 
-#endif
-
+#endif // TOOLS_GFX_IMPLEMENTATION_INCLUDED
+#endif // TOOLS_GFX_IMPLEMENTATION

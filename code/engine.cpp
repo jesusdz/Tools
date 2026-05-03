@@ -1,7 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-#define TOOLS_GFX_IMPLEMENTATION
 #include "tools_gfx.h"
 
 #define USE_EDITOR ( PLATFORM_LINUX || PLATFORM_WINDOWS )
@@ -654,8 +653,6 @@ static const ShaderAndComputeDesc computeDescs[] =
 };
 
 static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
-
-static StringInterning *gStringInterning;
 
 u32 U32FromChars(char a, char b, char c, char d)
 {
@@ -3235,9 +3232,7 @@ bool OnPlatformPreInit(Platform &platform)
 
 bool OnPlatformInit(Platform &platform)
 {
-	gStringInterning = &platform.stringInterning;
-
-	SetGraphicsStringInterning(gStringInterning);
+	SetGraphicsStringInterning(&platform.stringInterning);
 
 	Engine &engine = GetEngine(platform);
 
@@ -3445,6 +3440,9 @@ void OnPlatformCleanup(Platform &platform)
 #include "editor.cpp"
 #endif
 #include "ibxm/ibxm.c"
+
+#define TOOLS_GFX_IMPLEMENTATION
+#include "tools_gfx.h"
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.

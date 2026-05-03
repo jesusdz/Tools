@@ -1,4 +1,10 @@
 
+static const char * InternString(const char *str)
+{
+	const char *intern = MakeStringIntern(&sPlatform->stringInterning, str);
+	return intern;
+}
+
 static void AddEditorCommand(Editor &editor, const EditorCommand &command)
 {
 	ASSERT(editor.commandCount < ARRAY_COUNT(editor.commands));
@@ -577,7 +583,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				{
 					const TileAtlasDesc tileAtlasDesc = {
 						.imagePath = inspector.inspectedFilename.str,
-						.name = InternStringGfx(name),
+						.name = InternString(name),
 						.tileSize = 32.0f,
 					};
 					CreateTileAtlas(engine, tileAtlasDesc);
@@ -1051,7 +1057,7 @@ void EditorInitialize(Engine &engine)
 		{
 			FileNode *node = GetFreeFileNode(editor);
 			node->isDirectory = false;
-			node->filename = InternStringGfx(entry.name);
+			node->filename = InternString(entry.name);
 			editor.root = InsertFileNode(node, editor.root);
 		}
 
