@@ -2467,9 +2467,9 @@ static void ReleaseScratchArena(u32 index)
 bool InitializeEngine(Platform &platform)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
-	const FilePath engineLibPath = MakePath(BinDir, "engine.so");
+	const FilePath engineLibPath = MakePath(BinDir, "engine_lib.so");
 #elif PLATFORM_WINDOWS
-	const FilePath engineLibPath = MakePath(BinDir, "engine.dll");
+	const FilePath engineLibPath = MakePath(BinDir, "engine_lib.dll");
 	LOG(Info, "%s", engineLibPath.str);
 #else
 #error "Missing implementation"

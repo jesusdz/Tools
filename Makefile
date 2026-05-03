@@ -22,7 +22,7 @@ build_and_debug: engine
 	gf2 ./build/engine; i3 workspace 2
 
 engine: directories
-	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine.so code/engine.cpp -I"vulkan/include"
+	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine code/platform.cpp -I"vulkan/include" -lxcb -lpthread
 
 game:

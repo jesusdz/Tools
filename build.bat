@@ -79,7 +79,7 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine.dll
+cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
 cl %CommonCompilerFlags% ..\code\platform.cpp /Feengine.exe /link %CommonLinkerFlags%
 popd
 exit /b 0
