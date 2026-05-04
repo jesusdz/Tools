@@ -1717,7 +1717,7 @@ bool ExecuteProcess(const char *commandLine)
 
 	DynamicLibrary OpenLibrary(const char *filepath)
 	{
-		DynamicLibrary library = dlopen(filepath, RTLD_NOW);
+		DynamicLibrary library = dlopen(filepath, RTLD_NOW | RTLD_LOCAL);
 		return library;
 	}
 
@@ -1734,11 +1734,11 @@ bool ExecuteProcess(const char *commandLine)
 
 #elif PLATFORM_WINDOWS
 
-	typedef HINSTANCE DynamicLibrary;
+	typedef HMODULE DynamicLibrary;
 
 	DynamicLibrary OpenLibrary(const char *filepath)
 	{
-		DynamicLibrary library = LoadLibrary(filepath);
+		DynamicLibrary library = LoadLibraryA(filepath);
 		return library;
 	}
 

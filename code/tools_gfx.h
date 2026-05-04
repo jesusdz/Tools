@@ -4411,32 +4411,31 @@ VK_DEVICE_FUNCTION_LIST(EXPAND_VK_PFN)
 
 static bool VulkanLoadInitFunctions()
 {
-#if defined(_WIN32)
-	HMODULE module = LoadLibraryA("vulkan-1.dll");
-	if (!module)
-		return false;
-
-	// note: function pointer is cast through void function pointer to silence cast-function-type warning on gcc8
-	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)(void(*)(void))GetProcAddress(module, "vkGetInstanceProcAddr");
-#elif defined(__APPLE__)
-	void* module = dlopen("libvulkan.dylib", RTLD_NOW | RTLD_LOCAL);
-	if (!module)
-		module = dlopen("libvulkan.1.dylib", RTLD_NOW | RTLD_LOCAL);
-	if (!module)
-		module = dlopen("libMoltenVK.dylib", RTLD_NOW | RTLD_LOCAL);
-	if (!module)
-		return false;
-
-	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(module, "vkGetInstanceProcAddr");
+	const char *libraryFilenames[] = {
+#if defined(PLATFORM_WINDOWS)
+		"vulkan-1.dll",
+#elif defined(PLATFORM_APPLE)
+		"libvulkan.dylib",
+		"libvulkan.1.dylib",
+		"libMoltenVK.dylib",
 #else
-	void* module = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
-	if (!module)
-		module = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
-	if (!module)
-		return false;
-
-	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(module, "vkGetInstanceProcAddr");
+		"libvulkan.so.1",
+		"libvulkan.so",
 #endif
+	};
+
+	DynamicLibrary vulkan = {};
+	for (u32 i = 0; !vulkan && i < ARRAY_COUNT(libraryFilenames); ++i)
+	{
+		vulkan = OpenLibrary(libraryFilenames[i]);
+	}
+
+	if (!vulkan)
+	{
+		return false;
+	}
+
+	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)LoadSymbol(vulkan, "vkGetInstanceProcAddr");
 
 	// Get all init function pointers
 	#define EXPAND_VK_GET_INSTANCE_PROC_ADDR_INIT(function_name) function_name = (PFN_##function_name)vkGetInstanceProcAddr(NULL, #function_name);
