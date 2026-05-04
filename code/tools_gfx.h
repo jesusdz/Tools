@@ -104,148 +104,6 @@
 #include <vulkan/vulkan_android.h>
 #endif
 
-// Vulkan 1.0 pre-instance functions
-#define VK_INIT_FUNCTION_LIST(EXPAND_MACRO) \
-	EXPAND_MACRO(vkCreateInstance) \
-	EXPAND_MACRO(vkEnumerateInstanceExtensionProperties) \
-	EXPAND_MACRO(vkEnumerateInstanceLayerProperties)
-
-// Vulkan 1.0 instance functions
-#define VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
-	EXPAND_MACRO(vkCreateDevice) \
-	EXPAND_MACRO(vkDestroyInstance) \
-	EXPAND_MACRO(vkEnumerateDeviceExtensionProperties) \
-	EXPAND_MACRO(vkEnumeratePhysicalDevices) \
-	EXPAND_MACRO(vkGetDeviceProcAddr) \
-	EXPAND_MACRO(vkGetPhysicalDeviceFeatures) \
-	EXPAND_MACRO(vkGetPhysicalDeviceFormatProperties) \
-	EXPAND_MACRO(vkGetPhysicalDeviceMemoryProperties) \
-	EXPAND_MACRO(vkGetPhysicalDeviceProperties) \
-	EXPAND_MACRO(vkGetPhysicalDeviceQueueFamilyProperties)
-
-// Debug utils instance functions
-#define VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
-	EXPAND_MACRO(vkCmdBeginDebugUtilsLabelEXT) \
-	EXPAND_MACRO(vkCmdEndDebugUtilsLabelEXT) \
-	EXPAND_MACRO(vkCmdInsertDebugUtilsLabelEXT) \
-	EXPAND_MACRO(vkCreateDebugUtilsMessengerEXT) \
-	EXPAND_MACRO(vkDestroyDebugUtilsMessengerEXT) \
-	EXPAND_MACRO(vkSetDebugUtilsObjectNameEXT)
-
-// Surface instance functions
-#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
-	EXPAND_MACRO(vkDestroySurfaceKHR) \
-	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
-	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceFormatsKHR) \
-	EXPAND_MACRO(vkGetPhysicalDeviceSurfacePresentModesKHR) \
-	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceSupportKHR)
-
-#if defined(VK_KHR_win32_surface)
-#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateWin32SurfaceKHR)
-#endif /* defined(VK_KHR_win32_surface) */
-#if defined(VK_KHR_xcb_surface)
-#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateXcbSurfaceKHR)
-#endif /* defined(VK_KHR_xcb_surface) */
-#if defined(VK_KHR_android_surface)
-#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateAndroidSurfaceKHR)
-#endif /* defined(VK_KHR_android_surface) */
-
-// All instance functions
-#define VK_INSTANCE_FUNCTION_LIST(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO)
-
-// Device functions (Vulkan 1.0)
-#define VK_DEVICE_FUNCTION_LIST(EXPAND_MACRO) \
-	EXPAND_MACRO(vkAllocateCommandBuffers) \
-	EXPAND_MACRO(vkAllocateDescriptorSets) \
-	EXPAND_MACRO(vkAllocateMemory) \
-	EXPAND_MACRO(vkBeginCommandBuffer) \
-	EXPAND_MACRO(vkBindBufferMemory) \
-	EXPAND_MACRO(vkBindImageMemory) \
-	EXPAND_MACRO(vkCmdBeginRenderPass) \
-	EXPAND_MACRO(vkCmdBindDescriptorSets) \
-	EXPAND_MACRO(vkCmdBindIndexBuffer) \
-	EXPAND_MACRO(vkCmdBindPipeline) \
-	EXPAND_MACRO(vkCmdBindVertexBuffers) \
-	EXPAND_MACRO(vkCmdBlitImage) \
-	EXPAND_MACRO(vkCmdCopyBuffer) \
-	EXPAND_MACRO(vkCmdCopyBufferToImage) \
-	EXPAND_MACRO(vkCmdDispatch) \
-	EXPAND_MACRO(vkCmdDraw) \
-	EXPAND_MACRO(vkCmdDrawIndexed) \
-	EXPAND_MACRO(vkCmdEndRenderPass) \
-	EXPAND_MACRO(vkCmdPipelineBarrier) \
-	EXPAND_MACRO(vkCmdResetQueryPool) \
-	EXPAND_MACRO(vkCmdSetScissor) \
-	EXPAND_MACRO(vkCmdSetViewport) \
-	EXPAND_MACRO(vkCmdWriteTimestamp) \
-	EXPAND_MACRO(vkCreateBuffer) \
-	EXPAND_MACRO(vkCreateBufferView) \
-	EXPAND_MACRO(vkCreateCommandPool) \
-	EXPAND_MACRO(vkCreateComputePipelines) \
-	EXPAND_MACRO(vkCreateDescriptorPool) \
-	EXPAND_MACRO(vkCreateDescriptorSetLayout) \
-	EXPAND_MACRO(vkCreateFence) \
-	EXPAND_MACRO(vkCreateFramebuffer) \
-	EXPAND_MACRO(vkCreateGraphicsPipelines) \
-	EXPAND_MACRO(vkCreateImage) \
-	EXPAND_MACRO(vkCreateImageView) \
-	EXPAND_MACRO(vkCreatePipelineCache) \
-	EXPAND_MACRO(vkCreatePipelineLayout) \
-	EXPAND_MACRO(vkCreateQueryPool) \
-	EXPAND_MACRO(vkCreateRenderPass) \
-	EXPAND_MACRO(vkCreateSampler) \
-	EXPAND_MACRO(vkCreateSemaphore) \
-	EXPAND_MACRO(vkCreateShaderModule) \
-	EXPAND_MACRO(vkDestroyBuffer) \
-	EXPAND_MACRO(vkDestroyBufferView) \
-	EXPAND_MACRO(vkDestroyCommandPool) \
-	EXPAND_MACRO(vkDestroyDescriptorPool) \
-	EXPAND_MACRO(vkDestroyDescriptorSetLayout) \
-	EXPAND_MACRO(vkDestroyDevice) \
-	EXPAND_MACRO(vkDestroyFence) \
-	EXPAND_MACRO(vkDestroyFramebuffer) \
-	EXPAND_MACRO(vkDestroyImage) \
-	EXPAND_MACRO(vkDestroyImageView) \
-	EXPAND_MACRO(vkDestroyPipeline) \
-	EXPAND_MACRO(vkDestroyPipelineCache) \
-	EXPAND_MACRO(vkDestroyPipelineLayout) \
-	EXPAND_MACRO(vkDestroyQueryPool) \
-	EXPAND_MACRO(vkDestroyRenderPass) \
-	EXPAND_MACRO(vkDestroySampler) \
-	EXPAND_MACRO(vkDestroySemaphore) \
-	EXPAND_MACRO(vkDestroyShaderModule) \
-	EXPAND_MACRO(vkDeviceWaitIdle) \
-	EXPAND_MACRO(vkEndCommandBuffer) \
-	EXPAND_MACRO(vkFreeCommandBuffers) \
-	EXPAND_MACRO(vkFreeMemory) \
-	EXPAND_MACRO(vkGetBufferMemoryRequirements) \
-	EXPAND_MACRO(vkGetDeviceQueue) \
-	EXPAND_MACRO(vkGetImageMemoryRequirements) \
-	EXPAND_MACRO(vkGetQueryPoolResults) \
-	EXPAND_MACRO(vkMapMemory) \
-	EXPAND_MACRO(vkQueueSubmit) \
-	EXPAND_MACRO(vkQueueWaitIdle) \
-	EXPAND_MACRO(vkResetCommandPool) \
-	EXPAND_MACRO(vkResetDescriptorPool) \
-	EXPAND_MACRO(vkResetFences) \
-	EXPAND_MACRO(vkUpdateDescriptorSets) \
-	EXPAND_MACRO(vkWaitForFences) \
-	EXPAND_MACRO(vkAcquireNextImageKHR) \
-	EXPAND_MACRO(vkCreateSwapchainKHR) \
-	EXPAND_MACRO(vkDestroySwapchainKHR) \
-	EXPAND_MACRO(vkGetSwapchainImagesKHR) \
-	EXPAND_MACRO(vkQueuePresentKHR)
-
-// Expand extern function prototypes
-#define EXPAND_EXTERN_VK_PFN(function_name) extern PFN_##function_name function_name;
-VK_INIT_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
-VK_INSTANCE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
-VK_DEVICE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
-
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
 #define SPV_IMPLEMENTATION
@@ -933,6 +791,153 @@ const char *FormatName(Format format);
 #ifdef TOOLS_GFX_IMPLEMENTATION
 #ifndef TOOLS_GFX_IMPLEMENTATION_INCLUDED
 #define TOOLS_GFX_IMPLEMENTATION_INCLUDED
+
+////////////////////////////////////////////////////////////////////////
+// Vulkan function pointers
+////////////////////////////////////////////////////////////////////////
+
+// Vulkan 1.0 pre-instance functions
+#define VK_INIT_FUNCTION_LIST(EXPAND_MACRO) \
+	EXPAND_MACRO(vkCreateInstance) \
+	EXPAND_MACRO(vkEnumerateInstanceExtensionProperties) \
+	EXPAND_MACRO(vkEnumerateInstanceLayerProperties)
+
+// Vulkan 1.0 instance functions
+#define VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
+	EXPAND_MACRO(vkCreateDevice) \
+	EXPAND_MACRO(vkDestroyInstance) \
+	EXPAND_MACRO(vkEnumerateDeviceExtensionProperties) \
+	EXPAND_MACRO(vkEnumeratePhysicalDevices) \
+	EXPAND_MACRO(vkGetDeviceProcAddr) \
+	EXPAND_MACRO(vkGetPhysicalDeviceFeatures) \
+	EXPAND_MACRO(vkGetPhysicalDeviceFormatProperties) \
+	EXPAND_MACRO(vkGetPhysicalDeviceMemoryProperties) \
+	EXPAND_MACRO(vkGetPhysicalDeviceProperties) \
+	EXPAND_MACRO(vkGetPhysicalDeviceQueueFamilyProperties)
+
+// Debug utils instance functions
+#define VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
+	EXPAND_MACRO(vkCmdBeginDebugUtilsLabelEXT) \
+	EXPAND_MACRO(vkCmdEndDebugUtilsLabelEXT) \
+	EXPAND_MACRO(vkCmdInsertDebugUtilsLabelEXT) \
+	EXPAND_MACRO(vkCreateDebugUtilsMessengerEXT) \
+	EXPAND_MACRO(vkDestroyDebugUtilsMessengerEXT) \
+	EXPAND_MACRO(vkSetDebugUtilsObjectNameEXT)
+
+// Surface instance functions
+#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
+	EXPAND_MACRO(vkDestroySurfaceKHR) \
+	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
+	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceFormatsKHR) \
+	EXPAND_MACRO(vkGetPhysicalDeviceSurfacePresentModesKHR) \
+	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceSupportKHR)
+
+#if defined(VK_KHR_win32_surface)
+#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateWin32SurfaceKHR)
+#endif /* defined(VK_KHR_win32_surface) */
+#if defined(VK_KHR_xcb_surface)
+#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateXcbSurfaceKHR)
+#endif /* defined(VK_KHR_xcb_surface) */
+#if defined(VK_KHR_android_surface)
+#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO) EXPAND_MACRO(vkCreateAndroidSurfaceKHR)
+#endif /* defined(VK_KHR_android_surface) */
+
+// All instance functions
+#define VK_INSTANCE_FUNCTION_LIST(EXPAND_MACRO) \
+	VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
+	VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
+	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
+	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO)
+
+// Device functions (Vulkan 1.0)
+#define VK_DEVICE_FUNCTION_LIST(EXPAND_MACRO) \
+	EXPAND_MACRO(vkAllocateCommandBuffers) \
+	EXPAND_MACRO(vkAllocateDescriptorSets) \
+	EXPAND_MACRO(vkAllocateMemory) \
+	EXPAND_MACRO(vkBeginCommandBuffer) \
+	EXPAND_MACRO(vkBindBufferMemory) \
+	EXPAND_MACRO(vkBindImageMemory) \
+	EXPAND_MACRO(vkCmdBeginRenderPass) \
+	EXPAND_MACRO(vkCmdBindDescriptorSets) \
+	EXPAND_MACRO(vkCmdBindIndexBuffer) \
+	EXPAND_MACRO(vkCmdBindPipeline) \
+	EXPAND_MACRO(vkCmdBindVertexBuffers) \
+	EXPAND_MACRO(vkCmdBlitImage) \
+	EXPAND_MACRO(vkCmdCopyBuffer) \
+	EXPAND_MACRO(vkCmdCopyBufferToImage) \
+	EXPAND_MACRO(vkCmdDispatch) \
+	EXPAND_MACRO(vkCmdDraw) \
+	EXPAND_MACRO(vkCmdDrawIndexed) \
+	EXPAND_MACRO(vkCmdEndRenderPass) \
+	EXPAND_MACRO(vkCmdPipelineBarrier) \
+	EXPAND_MACRO(vkCmdResetQueryPool) \
+	EXPAND_MACRO(vkCmdSetScissor) \
+	EXPAND_MACRO(vkCmdSetViewport) \
+	EXPAND_MACRO(vkCmdWriteTimestamp) \
+	EXPAND_MACRO(vkCreateBuffer) \
+	EXPAND_MACRO(vkCreateBufferView) \
+	EXPAND_MACRO(vkCreateCommandPool) \
+	EXPAND_MACRO(vkCreateComputePipelines) \
+	EXPAND_MACRO(vkCreateDescriptorPool) \
+	EXPAND_MACRO(vkCreateDescriptorSetLayout) \
+	EXPAND_MACRO(vkCreateFence) \
+	EXPAND_MACRO(vkCreateFramebuffer) \
+	EXPAND_MACRO(vkCreateGraphicsPipelines) \
+	EXPAND_MACRO(vkCreateImage) \
+	EXPAND_MACRO(vkCreateImageView) \
+	EXPAND_MACRO(vkCreatePipelineCache) \
+	EXPAND_MACRO(vkCreatePipelineLayout) \
+	EXPAND_MACRO(vkCreateQueryPool) \
+	EXPAND_MACRO(vkCreateRenderPass) \
+	EXPAND_MACRO(vkCreateSampler) \
+	EXPAND_MACRO(vkCreateSemaphore) \
+	EXPAND_MACRO(vkCreateShaderModule) \
+	EXPAND_MACRO(vkDestroyBuffer) \
+	EXPAND_MACRO(vkDestroyBufferView) \
+	EXPAND_MACRO(vkDestroyCommandPool) \
+	EXPAND_MACRO(vkDestroyDescriptorPool) \
+	EXPAND_MACRO(vkDestroyDescriptorSetLayout) \
+	EXPAND_MACRO(vkDestroyDevice) \
+	EXPAND_MACRO(vkDestroyFence) \
+	EXPAND_MACRO(vkDestroyFramebuffer) \
+	EXPAND_MACRO(vkDestroyImage) \
+	EXPAND_MACRO(vkDestroyImageView) \
+	EXPAND_MACRO(vkDestroyPipeline) \
+	EXPAND_MACRO(vkDestroyPipelineCache) \
+	EXPAND_MACRO(vkDestroyPipelineLayout) \
+	EXPAND_MACRO(vkDestroyQueryPool) \
+	EXPAND_MACRO(vkDestroyRenderPass) \
+	EXPAND_MACRO(vkDestroySampler) \
+	EXPAND_MACRO(vkDestroySemaphore) \
+	EXPAND_MACRO(vkDestroyShaderModule) \
+	EXPAND_MACRO(vkDeviceWaitIdle) \
+	EXPAND_MACRO(vkEndCommandBuffer) \
+	EXPAND_MACRO(vkFreeCommandBuffers) \
+	EXPAND_MACRO(vkFreeMemory) \
+	EXPAND_MACRO(vkGetBufferMemoryRequirements) \
+	EXPAND_MACRO(vkGetDeviceQueue) \
+	EXPAND_MACRO(vkGetImageMemoryRequirements) \
+	EXPAND_MACRO(vkGetQueryPoolResults) \
+	EXPAND_MACRO(vkMapMemory) \
+	EXPAND_MACRO(vkQueueSubmit) \
+	EXPAND_MACRO(vkQueueWaitIdle) \
+	EXPAND_MACRO(vkResetCommandPool) \
+	EXPAND_MACRO(vkResetDescriptorPool) \
+	EXPAND_MACRO(vkResetFences) \
+	EXPAND_MACRO(vkUpdateDescriptorSets) \
+	EXPAND_MACRO(vkWaitForFences) \
+	EXPAND_MACRO(vkAcquireNextImageKHR) \
+	EXPAND_MACRO(vkCreateSwapchainKHR) \
+	EXPAND_MACRO(vkDestroySwapchainKHR) \
+	EXPAND_MACRO(vkGetSwapchainImagesKHR) \
+	EXPAND_MACRO(vkQueuePresentKHR)
+
+// Expand extern function prototypes
+#define EXPAND_EXTERN_VK_PFN(function_name) extern PFN_##function_name function_name;
+VK_INIT_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
+VK_INSTANCE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
+VK_DEVICE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
+
 
 ////////////////////////////////////////////////////////////////////////
 // Offset allocator
