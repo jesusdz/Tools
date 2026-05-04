@@ -4,7 +4,7 @@
 static Platform platform = {};
 
 #if USE_XCB
-void XcbReportError( int xcbErrorCode, const char *context )
+static void XcbReportError( int xcbErrorCode, const char *context )
 {
 	static const char *xcbErrorMessages[] = {
 		"NO_ERROR",
@@ -19,7 +19,7 @@ void XcbReportError( int xcbErrorCode, const char *context )
 	LOG(Error, "Xcb error (%s): %s\n", context, xcbErrorMessages[xcbErrorCode]);
 }
 
-void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, const char *context )
+static void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, const char *context )
 {
 	// TODO: Find a better way to report XCB generic errors
 	LOG(Error, "Xcb generic error (%s)\n", context);
@@ -38,12 +38,12 @@ typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKN
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Directories
 
-const char *BinDir = "";
-const char *DataDir = "";
-const char *AssetDir = "";
-const char *ProjectDir = "";
+static const char *BinDir = "";
+static const char *DataDir = "";
+static const char *AssetDir = "";
+static const char *ProjectDir = "";
 
-bool IsAbsolutePath(const char *path)
+static bool IsAbsolutePath(const char *path)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	const bool res = *path == '/';
@@ -56,7 +56,7 @@ bool IsAbsolutePath(const char *path)
 #endif
 }
 
-void CanonicalizePath(char *path)
+static void CanonicalizePath(char *path)
 {
 	struct PathPart
 	{
@@ -128,7 +128,7 @@ void CanonicalizePath(char *path)
 	*ptr = 0;
 }
 
-void InitializeDirectories(Platform &platform)
+static void InitializeDirectories(Platform &platform)
 {
 	char buffer[MAX_PATH_LENGTH];
 
@@ -204,7 +204,7 @@ void InitializeDirectories(Platform &platform)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Generic platform events
 
-void SendPlatformEvent(Platform &platform, PlatformEvent event)
+static void SendPlatformEvent(Platform &platform, PlatformEvent event)
 {
 	ASSERT(platform.eventHead - platform.eventTail < ARRAY_COUNT(platform.events));
 	
@@ -220,7 +220,7 @@ void SendPlatformEvent(Platform &platform, PlatformEvent event)
 // Specific platform events
 
 #if USE_XCB && 0
-void PrintModifiers(uint32_t mask)
+static void PrintModifiers(uint32_t mask)
 {
 	const char **mod, *mods[] = {
 		"Shift", "Lock", "Ctrl", "Alt",
@@ -241,7 +241,7 @@ void PrintModifiers(uint32_t mask)
 
 #include "xcb_key_mappings.h"
 
-void XcbWindowProc(Window &window, xcb_generic_event_t *event)
+static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 {
 	u32 eventType = event->response_type & ~0x80;
 
@@ -432,7 +432,7 @@ void XcbWindowProc(Window &window, xcb_generic_event_t *event)
  *   APP_CMD_WINDOW_INSETS_CHANGED = 16
  * }
  */
-void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
+static void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 {
 	Platform *platform = (Platform*)app->userData;
 
@@ -488,7 +488,7 @@ void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 	//LOG( Info, "ANDROID APP COMMAND: %d\n", cmd);
 }
 
-int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
+static int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
 {
 	Platform *platform = (Platform*)app->userData;
 
@@ -550,7 +550,7 @@ int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
 
 #include "win32_key_mappings.h"
 
-LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if !USE_UPDATE_THREAD
 	Window *window = &platform.window;
@@ -852,7 +852,7 @@ LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 
 
 
-bool InitializeWindow(
+static bool InitializeWindow(
 		Window &window,
 		u32 width = 640,
 		u32 height = 480,
@@ -1028,7 +1028,7 @@ bool InitializeWindow(
 }
 
 
-void CleanupWindow(Window &window)
+static void CleanupWindow(Window &window)
 {
 #if USE_XCB
 	if ( window.window ) {
@@ -1045,7 +1045,7 @@ void CleanupWindow(Window &window)
 }
 
 
-void TransitionInputStatesSinceLastFrame(Window &window)
+static void TransitionInputStatesSinceLastFrame(Window &window)
 {
 	// Transition key states
 	for ( u32 i = 0; i < K_COUNT; ++i ) {
@@ -1085,7 +1085,7 @@ void TransitionInputStatesSinceLastFrame(Window &window)
 }
 
 
-void UpdateKeyModifiers(Window &window)
+static void UpdateKeyModifiers(Window &window)
 {
 	// Update key modifiers
 	window.chars.shift = KeyPressed(window.keyboard, K_SHIFT);
@@ -1115,7 +1115,7 @@ void UpdateKeyModifiers(Window &window)
 }
 
 
-void PlatformUpdateEventLoop(Platform &platform)
+static void PlatformUpdateEventLoop(Platform &platform)
 {
 	Window &window = platform.window;
 
@@ -1211,22 +1211,22 @@ void PlatformUpdateEventLoop(Platform &platform)
 typedef X_INPUT_GET_STATE(XInputGetState_t);
 typedef X_INPUT_SET_STATE(XInputSetState_t);
 
-X_INPUT_GET_STATE(XInputGetStateStub)
+static X_INPUT_GET_STATE(XInputGetStateStub)
 {
 	return ERROR_INVALID_FUNCTION;
 }
 
-X_INPUT_SET_STATE(XInputSetStateStub)
+static X_INPUT_SET_STATE(XInputSetStateStub)
 {
 	return ERROR_INVALID_FUNCTION;
 }
 
-XInputGetState_t *FP_XInputGetState = XInputGetStateStub;
-XInputSetState_t *FP_XInputSetState = XInputSetStateStub;
+static XInputGetState_t *FP_XInputGetState = XInputGetStateStub;
+static XInputSetState_t *FP_XInputSetState = XInputSetStateStub;
 
 #endif // PLATFORM_WINDOWS
 
-bool InitializeGamepad(Platform &platform)
+static bool InitializeGamepad(Platform &platform)
 {
 	LOG(Info, "Input system initialization:\n");
 
@@ -1410,7 +1410,7 @@ static ButtonState DPadStateFromEvent(ButtonState prevState, i32 expectedValue, 
 }
 #endif // PLATFORM_LINUX
 
-void UpdateGamepad(Platform &platform)
+static void UpdateGamepad(Platform &platform)
 {
 	Gamepad &gamepad = platform.input.gamepad;
 
@@ -1534,7 +1534,7 @@ void UpdateGamepad(Platform &platform)
 
 #if PLATFORM_WINDOWS
 
-void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
+static void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
 
 #elif PLATFORM_LINUX
 
@@ -1561,37 +1561,37 @@ typedef int SND_PCM_PREPARE(snd_pcm_t *pcm);
 typedef int SND_PCM_CLOSE(snd_pcm_t *pcm);
 typedef int SND_PCM_DRAIN(snd_pcm_t *pcm);
 
-SND_STRERROR* FP_snd_strerror;
-SND_PCM_OPEN* FP_snd_pcm_open;
-SND_PCM_HW_PARAMS_MALLOC* FP_snd_pcm_hw_params_malloc;
-SND_PCM_HW_PARAMS_ANY* FP_snd_pcm_hw_params_any;
-SND_PCM_HW_PARAMS_SET_ACCESS* FP_snd_pcm_hw_params_set_access;
-SND_PCM_HW_PARAMS_SET_FORMAT* FP_snd_pcm_hw_params_set_format;
-SND_PCM_HW_PARAMS_SET_CHANNELS* FP_snd_pcm_hw_params_set_channels;
-SND_PCM_HW_PARAMS_SET_RATE_NEAR* FP_snd_pcm_hw_params_set_rate_near;
-SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR* FP_snd_pcm_hw_params_set_period_size_near;
-SND_PCM_HW_PARAMS* FP_snd_pcm_hw_params;
-SND_PCM_HW_PARAMS_GET_CHANNELS* FP_snd_pcm_hw_params_get_channels;
-SND_PCM_HW_PARAMS_GET_RATE* FP_snd_pcm_hw_params_get_rate;
-SND_PCM_HW_PARAMS_GET_FORMAT* FP_snd_pcm_hw_params_get_format;
-SND_PCM_HW_PARAMS_GET_ACCESS* FP_snd_pcm_hw_params_get_access;
-SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
-SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
-SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
-SND_PCM_WRITEI* FP_snd_pcm_writei;
-SND_PCM_RECOVER* FP_snd_pcm_recover;
-SND_PCM_PREPARE* FP_snd_pcm_prepare;
-SND_PCM_CLOSE* FP_snd_pcm_close;
-SND_PCM_DRAIN* FP_snd_pcm_drain;
+static SND_STRERROR* FP_snd_strerror;
+static SND_PCM_OPEN* FP_snd_pcm_open;
+static SND_PCM_HW_PARAMS_MALLOC* FP_snd_pcm_hw_params_malloc;
+static SND_PCM_HW_PARAMS_ANY* FP_snd_pcm_hw_params_any;
+static SND_PCM_HW_PARAMS_SET_ACCESS* FP_snd_pcm_hw_params_set_access;
+static SND_PCM_HW_PARAMS_SET_FORMAT* FP_snd_pcm_hw_params_set_format;
+static SND_PCM_HW_PARAMS_SET_CHANNELS* FP_snd_pcm_hw_params_set_channels;
+static SND_PCM_HW_PARAMS_SET_RATE_NEAR* FP_snd_pcm_hw_params_set_rate_near;
+static SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR* FP_snd_pcm_hw_params_set_period_size_near;
+static SND_PCM_HW_PARAMS* FP_snd_pcm_hw_params;
+static SND_PCM_HW_PARAMS_GET_CHANNELS* FP_snd_pcm_hw_params_get_channels;
+static SND_PCM_HW_PARAMS_GET_RATE* FP_snd_pcm_hw_params_get_rate;
+static SND_PCM_HW_PARAMS_GET_FORMAT* FP_snd_pcm_hw_params_get_format;
+static SND_PCM_HW_PARAMS_GET_ACCESS* FP_snd_pcm_hw_params_get_access;
+static SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
+static SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
+static SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
+static SND_PCM_WRITEI* FP_snd_pcm_writei;
+static SND_PCM_RECOVER* FP_snd_pcm_recover;
+static SND_PCM_PREPARE* FP_snd_pcm_prepare;
+static SND_PCM_CLOSE* FP_snd_pcm_close;
+static SND_PCM_DRAIN* FP_snd_pcm_drain;
 
 #elif PLATFORM_ANDROID
 
-aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames);
+static aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames);
 
 #endif // PLATFORM_LINUX
 
 #if PLATFORM_WINDOWS
-void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
+static void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
 {
 	ASSERT(writeSize <= audio.bufferSize);
 
@@ -1631,7 +1631,7 @@ void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize
 	}
 }
 #elif PLATFORM_ANDROID
-aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames)
+static aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames)
 {
 	Platform &platform = *(Platform*)userData;
 	AudioDevice &audio = platform.audio;
@@ -1646,7 +1646,7 @@ aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *
 }
 #endif // PLATFORM_WINDOWS
 
-void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
+static void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 {
 	AudioDevice &audio = platform.audio;
 
@@ -1780,7 +1780,7 @@ void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 	}
 }
 
-bool InitializeAudio(Platform &platform)
+static bool InitializeAudio(Platform &platform)
 {
 	LOG(Info, "Sound system initialization:\n");
 
@@ -2071,7 +2071,7 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 	return 0;
 }
 
-bool InitializeAudioThread(AudioDevice &audio)
+static bool InitializeAudioThread(AudioDevice &audio)
 {
 	if ( audio.initialized )
 	{
@@ -2187,7 +2187,7 @@ static void WorkQueuePushString(const char *str)
 }
 #endif
 
-bool InitializeWorkQueue(Platform &platform)
+static bool InitializeWorkQueue(Platform &platform)
 {
 	static ThreadInfo threadInfos[WORK_QUEUE_WORKER_COUNT];
 	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
@@ -2372,7 +2372,7 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 #endif // USE_UPDATE_THREAD
 
 #if USE_UPDATE_THREAD
-bool InitializeUpdateThread(Platform &platform)
+static bool InitializeUpdateThread(Platform &platform)
 {
 	bool ok = true;
 
@@ -2400,7 +2400,7 @@ bool InitializeUpdateThread(Platform &platform)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform
 
-bool InitializeArenas(Platform &platform)
+static bool InitializeArenas(Platform &platform)
 {
 	platform.stringMemorySize = KB(16);
 	platform.dataMemorySize = MB(64);
@@ -2464,7 +2464,7 @@ static void ReleaseScratchArena(u32 index)
 	ASSERT(swapped);
 }
 
-bool InitializeEngine(Platform &platform)
+static bool InitializeEngine(Platform &platform)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	const FilePath engineLibPath = MakePath(BinDir, "engine_lib.so");
@@ -2512,12 +2512,12 @@ bool InitializeEngine(Platform &platform)
 	return true;
 }
 
-void FinalizeEngine(Platform &platform)
+static void FinalizeEngine(Platform &platform)
 {
 	CloseLibrary(platform.engineLib);
 }
 
-bool Run(Platform &platform)
+static bool Run(Platform &platform)
 {
 	if ( !platform.PreInitCallback(platform) )
 	{
@@ -2642,7 +2642,7 @@ bool Run(Platform &platform)
 }
 
 
-void Main( int argc, char **argv,  void *userData )
+static void Main( int argc, char **argv,  void *userData )
 {
 	// Input args
 	platform.argc = argc;
