@@ -2155,9 +2155,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 
 	const u32 vertexBufferSize = KB(128);
 	ui.vertexCountLimit = vertexBufferSize / sizeof(UIVertex);
-
-	UIVertex *vertexData = (UIVertex*)AllocateVirtualMemory(vertexBufferSize);
-	ui.frontendVertices = vertexData;
+	ui.frontendVertices = PushArray(globalArena, UIVertex, ui.vertexCountLimit);
 
 	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{

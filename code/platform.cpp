@@ -2517,7 +2517,7 @@ void FinalizeEngine(Platform &platform)
 	CloseLibrary(platform.engineLib);
 }
 
-bool PlatformRun(Platform &platform)
+bool Run(Platform &platform)
 {
 	if ( !platform.PreInitCallback(platform) )
 	{
@@ -2642,7 +2642,7 @@ bool PlatformRun(Platform &platform)
 }
 
 
-void EngineMain( int argc, char **argv,  void *userData )
+void Main( int argc, char **argv,  void *userData )
 {
 	// Input args
 	platform.argc = argc;
@@ -2657,7 +2657,7 @@ void EngineMain( int argc, char **argv,  void *userData )
 
 	InitializeEngine(platform);
 
-	PlatformRun(platform);
+	Run(platform);
 
 	FinalizeEngine(platform);
 }
@@ -2666,12 +2666,12 @@ void EngineMain( int argc, char **argv,  void *userData )
 #if PLATFORM_ANDROID
 void android_main(struct android_app* app)
 {
-	EngineMain(0, nullptr, app);
+	Main(0, nullptr, app);
 }
 #else
 int main(int argc, char **argv)
 {
-	EngineMain(argc, argv, NULL);
+	Main(argc, argv, NULL);
 	return 0;
 }
 #endif
