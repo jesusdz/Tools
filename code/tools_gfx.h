@@ -683,11 +683,6 @@ struct Timestamp
 ////////////////////////////////////////////////////////////////////////
 
 typedef void FN_SetGraphicsStringInterning(StringInterning *stringInterning);
-typedef bool FN_IsValidPipeline(const Pipeline &pipeline);
-typedef bool FN_IsValidPipelineH(PipelineH pipeline);
-typedef bool FN_IsValidImage(const Image &image);
-typedef bool FN_IsValidImageH(ImageH image);
-typedef bool FN_IsValidBindGroup(const BindGroup &bindGroup);
 typedef void FN_WaitQueueIdle(const GraphicsDevice &device);
 typedef void FN_WaitDeviceIdle(const GraphicsDevice &device);
 typedef void FN_BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor);
@@ -779,11 +774,6 @@ typedef const char* FN_FormatName(Format format);
 
 #define TOOLS_GFX_EXPAND_API(EXPAND_MACRO) \
 	EXPAND_MACRO(SetGraphicsStringInterning) \
-	EXPAND_MACRO(IsValidPipeline) \
-	EXPAND_MACRO(IsValidPipelineH) \
-	EXPAND_MACRO(IsValidImage) \
-	EXPAND_MACRO(IsValidImageH) \
-	EXPAND_MACRO(IsValidBindGroup) \
 	EXPAND_MACRO(WaitQueueIdle) \
 	EXPAND_MACRO(WaitDeviceIdle) \
 	EXPAND_MACRO(BeginDebugGroup) \
@@ -880,11 +870,35 @@ typedef const char* FN_FormatName(Format format);
 #define TOOLS_GFX_FUNCTION_DECLARATION(function_name) FN_ ## function_name function_name;
 TOOLS_GFX_EXPAND_API(TOOLS_GFX_FUNCTION_DECLARATION)
 
-bool IsValid(const Pipeline &pipeline);
-bool IsValid(PipelineH pipeline);
-bool IsValid(const Image &image);
-bool IsValid(ImageH image);
-bool IsValid(const BindGroup &bindGroup);
+inline bool IsValid(const Pipeline &pipeline)
+{
+	bool res = pipeline.handle != 0;
+	return res;
+}
+
+inline bool IsValid(PipelineH pipeline)
+{
+	bool res = pipeline.index != 0;
+	return res;
+}
+
+inline bool IsValid(const Image &image)
+{
+	bool res = image.handle != 0;
+	return res;
+}
+
+inline bool IsValid(ImageH image)
+{
+	bool res = image.index != 0;
+	return res;
+}
+
+inline bool IsValid(const BindGroup &bindGroup)
+{
+	bool res = bindGroup.handle != 0;
+	return res;
+}
 
 #endif // TOOLS_GFX_H
 
@@ -1806,43 +1820,6 @@ static void DestroyImageView(const GraphicsDevice &device, const VkImageView &im
 ////////////////////////////////////////////////////////////////////////
 // Public API
 ////////////////////////////////////////////////////////////////////////
-
-//////////////////////////////
-// Handles
-//////////////////////////////
-
-#define INLINE
-
-INLINE bool IsValid(const Pipeline &pipeline)
-{
-	bool res = pipeline.handle != VK_NULL_HANDLE;
-	return res;
-}
-
-INLINE bool IsValid(PipelineH pipeline)
-{
-	bool res = pipeline.index != 0;
-	return res;
-}
-
-INLINE bool IsValid(const Image &image)
-{
-	bool res = image.handle != VK_NULL_HANDLE;
-	return res;
-}
-
-INLINE bool IsValid(ImageH image)
-{
-	bool res = image.index != 0;
-	return res;
-}
-
-INLINE bool IsValid(const BindGroup &bindGroup)
-{
-	bool res = bindGroup.handle != VK_NULL_HANDLE;
-	return res;
-}
-
 
 //////////////////////////////
 // WaitIdle
