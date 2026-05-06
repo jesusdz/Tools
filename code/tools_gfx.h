@@ -73,20 +73,10 @@
 
 
 ////////////////////////////////////////////////////////////////////////
-// Includes and definitions
+// Includes
 ////////////////////////////////////////////////////////////////////////
 
 #include "tools.h"
-
-#if USE_XCB
-#	define VK_USE_PLATFORM_XCB_KHR 1
-#elif USE_ANDROID
-#	define VK_USE_PLATFORM_ANDROID_KHR 1
-#elif USE_WINAPI
-#	define VK_USE_PLATFORM_WIN32_KHR 1
-#else
-#	error "Configure the proper platform for Vulkan"
-#endif
 
 // This extension removes a VK_ERROR_INCOMPATIBLE_DRIVER when calling vkCreateInstance
 // on some platforms implementing Vulkan on top of another API.
@@ -96,21 +86,15 @@
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
 
-#if VK_USE_PLATFORM_WIN32_KHR
-#include <vulkan/vulkan_win32.h>
-#elif VK_USE_PLATFORM_XCB_KHR
-#include <vulkan/vulkan_xcb.h>
-#elif VK_USE_PLATFORM_ANDROID_KHR
-#include <vulkan/vulkan_android.h>
-#endif
-
-#define SPV_ASSERT ASSERT
-#define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
-#define SPV_IMPLEMENTATION
-#define SPV_PRINT_FUNCTIONS
+//#define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
-#include "offset_allocator/offsetAllocator.cpp"
+#include "offset_allocator/offsetAllocator.hpp"
+
+
+////////////////////////////////////////////////////////////////////////
+// Definitions
+////////////////////////////////////////////////////////////////////////
 
 #define MAX_BIND_GROUPS 4
 #define MAX_SHADER_BINDINGS 16
@@ -131,10 +115,6 @@
 #endif
 #define FIRST_SWAPCHAIN_IMAGE_INDEX MAX_IMAGES
 #define MAX_FRAMES_IN_FLIGHT 2
-
-#define VULKAN_ALLOCATORS NULL
-
-#define VK_CALL( call ) CheckVulkanResult( call, #call )
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -772,7 +752,7 @@ typedef void FN_CleanupGraphicsSurface(const GraphicsDevice &device);
 typedef void FN_CleanupGraphicsDriver(GraphicsDevice &device);
 typedef const char* FN_FormatName(Format format);
 
-#define TOOLS_GFX_EXPAND_API(EXPAND_MACRO) \
+#define EXPAND_API_TOOLS_GFX(EXPAND_MACRO) \
 	EXPAND_MACRO(SetGraphicsStringInterning) \
 	EXPAND_MACRO(WaitQueueIdle) \
 	EXPAND_MACRO(WaitDeviceIdle) \
@@ -868,7 +848,7 @@ typedef const char* FN_FormatName(Format format);
 ////////////////////////////////////////////////////////////////////////
 
 #define TOOLS_GFX_FUNCTION_DECLARATION(function_name) FN_ ## function_name function_name;
-TOOLS_GFX_EXPAND_API(TOOLS_GFX_FUNCTION_DECLARATION)
+EXPAND_API_TOOLS_GFX(TOOLS_GFX_FUNCTION_DECLARATION)
 
 inline bool IsValid(const Pipeline &pipeline)
 {
@@ -907,18 +887,46 @@ inline bool IsValid(const BindGroup &bindGroup)
 #ifndef TOOLS_GFX_IMPLEMENTATION_INCLUDED
 #define TOOLS_GFX_IMPLEMENTATION_INCLUDED
 
+
+////////////////////////////////////////////////////////////////////////
+// Vulkan headers and definitions
+////////////////////////////////////////////////////////////////////////
+
+#if USE_XCB
+#	define VK_USE_PLATFORM_XCB_KHR 1
+#elif USE_ANDROID
+#	define VK_USE_PLATFORM_ANDROID_KHR 1
+#elif USE_WINAPI
+#	define VK_USE_PLATFORM_WIN32_KHR 1
+#else
+#	error "Configure the proper platform for Vulkan"
+#endif
+
+#if VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan_win32.h>
+#elif VK_USE_PLATFORM_XCB_KHR
+#include <vulkan/vulkan_xcb.h>
+#elif VK_USE_PLATFORM_ANDROID_KHR
+#include <vulkan/vulkan_android.h>
+#endif
+
+#define VULKAN_ALLOCATORS NULL
+
+#define VK_CALL( call ) CheckVulkanResult( call, #call )
+
+
 ////////////////////////////////////////////////////////////////////////
 // Vulkan function pointers
 ////////////////////////////////////////////////////////////////////////
 
 // Vulkan 1.0 pre-instance functions
-#define VK_INIT_FUNCTION_LIST(EXPAND_MACRO) \
+#define EXPAND_API_VK_PRE_INSTANCE(EXPAND_MACRO) \
 	EXPAND_MACRO(vkCreateInstance) \
 	EXPAND_MACRO(vkEnumerateInstanceExtensionProperties) \
 	EXPAND_MACRO(vkEnumerateInstanceLayerProperties)
 
 // Vulkan 1.0 instance functions
-#define VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
+#define EXPAND_API_VK10_INSTANCE(EXPAND_MACRO) \
 	EXPAND_MACRO(vkCreateDevice) \
 	EXPAND_MACRO(vkDestroyInstance) \
 	EXPAND_MACRO(vkEnumerateDeviceExtensionProperties) \
@@ -931,7 +939,7 @@ inline bool IsValid(const BindGroup &bindGroup)
 	EXPAND_MACRO(vkGetPhysicalDeviceQueueFamilyProperties)
 
 // Debug utils instance functions
-#define VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
+#define EXPAND_API_VK_DEBUG_UTILS(EXPAND_MACRO) \
 	EXPAND_MACRO(vkCmdBeginDebugUtilsLabelEXT) \
 	EXPAND_MACRO(vkCmdEndDebugUtilsLabelEXT) \
 	EXPAND_MACRO(vkCmdInsertDebugUtilsLabelEXT) \
@@ -940,7 +948,7 @@ inline bool IsValid(const BindGroup &bindGroup)
 	EXPAND_MACRO(vkSetDebugUtilsObjectNameEXT)
 
 // Surface instance functions
-#define VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
+#define EXPAND_API_VK_KHR_SURFACE(EXPAND_MACRO) \
 	EXPAND_MACRO(vkDestroySurfaceKHR) \
 	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
 	EXPAND_MACRO(vkGetPhysicalDeviceSurfaceFormatsKHR) \
@@ -958,14 +966,14 @@ inline bool IsValid(const BindGroup &bindGroup)
 #endif /* defined(VK_KHR_android_surface) */
 
 // All instance functions
-#define VK_INSTANCE_FUNCTION_LIST(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_VK_1_0(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_DEBUG_UTILS(EXPAND_MACRO) \
-	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE(EXPAND_MACRO) \
+#define EXPAND_API_VK_INSTANCE(EXPAND_MACRO) \
+	EXPAND_API_VK10_INSTANCE(EXPAND_MACRO) \
+	EXPAND_API_VK_DEBUG_UTILS(EXPAND_MACRO) \
+	EXPAND_API_VK_KHR_SURFACE(EXPAND_MACRO) \
 	VK_INSTANCE_FUNCTION_LIST_KHR_SURFACE_PLATFORM(EXPAND_MACRO)
 
 // Device functions (Vulkan 1.0)
-#define VK_DEVICE_FUNCTION_LIST(EXPAND_MACRO) \
+#define EXPAND_API_VK10_DEVICE(EXPAND_MACRO) \
 	EXPAND_MACRO(vkAllocateCommandBuffers) \
 	EXPAND_MACRO(vkAllocateDescriptorSets) \
 	EXPAND_MACRO(vkAllocateMemory) \
@@ -1047,11 +1055,62 @@ inline bool IsValid(const BindGroup &bindGroup)
 	EXPAND_MACRO(vkGetSwapchainImagesKHR) \
 	EXPAND_MACRO(vkQueuePresentKHR)
 
-// Expand extern function prototypes
-#define EXPAND_EXTERN_VK_PFN(function_name) extern PFN_##function_name function_name;
-VK_INIT_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
-VK_INSTANCE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
-VK_DEVICE_FUNCTION_LIST(EXPAND_EXTERN_VK_PFN)
+PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+
+// Expand device function prototypes
+#define EXPAND_VK_PFN(function_name) PFN_##function_name function_name;
+EXPAND_API_VK_PRE_INSTANCE(EXPAND_VK_PFN)
+EXPAND_API_VK_INSTANCE(EXPAND_VK_PFN)
+EXPAND_API_VK10_DEVICE(EXPAND_VK_PFN)
+
+static bool VulkanLoadInitFunctions()
+{
+	const char *libraryFilenames[] = {
+#if defined(PLATFORM_WINDOWS)
+		"vulkan-1.dll",
+#elif defined(PLATFORM_APPLE)
+		"libvulkan.dylib",
+		"libvulkan.1.dylib",
+		"libMoltenVK.dylib",
+#else
+		"libvulkan.so.1",
+		"libvulkan.so",
+#endif
+	};
+
+	DynamicLibrary vulkan = {};
+	for (u32 i = 0; !vulkan && i < ARRAY_COUNT(libraryFilenames); ++i)
+	{
+		vulkan = OpenLibrary(libraryFilenames[i]);
+	}
+
+	if (!vulkan)
+	{
+		return false;
+	}
+
+	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)LoadSymbol(vulkan, "vkGetInstanceProcAddr");
+
+	// Get all init function pointers
+	#define EXPAND_VK_GET_INSTANCE_PROC_ADDR_INIT(function_name) function_name = (PFN_##function_name)vkGetInstanceProcAddr(NULL, #function_name);
+	EXPAND_API_VK_PRE_INSTANCE(EXPAND_VK_GET_INSTANCE_PROC_ADDR_INIT)
+
+	return true;
+}
+
+static void VulkanLoadInstanceFunctions(VkInstance instance)
+{
+	// Get all instance function pointers
+	#define EXPAND_VK_GET_INSTANCE_PROC_ADDR(function_name) function_name = (PFN_##function_name)vkGetInstanceProcAddr(instance, #function_name);
+	EXPAND_API_VK_INSTANCE(EXPAND_VK_GET_INSTANCE_PROC_ADDR)
+}
+
+static void VulkanLoadDeviceFunctions(VkDevice device)
+{
+	// Get all device function pointers
+	#define EXPAND_VK_GET_DEVICE_PROC_ADDR(function_name) function_name = (PFN_##function_name)vkGetDeviceProcAddr(device, #function_name);
+	EXPAND_API_VK10_DEVICE(EXPAND_VK_GET_DEVICE_PROC_ADDR)
+}
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -2079,9 +2138,6 @@ bool IsValidSwapchain(const GraphicsDevice &device)
 	return device.swapchain.valid;
 }
 
-static bool VulkanLoadInitFunctions();
-static void VulkanLoadInstanceFunctions(VkInstance instance);
-static void VulkanLoadDeviceFunctions(VkDevice device);
 
 bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 {
@@ -4486,62 +4542,12 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 //	VK_CALL( vkFlushMappedMemoryRanges(device.handle, 1, range) );
 //}
 
-PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+#include "offset_allocator/offsetAllocator.cpp"
 
-// Expand device function prototypes
-#define EXPAND_VK_PFN(function_name) PFN_##function_name function_name;
-VK_INIT_FUNCTION_LIST(EXPAND_VK_PFN)
-VK_INSTANCE_FUNCTION_LIST(EXPAND_VK_PFN)
-VK_DEVICE_FUNCTION_LIST(EXPAND_VK_PFN)
-
-static bool VulkanLoadInitFunctions()
-{
-	const char *libraryFilenames[] = {
-#if defined(PLATFORM_WINDOWS)
-		"vulkan-1.dll",
-#elif defined(PLATFORM_APPLE)
-		"libvulkan.dylib",
-		"libvulkan.1.dylib",
-		"libMoltenVK.dylib",
-#else
-		"libvulkan.so.1",
-		"libvulkan.so",
-#endif
-	};
-
-	DynamicLibrary vulkan = {};
-	for (u32 i = 0; !vulkan && i < ARRAY_COUNT(libraryFilenames); ++i)
-	{
-		vulkan = OpenLibrary(libraryFilenames[i]);
-	}
-
-	if (!vulkan)
-	{
-		return false;
-	}
-
-	vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)LoadSymbol(vulkan, "vkGetInstanceProcAddr");
-
-	// Get all init function pointers
-	#define EXPAND_VK_GET_INSTANCE_PROC_ADDR_INIT(function_name) function_name = (PFN_##function_name)vkGetInstanceProcAddr(NULL, #function_name);
-	VK_INIT_FUNCTION_LIST(EXPAND_VK_GET_INSTANCE_PROC_ADDR_INIT)
-
-	return true;
-}
-
-static void VulkanLoadInstanceFunctions(VkInstance instance)
-{
-	// Get all instance function pointers
-	#define EXPAND_VK_GET_INSTANCE_PROC_ADDR(function_name) function_name = (PFN_##function_name)vkGetInstanceProcAddr(instance, #function_name);
-	VK_INSTANCE_FUNCTION_LIST(EXPAND_VK_GET_INSTANCE_PROC_ADDR)
-}
-
-static void VulkanLoadDeviceFunctions(VkDevice device)
-{
-	// Get all device function pointers
-	#define EXPAND_VK_GET_DEVICE_PROC_ADDR(function_name) function_name = (PFN_##function_name)vkGetDeviceProcAddr(device, #function_name);
-	VK_DEVICE_FUNCTION_LIST(EXPAND_VK_GET_DEVICE_PROC_ADDR)
-}
+#define SPV_IMPLEMENTATION
+#define SPV_ASSERT ASSERT
+#define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
+#include "tools_spirv.h"
 
 #endif // TOOLS_GFX_IMPLEMENTATION_INCLUDED
 #endif // TOOLS_GFX_IMPLEMENTATION

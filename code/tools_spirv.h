@@ -233,6 +233,8 @@ void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
 void SpvPrintDisassembly(SpvParser *parser);
 #endif // #if defined(SPV_PRINT_FUNCTIONS)
 
+#endif // #if TOOLS_SPIRV_H
+
 
 #if defined(SPV_IMPLEMENTATION)
 
@@ -815,6 +817,4 @@ void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList)
 #endif // #if defined(SPV_PRINT_FUNCTIONS)
 
 #endif // #if defined(SPV_IMPLEMENTATION)
-
-#endif // #if TOOLS_SPIRV_H
 
