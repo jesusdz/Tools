@@ -862,7 +862,7 @@ static bool InitializeWindow(
 		Window &window,
 		u32 width = 640,
 		u32 height = 480,
-		const char *title = "Example window"
+		const char *title = "Iris"
 		)
 {
 	ZeroStruct(&window);
@@ -975,7 +975,7 @@ static bool InitializeWindow(
 #if USE_WINAPI
 
 	// Register the window class.
-	const char CLASS_NAME[]  = "Sample Window Class";
+	const char CLASS_NAME[]  = "Iris Class";
 	HINSTANCE hInstance = GetModuleHandle(NULL);
 
 	WNDCLASS wc = {};
@@ -2473,35 +2473,82 @@ static void ReleaseScratchArena(u32 index)
 static bool InitializeEngine(Platform &platform)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
-	const FilePath engineLibPath = MakePath(BinDir, "engine_lib.so");
+	const char *engineLibFilename = "engine_lib.so";
 #elif PLATFORM_WINDOWS
-	const FilePath engineLibPath = MakePath(BinDir, "engine_lib.dll");
-	LOG(Info, "%s", engineLibPath.str);
+	const char *engineLibFilename = "engine_lib.dll";
 #else
 #error "Missing implementation"
 #endif
 
+	LOG(Info, "Engine initialization:\n");
+
+	const FilePath engineLibPath = MakePath(BinDir, engineLibFilename);
 	platform.engineLib = OpenLibrary(engineLibPath.str);
-	ASSERT(platform.engineLib);
+	if ( !platform.engineLib ) {
+		LOG(Error, "- Couldn't load %s\n", engineLibFilename);
+		return false;
+	}
+
+	LOG(Info, "- Loaded %s successfully\n", engineLibFilename);
 
 	// Engine interface exposed to platform
-	platform.PreInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
-	platform.InitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformInit");
-	platform.UpdateCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformUpdate");
-	platform.RenderGraphicsCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformRenderGraphics");
-	platform.PreRenderAudioCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreRenderAudio");
-	platform.RenderAudioCallback = (void (*)(Platform &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
-	platform.CleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformCleanup");
-	platform.WindowInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowInit");
-	platform.WindowCleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowCleanup");
 
-	ASSERT( platform.PreInitCallback );
-	ASSERT( platform.InitCallback );
-	ASSERT( platform.UpdateCallback );
-	ASSERT( platform.RenderGraphicsCallback );
-	ASSERT( platform.CleanupCallback );
-	ASSERT( platform.WindowInitCallback );
-	ASSERT( platform.WindowCleanupCallback );
+	platform.PreInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
+	if( !platform.PreInitCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformPreInit\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformPreInit\n");
+
+	platform.InitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformInit");
+	if( !platform.InitCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformInit\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformInit\n");
+
+	platform.UpdateCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformUpdate");
+	if( !platform.UpdateCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformUpdate\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformUpdate\n");
+
+	platform.RenderGraphicsCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformRenderGraphics");
+	if( !platform.RenderGraphicsCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformRenderGraphics\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformRenderGraphics\n");
+
+	platform.CleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformCleanup");
+	if( !platform.CleanupCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformCleanup\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformCleanup\n");
+
+	platform.WindowInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowInit");
+	if( !platform.WindowInitCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformWindowInit\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformWindowInit\n");
+
+	platform.WindowCleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowCleanup");
+	if( !platform.WindowCleanupCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformWindowCleanup\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformWindowCleanup\n");
+
+	platform.RenderAudioCallback = (void (*)(Platform &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
+	if( !platform.RenderAudioCallback ) { LOG(Error, "- Couldn't load symbol: OnPlatformRenderAudio\n"); }
+	else { LOG( Info, "- Symbol loaded: OnPlatformRenderAudio\n" ); }
+
+	platform.PreRenderAudioCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreRenderAudio");
+	if( !platform.PreRenderAudioCallback ) { LOG(Error, "- Couldn't load symbol: OnPlatformPreRenderAudio\n"); }
+	else { LOG( Info, "- Symbol loaded: OnPlatformPreRenderAudio\n" ); }
 
 	// Platform interface exposed to engine
 	platform.api.PlatformQuit        = PlatformQuit;
