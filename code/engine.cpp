@@ -2,10 +2,11 @@
 #define TOOLS_IMAGE_PIXELS
 #include "tools.h"
 
+#define TOOLS_GFX_FUNCTION_POINTERS
+#include "tools_gfx.h"
+
 #define PLATFORM_API
 #include "platform.h"
-
-#include "tools_gfx.h"
 
 #define USE_EDITOR ( PLATFORM_LINUX || PLATFORM_WINDOWS )
 #define USE_UI ( PLATFORM_LINUX || PLATFORM_WINDOWS )
@@ -889,7 +890,7 @@ void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandLis
 	TransitionImageLayout(commandList, imageH, ImageStateTransferDst, ImageStateShaderInput, image.mipLevels - 1, 1);
 }
 
-ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels)
+ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels)
 {
 	const u32 pixelSize = channels * sizeof(byte);
 	const u32 size = width * height * pixelSize;
@@ -937,9 +938,9 @@ ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int c
 	return image;
 }
 
-ImageH CreateImage(Graphics &gfx, const ImagePixels &img, const char *name, bool createMipmaps)
+ImageH EngineCreateImage(Graphics &gfx, const ImagePixels &img, const char *name, bool createMipmaps)
 {
-	const ImageH imageHandle = CreateImage(gfx, name, img.width, img.height, img.channelCount, createMipmaps, img.pixels);
+	const ImageH imageHandle = EngineCreateImage(gfx, name, img.width, img.height, img.channelCount, createMipmaps, img.pixels);
 	return imageHandle;
 }
 
@@ -984,7 +985,7 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	if ( ReadImagePixels(imagePath.str, img) )
 	{
 
-		const ImageH imageHandle = CreateImage(gfx, img, desc.name, desc.mipmap);
+		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
 		textureHandle = CreateTexture(gfx);
 
@@ -1013,7 +1014,7 @@ TextureH CreateTexture(Graphics &gfx, const BinImage &binImage)
 	const u32 mipmap = desc.mipmap;
 	const u8 *pixels = binImage.pixels;
 
-	const ImageH imageHandle = CreateImage(gfx, name, width, height, channels, mipmap, pixels);
+	const ImageH imageHandle = EngineCreateImage(gfx, name, width, height, channels, mipmap, pixels);
 
 	const TextureH textureHandle = CreateTexture(gfx);
 
@@ -1101,7 +1102,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 
 			DestroyImageH(gfx.device, texture.image);
 
-			texture.image = CreateImage(gfx, img, desc.name, desc.mipmap);
+			texture.image = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
 			GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 
@@ -1842,11 +1843,11 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 
 	// Builtin images
 	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
-	gfx.pinkImageH = CreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
+	gfx.pinkImageH = EngineCreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
 	const byte grayImagePixels[] = { 127, 127, 127, 255 };
-	gfx.grayImageH = CreateImage(gfx, "grayImage", 1, 1, 4, false, grayImagePixels);
+	gfx.grayImageH = EngineCreateImage(gfx, "grayImage", 1, 1, 4, false, grayImagePixels);
 	const byte blackImagePixels[] = { 0, 0, 0, 0 };
-	gfx.blackImageH = CreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
+	gfx.blackImageH = EngineCreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
 
 	// Samplers
 	const SamplerDesc pointSamplerDesc = {
@@ -1997,7 +1998,7 @@ void CreateMaterialBindGroups(Graphics &gfx)
 	}
 }
 
-void WaitDeviceIdle(Graphics &gfx)
+void EngineWaitDeviceIdle(Graphics &gfx)
 {
 	WaitDeviceIdle(gfx.device);
 
@@ -2006,7 +2007,7 @@ void WaitDeviceIdle(Graphics &gfx)
 
 void CleanupGraphics(Graphics &gfx)
 {
-	WaitDeviceIdle( gfx );
+	EngineWaitDeviceIdle( gfx );
 
 	for (u32 i = 0; i < ARRAY_COUNT(gfx.timestampPools); ++i)
 	{
@@ -3180,6 +3181,7 @@ void GameUpdate(Engine &engine)
 ENGINE_API bool OnPlatformPreInit(Platform &platform)
 {
 	SetPlatformAPI(platform);
+	SetGraphicsAPI(&platform.graphicsAPI);
 
 	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
 	ASSERT( enginePtr != nullptr );
@@ -3364,7 +3366,7 @@ ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
 
 	if ( !IsValidSwapchain(gfx.device) || platform.window.flags & WindowFlags_WasResized )
 	{
-		WaitDeviceIdle(gfx);
+		EngineWaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
 		DestroySwapchain(gfx.device);
 		if ( platform.window.width != 0 && platform.window.height != 0 )
@@ -3390,7 +3392,7 @@ ENGINE_API void OnPlatformWindowCleanup(Platform &platform)
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
-	WaitDeviceIdle(gfx);
+	EngineWaitDeviceIdle(gfx);
 	DestroyRenderTargets(gfx, gfx.renderTargets);
 	DestroySwapchain(gfx.device);
 	CleanupGraphicsSurface(gfx.device);
@@ -3404,7 +3406,7 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 
 	CleanupGameLibrary(game);
 
-	WaitDeviceIdle(gfx);
+	EngineWaitDeviceIdle(gfx);
 
 #if USE_UI
 	UI_Cleanup(engine.ui);
@@ -3432,9 +3434,6 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 #include "editor.cpp"
 #endif
 #include "ibxm/ibxm.c"
-
-#define TOOLS_GFX_IMPLEMENTATION
-#include "tools_gfx.h"
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.

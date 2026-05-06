@@ -2147,7 +2147,7 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
 struct Graphics;
-ImageH CreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
+ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalArena, UIIcon *icons, u32 iconCount)
 {
@@ -2304,7 +2304,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	}
 
 	// Create texture
-	ui.fontAtlasH = CreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
+	ui.fontAtlasH = EngineCreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
 	ui.fontAtlasSize = {fontAtlasWidth, fontAtlasHeight};
 
 	#undef globalArena

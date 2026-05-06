@@ -1,5 +1,11 @@
 
+#define TOOLS_GFX_FUNCTION_PROTOTYPES
+#include "tools_gfx.h"
+
 #include "platform.h"
+
+#define TOOLS_GFX_IMPLEMENTATION
+#include "tools_gfx.h"
 
 static Platform platform = {};
 
@@ -2656,6 +2662,8 @@ static void Main( int argc, char **argv,  void *userData )
 	InitializeDirectories(platform);
 
 	InitializeEngine(platform);
+
+	GetGraphicsAPI(&platform.graphicsAPI);
 
 	Run(platform);
 

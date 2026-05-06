@@ -662,6 +662,8 @@ struct Timestamp
 // Function type declarations
 ////////////////////////////////////////////////////////////////////////
 
+class Window; // Required type from platform.h
+
 typedef void FN_SetGraphicsStringInterning(StringInterning *stringInterning);
 typedef void FN_WaitQueueIdle(const GraphicsDevice &device);
 typedef void FN_WaitDeviceIdle(const GraphicsDevice &device);
@@ -684,8 +686,8 @@ typedef void FN_DestroyBindGroupLayout(const GraphicsDevice &device, const BindG
 typedef BindGroup FN_CreateBindGroup(const GraphicsDevice &device, const BindGroupLayout &layout, BindGroupAllocator &allocator);
 typedef BindGroup FN_CreateFullBindGroup(const GraphicsDevice &device, const BindGroupDesc &desc, BindGroupAllocator &allocator);
 typedef void FN_UpdateBindGroup(const GraphicsDevice &device, const BindGroupDesc &bindGroupDesc, BindGroup &bindGroup);
-typedef Alloc FN_HeapAlloc(Heap &heap, u32 size, u32 alignment);
-typedef void FN_HeapFree(Alloc alloc);
+typedef Alloc FN_Allocate(Heap &heap, u32 size, u32 alignment);
+typedef void FN_Deallocate(Alloc alloc);
 typedef BufferH FN_CreateBuffer(GraphicsDevice &device, u32 size, BufferUsageFlags bufferUsageFlags, HeapType heapType);
 typedef Buffer& FN_GetBuffer(GraphicsDevice &device, BufferH handle);
 typedef const Buffer& FN_GetBufferConst(const GraphicsDevice &device, BufferH handle);
@@ -775,8 +777,8 @@ typedef const char* FN_FormatName(Format format);
 	EXPAND_MACRO(CreateBindGroup) \
 	EXPAND_MACRO(CreateFullBindGroup) \
 	EXPAND_MACRO(UpdateBindGroup) \
-	EXPAND_MACRO(HeapAlloc) \
-	EXPAND_MACRO(HeapFree) \
+	EXPAND_MACRO(Allocate) \
+	EXPAND_MACRO(Deallocate) \
 	EXPAND_MACRO(CreateBuffer) \
 	EXPAND_MACRO(GetBuffer) \
 	EXPAND_MACRO(GetBufferConst) \
@@ -843,12 +845,51 @@ typedef const char* FN_FormatName(Format format);
 	EXPAND_MACRO(CleanupGraphicsDriver) \
 	EXPAND_MACRO(FormatName)
 
+#define TOOLS_GFX_FUNCTION_POINTER(function_name) FN_ ## function_name * function_name;
+#define TOOLS_GFX_FUNCTION_PROTOTYPE(function_name) FN_ ## function_name function_name;
+
 ////////////////////////////////////////////////////////////////////////
-// Declarations
+// API struct
 ////////////////////////////////////////////////////////////////////////
 
-#define TOOLS_GFX_FUNCTION_DECLARATION(function_name) FN_ ## function_name function_name;
-EXPAND_API_TOOLS_GFX(TOOLS_GFX_FUNCTION_DECLARATION)
+struct GraphicsAPI
+{
+	EXPAND_API_TOOLS_GFX(TOOLS_GFX_FUNCTION_POINTER);
+};
+
+////////////////////////////////////////////////////////////////////////
+// Function prototypes
+////////////////////////////////////////////////////////////////////////
+
+#if defined(TOOLS_GFX_FUNCTION_PROTOTYPES)
+
+EXPAND_API_TOOLS_GFX(TOOLS_GFX_FUNCTION_PROTOTYPE)
+
+#define TOOLS_GFX_PROTOTYPE_TO_TABLE(name) api-> name = name;
+
+inline void GetGraphicsAPI(GraphicsAPI *api)
+{
+	EXPAND_API_TOOLS_GFX(TOOLS_GFX_PROTOTYPE_TO_TABLE);
+}
+
+#endif
+
+////////////////////////////////////////////////////////////////////////
+// Function pointers
+////////////////////////////////////////////////////////////////////////
+
+#if defined(TOOLS_GFX_FUNCTION_POINTERS)
+
+EXPAND_API_TOOLS_GFX(TOOLS_GFX_FUNCTION_POINTER)
+
+#define TOOLS_GFX_TABLE_TO_POINTER(name) name = api->name;
+
+inline void SetGraphicsAPI(GraphicsAPI *api)
+{
+	EXPAND_API_TOOLS_GFX(TOOLS_GFX_TABLE_TO_POINTER);
+}
+
+#endif
 
 inline bool IsValid(const Pipeline &pipeline)
 {
@@ -2946,7 +2987,7 @@ BindGroup CreateFullBindGroup(const GraphicsDevice &device, const BindGroupDesc 
 // Heap allocation
 //////////////////////////////
 
-Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
+Alloc Allocate(Heap &heap, u32 size, u32 alignment)
 {
 	if ( heap.type == HeapType_General )
 	{
@@ -2955,7 +2996,7 @@ Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
 		const u32 totalSize = size + alignment;
 		const OffsetAllocator::Allocation allocation = generalAllocator.allocate(totalSize);
 		if (allocation.offset == OffsetAllocator::Allocation::NO_SPACE) {
-			LOG(Error, "HeapAlloc - Could not allocate size(%uB) with alignment (%uB)\n", size, alignment);
+			LOG(Error, "Allocate - Could not allocate size(%uB) with alignment (%uB)\n", size, alignment);
 		}
 
 		const VkDeviceSize offset = AlignUp( allocation.offset, alignment );
@@ -2986,7 +3027,7 @@ Alloc HeapAlloc(Heap &heap, u32 size, u32 alignment)
 	}
 }
 
-void HeapFree(Alloc alloc)
+void Deallocate(Alloc alloc)
 {
 	// TODO: Missing implementation
 	// Ideally we would want to have to possibility to associate a different allocator
@@ -3021,7 +3062,7 @@ Buffer CreateBufferInternal(GraphicsDevice &device, u32 size, BufferUsageFlags b
 	vkGetBufferMemoryRequirements(device.handle, bufferHandle, &memoryRequirements);
 
 	Heap &heap = device.heaps[heapType];
-	const Alloc alloc = HeapAlloc(heap, memoryRequirements.size, memoryRequirements.alignment);
+	const Alloc alloc = Allocate(heap, memoryRequirements.size, memoryRequirements.alignment);
 
 	VK_CALL( vkBindBufferMemory(device.handle, bufferHandle, heap.memory, alloc.offset) );
 
@@ -3059,7 +3100,7 @@ void DestroyBuffer(const GraphicsDevice &device, const Buffer &buffer)
 {
 	vkDestroyBuffer( device.handle, buffer.handle, VULKAN_ALLOCATORS );
 
-	HeapFree(buffer.alloc);
+	Deallocate(buffer.alloc);
 }
 
 
@@ -3141,7 +3182,7 @@ Image CreateImageInternal(GraphicsDevice &device, u32 width, u32 height, u32 mip
 	vkGetImageMemoryRequirements(device.handle, imageHandle, &memoryRequirements);
 
 	Heap &heap = device.heaps[heapType];
-	const Alloc alloc = HeapAlloc(heap, memoryRequirements.size, memoryRequirements.alignment);
+	const Alloc alloc = Allocate(heap, memoryRequirements.size, memoryRequirements.alignment);
 
 	VK_CALL( vkBindImageMemory(device.handle, imageHandle, heap.memory, alloc.offset) );
 
@@ -3197,7 +3238,7 @@ void DestroyImage(const GraphicsDevice &device, const Image &image)
 	if ( image.handle != VK_NULL_HANDLE )
 	{
 		vkDestroyImage( device.handle, image.handle, VULKAN_ALLOCATORS );
-		HeapFree(image.alloc);
+		Deallocate(image.alloc);
 	}
 }
 

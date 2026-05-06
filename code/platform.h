@@ -4,6 +4,9 @@
 
 #include "tools.h"
 
+#ifndef TOOLS_GFX_H
+#error "tools_gfx.h must be included before this header"
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Dynamic library interface
@@ -450,6 +453,7 @@ struct Platform
 
 	// API exposed to the engine
 	PlatformAPI api;
+	GraphicsAPI graphicsAPI;
 };
 
 #endif // PLATFORM_H
