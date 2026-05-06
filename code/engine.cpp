@@ -51,6 +51,7 @@ static constexpr bool sLoadShadersFromText = true;
 static constexpr bool sLoadShadersFromText = false;
 #endif
 
+static constexpr float4 ColorBlack = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 struct Vertex
 {
@@ -862,7 +863,7 @@ BufferChunk PushData(Graphics &gfx, const CommandList &commandList, BufferArena 
 
 void GenerateMipmaps(const GraphicsDevice &device, const CommandList &commandList, ImageH imageH)
 {
-	const Image &image = GetImage(device, imageH);
+	const Image &image = GetImageConst(device, imageH);
 
 	if (!device.formatSupport[image.format].linearFilteredSampling) {
 		LOG(Error, "GenerateMipmaps() - Linear filtering not supported for format %s.\n", FormatName(image.format));
@@ -1585,7 +1586,7 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = pipelineHandles[pipelineIndex];
 	if ( IsValid(pipelineH) ) {
-		DestroyPipeline( gfx.device, pipelineH );
+		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateGraphicsPipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
 	SetObjectName(gfx.device, pipelineH, desc.name);
@@ -1610,7 +1611,7 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
 	PipelineH pipelineH = computeHandles[pipelineIndex];
 	if ( IsValid(pipelineH) ) {
-		DestroyPipeline( gfx.device, pipelineH );
+		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateComputePipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
 	SetObjectName(gfx.device, pipelineH, desc.name);
@@ -1776,12 +1777,12 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	// Create buffer for computes
 	const u32 computeBufferSize = sizeof(float);
 	gfx.computeBufferH = CreateBuffer(gfx.device, computeBufferSize, BufferUsageStorageTexelBuffer, HeapType_General);
-	gfx.computeBufferViewH = CreateBufferView(gfx.device, gfx.computeBufferH, FormatFloat);
+	gfx.computeBufferViewH = CreateBufferView(gfx.device, gfx.computeBufferH, FormatFloat, 0, 0);
 
 #if USE_EDITOR
 	const u32 selectionBufferSize = AlignUp( sizeof(u32), gfx.device.alignment.storageBufferOffset );
 	gfx.selectionBufferH = CreateBuffer(gfx.device, selectionBufferSize, BufferUsageStorageTexelBuffer, HeapType_Readback);
-	gfx.selectionBufferViewH = CreateBufferView(gfx.device, gfx.selectionBufferH, FormatUInt);
+	gfx.selectionBufferViewH = CreateBufferView(gfx.device, gfx.selectionBufferH, FormatUInt, 0, 0);
 #endif // USE_EDITOR
 
 
@@ -2724,7 +2725,7 @@ bool RenderGraphics(Engine &engine)
 				{ .index = 0, .bufferView = gfx.computeBufferViewH },
 			},
 		};
-		const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+		const BindGroup bindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
 		SetBindGroup(commandList, 0, bindGroup);
 
@@ -2740,7 +2741,7 @@ bool RenderGraphics(Engine &engine)
 	// Shadow map
 	if (IsEngineMode3D(engine.mode))
 	{
-		BeginDebugGroup(commandList, "Shadow map");
+		BeginDebugGroup(commandList, "Shadow map", ColorBlack);
 
 		SetClearDepth(commandList, 0, 0.0f);
 
@@ -2783,9 +2784,9 @@ bool RenderGraphics(Engine &engine)
 
 	// Scene and UI
 	{
-		BeginDebugGroup(commandList, "Scene and UI");
+		BeginDebugGroup(commandList, "Scene and UI", ColorBlack);
 
-		SetClearColor(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
+		SetClearColorFloat4(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
 		SetClearDepth(commandList, 1, 0.0f);
 
 		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
@@ -2802,7 +2803,7 @@ bool RenderGraphics(Engine &engine)
 			const MaterialH materialH = tileAtlas.materialH;
 			const Material &material = GetMaterial(gfx, materialH);
 
-			BeginDebugGroup(commandList, "TileGrid");
+			BeginDebugGroup(commandList, "TileGrid", ColorBlack);
 
 			// Pipeline
 			SetPipeline(commandList, material.pipelineH);
@@ -2835,7 +2836,7 @@ bool RenderGraphics(Engine &engine)
 			const MaterialH materialH = entity.materialH;
 			const Material &material = GetMaterial(gfx, materialH);
 
-			BeginDebugGroup(commandList, material.name);
+			BeginDebugGroup(commandList, material.name, ColorBlack);
 
 			// Pipeline
 			SetPipeline(commandList, material.pipelineH);
@@ -2875,9 +2876,9 @@ bool RenderGraphics(Engine &engine)
 					{ .index = 1, .image = skyImage },
 				},
 			};
-			const BindGroup bindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+			const BindGroup bindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
-			BeginDebugGroup(commandList, "sky");
+			BeginDebugGroup(commandList, "sky", ColorBlack);
 
 			SetPipeline(commandList, gfx.skyPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -2901,7 +2902,7 @@ bool RenderGraphics(Engine &engine)
 				const uint32_t firstIndex = indices.offset/sizeof(Index);
 				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
-				BeginDebugGroup(commandList, "grid_3d");
+				BeginDebugGroup(commandList, "grid_3d", ColorBlack);
 
 				SetPipeline(commandList, gfx.grid3dPipelineH);
 				SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -2919,7 +2920,7 @@ bool RenderGraphics(Engine &engine)
 				const uint32_t firstIndex = indices.offset/sizeof(Index);
 				const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 
-				BeginDebugGroup(commandList, "grid_2d");
+				BeginDebugGroup(commandList, "grid_2d", ColorBlack);
 
 				SetPipeline(commandList, gfx.grid2dPipelineH);
 				SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -2939,7 +2940,7 @@ bool RenderGraphics(Engine &engine)
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
 			const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[3];
 
-			BeginDebugGroup(commandList, "GUI");
+			BeginDebugGroup(commandList, "GUI", ColorBlack);
 
 			SetPipeline(commandList, gfx.guiPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -2957,7 +2958,7 @@ bool RenderGraphics(Engine &engine)
 						{ .index = 1, .image = drawList.imageHandle },
 					},
 				};
-				const BindGroup textureBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+				const BindGroup textureBindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 				SetBindGroup(commandList, 3, textureBindGroup);
 
 				for (u32 i = 0; i < drawList.vertexRangeCount; ++i)

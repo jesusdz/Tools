@@ -1106,10 +1106,10 @@ void EditorRender(Engine &engine, CommandList &commandList)
 
 	if ( editor.selectEntity )
 	{
-		BeginDebugGroup(commandList, "Entity selection");
+		BeginDebugGroup(commandList, "Entity selection", ColorBlack);
 
 		{ // Draw entity IDs
-			SetClearColor(commandList, 0, U32_MAX);
+			SetClearColorU32(commandList, 0, U32_MAX);
 
 			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
 
@@ -1150,7 +1150,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 					{ .index = 1, .image = gfx.renderTargets.idImage },
 				},
 			};
-			const BindGroup dynamicBindGroup = CreateBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+			const BindGroup dynamicBindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
 
 			SetBindGroup(commandList, 0, dynamicBindGroup);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
