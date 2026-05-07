@@ -3178,11 +3178,14 @@ void GameUpdate(Engine &engine)
 
 
 
-ENGINE_API bool OnPlatformPreInit(Platform &platform)
+ENGINE_API void OnPlatformSetupAPI(Platform &platform)
 {
 	SetPlatformAPI(platform);
 	SetGraphicsAPI(&platform.graphicsAPI);
+}
 
+ENGINE_API bool OnPlatformPreInit(Platform &platform)
+{
 	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
 	ASSERT( enginePtr != nullptr );
 	platform.userData = (void*) enginePtr;

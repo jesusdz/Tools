@@ -42,6 +42,7 @@ if "%target%" == "unit_test_tools" goto unit_test_tools
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
 if "%target%" == "engine" goto engine
+if "%target%" == "dll" goto dll
 if "%target%" == "game" goto game
 if "%target%" == "main_d3d12" goto main_d3d12
 if "%target%" == "main_reflect_serialize" goto main_reflect_serialize
@@ -79,8 +80,22 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
 cl %CommonCompilerFlags% ..\code\platform.cpp /Feengine.exe /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
+popd
+exit /b 0
+
+
+
+REM ######################################################
+REM DLL
+REM ######################################################
+: dll
+
+call vcenv.bat
+pushd build
+set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
+cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
 popd
 exit /b 0
 

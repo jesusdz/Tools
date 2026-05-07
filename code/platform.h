@@ -400,6 +400,7 @@ struct Platform
 	u32 stringMemorySize = KB(16);
 	u32 dataMemorySize = MB(16);
 
+	void (*SetupAPICallback)(Platform &);
 	bool (*PreInitCallback)(Platform &);
 	bool (*InitCallback)(Platform &);
 	void (*UpdateCallback)(Platform &);
@@ -439,11 +440,15 @@ struct Platform
 	volatile_i64 eventHead;
 	PlatformEvent events[128];
 
-	bool mainThreadRunning;
-	bool updateThreadRunning;
+	bool paused;
+	bool keepRunning;
 	bool windowInitialized;
 
-	Semaphore updateThreadFinished;
+	Semaphore updateThreadFinishSemaphore;
+
+	bool audioPaused;
+	Semaphore audioThreadPauseSemaphore;
+	Semaphore audioThreadFinishSemaphore;
 
 	// Directories (set during pre-initialization, before any engine callbacks)
 	const char *BinDir;

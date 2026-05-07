@@ -171,7 +171,7 @@ static void InitializeDirectories(Platform &platform)
 		StrCopyN(exeDir, exePath, length);
 	}
 
-	char directory[MAX_PATH_LENGTH];
+	char directory[MAX_PATH_LENGTH] = {};
 	if ( !IsAbsolutePath(exeDir) )
 	{
 		StrCopy(directory, workingDir);
@@ -390,7 +390,7 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 					//SendPlatformEvent(platform, event1);
 					const PlatformEvent event2 = { .type = PlatformEventTypeQuit, };
 					SendPlatformEvent(platform, event2);
-					platform.mainThreadRunning = false;
+					platform.keepRunning = false;
 #else
 					window.flags |= WindowFlags_WillDestroy;
 					window.flags |= WindowFlags_Exit;
@@ -1133,7 +1133,7 @@ static void PlatformUpdateEventLoop(Platform &platform)
 
 	xcb_generic_event_t *event;
 #if USE_UPDATE_THREAD
-	while ( platform.mainThreadRunning && (event = xcb_wait_for_event(window.connection)) != 0 )
+	while ( platform.keepRunning && (event = xcb_wait_for_event(window.connection)) != 0 )
 #else
 	while ( (event = xcb_poll_for_event(window.connection)) != 0 )
 #endif
@@ -1143,7 +1143,7 @@ static void PlatformUpdateEventLoop(Platform &platform)
 	}
 
 #if USE_UPDATE_THREAD
-	platform.mainThreadRunning = false;
+	platform.keepRunning = false;
 #endif
 
 #elif USE_ANDROID
@@ -1199,7 +1199,7 @@ static void PlatformUpdateEventLoop(Platform &platform)
 	}
 
 #if USE_UPDATE_THREAD
-	platform.mainThreadRunning = false;
+	platform.keepRunning = false;
 #endif
 
 #endif
@@ -2060,7 +2060,7 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 
 	Clock lastClock = GetClock();
 
-	while (1)
+	while ( platform.keepRunning )
 	{
 		if ( platform.audio.isPlaying )
 		{
@@ -2072,7 +2072,16 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 		}
 
 		SleepMillis(10);
+
+		if ( platform.paused )
+		{
+			platform.audioPaused = true;
+			WaitSemaphore( platform.audioThreadPauseSemaphore );
+			platform.audioPaused = false;
+		}
 	}
+
+	SignalSemaphore(platform.audioThreadFinishSemaphore);
 
 	return 0;
 }
@@ -2081,6 +2090,16 @@ static bool InitializeAudioThread(AudioDevice &audio)
 {
 	if ( audio.initialized )
 	{
+		if ( !CreateSemaphore( platform.audioThreadFinishSemaphore, 0, 1 ) )
+		{
+			return false;
+		}
+
+		if ( !CreateSemaphore( platform.audioThreadPauseSemaphore, 0, 1 ) )
+		{
+			return false;
+		}
+
 		static const ThreadInfo threadInfo = {
 			.globalIndex = THREAD_ID_AUDIO,
 		};
@@ -2333,7 +2352,7 @@ static void ProcessPlatformEvents(Platform &platform)
 			};
 			case PlatformEventTypeQuit:
 			{
-				platform.updateThreadRunning = false;
+				platform.keepRunning = false;
 				break;
 			};
 		}
@@ -2342,13 +2361,15 @@ static void ProcessPlatformEvents(Platform &platform)
 	UpdateKeyModifiers(window);
 }
 
+static void CheckEngineHotReload(Platform &platform);
+
 static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
 
 	Clock lastClock = GetClock();
 
-	while ( platform.updateThreadRunning )
+	while ( platform.keepRunning )
 	{
 		ResetArena(platform.frameArena);
 
@@ -2368,9 +2389,11 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 		{
 			Yield();
 		}
+
+		CheckEngineHotReload(platform);
 	}
 
-	SignalSemaphore(platform.updateThreadFinished);
+	SignalSemaphore(platform.updateThreadFinishSemaphore);
 
 	return 0;
 }
@@ -2382,9 +2405,7 @@ static bool InitializeUpdateThread(Platform &platform)
 {
 	bool ok = true;
 
-	platform.updateThreadRunning = true;
-
-	if ( !CreateSemaphore( platform.updateThreadFinished, 0, 1 ) )
+	if ( !CreateSemaphore( platform.updateThreadFinishSemaphore, 0, 1 ) )
 	{
 		return false;
 	}
@@ -2470,28 +2491,46 @@ static void ReleaseScratchArena(u32 index)
 	ASSERT(swapped);
 }
 
-static bool InitializeEngine(Platform &platform)
+static FilePath sEngineLibPath = {};
+static FilePath sEngineTmpLibPath = {};
+
+static bool LoadEngineDLL(Platform &platform)
 {
 #if PLATFORM_LINUX || PLATFORM_ANDROID
 	const char *engineLibFilename = "engine_lib.so";
+	const char *engineLibTmpFilename = "engine_lib.tmp.so";
 #elif PLATFORM_WINDOWS
 	const char *engineLibFilename = "engine_lib.dll";
+	const char *engineLibTmpFilename = "engine_lib.tmp.dll";
 #else
 #error "Missing implementation"
 #endif
 
-	LOG(Info, "Engine initialization:\n");
+	LOG(Info, "Loading engine DLL:\n");
 
-	const FilePath engineLibPath = MakePath(BinDir, engineLibFilename);
-	platform.engineLib = OpenLibrary(engineLibPath.str);
+	sEngineLibPath = MakePath(BinDir, engineLibFilename);
+	sEngineTmpLibPath = MakePath(BinDir, engineLibTmpFilename);
+
+	if (!CopyFile(sEngineLibPath.str, sEngineTmpLibPath.str)) {
+		LOG(Warning, "- Couldn't copy from %s to %s\n", engineLibFilename, engineLibTmpFilename);
+	}
+
+	platform.engineLib = OpenLibrary(sEngineTmpLibPath.str);
 	if ( !platform.engineLib ) {
-		LOG(Error, "- Couldn't load %s\n", engineLibFilename);
+		LOG(Error, "- Couldn't load %s\n", engineLibTmpFilename);
 		return false;
 	}
 
-	LOG(Info, "- Loaded %s successfully\n", engineLibFilename);
+	LOG(Info, "- Loaded %s successfully\n", engineLibTmpFilename);
 
 	// Engine interface exposed to platform
+
+	platform.SetupAPICallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformSetupAPI");
+	if( !platform.SetupAPICallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformSetupAPI\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformSetupAPI\n");
 
 	platform.PreInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
 	if( !platform.PreInitCallback ) {
@@ -2562,16 +2601,68 @@ static bool InitializeEngine(Platform &platform)
 	platform.androidApp->userData = &platform;
 #endif // PLATFORM_ANDROID
 
+	platform.SetupAPICallback(platform);
+
 	return true;
 }
 
-static void FinalizeEngine(Platform &platform)
+static void UnloadEngineDLL(Platform &platform)
 {
-	CloseLibrary(platform.engineLib);
+	if (platform.engineLib)
+	{
+		CloseLibrary(platform.engineLib);
+		platform.engineLib = 0;
+	}
+}
+
+static void PauseThreads(Platform &platform)
+{
+	platform.paused = true;
+	while ( !platform.audioPaused )
+	{
+		Yield();
+	}
+}
+
+static void ResumeThreads(Platform &platform)
+{
+	SignalSemaphore(platform.audioThreadPauseSemaphore);
+	platform.paused = false;
+}
+
+static void CheckEngineHotReload(Platform &platform)
+{
+	static Clock lastClock = GetClock();
+	const Clock currentClock = GetClock();
+	const f32 secondsSinceLastCheck = GetSecondsElapsed(lastClock, currentClock);
+
+	if ( secondsSinceLastCheck > 0.5f )
+	{
+		lastClock = currentClock;
+
+		u64 timestampBase = 0;
+		u64 timestampCopy = 0;
+		const bool success1 = GetFileLastWriteTimestamp(sEngineLibPath.str, timestampBase);
+		const bool success2 = GetFileLastWriteTimestamp(sEngineTmpLibPath.str, timestampCopy);
+		const bool someError = !success1 || !success2;
+
+		// In case of error recovering the timestamp, we reload
+		if (someError || timestampBase > timestampCopy)
+		{
+			LOG(Info, "Engine DLL was updated. Reloading...\n");
+			PauseThreads(platform);
+			UnloadEngineDLL(platform);
+			LoadEngineDLL(platform);
+			ResumeThreads(platform);
+		}
+	}
 }
 
 static bool Run(Platform &platform)
 {
+	platform.paused = false;
+	platform.keepRunning = true;
+
 	if ( !platform.PreInitCallback(platform) )
 	{
 		return false;
@@ -2626,9 +2717,7 @@ static bool Run(Platform &platform)
 
 	const Clock firstFrameClock = GetClock();
 
-	platform.mainThreadRunning = true;
-
-	while ( platform.mainThreadRunning )
+	while ( platform.keepRunning )
 	{
 		const Clock currentFrameBeginClock = GetClock();
 		platform.deltaSeconds = GetSecondsElapsed(lastFrameClock, currentFrameBeginClock);
@@ -2642,7 +2731,7 @@ static bool Run(Platform &platform)
 
 		if ( platform.window.flags & WindowFlags_Exit )
 		{
-			platform.mainThreadRunning = false;
+			platform.keepRunning = false;
 			continue;
 		}
 		if ( platform.window.flags & WindowFlags_WasCreated )
@@ -2667,6 +2756,8 @@ static bool Run(Platform &platform)
 		platform.RenderGraphicsCallback(platform);
 
 		platform.window.flags = 0;
+
+		CheckEngineHotReload(platform);
 #endif // !USE_UPDATE_THREAD
 
 #if !USE_AUDIO_THREAD
@@ -2679,7 +2770,10 @@ static bool Run(Platform &platform)
 	}
 
 #if USE_UPDATE_THREAD
-	WaitSemaphore(platform.updateThreadFinished);
+	WaitSemaphore(platform.updateThreadFinishSemaphore);
+#endif
+#if USE_AUDIO_THREAD
+	WaitSemaphore(platform.audioThreadFinishSemaphore);
 #endif
 
 
@@ -2708,13 +2802,13 @@ static void Main( int argc, char **argv,  void *userData )
 
 	InitializeDirectories(platform);
 
-	InitializeEngine(platform);
-
 	GetGraphicsAPI(&platform.graphicsAPI);
+
+	LoadEngineDLL(platform);
 
 	Run(platform);
 
-	FinalizeEngine(platform);
+	UnloadEngineDLL(platform);
 }
 
 

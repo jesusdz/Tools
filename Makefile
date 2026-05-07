@@ -1,4 +1,4 @@
-.PHONY: default build_and_run build_and_debug main_interpreter engine game main_spirv reflex main_reflect_serialize main_clon cast data clean main_alsa main_gamepad directories
+.PHONY: default build_and_run build_and_debug main_interpreter engine dll game main_spirv reflex main_reflect_serialize main_clon cast data clean main_alsa main_gamepad directories
 
 CXX=g++
 CXXFLAGS= -g
@@ -22,8 +22,11 @@ build_and_debug: engine
 	gf2 ./build/engine; i3 workspace 2
 
 engine: directories
-	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine code/platform.cpp -I"vulkan/include" -lxcb -lpthread
+	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
+
+dll: directories
+	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
 
 game:
 	${CXX} -fPIC -g -Wall -c code/game.cpp -o ${BUILD_DIR}/game.o
