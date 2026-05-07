@@ -678,17 +678,7 @@ UI &GetUI(Engine &engine)
 }
 #endif
 
-ENGINE_API void OnPlatformPreRenderAudio(Platform &platform)
-{
-	Engine &engine = GetEngine(platform);
-	PreRenderAudio(engine);
-}
 
-ENGINE_API void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
-{
-	Engine &engine = GetEngine(platform);
-	RenderAudio(engine, soundBuffer);
-}
 
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
@@ -3177,6 +3167,14 @@ void GameUpdate(Engine &engine)
 
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Dynamic library interface
+
+#if PLATFORM_WINDOWS
+#define ENGINE_API extern "C" __declspec(dllexport)
+#else
+#define ENGINE_API extern "C"
+#endif
 
 ENGINE_API void OnPlatformSetupAPI(Platform &platform)
 {
@@ -3220,9 +3218,6 @@ ENGINE_API bool OnPlatformPreInit(Platform &platform)
 
 	return true;
 }
-
-
-
 
 ENGINE_API bool OnPlatformInit(Platform &platform)
 {
@@ -3390,6 +3385,18 @@ ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
 	}
 }
 
+ENGINE_API void OnPlatformPreRenderAudio(Platform &platform)
+{
+	Engine &engine = GetEngine(platform);
+	PreRenderAudio(engine);
+}
+
+ENGINE_API void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
+{
+	Engine &engine = GetEngine(platform);
+	RenderAudio(engine, soundBuffer);
+}
+
 ENGINE_API void OnPlatformWindowCleanup(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
@@ -3425,6 +3432,7 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementations
 
 #define PLATFORM_API_IMPLEMENTATION
@@ -3436,6 +3444,7 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 #if USE_EDITOR
 #include "editor.cpp"
 #endif
+
 #include "ibxm/ibxm.c"
 
 // TODO:
