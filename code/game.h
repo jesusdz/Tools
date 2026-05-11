@@ -14,9 +14,18 @@ enum GameState
 	GameStateCount,
 };
 
+struct Sprite
+{
+	u32 id;
+	float2 pos;
+	float2 size;
+};
+
 struct Game
 {
 	GameState state;
+
+	Sprite character;
 };
 
 ////////////////////////////////////////////////////////////////////////
@@ -31,6 +40,7 @@ void GameStop(Game &game);
 // Game -> Engine interface
 ////////////////////////////////////////////////////////////////////////
 
-// TODO
+void DrawSprite(Sprite &sprite);
+void DrawBox(float2 pos, float2 size, float4 color);
 
 #endif // GAME_H

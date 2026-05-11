@@ -61,6 +61,12 @@ struct Vertex
 	float2 texCoord;
 };
 
+struct DebugDrawVertex
+{
+	float2 pos;
+	rgba color;
+};
+
 typedef u16 Index;
 
 struct Texture
@@ -167,6 +173,10 @@ struct Graphics
 	BufferViewH selectionBufferViewH;
 #endif
 
+	BufferH debugDrawVertexBuffer[MAX_FRAMES_IN_FLIGHT];
+	DebugDrawVertex *debugDrawVertices[MAX_FRAMES_IN_FLIGHT];
+	u32 debugDrawVertexCount;
+
 	SamplerH pointSamplerH;
 	SamplerH linearSamplerH;
 	SamplerH shadowmapSamplerH;
@@ -202,6 +212,7 @@ struct Graphics
 
 	TextureH skyTextureH;
 
+	ImageH whiteImageH;
 	ImageH pinkImageH;
 	ImageH grayImageH;
 	ImageH blackImageH;
@@ -214,6 +225,7 @@ struct Graphics
 	PipelineH grid3dPipelineH;
 	PipelineH idPipelineH;
 #endif
+	PipelineH debugDrawPipelineH;
 
 #define USE_COMPUTE_TEST 0
 #if USE_COMPUTE_TEST
@@ -330,6 +342,8 @@ struct Engine
 	EngineMode mode;
 };
 
+static Engine *engine = nullptr;
+
 inline bool IsEngineModeEditor(EngineMode engineMode)
 {
 	const bool res = engineMode == EngineModeEditor2D || engineMode == EngineModeEditor3D;
@@ -437,6 +451,8 @@ static ShaderSourceDesc shaderSourceDescs[] = {
 	{ .type = ShaderTypeCompute,  .filename = "compute_select.hlsl", .entryPoint = "CSMain",      .name = "compute_select" },
 	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_clear",  .name = "compute_clear" },
 	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .name = "compute_update" },
+	{ .type = ShaderTypeVertex,   .filename = "debug_draw.hlsl",     .entryPoint = "VSMain",      .name = "vs_debug_draw" },
+	{ .type = ShaderTypeFragment, .filename = "debug_draw.hlsl",     .entryPoint = "PSMain",      .name = "fs_debug_draw" },
 };
 
 static const ShaderAndPipelineDesc pipelineDescs[] =
@@ -608,6 +624,25 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 #endif // USE_EDITOR
+	{
+		.vsName = "vs_debug_draw",
+		.fsName = "fs_debug_draw",
+		.renderPass = "main_renderpass",
+		.desc = {
+			.name = "pipeline_debug_draw",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 12 }, },
+			.vertexAttributeCount = 2,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatRGBA8, },
+			},
+			.depthTest = false,
+			.blending = true,
+		}
+	},
 };
 
 static PipelineH pipelineHandles[ARRAY_COUNT(pipelineDescs)] = {};
@@ -1377,6 +1412,22 @@ void RemoveEntity(Engine &engine, Handle handle, bool freeHandle = true)
 
 
 ////////////////////////////////////////////////////////////////////////
+// Debug draw
+
+void DrawBox(float2 pos, float2 size, float4 color)
+{
+	DebugDrawVertex *v = engine->gfx.debugDrawVertices[engine->gfx.device.frameIndex] + engine->gfx.debugDrawVertexCount;
+	v[0] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
+	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
+	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, Rgba(color) };
+	v[3] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
+	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, Rgba(color) };
+	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
+	engine->gfx.debugDrawVertexCount += 6;
+}
+
+
+////////////////////////////////////////////////////////////////////////
 // Render targets
 
 RenderTargets CreateRenderTargets(Graphics &gfx)
@@ -1596,6 +1647,7 @@ void LinkHandles(Graphics &gfx)
 	gfx.grid3dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_3d");
 	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
 #endif // USE_EDITOR
+	gfx.debugDrawPipelineH = FindPipelineHandle(gfx, "pipeline_debug_draw");
 
 	// Compute pipelines
 #if USE_COMPUTE_TEST
@@ -1692,6 +1744,18 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	// Create global geometry buffers
 	gfx.globalVertexArena = MakeBufferArena( gfx, CreateVertexBuffer(gfx, MB(4)) );
 	gfx.globalIndexArena = MakeBufferArena( gfx, CreateIndexBuffer(gfx, MB(4)) );
+
+	// Create debug draw vertex buffers
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		gfx.debugDrawVertexBuffer[i] = CreateBuffer(
+			gfx.device,
+			sizeof(DebugDrawVertex) * 1024,
+			BufferUsageVertexBuffer,
+			HeapType_Dynamic);
+
+		gfx.debugDrawVertices[i] = (DebugDrawVertex*)GetBufferPtr(gfx.device, gfx.debugDrawVertexBuffer[i]);
+	}
 
 	CommandList commandList = BeginUploadCommandList(gfx);
 
@@ -1805,6 +1869,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	RecompilePipelines(engine, scratch);
 
 	// Builtin images
+	const byte whiteImagePixels[] = { 255, 255, 255, 255 };
+	gfx.whiteImageH = EngineCreateImage(gfx, "whiteImage", 1, 1, 4, false, whiteImagePixels);
 	const byte pinkImagePixels[] = { 255, 0, 255, 255 };
 	gfx.pinkImageH = EngineCreateImage(gfx, "pinkImage", 1, 1, 4, false, pinkImagePixels);
 	const byte grayImagePixels[] = { 127, 127, 127, 255 };
@@ -2436,11 +2502,10 @@ bool RenderGraphics(Engine &engine)
 			.orientation = {0, -0.45f},
 		};
 	} else if (engine.mode == EngineModeGame2D) {
-		// TODO: Set more appropriate values
 		camera = {
-			.projectionType = ProjectionPerspective,
-			.position = {0, 1, 2},
-			.orientation = {0, -0.45f},
+			.projectionType = ProjectionOrthographic,
+			.position = {0, 0, 0},
+			.orientation = {0, 0},
 		};
 	}
 
@@ -2877,6 +2942,21 @@ bool RenderGraphics(Engine &engine)
 		}
 #endif
 
+		{ // Debug draw
+			const UI &ui = engine.ui;
+
+			BeginDebugGroup(commandList, "DebugDraw", ColorBlack);
+
+			SetPipeline(commandList, gfx.debugDrawPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetVertexBuffer(commandList, gfx.debugDrawVertexBuffer[frameIndex]);
+
+			Draw(commandList, gfx.debugDrawVertexCount, 0);
+			gfx.debugDrawVertexCount = 0;
+
+			EndDebugGroup(commandList);
+		}
+
 #if USE_UI
 		{ // GUI
 			const UI &ui = engine.ui;
@@ -3123,6 +3203,8 @@ ENGINE_API void OnPlatformUpdate(Platform &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
+
+	::engine = &engine;
 
 	const Clock begin = GetClock();
 
