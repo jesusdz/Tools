@@ -1,18 +1,16 @@
-#define ENGINE_FUNCTION_POINTERS 1
-#include "engine.h"
 
-GAMEAPI void GameStart()
+void GameStart(Game &game)
 {
-	LogDebug("- GameStart!\n");
+	LOG(Info, "- GameStart!\n");
 }
 
-GAMEAPI void GameUpdate()
+void GameUpdate(Game &game)
 {
-	LogDebug("- GameUpdate!\n");
+	LOG(Debug, "- GameUpdate!\n");
 }
 
-GAMEAPI void GameStop()
+void GameStop(Game &game)
 {
-	LogDebug("- GameStop!\n");
+	LOG(Info, "- GameStop!\n");
 }
 

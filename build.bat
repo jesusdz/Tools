@@ -108,7 +108,7 @@ REM ######################################################
 
 call vcenv.bat
 pushd build
-cl %CommonCompilerFlags% /LD ..\code\game.cpp
+echo No build configuration to compile the game yet.
 popd
 exit /b 0
 

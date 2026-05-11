@@ -366,11 +366,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 		UI_Label(ui, label);
 
 		UI_EndLayout(ui);
-
-		if ( UI_Button(ui, "Recompile") )
-		{
-			engine.game.shouldRecompile = true;
-		}
 	}
 
 #if 0

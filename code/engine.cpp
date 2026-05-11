@@ -31,9 +31,9 @@
 #include "shaders/bindings.hlsl"
 
 #include "handle_manager.h"
-#include "engine.h"
 #include "data.h"
 #include "audio.h"
+#include "game.h"
 
 #define MAX_TEXTURES 8 
 #define MAX_MATERIALS 4
@@ -272,33 +272,6 @@ struct TileGrid
 #if USE_EDITOR
 #include "editor.h"
 #endif
-
-typedef void (*GameInitAPIFunction)(const EngineAPI &api);
-typedef void (*GameStartFunction)();
-typedef void (*GameUpdateFunction)();
-typedef void (*GameStopFunction)();
-
-enum GameState
-{
-	GameStateStopped,
-	GameStateStarting,
-	GameStateRunning,
-	GameStateStopping,
-	GameStateCount,
-};
-
-struct Game
-{
-	DynamicLibrary library;
-
-	GameInitAPIFunction InitAPI;
-	GameStartFunction Start;
-	GameUpdateFunction Update;
-	GameStopFunction Stop;
-
-	GameState state;
-	bool shouldRecompile;
-};
 
 struct Scene
 {
@@ -2280,26 +2253,6 @@ float4x4 ViewMatrixFromCamera(const Camera &camera)
 	return res;
 }
 
-void Log(LogChannel channel, const char *format, ...)
-{
-	int finalChannel = 0;
-	switch (channel)
-	{
-		case LogChannelDebug: finalChannel = Debug; break;
-		case LogChannelInfo: finalChannel = Info; break;
-		case LogChannelWarning: finalChannel = Warning; break;
-		case LogChannelError: finalChannel = Error; break;
-		default: ASSERT(0 && "Invalid channel");
-	}
-
-	char buffer[1024];
-	va_list vaList;
-	va_start(vaList, format);
-	SPrintf(buffer, format, vaList);
-	LOG( finalChannel, "%s", buffer );
-	va_end(vaList);
-}
-
 uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 {
 	const uint2 size = { framebuffer.extent.width, framebuffer.extent.height };
@@ -3015,151 +2968,25 @@ void UIEndFrameRecording(Engine &engine)
 #endif
 
 
-void CleanupGameLibrary(Game &game)
-{
-	if (game.library)
-	{
-		CloseLibrary(game.library);
-		game.library = nullptr;
-		game.InitAPI = nullptr;
-		game.Start = nullptr;
-		game.Update = nullptr;
-		game.Stop = nullptr;
-	}
-}
-
-void LoadGameLibrary(Game &game)
-{
-#if PLATFORM_LINUX || PLATFORM_ANDROID
-	constexpr const char * dynamicLibName = "game.so";
-#elif PLATFORM_WINDOWS
-	constexpr const char * dynamicLibName = "game.dll";
-#else
-#error "Missing implementation"
-#endif
-
-	FilePath dynamicLibPath = MakePath(BinDir, dynamicLibName);
-	LOG(Info, "Loading dynamic library: %s\n", dynamicLibPath.str);
-
-	game.library = OpenLibrary(dynamicLibPath.str);
-
-	if (game.library)
-	{
-		game.InitAPI = (GameInitAPIFunction) LoadSymbol(game.library, "GameInitAPI");
-		game.Start = (GameStartFunction) LoadSymbol(game.library, "GameStart");
-		game.Update = (GameUpdateFunction) LoadSymbol(game.library, "GameUpdate");
-		game.Stop = (GameStopFunction) LoadSymbol(game.library, "GameStop");
-
-		if (game.InitAPI) {
-			LOG(Info, "- GameInitAPI loaded successfully.\n");
-		} else {
-			LOG(Error, "- GameInitAPI not loaded :-(\n");
-		}
-		if (game.Start) {
-			LOG(Info, "- GameStart loaded successfully.\n");
-		} else {
-			LOG(Error, "- GameStart not loaded :-(\n");
-		}
-		if (game.Update) {
-			LOG(Info, "- GameUpdate loaded successfully.\n");
-		} else {
-			LOG(Error, "- GameUpdate not loaded :-(\n");
-		}
-		if (game.Stop) {
-			LOG(Info, "- GameStop loaded successfully.\n");
-		} else {
-			LOG(Error, "- GameStop not loaded :-(\n");
-		}
-
-		if (game.Start == nullptr || game.Update == nullptr || game.Stop == nullptr)
-		{
-			LOG(Error, "- Could not load all functions in %s\n", dynamicLibName);
-			CleanupGameLibrary(game);
-		}
-	}
-	else
-	{
-		LOG(Error, "- Error opening %s\n", dynamicLibName);
-	}
-
-	if (game.InitAPI)
-	{
-		EngineAPI api = {};
-		api.Log = Log;
-		game.InitAPI(api);
-	}
-}
-
-void CompileGameLibrary(Game &game)
-{
-	char text[MAX_PATH_LENGTH];
-
-#if PLATFORM_WINDOWS
-	constexpr const char *build = "build.bat";
-#elif PLATFORM_LINUX
-	constexpr const char *build = "make";
-#else
-	constexpr const char *build = "<none>";
-#endif
-	SPrintf(text, "%s game", build);
-
-	if ( !ExecuteProcess(text) )
-	{
-		LOG(Warning,
-			"Could not compile game library. "
-			"Have you tried to launch the app from the project directory?");
-	}
-}
-
 void GameUpdate(Engine &engine)
 {
 	Game &game = engine.game;
 
-	if ( game.shouldRecompile )
-	{
-		const bool wasLoaded = game.library;
-
-		if ( wasLoaded ) {
-			CleanupGameLibrary(game);
-		}
-
-		CompileGameLibrary(game);
-
-		if ( wasLoaded ) {
-			LoadGameLibrary(game);
-		}
-
-		game.shouldRecompile = false;
-	}
-
 	if (game.state == GameStateStarting)
 	{
-		LoadGameLibrary(game);
-
-		if ( game.Start )
-		{
-			game.Start();
-		}
+		GameStart(game);
 
 		game.state = GameStateRunning;
 	}
 
 	if (game.state == GameStateRunning)
 	{
-		if ( game.Update )
-		{
-			game.Update();
-		}
+		GameUpdate(game);
 	}
 
 	if (game.state == GameStateStopping)
 	{
-		if (game.Stop)
-		{
-			game.Stop();
-		}
-
-		CleanupGameLibrary(game);
+		GameStop(game);
 
 		game.state = GameStateStopped;
 	}
@@ -3414,8 +3241,6 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 	Graphics &gfx = engine.gfx;
 	Game &game = engine.game;
 
-	CleanupGameLibrary(game);
-
 	EngineWaitDeviceIdle(gfx);
 
 #if USE_UI
@@ -3446,6 +3271,8 @@ ENGINE_API void OnPlatformCleanup(Platform &platform)
 #endif
 
 #include "ibxm/ibxm.c"
+
+#include "game.cpp"
 
 // TODO:
 // - [ ] Instead of binding descriptors per entity, group entities by material and perform a multi draw call for each material group.
