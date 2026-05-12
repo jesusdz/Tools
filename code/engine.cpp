@@ -672,9 +672,9 @@ u32 U32FromChars(char a, char b, char c, char d)
 	return res;
 }
 
-Engine &GetEngine(Platform &platform)
+Engine &GetEngine(Plat &platform)
 {
-	Engine *engine = (Engine*)platform.userData;
+	Engine *engine = platform.engine;
 	ASSERT(engine != NULL);
 	return *engine;
 }
@@ -1281,7 +1281,7 @@ const TileAtlas &GetTileAtlas(const Engine &engine)
 
 int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
 {
-	const Window &window = sPlatform->window;
+	const Window &window = *sPlatform->window;
 	const uint2 windowSize = { window.width, window.height };
 	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
 	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
@@ -2447,7 +2447,7 @@ bool RenderGraphics(Engine &engine)
 {
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
-	Window &window = sPlatform->window;
+	Window &window = *sPlatform->window;
 #if USE_EDITOR
 	Editor &editor = engine.editor;
 #endif
@@ -3030,7 +3030,7 @@ bool RenderGraphics(Engine &engine)
 void UIBeginFrameRecording(Engine &engine)
 {
 	UI &ui = GetUI(engine);
-	const Window &window = sPlatform->window;
+	const Window &window = *sPlatform->window;
 	Graphics &gfx = engine.gfx;
 
 	UI_SetInputState(ui, window.keyboard, window.mouse, window.chars);
@@ -3083,17 +3083,17 @@ void GameUpdate(Engine &engine)
 #define ENGINE_API extern "C"
 #endif
 
-ENGINE_API void OnPlatformSetupAPI(Platform &platform)
+ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 {
 	SetPlatformAPI(platform);
 	SetGraphicsAPI(&platform.graphicsAPI);
 }
 
-ENGINE_API bool OnPlatformPreInit(Platform &platform)
+ENGINE_API bool OnPlatformPreInit(Plat &platform)
 {
 	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
 	ASSERT( enginePtr != nullptr );
-	platform.userData = (void*) enginePtr;
+	platform.engine = enginePtr;
 
 	Engine &engine = GetEngine(platform);
 
@@ -3126,9 +3126,9 @@ ENGINE_API bool OnPlatformPreInit(Platform &platform)
 	return true;
 }
 
-ENGINE_API bool OnPlatformInit(Platform &platform)
+ENGINE_API bool OnPlatformInit(Plat &platform)
 {
-	SetGraphicsStringInterning(&platform.stringInterning);
+	SetGraphicsStringInterning(platform.stringInterning);
 
 	Engine &engine = GetEngine(platform);
 
@@ -3140,7 +3140,7 @@ ENGINE_API bool OnPlatformInit(Platform &platform)
 #endif
 
 	// Initialize graphics
-	if ( !InitializeGraphicsDriver(gfx.device, platform.globalArena) )
+	if ( !InitializeGraphicsDriver(gfx.device, GlobalArena) )
 	{
 		// TODO: Actually we could throw a system error and exit...
 		LOG(Error, "InitializeGraphicsDriver failed!\n");
@@ -3148,7 +3148,7 @@ ENGINE_API bool OnPlatformInit(Platform &platform)
 	}
 
 	// Initialize sound system
-	if ( !InitializeAudio(engine.audio, platform.globalArena) )
+	if ( !InitializeAudio(engine.audio, GlobalArena) )
 	{
 		LOG(Error, "InitializeAudio failed!\n");
 		return false;
@@ -3157,12 +3157,12 @@ ENGINE_API bool OnPlatformInit(Platform &platform)
 	return true;
 }
 
-ENGINE_API bool OnPlatformWindowInit(Platform &platform)
+ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
-	if ( !InitializeGraphicsSurface(gfx.device, platform.window) )
+	if ( !InitializeGraphicsSurface(gfx.device, *platform.window) )
 	{
 		// TODO: Actually we could throw a system error and exit...
 		LOG(Error, "InitializeGraphicsSurface failed!\n");
@@ -3179,14 +3179,14 @@ ENGINE_API bool OnPlatformWindowInit(Platform &platform)
 			LoadShadersFromBin(engine);
 		}
 
-		if ( !InitializeGraphics(engine, platform.globalArena, platform.frameArena) )
+		if ( !InitializeGraphics(engine, GlobalArena, FrameArena) )
 		{
 			// TODO: Actually we could throw a system error and exit...
 			LOG(Error, "InitializeGraphics failed!\n");
 			return false;
 		}
 
-		Initialize(engine.scene.entityHandles, platform.globalArena, MAX_ENTITIES);
+		Initialize(engine.scene.entityHandles, GlobalArena, MAX_ENTITIES);
 
 #if USE_EDITOR
 		EditorInitialize(engine);
@@ -3199,7 +3199,7 @@ ENGINE_API bool OnPlatformWindowInit(Platform &platform)
 	return true;
 }
 
-ENGINE_API void OnPlatformUpdate(Platform &platform)
+ENGINE_API void OnPlatformUpdate(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3236,7 +3236,7 @@ ENGINE_API void OnPlatformUpdate(Platform &platform)
 		{
 			// NOTE(jesus): Recompiling all pipelines here even if likely only a shader was recompiled :-S
 			WaitDeviceIdle(gfx.device);
-			RecompilePipelines(engine, platform.frameArena);
+			RecompilePipelines(engine, FrameArena);
 		}
 
 		RecreateModifiedTextures(engine);
@@ -3256,7 +3256,7 @@ ENGINE_API void OnPlatformUpdate(Platform &platform)
 	AddTimeSample( gfx.cpuFrameTimes, updateMillis );
 }
 
-ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
+ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3271,14 +3271,14 @@ ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
 		return;
 	}
 
-	if ( !IsValidSwapchain(gfx.device) || platform.window.flags & WindowFlags_WasResized )
+	if ( !IsValidSwapchain(gfx.device) || platform.window->flags & WindowFlags_WasResized )
 	{
 		EngineWaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
 		DestroySwapchain(gfx.device);
-		if ( platform.window.width != 0 && platform.window.height != 0 )
+		if ( platform.window->width != 0 && platform.window->height != 0 )
 		{
-			CreateSwapchain(gfx.device, platform.window);
+			CreateSwapchain(gfx.device, *platform.window);
 			gfx.renderTargets = CreateRenderTargets(gfx);
 			gfx.shouldUpdateGlobalBindGroups = true;
 		}
@@ -3294,19 +3294,19 @@ ENGINE_API void OnPlatformRenderGraphics(Platform &platform)
 	}
 }
 
-ENGINE_API void OnPlatformPreRenderAudio(Platform &platform)
+ENGINE_API void OnPlatformPreRenderAudio(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	PreRenderAudio(engine);
 }
 
-ENGINE_API void OnPlatformRenderAudio(Platform &platform, SoundBuffer &soundBuffer)
+ENGINE_API void OnPlatformRenderAudio(Plat &platform, SoundBuffer &soundBuffer)
 {
 	Engine &engine = GetEngine(platform);
 	RenderAudio(engine, soundBuffer);
 }
 
-ENGINE_API void OnPlatformWindowCleanup(Platform &platform)
+ENGINE_API void OnPlatformWindowCleanup(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -3317,7 +3317,7 @@ ENGINE_API void OnPlatformWindowCleanup(Platform &platform)
 	CleanupGraphicsSurface(gfx.device);
 }
 
-ENGINE_API void OnPlatformCleanup(Platform &platform)
+ENGINE_API void OnPlatformCleanup(Plat &platform)
 {
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;

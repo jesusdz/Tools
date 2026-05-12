@@ -4,12 +4,224 @@
 
 #include "platform.h"
 
-#define TOOLS_GFX_IMPLEMENTATION
-#include "tools_gfx.h"
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Platform implementation types
+
+struct WindowImpl
+{
+#if USE_XCB
+	xcb_connection_t *connection;
+	xcb_window_t window;
+	xcb_atom_t closeAtom;
+#elif USE_ANDROID
+	ANativeWindow *nativeWindow;
+#elif USE_WINAPI
+	HINSTANCE hInstance;
+	HWND hWnd;
+#endif
+};
+
+struct InputDevice
+{
+#if PLATFORM_WINDOWS
+	DynamicLibrary library;
+#elif PLATFORM_LINUX
+	int fd; // file descriptor
+#endif
+
+	Gamepad gamepad;
+};
+
+struct AudioDevice
+{
+	// Config
+	u16 channelCount;
+	u16 bytesPerSample;
+	u16 samplesPerSecond;
+	u16 bufferSize;
+	u16 latencyFrameCount;
+	u16 latencySampleCount;
+	u16 safetyBytes;
+	u32 runningSampleIndex;
+
+#if PLATFORM_WINDOWS
+	DynamicLibrary library;
+	LPDIRECTSOUNDBUFFER buffer;
+#elif PLATFORM_LINUX
+	DynamicLibrary library;
+	snd_pcm_t *pcm;
+#elif PLATFORM_ANDROID
+	AAudioStream *stream;
+#endif
+
+	bool initialized;
+	bool isPlaying;
+	bool soundIsValid;
+
+	i16 *outputSamples;
+};
+
+enum PlatformEventType
+{
+	PlatformEventTypeWindowWasCreated,
+	PlatformEventTypeWindowWillDestroy,
+	PlatformEventTypeWindowResize,
+	PlatformEventTypeKeyPress,
+	PlatformEventTypeMouseClick,
+	PlatformEventTypeMouseMove,
+	PlatformEventTypeMouseWheel,
+	PlatformEventTypeQuit,
+	PlatformEventTypeCount,
+};
+
+struct PlatformEventWindowResize
+{
+	u16 width, height;
+};
+
+struct PlatformEventKeyPress
+{
+	Key code;
+	KeyState state;
+};
+
+struct PlatformEventMouseClick
+{
+	MouseButton button;
+	ButtonState state;
+};
+
+struct PlatformEventMouseMove
+{
+	i16 x, y;
+};
+
+struct PlatformEventMouseWheel
+{
+	i16 dx, dy;
+};
+
+struct PlatformEvent
+{
+	PlatformEventType type;
+	union
+	{
+		PlatformEventWindowResize windowResize;
+		PlatformEventKeyPress keyPress;
+		PlatformEventMouseClick mouseClick;
+		PlatformEventMouseMove mouseMove;
+		PlatformEventMouseWheel mouseWheel;
+	};
+};
+
+struct PlatformConfig
+{
+#if PLATFORM_ANDROID
+	struct android_app *androidApp;
+#endif // PLATFORM_ANDROID
+};
+
+#define MAX_SCRATCH_ARENAS 8
+
+struct Platform
+{
+	u32 globalMemorySize = MB(64);
+	u32 frameMemorySize = MB(16);
+	u32 stringMemorySize = KB(16);
+	u32 dataMemorySize = MB(16);
+
+	void (*SetupAPICallback)(Plat &);
+	bool (*PreInitCallback)(Plat &);
+	bool (*InitCallback)(Plat &);
+	void (*UpdateCallback)(Plat &);
+	void (*RenderGraphicsCallback)(Plat &);
+	void (*PreRenderAudioCallback)(Plat &);
+	void (*RenderAudioCallback)(Plat &, SoundBuffer &soundBuffer);
+	void (*CleanupCallback)(Plat &);
+	bool (*WindowInitCallback)(Plat &);
+	void (*WindowCleanupCallback)(Plat &);
+
+	void *userData;
+
+#if PLATFORM_ANDROID
+	struct android_app *androidApp;
+#endif // PLATFORM_ANDROID
+
+	// Platform components
+
+	Arena globalArena;
+	Arena frameArena;
+	Arena stringArena;
+	Arena dataArena;
+
+	Arena scratchArenas[MAX_SCRATCH_ARENAS];
+	volatile_u32 scratchArenaLockMask;
+
+	DynamicLibrary engineLib;
+
+	StringInterning stringInterning;
+	Window window;
+	WindowImpl windowImpl;
+	InputDevice input;
+	AudioDevice audio;
+	f32 deltaSeconds;
+	f32 totalSeconds;
+
+	volatile_i64 eventTail;
+	volatile_i64 eventHead;
+	PlatformEvent events[128];
+
+	bool paused;
+	bool keepRunning;
+	bool windowInitialized;
+
+	Semaphore updateThreadFinishSemaphore;
+
+	bool audioPaused;
+	Semaphore audioThreadPauseSemaphore;
+	Semaphore audioThreadFinishSemaphore;
+
+	// API exposed to the engine
+	Plat pub;
+};
 
 static Platform platform = {};
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Thread IDs
+
+#define WORK_QUEUE_WORKER_COUNT 8
+
+enum ThreadID
+{
+	THREAD_ID_UPDATE,
+	THREAD_ID_AUDIO,
+	THREAD_ID_WORKER_0,
+	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
+};
+
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
+#define USE_UPDATE_THREAD 1
+#else
+#define USE_UPDATE_THREAD 0
+#endif
+
+#if PLATFORM_LINUX || PLATFORM_WINDOWS
+#define USE_AUDIO_THREAD 1
+#elif PLATFORM_ANDROID
+#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
+#endif
+
+
+
+
 #if USE_XCB
+
+#include <xcb/xcb.h>
+#include <stdlib.h> // free
+
 static void XcbReportError( int xcbErrorCode, const char *context )
 {
 	static const char *xcbErrorMessages[] = {
@@ -162,10 +374,10 @@ static void InitializeDirectories(Platform &platform)
 	StrReplace(workingDir, '\\', '/'); // Make all separators '/'
 
 	char exeDir[MAX_PATH_LENGTH] = {};
-	if (platform.argc > 0)
+	if (platform.pub.argc > 0)
 	{
-		StrReplace(platform.argv[0], '\\', '/'); // Make all separators '/'
-		const char *exePath = platform.argv[0];
+		StrReplace(platform.pub.argv[0], '\\', '/'); // Make all separators '/'
+		const char *exePath = platform.pub.argv[0];
 		const char *lastSeparator = StrCharR(exePath, '/');
 		const u32 length = lastSeparator ? lastSeparator - exePath : 0;
 		StrCopyN(exeDir, exePath, length);
@@ -193,10 +405,10 @@ static void InitializeDirectories(Platform &platform)
 
 #endif
 
-	platform.BinDir    = BinDir;
-	platform.DataDir   = DataDir;
-	platform.AssetDir  = AssetDir;
-	platform.ProjectDir = ProjectDir;
+	platform.pub.BinDir    = BinDir;
+	platform.pub.DataDir   = DataDir;
+	platform.pub.AssetDir  = AssetDir;
+	platform.pub.ProjectDir = ProjectDir;
 
 	LOG(Info, "Directories:\n");
 	LOG(Info, "- BinDir: %s\n", BinDir);
@@ -382,7 +594,7 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_CLIENT_MESSAGE:
 			{
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
-				if ( ev->data.data32[0] == window.closeAtom )
+				if ( ev->data.data32[0] == window.impl->closeAtom )
 				{
 #if USE_UPDATE_THREAD
 					// NOTE(jesus): Likely not needed as we destroy the window when exiting the app
@@ -860,6 +1072,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 
 static bool InitializeWindow(
 		Window &window,
+		WindowImpl &windowImpl,
 		u32 width = 640,
 		u32 height = 480,
 		const char *title = "Iris"
@@ -868,6 +1081,9 @@ static bool InitializeWindow(
 	ZeroStruct(&window);
 	window.width = width;
 	window.height = height;
+
+	ZeroStruct(&windowImpl);
+	window.impl = &windowImpl;
 
 #if USE_XCB
 
@@ -962,9 +1178,9 @@ static bool InitializeWindow(
 	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( xcbConnection, xcbWindow ); // handle error
 	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL ); // handle error
 
-	window.connection = xcbConnection;
-	window.window = xcbWindow;
-	window.closeAtom = closeAtom;
+	window.impl->connection = xcbConnection;
+	window.impl->window = xcbWindow;
+	window.impl->closeAtom = closeAtom;
 	window.width = reply->width;
 	window.height = reply->height;
 
@@ -1023,12 +1239,14 @@ static bool InitializeWindow(
 
 	ShowWindow(hWnd, SW_SHOW);
 
-	window.hInstance = hInstance;
-	window.hWnd = hWnd;
+	window.impl->hInstance = hInstance;
+	window.impl->hWnd = hWnd;
 
 	window.flags = WindowFlags_WasCreated;
 
 #endif
+
+	platform.pub.window = &platform.window;
 
 	return true;
 }
@@ -1037,16 +1255,16 @@ static bool InitializeWindow(
 static void CleanupWindow(Window &window)
 {
 #if USE_XCB
-	if ( window.window ) {
-		xcb_destroy_window(window.connection, window.window);
-		window.window = 0;
+	if ( window.impl->window ) {
+		xcb_destroy_window(window.impl->connection, window.impl->window);
+		window.impl->window = 0;
 	}
-	if (window.connection) {
-		xcb_disconnect(window.connection);
-		window.connection = nullptr;
+	if (window.impl->connection) {
+		xcb_disconnect(window.impl->connection);
+		window.impl->connection = nullptr;
 	}
 #elif USE_WINAPI
-	DestroyWindow(window.hWnd);
+	DestroyWindow(window.impl->hWnd);
 #endif
 }
 
@@ -1133,9 +1351,9 @@ static void PlatformUpdateEventLoop(Platform &platform)
 
 	xcb_generic_event_t *event;
 #if USE_UPDATE_THREAD
-	while ( platform.keepRunning && (event = xcb_wait_for_event(window.connection)) != 0 )
+	while ( platform.keepRunning && (event = xcb_wait_for_event(window.impl->connection)) != 0 )
 #else
-	while ( (event = xcb_poll_for_event(window.connection)) != 0 )
+	while ( (event = xcb_poll_for_event(window.impl->connection)) != 0 )
 #endif
 	{
 		XcbWindowProc(window, event);
@@ -1236,7 +1454,8 @@ static bool InitializeGamepad(Platform &platform)
 {
 	LOG(Info, "Input system initialization:\n");
 
-	Input &input = platform.input;
+	InputDevice &input = platform.input;
+	platform.pub.gamepad = &input.gamepad;
 
 #if PLATFORM_WINDOWS
 
@@ -1716,7 +1935,7 @@ static void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 		soundBuffer.samplesPerSecond = audio.samplesPerSecond;
 		soundBuffer.sampleCount = bytesToWrite / (audio.bytesPerSample * audio.channelCount);
 		soundBuffer.samples = audio.outputSamples;
-		platform.RenderAudioCallback(platform, soundBuffer);
+		platform.RenderAudioCallback(platform.pub, soundBuffer);
 
 		Win32FillAudioBuffer(audio, byteToLock, bytesToWrite, soundBuffer.samples);
 	}
@@ -1782,7 +2001,7 @@ static void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 
 	if ( platform.PreRenderAudioCallback )
 	{
-		platform.PreRenderAudioCallback(platform);
+		platform.PreRenderAudioCallback(platform.pub);
 	}
 }
 
@@ -1833,7 +2052,7 @@ static bool InitializeAudio(Platform &platform)
 		{
 			LOG(Info, "- Audio device created successfully\n");
 
-			if (SUCCEEDED(directSound->SetCooperativeLevel(window.hWnd, DSSCL_PRIORITY)))
+			if (SUCCEEDED(directSound->SetCooperativeLevel(window.impl->hWnd, DSSCL_PRIORITY)))
 			{
 				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
 				DSBUFFERDESC primaryBufferDesc = {};
@@ -2303,14 +2522,14 @@ static void ProcessPlatformEvents(Platform &platform)
 		{
 			case PlatformEventTypeWindowWasCreated:
 			{
-				platform.WindowInitCallback(platform);
+				platform.WindowInitCallback(platform.pub);
 				platform.windowInitialized = true;
 				break;
 			};
 			case PlatformEventTypeWindowWillDestroy:
 			{
 				platform.windowInitialized = false;
-				platform.WindowCleanupCallback(platform);
+				platform.WindowCleanupCallback(platform.pub);
 				CleanupWindow(platform.window);
 				break;
 			};
@@ -2379,9 +2598,9 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 		{
 			UpdateGamepad(platform);
 
-			platform.UpdateCallback(platform);
+			platform.UpdateCallback(platform.pub);
 
-			platform.RenderGraphicsCallback(platform);
+			platform.RenderGraphicsCallback(platform.pub);
 
 			platform.window.flags = 0;
 		}
@@ -2446,6 +2665,12 @@ static bool InitializeArenas(Platform &platform)
 
 	byte *dataMemory = (byte*)AllocateVirtualMemory(platform.dataMemorySize);
 	platform.dataArena = MakeArena(dataMemory, platform.dataMemorySize, "Data arena");
+
+	platform.pub.stringInterning = &platform.stringInterning;
+	platform.pub.globalArena = &platform.globalArena;
+	platform.pub.stringArena = &platform.stringArena;
+	platform.pub.frameArena = &platform.frameArena;
+	platform.pub.dataArena = &platform.dataArena;
 
 	return true;
 }
@@ -2525,74 +2750,74 @@ static bool LoadEngineDLL(Platform &platform)
 
 	// Engine interface exposed to platform
 
-	platform.SetupAPICallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformSetupAPI");
+	platform.SetupAPICallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformSetupAPI");
 	if( !platform.SetupAPICallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformSetupAPI\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformSetupAPI\n");
 
-	platform.PreInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
+	platform.PreInitCallback = (bool (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformPreInit");
 	if( !platform.PreInitCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformPreInit\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformPreInit\n");
 
-	platform.InitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformInit");
+	platform.InitCallback = (bool (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformInit");
 	if( !platform.InitCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformInit\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformInit\n");
 
-	platform.UpdateCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformUpdate");
+	platform.UpdateCallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformUpdate");
 	if( !platform.UpdateCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformUpdate\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformUpdate\n");
 
-	platform.RenderGraphicsCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformRenderGraphics");
+	platform.RenderGraphicsCallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformRenderGraphics");
 	if( !platform.RenderGraphicsCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformRenderGraphics\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformRenderGraphics\n");
 
-	platform.CleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformCleanup");
+	platform.CleanupCallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformCleanup");
 	if( !platform.CleanupCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformCleanup\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformCleanup\n");
 
-	platform.WindowInitCallback = (bool (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowInit");
+	platform.WindowInitCallback = (bool (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformWindowInit");
 	if( !platform.WindowInitCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformWindowInit\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformWindowInit\n");
 
-	platform.WindowCleanupCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformWindowCleanup");
+	platform.WindowCleanupCallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformWindowCleanup");
 	if( !platform.WindowCleanupCallback ) {
 		LOG(Error, "- Couldn't load symbol: OnPlatformWindowCleanup\n");
 		return false;
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformWindowCleanup\n");
 
-	platform.RenderAudioCallback = (void (*)(Platform &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
+	platform.RenderAudioCallback = (void (*)(Plat &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
 	if( !platform.RenderAudioCallback ) { LOG(Error, "- Couldn't load symbol: OnPlatformRenderAudio\n"); }
 	else { LOG( Info, "- Symbol loaded: OnPlatformRenderAudio\n" ); }
 
-	platform.PreRenderAudioCallback = (void (*)(Platform &)) LoadSymbol(platform.engineLib, "OnPlatformPreRenderAudio");
+	platform.PreRenderAudioCallback = (void (*)(Plat &)) LoadSymbol(platform.engineLib, "OnPlatformPreRenderAudio");
 	if( !platform.PreRenderAudioCallback ) { LOG(Error, "- Couldn't load symbol: OnPlatformPreRenderAudio\n"); }
 	else { LOG( Info, "- Symbol loaded: OnPlatformPreRenderAudio\n" ); }
 
 	// Platform interface exposed to engine
-	platform.api.PlatformQuit        = PlatformQuit;
-	platform.api.AcquireScratchArena = AcquireScratchArena;
-	platform.api.ReleaseScratchArena = ReleaseScratchArena;
+	platform.pub.api.PlatformQuit        = PlatformQuit;
+	platform.pub.api.AcquireScratchArena = AcquireScratchArena;
+	platform.pub.api.ReleaseScratchArena = ReleaseScratchArena;
 
 #if PLATFORM_ANDROID
 	ASSERT( platform.androidApp );
@@ -2601,7 +2826,7 @@ static bool LoadEngineDLL(Platform &platform)
 	platform.androidApp->userData = &platform;
 #endif // PLATFORM_ANDROID
 
-	platform.SetupAPICallback(platform);
+	platform.SetupAPICallback(platform.pub);
 
 	return true;
 }
@@ -2663,12 +2888,12 @@ static bool Run(Platform &platform)
 	platform.paused = false;
 	platform.keepRunning = true;
 
-	if ( !platform.PreInitCallback(platform) )
+	if ( !platform.PreInitCallback(platform.pub) )
 	{
 		return false;
 	}
 
-	if ( !InitializeWindow(platform.window) )
+	if ( !InitializeWindow(platform.window, platform.windowImpl) )
 	{
 		return false;
 	}
@@ -2691,7 +2916,7 @@ static bool Run(Platform &platform)
 		return false;
 	}
 
-	if ( !platform.InitCallback(platform) )
+	if ( !platform.InitCallback(platform.pub) )
 	{
 #if PLATFORM_ANDROID
 		ANativeActivity_finish(platform.androidApp->activity);
@@ -2779,10 +3004,10 @@ static bool Run(Platform &platform)
 
 	if ( platform.windowInitialized )
 	{
-		platform.WindowCleanupCallback(platform);
+		platform.WindowCleanupCallback(platform.pub);
 	}
 
-	platform.CleanupCallback(platform);
+	platform.CleanupCallback(platform.pub);
 	// TODO: Cleanup window and audio
 
 	return false;
@@ -2792,8 +3017,8 @@ static bool Run(Platform &platform)
 static void Main( int argc, char **argv,  void *userData )
 {
 	// Input args
-	platform.argc = argc;
-	platform.argv = argv;
+	platform.pub.argc = argc;
+	platform.pub.argv = argv;
 #if PLATFORM_ANDROID
 	platform.androidApp = (android_app*)userData;
 #endif
@@ -2802,7 +3027,7 @@ static void Main( int argc, char **argv,  void *userData )
 
 	InitializeDirectories(platform);
 
-	GetGraphicsAPI(&platform.graphicsAPI);
+	GetGraphicsAPI(&platform.pub.graphicsAPI);
 
 	LoadEngineDLL(platform);
 
@@ -2824,5 +3049,9 @@ int main(int argc, char **argv)
 	return 0;
 }
 #endif
+
+
+#define TOOLS_GFX_IMPLEMENTATION
+#include "tools_gfx.h"
 
 

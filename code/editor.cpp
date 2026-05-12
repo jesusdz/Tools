@@ -1,7 +1,7 @@
 
 static const char * InternString(const char *str)
 {
-	const char *intern = MakeStringIntern(&sPlatform->stringInterning, str);
+	const char *intern = MakeStringIntern(sPlatform->stringInterning, str);
 	return intern;
 }
 
@@ -784,9 +784,8 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 	speed = Mul(speed, 0.9);
 }
 
-static void EditorUpdateCamera2D(const Window &window, const Input &input, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateCamera2D(const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
 {
-	const Gamepad &gamepad = input.gamepad;
 	const Mouse &mouse = window.mouse;
 
 	// Interaction with the mouse
@@ -1062,7 +1061,7 @@ void EditorInitialize(Engine &engine)
 
 void EditorUpdate(Engine &engine)
 {
-	Platform &platform = *sPlatform;
+	Plat &platform = *sPlatform;
 	Graphics &gfx = engine.gfx;
 
 	EditorUpdateUI(engine);
@@ -1077,15 +1076,15 @@ void EditorUpdate(Engine &engine)
 		}
 		else
 		{
-			EditorUpdateCamera3D(platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
+			EditorUpdateCamera3D(*platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
 		}
 	}
 	else if (engine.mode == EngineModeEditor2D)
 	{
-		EditorUpdateCamera2D(platform.window, platform.input, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
+		EditorUpdateCamera2D(*platform.window, *platform.gamepad, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}
 
-	EditorBeginSceneEditing(engine, platform.window.mouse, handleInput);
+	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);
 
 	EditorProcessCommands(engine, FrameArena);
 }

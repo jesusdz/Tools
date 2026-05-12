@@ -662,7 +662,8 @@ struct Timestamp
 // Function type declarations
 ////////////////////////////////////////////////////////////////////////
 
-class Window; // Required type from platform.h
+class Window; // Required platform type
+class WindowImpl; // Required platform type
 
 typedef void FN_SetGraphicsStringInterning(StringInterning *stringInterning);
 typedef void FN_WaitQueueIdle(const GraphicsDevice &device);
@@ -2336,21 +2337,21 @@ bool InitializeGraphicsSurface(GraphicsDevice &device, const Window &window)
 #if VK_USE_PLATFORM_XCB_KHR
 	const VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-		.connection = window.connection,
-		.window = window.window,
+		.connection = window.impl->connection,
+		.window = window.impl->window,
 	};
 	VK_CALL( vkCreateXcbSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
 #elif VK_USE_PLATFORM_ANDROID_KHR
 	const VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
-		.window = window.nativeWindow,
+		.window = window.impl->nativeWindow,
 	};
 	VK_CALL( vkCreateAndroidSurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
 #elif VK_USE_PLATFORM_WIN32_KHR
 	const VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-		.hinstance = window.hInstance,
-		.hwnd = window.hWnd,
+		.hinstance = window.impl->hInstance,
+		.hwnd = window.impl->hWnd,
 	};
 	VK_CALL( vkCreateWin32SurfaceKHR( device.instance, &surfaceCreateInfo, VULKAN_ALLOCATORS, &device.surface ) );
 #endif
