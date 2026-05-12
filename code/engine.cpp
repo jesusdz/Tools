@@ -1,5 +1,4 @@
 #define STB_IMAGE_IMPLEMENTATION
-#define TOOLS_IMAGE_PIXELS
 #include "tools.h"
 
 #define TOOLS_GFX_FUNCTION_POINTERS
@@ -20,7 +19,21 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb/stb_truetype.h"
 
+#define STBI_NO_STDIO
+#include "stb/stb_image.h"
+
+
 #endif // #if USE_UI
+
+// Needed before tools_ui.h
+struct ImagePixels
+{
+	stbi_uc* pixels;
+	i32 width;
+	i32 height;
+	i32 channelCount;
+	bool constPixels;
+};
 
 #if USE_UI
 #include "tools_ui.h"
@@ -688,6 +701,40 @@ UI &GetUI(Engine &engine)
 
 
 
+////////////////////////////////////////////////////////////////////////
+// Image loading
+
+bool ReadImagePixels(Arena &arena, const char *filepath, ImagePixels &image)
+{
+	bool ok = true;
+
+	DataChunk* chunk = PushFile(arena, filepath);
+	if ( !chunk ) {
+		LOG(Error, "PushFile failed to read: %s\n", filepath);
+		ok = false;
+		return ok;
+	}
+
+	image = {};
+	image.pixels = stbi_load_from_memory(chunk->bytes, chunk->size, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
+	image.channelCount = 4; // Because we use STBI_rgb_alpha
+	if ( !image.pixels )
+	{
+		LOG(Error, "stbi_load_from_memory failed to load %s\n", filepath);
+		static stbi_uc constPixels[] = {255, 0, 255, 255};
+		image.pixels = constPixels;
+		image.width = image.height = 1;
+		image.channelCount = 4;
+		image.constPixels = true;
+		ok = false;
+	}
+	return ok;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////
+
 void AddTimeSample(TimeSamples &timeSamples, f32 sample)
 {
 	timeSamples.samples[timeSamples.sampleCount] = sample;
@@ -980,7 +1027,8 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
 	ImagePixels img;
-	if ( ReadImagePixels(imagePath.str, img) )
+	Arena scratch = MakeSubArena(FrameArena, "Scratch - CreateTexture");
+	if ( ReadImagePixels(scratch, imagePath.str, img) )
 	{
 
 		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
@@ -995,8 +1043,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 		texture.desc = desc;
 
 		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
-
-		FreeImagePixels(img);
 	}
 
 	return textureHandle;
@@ -1091,8 +1137,9 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 	if ( ts > texture.ts )
 	{
 		ImagePixels img;
+		Arena scratch = MakeSubArena(FrameArena, "Scratch - RecreateTextureIfModifed");
 
-		if ( ReadImagePixels(imagePath.str, img) )
+		if ( ReadImagePixels(scratch, imagePath.str, img) )
 		{
 			WaitDeviceIdle(gfx.device);
 
@@ -1103,8 +1150,6 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 			texture.image = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
 			GetFileLastWriteTimestamp(imagePath.str, texture.ts);
-
-			FreeImagePixels(img);
 
 			gfx.shouldUpdateMaterialBindGroups = true;
 		}
@@ -1928,7 +1973,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	icons = PushArray(globalArena, UIIcon, iconCount);
 	for (u32 i = 0; i < iconCount; ++i) {
 		FilePath filepath = MakePath(ProjectDir, iconFilenames[i]);
-		ReadImagePixels(filepath.str, icons[i].image);
+		Arena scratch = MakeSubArena(FrameArena, "Scratch - InitializeGraphics");
+		ReadImagePixels(scratch, filepath.str, icons[i].image);
 	}
 #endif
 	UI_Initialize(engine.ui, gfx, gfx.device, globalArena, icons, iconCount);

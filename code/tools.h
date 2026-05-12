@@ -16,9 +16,6 @@
  * - Dynamic library loading
  * - Mathematics
  * - Clock / timing
- * - Window creation
- * - Input handling (mouse and keyboard)
- * - Audio
  */
 
 #ifndef TOOLS_H
@@ -50,17 +47,11 @@
 
 
 #if PLATFORM_WINDOWS
-
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <WindowsX.h>
-#include <xinput.h>
-#include <mmsystem.h> // audio
-#include <dsound.h>   // audio
-#include <direct.h>   // _getcwd
-#include <intrin.h>   // _WriteBarrier
 #undef Yield          // Empty macro defined in winbase.h
+#include <intrin.h>   // _WriteBarrier
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 #include <time.h>     // TODO: Find out if this header belongs to the C runtime library...
 #include <sys/stat.h> // stat
@@ -81,8 +72,6 @@
 #endif
 
 #if PLATFORM_LINUX
-#define ALSA_PCM_NEW_HW_PARAMS_API
-#include <alsa/asoundlib.h>
 #include <linux/ioctl.h> // ioctl
 #include <linux/input.h> // input_event
 #endif
@@ -96,13 +85,17 @@
 
 
 #include <stdio.h>  // printf
-#include <stdarg.h>
+//#include <stdarg.h>
 #include <math.h>
+
+//float sinf(float);
+//float cosf(float);
+//float tanf(float);
+//float sqrtf(float);
+//float floorf(float);
+//float log2f(float);
 // TODO: Remove C runtime library includes. But first...
 // TODO: Remove calls to printf.
-
-// Not nice... but we are using stb_image here
-#include "stb/stb_image.h"
 
 
 
@@ -925,52 +918,6 @@ void ResetArena(Arena &arena)
 #define PushArray( arena, type, count ) (type*)PushSize(arena, sizeof(type) * (count))
 #define PushZeroStruct( arena, struct_type ) (struct_type*)PushZeroSize(arena, sizeof(struct_type))
 #define PushZeroArray( arena, type, count ) (type*)PushZeroSize(arena, sizeof(type) * (count))
-
-
-
-////////////////////////////////////////////////////////////////////////
-// Image loading
-
-#ifdef TOOLS_IMAGE_PIXELS
-
-struct ImagePixels
-{
-	stbi_uc* pixels;
-	i32 width;
-	i32 height;
-	i32 channelCount;
-	bool constPixels;
-};
-
-bool ReadImagePixels(const char *filepath, ImagePixels &image)
-{
-	bool ok = true;
-	image = {};
-	image.pixels = stbi_load(filepath, &image.width, &image.height, &image.channelCount, STBI_rgb_alpha);
-	image.channelCount = 4; // Because we use STBI_rgb_alpha
-	if ( !image.pixels )
-	{
-		LOG(Error, "stbi_load failed to load %s\n", filepath);
-		static stbi_uc constPixels[] = {255, 0, 255, 255};
-		image.pixels = constPixels;
-		image.width = image.height = 1;
-		image.channelCount = 4;
-		image.constPixels = true;
-		ok = false;
-	}
-	return ok;
-}
-
-void FreeImagePixels(ImagePixels &image)
-{
-	if (image.pixels && !image.constPixels)
-	{
-		stbi_image_free(image.pixels);
-	}
-	image = {};
-}
-
-#endif // #ifdef TOOLS_IMAGE_PIXELS
 
 
 

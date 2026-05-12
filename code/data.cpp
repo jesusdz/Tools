@@ -1092,10 +1092,6 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		const u32 entitiesSize = entityCount * sizeof(BinEntityDesc);
 		const u32 entitiesOffset = PostIncrement(&offset, entitiesSize);
 
-		const u32 basePayloadOffset = offset;
-
-		u32 payloadOffset = basePayloadOffset;
-
 		const u32 maxStringPoolSize = KB(128);
 		char *stringPoolBase = PushArray(tempArena, char, maxStringPoolSize);
 		DataStringPool stringPool = { stringPoolBase };
@@ -1110,7 +1106,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 		// Prepare asset descs and write asset payloads
 
-		fseek(file, basePayloadOffset, SEEK_SET);
+		fseek(file, offset, SEEK_SET);
 
 		// Shaders
 		for (u32 i = 0; i < shaderCount; ++i)
@@ -1127,7 +1123,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			d.name       = DataInternString(stringPool, desc.name);
 			d.entryPoint = DataInternString(stringPool, desc.entryPoint);
 			d.type = desc.type;
-			d.location.offset = payloadOffset;
+			d.location.offset = PostIncrement(&offset, payloadSize);
 			d.location.size = U64ToU32(payloadSize);
 
 			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
@@ -1135,8 +1131,6 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			ReadEntireFile(filepath, shaderPayload, payloadSize);
 
 			fwrite(shaderPayload, payloadSize, 1, file);
-
-			payloadOffset += payloadSize;
 		}
 
 		// Images
@@ -1146,11 +1140,18 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
+			byte *pixels;
 			int texWidth, texHeight, texChannels;
-			stbi_uc* originalPixels = stbi_load(imagePath.str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-			texChannels = 4; // Because we use STBI_rgb_alpha
-			stbi_uc* pixels = originalPixels;
-			if ( !pixels )
+			Arena scratch = MakeSubArena(tempArena, "Scratch - BuildAssets");
+			ImagePixels imagePixels = {};
+			if ( ReadImagePixels(scratch, imagePath.str, imagePixels) )
+			{
+				pixels = imagePixels.pixels;
+				texWidth = imagePixels.width;
+				texHeight = imagePixels.height;
+				texChannels = imagePixels.channelCount;
+			}
+			else
 			{
 				LOG(Error, "stbi_load failed to load %s\n", imagePath.str);
 				static stbi_uc constPixels[] = {255, 0, 255, 255};
@@ -1168,16 +1169,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			d.channels = I32ToU8(texChannels);
 			d.mipmap   = desc.mipmap;
 			d.unused   = 0;
-			d.location.offset = payloadOffset;
+			d.location.offset = PostIncrement(&offset, payloadSize);
 			d.location.size   = U64ToU32(payloadSize);
 
 			fwrite(pixels, payloadSize, 1, file);
-
-			if ( originalPixels ) {
-				stbi_image_free(originalPixels);
-			}
-
-			payloadOffset += payloadSize;
 		}
 
 		// AudioClips
@@ -1200,7 +1195,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 				.sampleSize = audioClip.sampleSize,
 				.channelCount = audioClip.channelCount,
 				.location = {
-					.offset = payloadOffset,
+					.offset = PostIncrement(&offset, payloadSize),
 					.size = U64ToU32(payloadSize),
 				},
 			};
@@ -1211,8 +1206,6 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			} else {
 				fseek(file, payloadSize, SEEK_CUR);
 			}
-
-			payloadOffset += payloadSize;
 		}
 
 		// MusicFiles
@@ -1232,12 +1225,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 
 			BinMusicFileDesc &d = binMusicFileDescs[i];
 			d.name            = DataInternString(stringPool, desc.name);
-			d.location.offset = payloadOffset;
+			d.location.offset = PostIncrement(&offset, payloadSize);
 			d.location.size   = U64ToU32(payloadSize);
 
 			fwrite(fileChunk->bytes, payloadSize, 1, file);
-
-			payloadOffset += payloadSize;
 		}
 
 		// Materials
@@ -1266,7 +1257,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		}
 
 		// Write string pool after payloads
-		const u32 stringPoolOffset = payloadOffset;
+		const u32 stringPoolOffset = offset;
 		const u32 stringPoolSize   = stringPool.size;
 		fwrite(stringPool.str, stringPoolSize, 1, file);
 

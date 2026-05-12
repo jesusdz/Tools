@@ -4,6 +4,18 @@
 
 #include "platform.h"
 
+#if PLATFORM_WINDOWS
+#include <WindowsX.h>
+#include <xinput.h>
+#include <mmsystem.h> // audio
+#include <dsound.h>   // audio
+#include <direct.h>   // _getcwd
+#endif
+
+#if PLATFORM_LINUX
+#define ALSA_PCM_NEW_HW_PARAMS_API
+#include <alsa/asoundlib.h>
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform implementation types

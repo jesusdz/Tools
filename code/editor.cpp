@@ -15,9 +15,9 @@ static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *n
 {
 	const FilePath path = MakePath(ProjectDir, filename);
 	ImagePixels imagePixels;
-	ReadImagePixels(path.str, imagePixels);
+	Arena scratch = MakeSubArena(FrameArena, "Scratch - EditorLoadIcon");
+	ReadImagePixels(scratch, path.str, imagePixels);
 	const ImageH handle = EngineCreateImage(engine.gfx, imagePixels, name, false);
-	FreeImagePixels(imagePixels);
 	return handle;
 }
 
