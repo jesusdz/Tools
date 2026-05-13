@@ -2873,7 +2873,7 @@ static void CheckEngineHotReload(Platform &platform)
 	const Clock currentClock = GetClock();
 	const f32 secondsSinceLastCheck = GetSecondsElapsed(lastClock, currentClock);
 
-	if ( secondsSinceLastCheck > 0.5f )
+	if ( secondsSinceLastCheck > 0.1f )
 	{
 		lastClock = currentClock;
 

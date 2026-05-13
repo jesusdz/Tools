@@ -1,6 +1,4 @@
 
-static float2 speed = {5.0f, 10.0f};
-
 void GameStart(Game &game)
 {
 	LOG(Info, "- GameStart!\n");
@@ -11,7 +9,7 @@ void GameStart(Game &game)
 		.size = { 1, 1 },
 	};
 
-	speed = {2.0f, 10.0f};
+	game.speed = {2.0f, 10.0f};
 }
 
 void GameUpdate(Game &game)
@@ -23,18 +21,18 @@ void GameUpdate(Game &game)
 
 	float2 &pos = game.character.pos;
 
-	pos.x += speed.x * deltaSeconds;
+	pos.x += game.speed.x * deltaSeconds;
 	if (pos.x > 10) pos.x = -10;
 
-	pos.y = pos.y + speed.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
-	speed.y = speed.y + gravity * deltaSeconds;
+	pos.y = pos.y + game.speed.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
+	game.speed.y = game.speed.y + gravity * deltaSeconds;
 
 	if (pos.y < 0.0f ) {
 		pos.y = 0.0f;
-		speed.y = 10.0f;
+		game.speed.y = 10.0f;
 	}
 
-	DrawBox(pos, game.character.size, {0.4, 1.0, 0.3, 1.0});
+	DrawBox(pos, game.character.size, {0.0, 0.5, 1.0, 1.0});
 }
 
 void GameStop(Game &game)

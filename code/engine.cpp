@@ -833,7 +833,7 @@ static StagedData StageData(Graphics &gfx, const void *data, u32 size, u32 align
 
 	Heap &stagingHeap = gfx.device.heaps[HeapType_Staging];
 	void* stagingData = stagingHeap.data + staging.offset;
-	MemCopy(stagingData, data, (size_t) size);
+	MemCopy(stagingData, data, size);
 
 	gfx.stagingBufferOffset = staging.offset + size;
 
@@ -3374,11 +3374,6 @@ ENGINE_API void OnPlatformCleanup(Plat &platform)
 #if USE_UI
 	UI_Cleanup(engine.ui);
 #endif
-
-	// TODO(jesus): Remove, already handled OnPlatformWindowCleanup
-	//DestroyRenderTargets(gfx, gfx.renderTargets);
-	//DestroySwapchain(gfx.device);
-	//CleanupGraphicsSurface(gfx.device);
 
 	CleanupGraphics(gfx);
 }
