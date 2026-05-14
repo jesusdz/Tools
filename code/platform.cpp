@@ -1087,7 +1087,7 @@ static bool InitializeWindow(
 		WindowImpl &windowImpl,
 		u32 width = 640,
 		u32 height = 480,
-		const char *title = "Iris"
+		const char *title = "Ilu"
 		)
 {
 	ZeroStruct(&window);
@@ -1203,7 +1203,7 @@ static bool InitializeWindow(
 #if USE_WINAPI
 
 	// Register the window class.
-	const char CLASS_NAME[]  = "Iris Class";
+	const char CLASS_NAME[]  = "Ilu Class";
 	HINSTANCE hInstance = GetModuleHandle(NULL);
 
 	WNDCLASS wc = {};
