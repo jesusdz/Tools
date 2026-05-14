@@ -72,8 +72,8 @@ PixelOutput PSMain(PixelInput IN)
 		grid = lerp(grid, lineWidth, saturate(duv * 2.0 - 1.0));
 		gridAlpha = lerp(grid.x, 1.0, grid.y);
 
-		gridColor = lerp( gridColor, float3(1.0, 0.5, 0.3), abs(p.x) < 0.6 * drawWidth.x ? 1.0 : 0.0 );
-		gridColor = lerp( gridColor, float3(0.3, 0.5, 1.0), abs(p.z) < 0.6 * drawWidth.y ? 1.0 : 0.0 );
+		gridColor = lerp( gridColor, float3(1.0, 0.5, 0.3), abs(p.x) < drawWidth.x ? 1.0 : 0.0 );
+		gridColor = lerp( gridColor, float3(0.3, 0.5, 1.0), abs(p.z) < drawWidth.y ? 1.0 : 0.0 );
 		gridAlpha *= abs(uv.x) < drawWidth.x || abs(uv.y) < drawWidth.y ? 4.0 : 1.0;
 
 		// factor to hide the horizon glitch
