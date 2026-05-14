@@ -14,26 +14,37 @@ enum GameState
 	GameStateCount,
 };
 
-struct Sprite
+struct Input
 {
-	u32 id;
+	Gamepad *gamepad;
+	Keyboard *keyboard;
+	Mouse *mouse;
+};
+
+struct Box
+{
 	float2 pos;
 	float2 size;
+	float4 color;
 };
 
 struct Game
 {
 	GameState state;
 
-	Sprite character;
-
+	Box box1;
 	float2 speed;
+
+	Box box2;
+	float2 speed2;
+	float accel2;
 };
 
 ////////////////////////////////////////////////////////////////////////
 // Engine -> Game interface
 ////////////////////////////////////////////////////////////////////////
 
+void GameSetInput(Input input);
 void GameStart(Game &game);
 void GameUpdate(Game &game);
 void GameStop(Game &game);
@@ -42,7 +53,6 @@ void GameStop(Game &game);
 // Game -> Engine interface
 ////////////////////////////////////////////////////////////////////////
 
-void DrawSprite(Sprite &sprite);
 void DrawBox(float2 pos, float2 size, float4 color);
 
 #endif // GAME_H

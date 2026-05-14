@@ -3133,6 +3133,13 @@ ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 {
 	SetPlatformAPI(platform);
 	SetGraphicsAPI(&platform.graphicsAPI);
+
+	Input input = {
+		.gamepad = platform.gamepad,
+		.keyboard = &platform.window->keyboard,
+		.mouse = &platform.window->mouse,
+	};
+	GameSetInput(input);
 }
 
 ENGINE_API bool OnPlatformPreInit(Plat &platform)
@@ -3199,6 +3206,13 @@ ENGINE_API bool OnPlatformInit(Plat &platform)
 		LOG(Error, "InitializeAudio failed!\n");
 		return false;
 	}
+
+	Input input = {
+		.gamepad = platform.gamepad,
+		.keyboard = &platform.window->keyboard,
+		.mouse = &platform.window->mouse,
+	};
+	GameSetInput(input);
 
 	return true;
 }
@@ -3288,7 +3302,23 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 		RecreateModifiedTextures(engine);
 	}
 
-	EditorUpdate(engine);
+	if ( KeyPress(platform.window->keyboard, K_F5) )
+	{
+		if ( engine.game.state == GameStateStopped ) {
+				engine.game.state = GameStateStarting;
+		}
+	}
+	else if ( KeyPress(platform.window->keyboard, K_ESCAPE) )
+	{
+		if ( engine.game.state == GameStateRunning ) {
+			engine.game.state = GameStateStopping;
+		}
+	}
+
+	if ( engine.game.state == GameStateStopped )
+	{
+		EditorUpdate(engine);
+	}
 #endif
 
 	GameUpdate(engine);

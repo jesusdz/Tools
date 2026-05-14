@@ -123,7 +123,7 @@ inline bool KeyPress(const Keyboard &keyboard, Key key)
 inline bool KeyPressed(const Keyboard &keyboard, Key key)
 {
 	ASSERT(key < K_COUNT);
-	return keyboard.keys[key] == KEY_STATE_PRESSED;
+	return KeyPress(keyboard, key) || keyboard.keys[key] == KEY_STATE_PRESSED;
 }
 
 inline bool KeyRelease(const Keyboard &keyboard, Key key)

@@ -1068,17 +1068,6 @@ void EditorUpdate(Engine &engine)
 
 	const bool handleInput = !engine.ui.wantsInput;
 
-	if ( KeyPress(platform.window->keyboard, K_F5) ) {
-		if ( engine.game.state == GameStateStopped ) {
-				engine.game.state = GameStateStarting;
-		}
-	}
-	else if ( KeyPress(platform.window->keyboard, K_ESCAPE) ) {
-		if ( engine.game.state == GameStateRunning ) {
-			engine.game.state = GameStateStopping;
-		}
-	}
-
 	if (engine.mode == EngineModeEditor3D)
 	{
 		if (engine.editor.cameraOrbit)
