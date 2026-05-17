@@ -554,7 +554,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 		const bool isSelected = StrEq(path.str, inspector.inspectedFilename.str);
 		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
-		if ( UI_Image(ui, icon, float2{64,64}, flags) )
+		if ( UI_Image(ui, icon, float2{32,32}, flags) )
 		{
 			const bool changed = !StrEq(inspector.inspectedFilename.str, node->filename);
 			StrCopy(inspector.inspectedFilename.str, node->filename);
@@ -583,6 +583,8 @@ static void EditorUpdateUI_Assets(Engine &engine)
 				editor.inspector.inspectedType = EditorInspectedType_None;
 			}
 		}
+
+		UI_BeginDragAndDropSource(ui);
 
 		node = node->next;
 	}

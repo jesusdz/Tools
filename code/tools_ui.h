@@ -2145,6 +2145,17 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 	return clicked;
 }
 
+void UI_BeginDragAndDropSource(UI &ui)
+{
+	float2 prevWidgetPos = ui.widgetStack[ui.widgetStackSize].pos;
+	float2 prevWidgetSize = ui.widgetStack[ui.widgetStackSize].size;
+	const bool clicked = UI_IsMouseClick(ui) && UI_WidgetHovered(ui, prevWidgetPos, prevWidgetSize);
+	if (clicked)
+	{
+		LOG(Info, "Begin drag and drop!\n");
+	}
+}
+
 // TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
 struct Graphics;
 ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
