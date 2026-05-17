@@ -21,6 +21,44 @@ static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *n
 	return handle;
 }
 
+static ImageH EditorLoadSnapshot(Engine &engine, const char *filepath, const char *name)
+{
+	ImagePixels imagePixels;
+	Arena scratch = MakeSubArena(FrameArena, "Scratch - EditorLoadSnapshot");
+	ReadImagePixels(scratch, filepath, imagePixels);
+	imagePixels = ResizeImagePixels(scratch, imagePixels, 32, 32);
+	const ImageH handle = EngineCreateImage(engine.gfx, imagePixels, name, false);
+	return handle;
+}
+
+static SnapshotNode *EditorGetOrCreateSnapshotNode(Engine &engine, const char *filepath)
+{
+	// First we try to find an existing snapshot for this path
+	SnapshotNode *snapshot = engine.editor.snapshots;
+	while (snapshot)
+	{
+		if ( StrEq( snapshot->filepath, filepath ) )
+		{
+			break;
+		}
+		snapshot = snapshot->next;
+	}
+
+	// If it didn't exist, create a new one
+	if ( !snapshot )
+	{
+		snapshot = PushZeroStruct( GlobalArena, SnapshotNode );
+		if (engine.editor.snapshots) {
+			snapshot->next = engine.editor.snapshots;
+		}
+		engine.editor.snapshots = snapshot;
+		snapshot->filepath = InternString(filepath);
+		snapshot->imageH = EditorLoadSnapshot(engine, filepath, "editor_snapshot");
+	}
+
+	return snapshot;
+}
+
 static void EditorUpdateUI_MenuBar(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -497,12 +535,22 @@ static void EditorUpdateUI_Assets(Engine &engine)
 		const bool isWav = IsWavFile(node->filename);
 		const bool isImg = IsImgFile(node->filename);
 
+		path = MakePath(AssetDir, node->filename);
+
+		// For images, we get a snapshot
+		ImageH iconImg = editor.iconImg;
+		if ( isImg ) {
+			SnapshotNode *snapshot = EditorGetOrCreateSnapshotNode(engine, path.str);
+			if ( snapshot ) {
+				iconImg = snapshot->imageH;
+			}
+		}
+
 		const ImageH icon =
 			isWav ? editor.iconWav :
-			isImg ? editor.iconImg :
+			isImg ? iconImg :
 			editor.iconAsset;
 
-		path = MakePath(AssetDir, node->filename);
 		const bool isSelected = StrEq(path.str, inspector.inspectedFilename.str);
 		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
@@ -1030,7 +1078,7 @@ void EditorInitialize(Engine &engine)
 	editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
 
 	// Make a liked list of free file nodes
-	constexpr u32 maxFileNodes = 1024;
+	constexpr u32 maxFileNodes = 4092;
 	editor.freeNodes = PushZeroArray(GlobalArena, FileNode, maxFileNodes);
 	for (u32 i = 0; i < maxFileNodes; ++i) {
 		if ( i < maxFileNodes - 1) {

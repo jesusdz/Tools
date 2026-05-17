@@ -731,6 +731,39 @@ bool ReadImagePixels(Arena &arena, const char *filepath, ImagePixels &image)
 	return ok;
 }
 
+ImagePixels ResizeImagePixels(Arena &arena, ImagePixels inputImagePixels, i32 w, i32 h)
+{
+	i32 channelCount = inputImagePixels.channelCount;
+	i32 inW = inputImagePixels.width;
+	i32 inH = inputImagePixels.height;
+	byte *inPixels = inputImagePixels.pixels;
+	byte *outPixels = PushArray(arena, byte, w * h * channelCount);
+
+	i32 inStride = inputImagePixels.width * channelCount;
+	i32 outStride = w * channelCount;
+
+	for (u32 i = 0; i < h; ++i) {
+		for (u32 j = 0; j < w; ++j) {
+			for (u32 c = 0; c < channelCount; ++c) {
+				i32 inI = inH * i / h;
+				i32 inJ = inW * j / w;
+				byte value =  inPixels[inI * inStride + inJ * channelCount + c];
+				outPixels[i * outStride + j * channelCount + c] = value;
+			}
+		}
+	}
+
+	ImagePixels outputImagePixels = {
+		.pixels = outPixels,
+		.width = w,
+		.height = h,
+		.channelCount = channelCount,
+		.constPixels = false,
+	};
+
+	return outputImagePixels;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////

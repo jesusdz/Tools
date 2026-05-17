@@ -67,6 +67,13 @@ struct FileNode
 	FileNode *child; // For directy contents
 };
 
+struct SnapshotNode
+{
+	const char *filepath;
+	ImageH imageH;
+	SnapshotNode *next;
+};
+
 struct Editor
 {
 	bool showDebugUI;
@@ -90,6 +97,8 @@ struct Editor
 	ImageH iconAsset;
 	ImageH iconWav;
 	ImageH iconImg;
+
+	SnapshotNode *snapshots;
 
 	EditorInspector inspector;
 	EditorTilesets tilesets;
