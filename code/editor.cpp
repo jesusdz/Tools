@@ -495,6 +495,15 @@ static bool IsWavFile(const char *filename)
 	return isWav;
 }
 
+static bool IsMusicFile(const char *filename)
+{
+	const bool isMusic =
+		HasFileExtension(filename, "mod") ||
+		HasFileExtension(filename, "s3m") ||
+		HasFileExtension(filename, "xm");
+	return isMusic;
+}
+
 static bool IsImgFile(const char *filename)
 {
 	const bool isImg =
@@ -527,8 +536,9 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	FileNode *node = editor.root;
 	while (node)
 	{
-		const bool isWav = IsWavFile(node->filename);
-		const bool isImg = IsImgFile(node->filename);
+		const bool isImg = node->type == FileNodeType_Image;
+		const bool isMusic = node->type == FileNodeType_Music;
+		const bool isWav = node->type == FileNodeType_Sound;
 
 		path = MakePath(AssetDir, node->filename);
 
@@ -543,6 +553,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 
 		const ImageH icon =
 			isWav ? editor.iconWav :
+			isMusic ? editor.iconMod :
 			isImg ? iconImg :
 			editor.iconAsset;
 
@@ -557,6 +568,10 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			if ( isWav )
 			{
 				editor.inspector.inspectedType = EditorInspectedType_Audio;
+			}
+			else if ( isMusic )
+			{
+				editor.inspector.inspectedType = EditorInspectedType_Music;
 			}
 			else if ( isImg )
 			{
@@ -694,7 +709,10 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 	if ( UI_DragAndDropTargetLost(ui, "FileNode") )
 	{
 		FileNode *node = (FileNode*) UI_DragAndDropPayload(ui);
-		LOG(Info, "Asset dropped: %s\n", node->filename);
+		if (node->type == FileNodeType_Image)
+		{
+			LOG(Info, "Image asset dropped: %s\n", node->filename);
+		}
 	}
 }
 
@@ -1034,7 +1052,7 @@ static FileNode *GetFreeFileNode(Editor &editor)
 	FileNode *res = editor.freeNodes;
 	editor.freeNodes = res->next;
 	if ( editor.freeNodes) { editor.freeNodes->prev = nullptr; }
-	res->isDirectory = false;
+	res->type = FileNodeType_COUNT,
 	res->filename = nullptr;
 	res->next = nullptr;
 	res->prev = nullptr;
@@ -1084,6 +1102,7 @@ void EditorInitialize(Engine &engine)
 
 	editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
 	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
+	editor.iconMod = EditorLoadIcon(engine, "editor/mod_32x32.png", "mod_32x32");
 	editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
 
 	// Make a liked list of free file nodes
@@ -1107,8 +1126,11 @@ void EditorInitialize(Engine &engine)
 		while ( ReadDir(dir, entry) )
 		{
 			FileNode *node = GetFreeFileNode(editor);
-			node->isDirectory = false;
 			node->filename = InternString(entry.name);
+			node->type = IsImgFile(entry.name) ? FileNodeType_Image :
+						IsMusicFile(entry.name) ? FileNodeType_Music :
+						IsWavFile(entry.name) ? FileNodeType_Sound:
+						FileNodeType_COUNT;
 			editor.root = InsertFileNode(node, editor.root);
 		}
 

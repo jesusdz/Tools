@@ -28,6 +28,7 @@ enum EditorInspectedType
 	EditorInspectedType_None,
 	EditorInspectedType_Image,
 	EditorInspectedType_Audio,
+	EditorInspectedType_Music,
 	EditorInspectedType_Count,
 };
 
@@ -35,6 +36,7 @@ static const char *EditorInspectedTypeName[] = {
 	"None",
 	"Image",
 	"Audio",
+	"Music",
 };
 CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 
@@ -58,10 +60,19 @@ struct EditorTilesets
 	EditorDrawTool selectedTool;
 };
 
+enum FileNodeType
+{
+	FileNodeType_Image,
+	FileNodeType_Music,
+	FileNodeType_Sound,
+	FileNodeType_COUNT,
+};
+
 struct FileNode
 {
-	bool isDirectory;
+	FileNodeType type;
 	const char *filename;
+
 	FileNode *next; // Next file in same directory
 	FileNode *prev; // Prev file in same directory
 	FileNode *child; // For directy contents
@@ -96,6 +107,7 @@ struct Editor
 
 	ImageH iconAsset;
 	ImageH iconWav;
+	ImageH iconMod;
 	ImageH iconImg;
 
 	SnapshotNode *snapshots;
