@@ -185,6 +185,13 @@ struct UIIcon
 	float2 uvSize;
 };
 
+struct UIDragAndDrop
+{
+	const char *payloadType;
+	void *payload;
+	ImageH imageH;
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -257,6 +264,8 @@ struct UI
 	bool menuBarBegan;
 	UIWindow *activeMenu;
 	UIVertex *activeMenuVertexPtr;
+
+	UIDragAndDrop dragAndDrop;
 };
 
 static void UI_SetNextWindowDefaultSize(UI &ui, uint2 size)
@@ -2145,15 +2154,39 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 	return clicked;
 }
 
-void UI_BeginDragAndDropSource(UI &ui)
+void UI_DragAndDropSource(UI &ui, const char *payloadType, void *payload, ImageH imageH)
 {
 	float2 prevWidgetPos = ui.widgetStack[ui.widgetStackSize].pos;
 	float2 prevWidgetSize = ui.widgetStack[ui.widgetStackSize].size;
 	const bool clicked = UI_IsMouseClick(ui) && UI_WidgetHovered(ui, prevWidgetPos, prevWidgetSize);
 	if (clicked)
 	{
-		LOG(Info, "Begin drag and drop!\n");
+		ui.dragAndDrop.payloadType = payloadType;
+		ui.dragAndDrop.payload = payload;
+		ui.dragAndDrop.imageH = imageH;
 	}
+}
+
+bool UI_DragAndDropTarget(UI &ui, const char *payloadType)
+{
+	// TODO: Check if there was a drop event on the previous widget
+	return false;
+}
+
+// If a drop was lost we will likely treat it globally (e.g. putting someting on the editor scene) anyways
+bool UI_DragAndDropTargetLost(UI &ui, const char *payloadType)
+{
+	if ( UI_IsMouseIdle(ui) && !ui.hoveredWindow && ui.dragAndDrop.payload && StrEq(ui.dragAndDrop.payloadType, payloadType) )
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void * UI_DragAndDropPayload(UI &ui)
+{
+	return ui.dragAndDrop.payload;
 }
 
 // TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
@@ -2439,6 +2472,27 @@ void UI_BeginFrame(UI &ui)
 
 void UI_EndFrame(UI &ui)
 {
+	// Draw drag and drop item
+	if ( ui.dragAndDrop.payload )
+	{
+		const char *idString = "$draganddrop";
+		const u32 windowId = UI_MakeID(ui, idString);
+		UIWindow &window = UI_FindOrCreateWindow(ui, windowId, idString);
+		window.size = float2{ 32, 32 };
+		window.pos.x = UI_MousePos(ui).x - 0.5f * window.size.x;
+		window.pos.y = UI_MousePos(ui).y - 0.5f * window.size.y;
+		UI_RaiseWindow(ui, window);
+
+		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
+		UI_Image(ui, ui.dragAndDrop.imageH, window.size);
+		UI_EndWindow(ui);
+
+		if ( UI_IsMouseIdle(ui) )
+		{
+			ui.dragAndDrop.payload = 0;
+		}
+	}
+
 	// Create an array of draw list indices
 	u32 sortedDrawListIndices[ARRAY_COUNT(ui.drawLists)];
 	for (u32 i = 0; i < ui.drawListCount; ++i)

@@ -524,11 +524,6 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	static char selectedName[MAX_PATH_LENGTH] = {};
 	FilePath path;
 
-	bool shouldReloadDirStructure = true;
-	if (shouldReloadDirStructure)
-	{
-	}
-
 	FileNode *node = editor.root;
 	while (node)
 	{
@@ -584,7 +579,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			}
 		}
 
-		UI_BeginDragAndDropSource(ui);
+		UI_DragAndDropSource(ui, "FileNode", node, icon );
 
 		node = node->next;
 	}
@@ -693,6 +688,16 @@ static void EditorUpdateUI_Tilesets(Engine &engine)
 	UI_EndWindow(ui);
 }
 
+static void EditorUpdateUI_DragAndDropLost(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+	if ( UI_DragAndDropTargetLost(ui, "FileNode") )
+	{
+		FileNode *node = (FileNode*) UI_DragAndDropPayload(ui);
+		LOG(Info, "Asset dropped: %s\n", node->filename);
+	}
+}
+
 static void EditorUpdateUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -721,6 +726,8 @@ static void EditorUpdateUI(Engine &engine)
 	{
 		EditorUpdateUI_Tilesets(engine);
 	}
+
+	EditorUpdateUI_DragAndDropLost(engine);
 }
 
 #if PLATFORM_ANDROID
