@@ -1901,6 +1901,12 @@ float3 Float3(float x, float y, float z)
 	return res;
 }
 
+float3 Float3(float2 xy, f32 z)
+{
+	const float3 res = {xy.x, xy.y, z};
+	return res;
+}
+
 float4 Float4(float3 xyz, f32 w)
 {
 	const float4 res = { xyz.x, xyz.y, xyz.z, w };

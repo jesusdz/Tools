@@ -6,6 +6,11 @@
 
 // Types
 
+enum AssetFlags
+{
+	AssetFlag_Builtin = 1 << 0,
+};
+
 enum ShaderType
 {
 	ShaderTypeVertex,
@@ -26,6 +31,7 @@ struct TextureDesc
 	const char *name;
 	const char *filename;
 	u8 mipmap;
+	AssetFlags flags;
 };
 
 struct MaterialDesc
@@ -34,6 +40,7 @@ struct MaterialDesc
 	const char *textureName;
 	const char *pipelineName;
 	float uvScale;
+	AssetFlags flags;
 };
 
 enum GeometryType
@@ -41,6 +48,7 @@ enum GeometryType
 	GeometryTypeCube,
 	GeometryTypePlane,
 	GeometryTypeScreen,
+	GeometryTypeQuad,
 };
 
 struct EntityDesc

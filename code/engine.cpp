@@ -48,12 +48,9 @@ struct ImagePixels
 #include "audio.h"
 #include "game.h"
 
-#define MAX_TEXTURES 8 
-#define MAX_MATERIALS 4
-#define MAX_ENTITIES 32
-#define MAX_GLOBAL_BINDINGS 8
-#define MAX_MATERIAL_BINDINGS 4
-#define MAX_COMPUTE_BINDINGS 4
+#define MAX_TEXTURES 4092
+#define MAX_MATERIALS 4092
+#define MAX_ENTITIES 4092
 
 #define INVALID_HANDLE -1
 
@@ -171,6 +168,8 @@ struct Graphics
 	BufferChunk cubeIndices;
 	BufferChunk planeVertices;
 	BufferChunk planeIndices;
+	BufferChunk quadVertices;
+	BufferChunk quadIndices;
 	BufferChunk screenTriangleVertices;
 	BufferChunk screenTriangleIndices;
 	BufferChunk tileGridVertices;
@@ -206,6 +205,7 @@ struct Graphics
 	Material materials[MAX_MATERIALS];
 	MaterialDesc materialDescs[MAX_MATERIALS];
 	HandleManager materialHandles;
+	bool shouldUpdateMaterials;
 
 	BindGroupAllocator globalBindGroupAllocator;
 	BindGroupAllocator materialBindGroupAllocator;
@@ -223,12 +223,15 @@ struct Graphics
 
 	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
 
-	TextureH skyTextureH;
-
 	ImageH whiteImageH;
 	ImageH pinkImageH;
 	ImageH grayImageH;
 	ImageH blackImageH;
+
+	TextureH skyTextureH;
+	TextureH defaultTexture;
+
+	MaterialH defaultMaterial;
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
@@ -421,6 +424,17 @@ static const Index cubeIndices[] = {
 	12, 13, 14, 14, 15, 12, // left
 	16, 17, 18, 18, 19, 16, // top
 	20, 21, 22, 22, 23, 20, // bottom
+};
+
+static const Vertex quadVertices[] = {
+	{{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+	{{-0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+	{{ 0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+	{{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+};
+
+static const Index quadIndices[] = {
+	0, 1, 2, 2, 3, 0,
 };
 
 static const Vertex planeVertices[] = {
@@ -1053,6 +1067,20 @@ TextureH CreateTexture(Graphics &gfx)
 	return textureHandle;
 }
 
+TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc, ImageH imageH)
+{
+	TextureH textureHandle = CreateTexture(gfx);
+
+	gfx.textureDescs[textureHandle.idx] = desc;
+
+	Texture &texture = GetTexture(gfx, textureHandle);
+	texture.name = desc.name;
+	texture.image = imageH;
+	texture.desc = desc;
+
+	return textureHandle;
+}
+
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	TextureH textureHandle = InvalidHandle;
@@ -1066,15 +1094,9 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 
 		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
-		textureHandle = CreateTexture(gfx);
-
-		gfx.textureDescs[textureHandle.idx] = desc;
+		textureHandle = CreateTexture(gfx, desc, imageHandle);
 
 		Texture &texture = GetTexture(gfx, textureHandle);
-		texture.name = desc.name;
-		texture.image = imageHandle;
-		texture.desc = desc;
-
 		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 	}
 
@@ -1160,7 +1182,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 	const TextureDesc &desc = texture.desc;
 
 	// TODO(jesus): Textures loaded from bin data file do not have descriptor...
-	if ( desc.name == nullptr ) { return; };
+	if ( desc.filename == nullptr ) { return; };
 
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
@@ -1229,6 +1251,7 @@ MaterialH CreateMaterial(Graphics &gfx, const MaterialDesc &desc)
 	material.bufferOffset = materialHandle.idx * AlignUp(sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset);
 
 	gfx.materialDescs[materialHandle.idx] = desc;
+	gfx.shouldUpdateMaterials = true;
 
 	CreateMaterialBindGroup(gfx, materialHandle);
 
@@ -1357,7 +1380,7 @@ const TileAtlas &GetTileAtlas(const Engine &engine)
 	return tileAtlas;
 }
 
-int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
+float2 GetWorld2DCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
 {
 	const Window &window = *sPlatform->window;
 	const uint2 windowSize = { window.width, window.height };
@@ -1366,6 +1389,12 @@ int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoor
 	const f32 aspect = (f32)windowSize.x / (f32)windowSize.y;
 	const float2 scale = {camera.height * aspect, camera.height};
 	const float2 worldCoords = scale * ndcCoords + float2{camera.position.x, camera.position.y};
+	return worldCoords;
+}
+
+int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
+{
+	const float2 worldCoords = GetWorld2DCoord(engine, camera, pixelCoord);
 	const int2 res = {(i32)Floor(worldCoords.x), (i32)Floor(worldCoords.y)};
 	//LOG(Debug, "Tile coord: (%f, %f)\n", uvCoords.x, uvCoords.y);
 	//LOG(Debug, "Tile coord: (%d, %d)\n", res.x, res.y);
@@ -1402,6 +1431,8 @@ BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
 {
 	if ( geometryType == GeometryTypeCube) {
 		return gfx.cubeVertices;
+	} else if ( geometryType == GeometryTypeQuad ) {
+		return gfx.quadVertices;
 	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeVertices;
 	} else {
@@ -1413,6 +1444,8 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 {
 	if ( geometryType == GeometryTypeCube) {
 		return gfx.cubeIndices;
+	} else if ( geometryType == GeometryTypeQuad ) {
+		return gfx.quadIndices;
 	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeIndices;
 	} else {
@@ -1715,6 +1748,7 @@ void LinkHandles(Graphics &gfx)
 {
 	// Textures
 	gfx.skyTextureH = FindTextureHandle(gfx, "tex_sky");
+	gfx.defaultTexture = FindTextureHandle(gfx, "tex_default");
 
 	// Graphics pipelines
 	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
@@ -1842,6 +1876,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.cubeIndices = PushData(gfx, commandList, gfx.globalIndexArena, cubeIndices, sizeof(cubeIndices));
 	gfx.planeVertices = PushData(gfx, commandList, gfx.globalVertexArena, planeVertices, sizeof(planeVertices));
 	gfx.planeIndices = PushData(gfx, commandList, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
+	gfx.quadVertices = PushData(gfx, commandList, gfx.globalVertexArena, quadVertices, sizeof(quadVertices));
+	gfx.quadIndices = PushData(gfx, commandList, gfx.globalIndexArena, quadIndices, sizeof(quadIndices));
 	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
 	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
 
@@ -1955,6 +1991,25 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.grayImageH = EngineCreateImage(gfx, "grayImage", 1, 1, 4, false, grayImagePixels);
 	const byte blackImagePixels[] = { 0, 0, 0, 0 };
 	gfx.blackImageH = EngineCreateImage(gfx, "blackImage", 1, 1, 4, false, blackImagePixels);
+
+	// Builtin texture
+	const TextureDesc textureDesc = {
+		.name = "tex_default",
+		.filename = 0,
+		.mipmap = 0,
+		.flags = AssetFlag_Builtin,
+	};
+	gfx.defaultTexture = CreateTexture(gfx, textureDesc, gfx.pinkImageH);
+
+	// Builtin material
+	const MaterialDesc materialDesc = {
+		.name = "mat_default",
+		.textureName = "tex_default",
+		.pipelineName = "pipeline_shading",
+		.uvScale = 1.0,
+		.flags = AssetFlag_Builtin,
+	};
+	gfx.defaultMaterial = CreateMaterial(gfx, materialDesc);
 
 	// Samplers
 	const SamplerDesc pointSamplerDesc = {
@@ -2139,17 +2194,25 @@ void CleanupGraphics(Graphics &gfx)
 AssetDescriptors GetAssetDescriptors(Engine &engine)
 {
 	static TextureDesc textureDescs[MAX_TEXTURES];
-	const u32 textureCount = engine.gfx.textureHandles.handleCount;
-	for ( u32 i = 0; i < textureCount; ++i) {
+	const u32 maxTextureCount = engine.gfx.textureHandles.handleCount;
+	u32 textureCount = 0;
+	for ( u32 i = 0; i < maxTextureCount; ++i) {
 		Handle handle = engine.gfx.textureHandles.handles[i];
-		textureDescs[i] = GetTextureDesc(engine.gfx, handle);
+		textureDescs[textureCount] = GetTextureDesc(engine.gfx, handle);
+		if ( !( textureDescs[textureCount].flags & AssetFlag_Builtin ) ) {
+			textureCount++;
+		}
 	}
 
 	static MaterialDesc materialDescs[MAX_MATERIALS];
-	const u32 materialCount = engine.gfx.materialHandles.handleCount;
-	for ( u32 i = 0; i < materialCount; ++i) {
+	const u32 maxMaterialCount = engine.gfx.materialHandles.handleCount;
+	u32 materialCount = 0;
+	for ( u32 i = 0; i < maxMaterialCount; ++i) {
 		Handle handle = engine.gfx.materialHandles.handles[i];
-		materialDescs[i] = GetMaterialDesc(engine.gfx, handle);
+		materialDescs[materialCount] = GetMaterialDesc(engine.gfx, handle);
+		if ( !( materialDescs[materialCount].flags & AssetFlag_Builtin ) ) {
+			materialCount++;
+		}
 	}
 
 	static EntityDesc entityDescs[MAX_ENTITIES];
@@ -2656,7 +2719,10 @@ bool RenderGraphics(Engine &engine)
 	}
 
 	// Sun matrices
-	const float3 sunDirUnnormalized = Float3(-2.0f, 2.0f, 0.0f);
+	const float3 sunDirUnnormalized =
+		(camera.projectionType == ProjectionPerspective) ?
+		Float3(-2.0f, 2.0f, -1.0f) : Float3(0.0f, 0.0f, -1.0f);
+
 	const float4x4 sunRotationMatrix = Rotate(float3{0.0, 1.0, 0.0}, 180.0f);
 	const float3 sunDir = Normalize(MulVector(sunRotationMatrix, sunDirUnnormalized));
 	const float3 sunPos = Float3(0.0f, 0.0f, 0.0f);
@@ -2776,6 +2842,13 @@ bool RenderGraphics(Engine &engine)
 		const Entity &entity = GetEntity(scene, handle);
 		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
 		entities[handle.idx].world = worldMatrix;
+	}
+
+	// Update materials
+	if (gfx.shouldUpdateMaterials)
+	{
+		gfx.shouldUpdateMaterials = false;
+		UploadMaterialData(gfx);
 	}
 
 	// Update bind groups

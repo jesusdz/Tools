@@ -200,6 +200,7 @@ static const char *GeometryTypeToString(GeometryType type)
 	{
 		case GeometryTypeCube: return "GeometryTypeCube";
 		case GeometryTypePlane: return "GeometryTypePlane";
+		case GeometryTypeQuad: return "GeometryTypeQuad";
 		case GeometryTypeScreen: return "GeometryTypeScreen";
 		default:;
 	}
@@ -210,6 +211,7 @@ static GeometryType StrToGeometryType(String str)
 {
 	static const String sGeometryTypeCube = MakeString("GeometryTypeCube");
 	static const String sGeometryTypePlane = MakeString("GeometryTypePlane");
+	static const String sGeometryTypeQuad = MakeString("GeometryTypeQuad");
 	static const String sGeometryTypeScreen = MakeString("GeometryTypeScreen");
 	if ( StrEq(str, sGeometryTypeCube) ) return GeometryTypeCube;
 	else if ( StrEq(str, sGeometryTypePlane) ) return GeometryTypePlane;

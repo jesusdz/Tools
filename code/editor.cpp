@@ -584,6 +584,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 						.name = "inspected_image",
 						.filename = node->filename,
 						.mipmap = true,
+						.flags = AssetFlag_Builtin,
 					};
 					inspector.textureH = CreateTexture(gfx, desc);
 				}
@@ -616,6 +617,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	UI_SetNextWindowAnchor(ui, UiAnchorTopRight, displacement);
 
 	UI_BeginWindow(ui, "Inspector");
+
+	UI_Label(ui, "File: %s", inspector.inspectedFilename);
 
 	UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
 
@@ -703,6 +706,21 @@ static void EditorUpdateUI_Tilesets(Engine &engine)
 	UI_EndWindow(ui);
 }
 
+static const char * NameFromFilename(const char *name)
+{
+	FilePath path = {};
+	StrCopy(path.str, name);
+	char *ptr = path.str;
+	while (*ptr) {
+		if (*ptr == '.') {
+			*ptr = '_';
+		}
+		ptr++;
+	}
+	const char *outName = InternString(path.str);
+	return outName;
+}
+
 static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -712,6 +730,47 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 		if (node->type == FileNodeType_Image)
 		{
 			LOG(Info, "Image asset dropped: %s\n", node->filename);
+
+			const Mouse &mouse = sPlatform->window->mouse;
+			const int2 mousePos = { mouse.x, mouse.y };
+
+			if (engine.mode == EngineModeEditor2D)
+			{
+				const Camera &camera = engine.editor.camera[ProjectionOrthographic];
+				const float2 worldPos = GetWorld2DCoord(engine, camera, mousePos);
+				LOG(Info, "World x: %f, y: %f\n", worldPos.x, worldPos.y);
+
+				const char *name = NameFromFilename(node->filename);
+
+				const TextureDesc textureDesc = {
+					.name = name,
+					.filename = node->filename,
+					.mipmap = true,
+				};
+				TextureH textureH = CreateTexture(engine.gfx, textureDesc);
+
+				const MaterialDesc materialDesc = {
+					.name = name,
+					.textureName = name,
+					.pipelineName = "pipeline_shading",
+					.uvScale = 1.0,
+				};
+				MaterialH materialH = CreateMaterial(engine.gfx, materialDesc);
+
+				const EntityDesc entityDesc = {
+					.name = "entity",
+					.materialName = name,
+					.pos = Float3(worldPos, 0.0f),
+					.scale = 1.0,
+					.geometryType = GeometryTypeQuad,
+				};
+
+				CreateEntity(engine, entityDesc);
+			}
+			else
+			{
+				LOG(Warning, "Drag and Drop not implemented in 3D mode.\n");
+			}
 		}
 	}
 }
