@@ -204,10 +204,10 @@ struct UI
 	u32 vertexCount;
 	u32 vertexCountLimit;
 
-	UIDrawList drawLists[32];
+	UIDrawList drawLists[128];
 	u32 drawListCount;
 
-	u32 drawListStack[32];
+	u32 drawListStack[128];
 	u32 drawListStackSize;
 
 	ImageH fontAtlasH;
