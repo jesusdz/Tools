@@ -83,6 +83,7 @@ struct Texture
 {
 	const char *name;
 	ImageH image;
+	uint2 size;
 	TextureDesc desc;
 	u64 ts;
 };
@@ -1078,6 +1079,9 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc, ImageH imageH)
 	texture.image = imageH;
 	texture.desc = desc;
 
+	const Image &image = GetImageConst(gfx.device, imageH);
+	texture.size = { image.width, image.height };
+
 	return textureHandle;
 }
 
@@ -1091,7 +1095,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 	Arena scratch = MakeSubArena(FrameArena, "Scratch - CreateTexture");
 	if ( ReadImagePixels(scratch, imagePath.str, img) )
 	{
-
 		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
 		textureHandle = CreateTexture(gfx, desc, imageHandle);
@@ -1157,17 +1160,16 @@ TextureH FindTextureHandle(Graphics &gfx, const char *name)
 	return handle;
 }
 
-void RemoveTexture(Graphics &gfx, TextureH textureH, bool freeHandle = true)
+void RemoveTexture(Graphics &gfx, TextureH textureH)
 {
 	if (IsValidHandle(gfx.textureHandles, textureH))
 	{
 		Texture &texture = GetTexture(gfx, textureH);
+
 		DestroyImageH(gfx.device, texture.image);
 		texture = {};
 
-		if (freeHandle) {
-			FreeHandle(gfx.textureHandles, textureH);
-		}
+		FreeHandle(gfx.textureHandles, textureH);
 
 		gfx.shouldUpdateMaterialBindGroups = true;
 	}
@@ -1289,14 +1291,14 @@ MaterialH FindMaterialHandle(Graphics &gfx, const char *name)
 	return handle;
 }
 
-void RemoveMaterial(Graphics &gfx, MaterialH materialH, bool freeHandle = true)
+void RemoveMaterial(Graphics &gfx, MaterialH materialH)
 {
 	Material &material = GetMaterial(gfx, materialH);
+	const MaterialDesc &desc = GetMaterialDesc(gfx, materialH);
+
 	material = {};
 
-	if (freeHandle) {
-		FreeHandle(gfx.materialHandles, materialH);
-	}
+	FreeHandle(gfx.materialHandles, materialH);
 
 	// TODO: Do we need this here? I think we don't as we are removing, not modifying
 	//gfx.shouldUpdateMaterialBindGroups = true;
@@ -1511,14 +1513,12 @@ void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 	CreateEntity(engine, entityDesc);
 }
 
-void RemoveEntity(Engine &engine, Handle handle, bool freeHandle = true)
+void RemoveEntity(Engine &engine, Handle handle)
 {
 	Entity &entity = GetEntity(engine.scene, handle);
 	entity = {};
 
-	if (freeHandle) {
-		FreeHandle(engine.scene.entityHandles, handle);
-	}
+	FreeHandle(engine.scene.entityHandles, handle);
 }
 
 
@@ -2369,25 +2369,31 @@ void LoadSceneFromBin(Engine &engine)
 void CleanTexture(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveTexture(engine.gfx, handle, false);
+	const TextureDesc &desc = GetTextureDesc( engine.gfx, handle);
+	if ( !(desc.flags & AssetFlag_Builtin) ) {
+		RemoveTexture(engine.gfx, handle);
+	}
 }
 
 void CleanMaterial(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveMaterial(engine.gfx, handle, false);
+	const MaterialDesc &desc = GetMaterialDesc( engine.gfx, handle);
+	if ( !(desc.flags & AssetFlag_Builtin) ) {
+		RemoveMaterial(engine.gfx, handle);
+	}
 }
 
 void CleanEntity(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveEntity(engine, handle, false);
+	RemoveEntity(engine, handle);
 }
 
 void CleanAudioClip(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
-	RemoveAudioClip(engine, handle, false);
+	RemoveAudioClip(engine, handle);
 }
 
 void CleanScene(Engine &engine)
@@ -2396,17 +2402,16 @@ void CleanScene(Engine &engine)
 
 	if (PopDataArenaState(engine))
 	{
-		ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
-		FreeAllHandles(engine.gfx.textureHandles);
-		ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
-		FreeAllHandles(engine.gfx.materialHandles);
-		ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
-		FreeAllHandles(engine.scene.entityHandles);
-		ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
-		FreeAllHandles(engine.audio.clipHandles);
-		CloseAssets(engine.assets);
-		ResetBindGroupAllocator( engine.gfx.device, engine.gfx.materialBindGroupAllocator );
 	}
+
+	ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
+	ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
+	ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
+	ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
+	CloseAssets(engine.assets);
+
+	engine.gfx.shouldUpdateMaterials = true;
+	engine.gfx.shouldUpdateMaterialBindGroups = true;
 }
 
 #if USE_DATA_BUILD

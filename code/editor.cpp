@@ -757,11 +757,15 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				};
 				MaterialH materialH = CreateMaterial(engine.gfx, materialDesc);
 
+				const Texture &texture = GetTexture(engine.gfx, textureH);
+				constexpr float pixelsPerGridTile = 32;
+				const float scale = texture.size.x / pixelsPerGridTile;
+
 				const EntityDesc entityDesc = {
 					.name = "entity",
 					.materialName = name,
 					.pos = Float3(worldPos, 0.0f),
-					.scale = 1.0,
+					.scale = scale,
 					.geometryType = GeometryTypeQuad,
 				};
 
@@ -1223,8 +1227,6 @@ void EditorUpdate(Engine &engine)
 	}
 
 	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);
-
-	EditorProcessCommands(engine, FrameArena);
 }
 
 void EditorRender(Engine &engine, CommandList &commandList)
@@ -1302,5 +1304,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 void EditorPostRender(Engine &engine)
 {
 	EditorEndSceneEditing(engine);
+
+	EditorProcessCommands(engine, FrameArena);
 }
 

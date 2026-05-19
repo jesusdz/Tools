@@ -127,7 +127,7 @@ AudioClip &GetAudioClip(Audio &audio, Handle handle);
 AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle);
 Handle CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);
 Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc);
-void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle = true);
+void RemoveAudioClip(Engine &engine, AudioClipH handle);
 u32 PlayAudioClip(Engine &engine, u32 audioClipIndex);
 bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex);
 bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex);

@@ -125,11 +125,12 @@ Handle FindHandle(const HandleManager &manager, const HandleFinder &finder)
 
 void ForAllHandles(const HandleManager &manager, ProcessHandleFunc *processHandle, void *data)
 {
-	for (u16 i = 0; i < manager.handleCount; ++i)
+	// In reverse order we don't have to worry if FreeHandle is called by processHandle
+	u16 handleCount = manager.handleCount;
+	for (i32 i = handleCount - 1; i >= 0; --i)
 	{
-		u16 index = manager.indices[i];
-		const Handle handle = manager.handles[index];
-		processHandle(handle, data);
+		i16 index = manager.indices[i];
+		processHandle(manager.handles[index], data);
 	}
 }
 

@@ -392,14 +392,12 @@ Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 	return handle;
 }
 
-void RemoveAudioClip(Engine &engine, AudioClipH handle, bool freeHandle)
+void RemoveAudioClip(Engine &engine, AudioClipH handle)
 {
 	AudioClip &clip = GetAudioClip(engine.audio, handle);
 	clip = {};
 
-	if (freeHandle) {
-		FreeHandle(engine.audio.clipHandles, handle);
-	}
+	FreeHandle(engine.audio.clipHandles, handle);
 }
 
 #define INVALID_AUDIO_CLIP U32_MAX
