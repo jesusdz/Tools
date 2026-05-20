@@ -349,7 +349,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 	{
 		static TextureH selectedHandle = {};
 		constexpr u32 imagesPerRow = 3;
-		UI_BeginLayout(ui, UiLayoutHorizontal);
+		UI_BeginLayout(ui, UiLayoutItemBrowser);
 		for (u32 i = 0; i < gfx.textureHandles.handleCount; ++i)
 		{
 			const TextureH handle = GetHandleAt(gfx.textureHandles, i);
@@ -922,11 +922,54 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 	speed = Mul(speed, 0.9);
 }
 
-static void EditorUpdateCamera2D(const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateInteraction2D(Engine &engine, const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	const Mouse &mouse = window.mouse;
 
-	// Interaction with the mouse
+	// Object transformations
+	if ( handleInput && engine.editor.selectedEntity != U32_MAX )
+	{
+		Entity &entity = GetEntityAt(engine.scene, engine.editor.selectedEntity);
+
+		const int2 mousePos = {mouse.x, mouse.y};
+		const float2 mouseWorldPos = GetWorld2DCoord(engine, camera, mousePos);
+
+		static bool isTranslating = false;
+		static float2 initialWorldOffset = {};
+		static float2 initialWorldPos = {};
+		if (KeyPress(window.keyboard, K_T)) {
+			isTranslating = true;
+			initialWorldOffset = float2{entity.position.x, entity.position.y} - mouseWorldPos;
+			initialWorldPos = float2{entity.position.x, entity.position.y};
+		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
+			entity.position = Float3(initialWorldPos, entity.position.z);
+			isTranslating = false;
+		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
+			isTranslating = false;
+		} else if ( isTranslating ) {
+			entity.position = Float3(mouseWorldPos + initialWorldOffset, entity.position.z);
+		}
+
+		static bool isScaling = false;
+		static f32 initialScale = 0.0;
+		if (KeyPress(window.keyboard, K_E)) {
+			isScaling = true;
+			initialWorldOffset = float2{entity.position.x, entity.position.y} - mouseWorldPos;
+			initialScale = entity.scale;
+		} else if (isScaling && MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
+			entity.scale = initialScale;
+			isScaling = false;
+		} else if (isScaling && MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
+			isScaling = false;
+		} else if (isScaling) {
+			const float2 worldOffset = float2{entity.position.x, entity.position.y} - mouseWorldPos;
+			const f32 initialOffsetLen = Length(initialWorldOffset);
+			const f32 offsetLen = Length(worldOffset);
+			entity.scale = initialScale * offsetLen / initialOffsetLen;
+		}
+	}
+
+	// Camera navigation
 	if ( handleInput )
 	{
 		static int2 clickPos = {};
@@ -1231,7 +1274,7 @@ void EditorUpdate(Engine &engine)
 	}
 	else if (engine.mode == EngineModeEditor2D)
 	{
-		EditorUpdateCamera2D(*platform.window, *platform.gamepad, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
+		EditorUpdateInteraction2D(engine, *platform.window, *platform.gamepad, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}
 
 	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);

@@ -2079,6 +2079,12 @@ float3 Negate(const float3 &v)
 	return res;
 }
 
+f32 Dot(const float2 &a, const float2 &b)
+{
+	const f32 res = a.x * b.x + a.y * b.y;
+	return res;
+}
+
 f32 Dot(const float3 &a, const float3 &b)
 {
 	const f32 res = a.x * b.x + a.y * b.y + a.z * b.z;
@@ -2088,6 +2094,18 @@ f32 Dot(const float3 &a, const float3 &b)
 f32 Dot(const float4 &a, const float4 &b)
 {
 	const f32 res = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return res;
+}
+
+f32 Length2(const float2 &v)
+{
+	const f32 res = Dot(v, v);
+	return res;
+}
+
+f32 Length(const float2 &v)
+{
+	const f32 res = Sqrt(Length2(v));
 	return res;
 }
 
