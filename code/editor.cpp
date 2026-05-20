@@ -948,7 +948,15 @@ static void EditorUpdateCamera2D(const Window &window, const Gamepad &gamepad, C
 		}
 		if (mouse.wy != 0.0)
 		{
+			const float ar = (f32) window.width / window.height;
+			const float heightPrev = camera.height;
 			camera.height = Max(2.0f, camera.height + mouse.wy);
+			const float heightDiff = heightPrev - camera.height;
+			const float widthDiff = ar * heightDiff;
+			const float xScale = 2.0f * ( (f32) mouse.x / window.width ) - 1.0f;
+			const float yScale = 1.0 - 2.0f * ( (f32) mouse.y / window.height );
+			camera.position.x += widthDiff * xScale;
+			camera.position.y += heightDiff * yScale;
 		}
 	}
 
