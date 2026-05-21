@@ -2329,9 +2329,21 @@ i32 Floor(f32 value)
 	return static_cast<i32>(res);
 }
 
+float2 Floor(float2 value)
+{
+	const float2 res = float2{(f32)Floor(value.x), (f32)Floor(value.y)};
+	return res;
+}
+
 f32 Log2(f32 value)
 {
 	const f32 res = ::log2f(value);
+	return res;
+}
+
+f32 Mod(f32 value, f32 incr)
+{
+	const f32 res = value - Floor(value);
 	return res;
 }
 

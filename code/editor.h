@@ -98,7 +98,7 @@ struct Editor
 	bool showGrid;
 
 	bool selectEntity;
-	u32 selectedEntity;
+	Handle selectedEntity;
 
 	bool setGridTile;
 	int2 setGridTileCoord;

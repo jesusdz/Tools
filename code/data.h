@@ -49,6 +49,7 @@ enum GeometryType
 	GeometryTypePlane,
 	GeometryTypeScreen,
 	GeometryTypeQuad,
+	GeometryTypeSprite,
 };
 
 struct EntityDesc

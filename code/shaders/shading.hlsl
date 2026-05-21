@@ -23,18 +23,23 @@ struct Interpolators
 typedef Interpolators VertexOutput;
 typedef Interpolators PixelInput;
 
-VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
+uint EntityId(uint entityHandle)
+{
+	return entityHandle>>16;
+}
+
+VertexOutput VSMain(VertexInput IN, uint entityHandle : SV_InstanceID)
 {
 	VertexOutput OUT;
-	uint entityId = instanceID;
-	float4x4 worldMatrix = entities.Load<SEntity>(entityId * sizeof(SEntity)).world;
+	uint entityIndex = EntityId(entityHandle);
+	float4x4 worldMatrix = entities.Load<SEntity>(entityIndex * sizeof(SEntity)).world;
 	OUT.positionWs = mul(worldMatrix, float4(IN.position, 1.0f));
 	OUT.position = mul(globals.cameraProj, mul(globals.cameraView, OUT.positionWs));
 	OUT.normalWs = mul( worldMatrix, float4( IN.normal, 0.0 ) ).xyz;
 	OUT.texCoord = IN.texCoord * material.uvScale;
 	OUT.shadowmapCoord = mul(globals.sunProj, mul(globals.sunView, OUT.positionWs));
 #if USE_ENTITY_SELECTION
-	OUT.isSelected = entityId == globals.selectedEntity;
+	OUT.isSelected = entityHandle == globals.selectedEntity;
 #endif
 	return OUT;
 }

@@ -270,15 +270,16 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 	{
 		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 		{
+			Handle handle = GetEntityHandleAt(scene, i);
 			Entity &entity = GetEntityAt(scene, i);
-			if ( UI_Radio(ui, entity.name, editor.selectedEntity == i) )
+			if ( UI_Radio(ui, entity.name, editor.selectedEntity == handle) )
 			{
-				editor.selectedEntity = i;
+				editor.selectedEntity = handle;
 			}
 		}
 		if (UI_Button(ui, "Unselect"))
 		{
-			editor.selectedEntity = U32_MAX;
+			editor.selectedEntity = InvalidHandle;
 		}
 		UI_BeginLayout(ui, UiLayoutHorizontal);
 		if ( UI_Button(ui, "Load TXT") )
@@ -661,7 +662,13 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	{
 		UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
 
-		Entity &entity = GetEntityAt(engine.scene, engine.editor.selectedEntity);
+		Entity &entity = GetEntity(engine.scene, engine.editor.selectedEntity);
+
+		static char name[64];
+		StrCopy(name, entity.name);
+		UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+		entity.name = InternString(name);
+
 		UI_InputFloat3(ui, "Position", &entity.position);
 		UI_InputFloat(ui, "Scale", &entity.scale);
 		UI_Checkbox(ui, "Visible", &entity.visible);
@@ -779,7 +786,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 					.materialName = name,
 					.pos = Float3(worldPos, 0.0f),
 					.scale = scale,
-					.geometryType = GeometryTypeQuad,
+					.geometryType = GeometryTypeSprite,
 				};
 
 				CreateEntity(engine, entityDesc);
@@ -939,28 +946,34 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 {
 	const Mouse &mouse = window.mouse;
 
+	Handle selectedEntity = engine.editor.selectedEntity;
+
 	// Object transformations
-	if ( handleInput && engine.editor.selectedEntity != U32_MAX )
+	if ( handleInput && selectedEntity != InvalidHandle )
 	{
-		Entity &entity = GetEntityAt(engine.scene, engine.editor.selectedEntity);
+		Entity &entity = GetEntity(engine.scene, selectedEntity);
 
 		const int2 mousePos = {mouse.x, mouse.y};
 		const float2 mouseWorldPos = GetWorld2DCoord(engine, camera, mousePos);
+
+		constexpr int pixelIncrements = 1;
 
 		static bool isTranslating = false;
 		static float2 initialWorldOffset = {};
 		static float2 initialWorldPos = {};
 		if (KeyPress(window.keyboard, K_T)) {
 			isTranslating = true;
-			initialWorldOffset = float2{entity.position.x, entity.position.y} - mouseWorldPos;
 			initialWorldPos = float2{entity.position.x, entity.position.y};
+			initialWorldOffset = Floor(initialWorldPos) - Floor(mouseWorldPos);
 		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
 			entity.position = Float3(initialWorldPos, entity.position.z);
 			isTranslating = false;
 		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
 			isTranslating = false;
 		} else if ( isTranslating ) {
-			entity.position = Float3(mouseWorldPos + initialWorldOffset, entity.position.z);
+			const f32 incr = 0.5;
+			const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
+			entity.position = Float3(finalPos, entity.position.z);
 		}
 
 		static bool isScaling = false;
@@ -979,6 +992,23 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 			const f32 initialOffsetLen = Length(initialWorldOffset);
 			const f32 offsetLen = Length(worldOffset);
 			entity.scale = initialScale * offsetLen / initialOffsetLen;
+		}
+
+		if (KeyPress(window.keyboard, K_DELETE))
+		{
+			RemoveEntity(engine, selectedEntity);
+			engine.editor.selectedEntity = InvalidHandle;
+			engine.editor.inspector.inspectedType = EditorInspectedType_None;
+		}
+
+		if (KeyPressed(window.keyboard, K_SHIFT))
+		{
+			handleInput = false; // K_SHIFT is for commands, so abort camera translation
+
+			if (KeyPress(window.keyboard, K_D))
+			{
+				DuplicateEntity(engine, selectedEntity);
+			}
 		}
 	}
 
@@ -1099,10 +1129,10 @@ static void EditorEndSceneEditing(Engine &engine)
 	if ( editor.selectEntity )
 	{
 		WaitDeviceIdle(engine.gfx.device);
-		editor.selectedEntity = *(u32*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
+		editor.selectedEntity = *(Handle*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
 		editor.selectEntity = false;
 
-		if (editor.selectedEntity != U32_MAX)
+		if (editor.selectedEntity != InvalidHandle)
 		{
 			editor.inspector.inspectedType = EditorInspectedType_Entity;
 		}
@@ -1234,7 +1264,7 @@ void EditorInitialize(Engine &engine)
 	editor.camera[ProjectionOrthographic].orientation = {};
 	editor.camera[ProjectionOrthographic].height = 8.0;
 
-	editor.selectedEntity = U32_MAX;
+	editor.selectedEntity = InvalidHandle;
 
 	editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
 	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
@@ -1316,7 +1346,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 		BeginDebugGroup(commandList, "Entity selection", ColorBlack);
 
 		{ // Draw entity IDs
-			SetClearColorU32(commandList, 0, U32_MAX);
+			SetClearColorU32(commandList, 0, InvalidHandle.num);
 
 			BeginRenderPass(commandList, gfx.renderTargets.idFramebuffer );
 
@@ -1331,6 +1361,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 
 			for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
 			{
+				Handle handle = GetEntityHandleAt(scene, entityIndex);
 				const Entity &entity = GetEntityAt(scene, entityIndex);
 
 				if ( !entity.visible || entity.culled ) continue;
@@ -1339,7 +1370,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 				const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 				const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 				const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, entityIndex);
+				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
 			}
 
 			EndRenderPass(commandList);

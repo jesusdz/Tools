@@ -1,10 +1,13 @@
 #ifndef HANDLE_MANAGER_H
 #define HANDLE_MANAGER_H
 
-struct Handle
+union Handle
 {
+	struct {
 	u16 gen;
 	u16 idx;
+	};
+	u32 num;
 };
 
 constexpr Handle InvalidHandle = {};

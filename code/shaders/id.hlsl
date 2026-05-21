@@ -11,25 +11,30 @@ struct Interpolators
 {
 	float4 position : SV_Position;
 	float4 positionWs : POSITION0;
-	nointerpolation uint entityId : COLOR0;
+	nointerpolation uint entityHandle : COLOR0;
 };
 
 typedef Interpolators VertexOutput;
 typedef Interpolators PixelInput;
 
-VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
+uint EntityId(uint entityHandle)
+{
+	return entityHandle>>16;
+}
+
+VertexOutput VSMain(VertexInput IN, uint entityHandle : SV_InstanceID)
 {
 	VertexOutput OUT;
-	uint entityId = instanceID;
-	float4x4 worldMatrix = entities.Load<SEntity>(entityId * sizeof(SEntity)).world;
+	uint entityIndex = EntityId(entityHandle);
+	float4x4 worldMatrix = entities.Load<SEntity>(entityIndex * sizeof(SEntity)).world;
 	OUT.positionWs = mul(worldMatrix, float4(IN.position, 1.0f));
 	OUT.position = mul(globals.cameraProj, mul(globals.cameraView, OUT.positionWs));
-	OUT.entityId = entityId;
+	OUT.entityHandle = entityHandle;
 	return OUT;
 }
 
 uint PSMain(PixelInput IN) : SV_Target
 {
-	return IN.entityId;
+	return IN.entityHandle;
 }
 

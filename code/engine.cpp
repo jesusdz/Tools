@@ -171,6 +171,8 @@ struct Graphics
 	BufferChunk planeIndices;
 	BufferChunk quadVertices;
 	BufferChunk quadIndices;
+	BufferChunk spriteVertices;
+	BufferChunk spriteIndices;
 	BufferChunk screenTriangleVertices;
 	BufferChunk screenTriangleIndices;
 	BufferChunk tileGridVertices;
@@ -435,6 +437,17 @@ static const Vertex quadVertices[] = {
 };
 
 static const Index quadIndices[] = {
+	0, 1, 2, 2, 3, 0,
+};
+
+static const Vertex spriteVertices[] = {
+	{{ 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+	{{ 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+	{{ 1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+	{{ 1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+};
+
+static const Index spriteIndices[] = {
 	0, 1, 2, 2, 3, 0,
 };
 
@@ -1437,6 +1450,8 @@ BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
 		return gfx.quadVertices;
 	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeVertices;
+	} else if ( geometryType == GeometryTypeSprite ) {
+		return gfx.spriteVertices;
 	} else {
 		return gfx.screenTriangleVertices;
 	}
@@ -1450,6 +1465,8 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 		return gfx.quadIndices;
 	} else if ( geometryType == GeometryTypePlane ) {
 		return gfx.planeIndices;
+	} else if ( geometryType == GeometryTypeSprite ) {
+		return gfx.spriteIndices;
 	} else {
 		return gfx.screenTriangleIndices;
 	}
@@ -1473,6 +1490,16 @@ EntityDesc &GetEntityDesc(Scene &scene, Handle handle)
 	return entityDesc;
 }
 
+Handle GetEntityHandleAt(Scene &scene, u32 index) // Weird....
+{
+	Handle handle = InvalidHandle;
+	if ( index != U32_MAX ) {
+		const u16 handleIndex = scene.entityHandles.indices[index];
+		handle = scene.entityHandles.handles[handleIndex];
+	}
+	return handle;
+}
+
 Entity &GetEntityAt(Scene &scene, u32 index)
 {
 	const u16 handleIndex = scene.entityHandles.indices[index];
@@ -1481,7 +1508,7 @@ Entity &GetEntityAt(Scene &scene, u32 index)
 	return entity;
 }
 
-void CreateEntity(Engine &engine, const EntityDesc &desc)
+Handle CreateEntity(Engine &engine, const EntityDesc &desc)
 {
 	Scene &scene = engine.scene;
 
@@ -1499,9 +1526,11 @@ void CreateEntity(Engine &engine, const EntityDesc &desc)
 	entity.materialH = FindMaterialHandle(engine.gfx, desc.materialName);
 
 	scene.entityDescs[handle.idx] = desc;
+
+	return handle;
 }
 
-void CreateEntity(Engine &engine, const BinEntityDesc &desc)
+Handle CreateEntity(Engine &engine, const BinEntityDesc &desc)
 {
 	const EntityDesc entityDesc = {
 		.name = desc.name,
@@ -1510,7 +1539,7 @@ void CreateEntity(Engine &engine, const BinEntityDesc &desc)
 		.scale = desc.scale,
 		.geometryType = desc.geometryType,
 	};
-	CreateEntity(engine, entityDesc);
+	return CreateEntity(engine, entityDesc);
 }
 
 void RemoveEntity(Engine &engine, Handle handle)
@@ -1519,6 +1548,12 @@ void RemoveEntity(Engine &engine, Handle handle)
 	entity = {};
 
 	FreeHandle(engine.scene.entityHandles, handle);
+}
+
+Handle DuplicateEntity(Engine &engine, Handle entityHandle)
+{
+	const EntityDesc &desc = GetEntityDesc(engine.scene, entityHandle);
+	return CreateEntity(engine, desc);
 }
 
 
@@ -1878,6 +1913,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.planeIndices = PushData(gfx, commandList, gfx.globalIndexArena, planeIndices, sizeof(planeIndices));
 	gfx.quadVertices = PushData(gfx, commandList, gfx.globalVertexArena, quadVertices, sizeof(quadVertices));
 	gfx.quadIndices = PushData(gfx, commandList, gfx.globalIndexArena, quadIndices, sizeof(quadIndices));
+	gfx.spriteVertices = PushData(gfx, commandList, gfx.globalVertexArena, spriteVertices, sizeof(spriteVertices));
+	gfx.spriteIndices = PushData(gfx, commandList, gfx.globalIndexArena, spriteIndices, sizeof(spriteIndices));
 	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
 	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
 
@@ -2762,7 +2799,7 @@ bool RenderGraphics(Engine &engine)
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
 #if USE_EDITOR
-		.selectedEntity = editor.selectedEntity,
+		.selectedEntity = editor.selectedEntity.num,
 #endif
 	};
 
@@ -2936,7 +2973,7 @@ bool RenderGraphics(Engine &engine)
 			const uint32_t indexCount = entity.indices.size/sizeof(Index);
 			const uint32_t firstIndex = entity.indices.offset/sizeof(Index);
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
 		}
 
 		EndRenderPass(commandList);
@@ -3019,7 +3056,7 @@ bool RenderGraphics(Engine &engine)
 			const uint32_t indexCount = entity.indices.size/sizeof(Index);
 			const uint32_t firstIndex = entity.indices.offset/sizeof(Index);
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.idx);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
 
 			EndDebugGroup(commandList);
 		}
