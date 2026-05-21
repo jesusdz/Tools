@@ -618,40 +618,53 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 
 	UI_BeginWindow(ui, "Inspector");
 
-	UI_Label(ui, "File: %s", inspector.inspectedFilename);
-
-	UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
-
-	if (inspector.inspectedType == EditorInspectedType_Image)
+	if (inspector.inspectedType >= EditorInspectedType_AssetFileBegin &&
+		inspector.inspectedType <= EditorInspectedType_AssetFileEnd)
 	{
-		const ImageH imageH = GetTextureImage(engine.gfx, inspector.textureH, engine.gfx.grayImageH);
-		UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
+		UI_SeparatorLabel(ui, "Asset file: %s", EditorInspectedTypeName[inspector.inspectedType]);
 
-		if (UI_Section(ui, "Import settings"))
+		UI_Label(ui, "%s", inspector.inspectedFilename);
+
+		if (inspector.inspectedType == EditorInspectedType_Image)
 		{
-			static bool isTileset = false;
-			static char name[64] = {};
+			const ImageH imageH = GetTextureImage(engine.gfx, inspector.textureH, engine.gfx.grayImageH);
+			UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
 
-			UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
-			UI_Checkbox(ui, "Tileset", &isTileset);
-
-			if (UI_Button(ui, "Import"))
+			if (UI_Section(ui, "Import settings"))
 			{
-				if (isTileset)
+				static bool isTileset = false;
+				static char name[64] = {};
+
+				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+				UI_Checkbox(ui, "Tileset", &isTileset);
+
+				if (UI_Button(ui, "Import"))
 				{
-					const TileAtlasDesc tileAtlasDesc = {
-						.imagePath = inspector.inspectedFilename.str,
-						.name = InternString(name),
-						.tileSize = 32.0f,
-					};
-					CreateTileAtlas(engine, tileAtlasDesc);
-				}
-				else
-				{
-					LOG(Debug, "Import image\n");
+					if (isTileset)
+					{
+						const TileAtlasDesc tileAtlasDesc = {
+							.imagePath = inspector.inspectedFilename.str,
+							.name = InternString(name),
+							.tileSize = 32.0f,
+						};
+						CreateTileAtlas(engine, tileAtlasDesc);
+					}
+					else
+					{
+						LOG(Debug, "Import image\n");
+					}
 				}
 			}
 		}
+	}
+	else if(inspector.inspectedType == EditorInspectedType_Entity)
+	{
+		UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
+
+		Entity &entity = GetEntityAt(engine.scene, engine.editor.selectedEntity);
+		UI_InputFloat3(ui, "Position", &entity.position);
+		UI_InputFloat(ui, "Scale", &entity.scale);
+		UI_Checkbox(ui, "Visible", &entity.visible);
 	}
 
 	UI_EndWindow(ui);
@@ -1088,6 +1101,15 @@ static void EditorEndSceneEditing(Engine &engine)
 		WaitDeviceIdle(engine.gfx.device);
 		editor.selectedEntity = *(u32*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
 		editor.selectEntity = false;
+
+		if (editor.selectedEntity != U32_MAX)
+		{
+			editor.inspector.inspectedType = EditorInspectedType_Entity;
+		}
+		else
+		{
+			editor.inspector.inspectedType = EditorInspectedType_None;
+		}
 	}
 }
 

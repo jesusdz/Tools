@@ -1946,6 +1946,16 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	UI_CursorAdvance(ui, widgetSize);
 }
 
+void UI_InputFloat2(UI &ui, const char *text, float2 *value)
+{
+}
+void UI_InputFloat3(UI &ui, const char *text, float3 *value)
+{
+}
+void UI_InputFloat4(UI &ui, const char *text, float4 *value)
+{
+}
+
 void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);

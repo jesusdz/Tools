@@ -29,7 +29,10 @@ enum EditorInspectedType
 	EditorInspectedType_Image,
 	EditorInspectedType_Audio,
 	EditorInspectedType_Music,
+	EditorInspectedType_Entity,
 	EditorInspectedType_Count,
+	EditorInspectedType_AssetFileBegin = EditorInspectedType_Image,
+	EditorInspectedType_AssetFileEnd = EditorInspectedType_Music,
 };
 
 static const char *EditorInspectedTypeName[] = {
@@ -37,6 +40,7 @@ static const char *EditorInspectedTypeName[] = {
 	"Image",
 	"Audio",
 	"Music",
+	"Entity",
 };
 CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 
