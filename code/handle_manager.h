@@ -80,28 +80,36 @@ Handle NewHandle(HandleManager &manager)
 {
 	ASSERT(manager.initialized);
 	ASSERT(manager.handleCount < manager.handleLimit);
-	u16 index = manager.indices[manager.handleCount++];
-	Handle &handle = manager.handles[index];
-	ASSERT(handle.idx == index);
+
+	Handle handle = InvalidHandle;
+	if ( manager.handleCount < manager.handleLimit ) {
+		u16 index = manager.indices[manager.handleCount++];
+		handle = manager.handles[index];
+		ASSERT(handle.idx == index);
+	}
 	return handle;
 }
 
 void FreeHandle(HandleManager &manager, Handle handle)
 {
 	ASSERT(IsValidHandle(manager, handle));
-	manager.handles[handle.idx].gen++;
-
 	ASSERT(manager.handleCount > 0);
-	manager.handleCount--;
-	bool found = false;
-	for (u16 i = 0; i < manager.handleCount; ++i) {
-		found = found || handle.idx == manager.indices[i];
-		if (found) { // compact indices from found index onwards
-			manager.indices[i] = manager.indices[i+1];
+
+	if ( IsValidHandle(manager, handle) && manager.handleCount > 0 )
+	{
+		manager.handles[handle.idx].gen++;
+
+		manager.handleCount--;
+		bool found = false;
+		for (u16 i = 0; i < manager.handleCount; ++i) {
+			found = found || handle.idx == manager.indices[i];
+			if (found) { // compact indices from found index onwards
+				manager.indices[i] = manager.indices[i+1];
+			}
 		}
+		// Insert the freed index at the end
+		manager.indices[manager.handleCount] = handle.idx;
 	}
-	// Insert the freed index at the end
-	manager.indices[manager.handleCount] = handle.idx;
 }
 
 Handle GetHandleAt(const HandleManager &manager, u16 index)
