@@ -94,8 +94,11 @@ float4 PSMain(PixelInput IN) : SV_Target
 	float3 V = normalize(globals.eyePosition.xyz - IN.positionWs.xyz);
 	float3 H = normalize(V + L);
 
-	float3 albedo = albedoTexture.Sample(pointSampler, IN.texCoord).rgb;
-	//float3 albedo = float3(0.5, 0.5, 0.5);
+	float4 albedoAlpha = albedoTexture.Sample(pointSampler, IN.texCoord);
+	float3 albedo = albedoAlpha.rgb;
+	float alpha = albedoAlpha.a;
+
+	if (alpha < 0.01) discard;
 
 	//IN.shadowmapCoord.xyz /= IN.shadowmapCoord.w;
 	float fragmentShadowmapDepth = IN.shadowmapCoord.z;
