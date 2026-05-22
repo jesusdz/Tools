@@ -101,7 +101,7 @@ struct Audio
 	MusicFileDesc musicFileDescs[MAX_MUSIC_FILES] = {};
 	HandleManager musicHandles;
 
-	u32 musicFileIndex;
+	Handle musicFile; // Music file being played
 
 	// MOD tracks
 	Arena moduleArena;

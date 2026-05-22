@@ -63,7 +63,7 @@ bool InitializeAudio(Audio &audio, Arena &globalArena)
 
 	audio.moduleArena = PushSubArena(globalArena, AUDIO_MODULE_MEMORY, "MOD arena");
 
-	audio.musicFileIndex = U32_MAX;
+	audio.musicFile = InvalidHandle;
 
 	// Initialized!
 
@@ -821,16 +821,27 @@ Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc)
 	return handle;
 }
 
-void DestroyMusicFile(Engine &engine, Handle musicH)
+void DestroyMusicFile(Engine &engine, Handle handle)
 {
-	// TODO
+	Audio &audio = engine.audio;
+	Arena &arena = DataArena;
+
+	if ( IsValidHandle(audio.musicHandles, handle) )
+	{
+		MusicFile &musicFile = GetMusicFile(audio, handle);
+		musicFile = {};
+
+		audio.musicFileDescs[handle.idx] = {};
+
+		FreeHandle(audio.musicHandles, handle);
+	}
 }
 
 void MusicPlay(Engine &engine, Handle handle)
 {
 	Audio &audio = engine.audio;
 
-	if (audio.musicFileIndex != handle.idx)
+	if (audio.musicFile != handle)
 	{
 		ResetArena( audio.moduleArena );
 
@@ -871,7 +882,7 @@ void MusicPlay(Engine &engine, Handle handle)
 				{
 					audio.module = module;
 					audio.moduleReplay = replay;
-					audio.musicFileIndex = handle.idx;
+					audio.musicFile = handle;
 					audio.moduleSampleCount = replay_calculate_duration( audio.moduleReplay ) * 2;
 				}
 				else
