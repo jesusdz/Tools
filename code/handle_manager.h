@@ -138,5 +138,37 @@ void ForAllHandles(const HandleManager &manager, ProcessHandleFunc *processHandl
 }
 
 
+// Iterator ////////////////////////////////////////////////////////////
+
+struct HandleIter
+{
+	const HandleManager *manager;
+	u16 elementIndex;
+
+	Handle operator*() {
+		Handle handle = InvalidHandle;
+		if (elementIndex < manager->handleCount) {
+			i16 handleIndex = manager->indices[elementIndex];
+			return manager->handles[handleIndex];
+		}
+		return handle;
+	}
+
+	HandleIter& operator++(int) {
+		elementIndex++;
+		return *this;
+	}
+
+	operator bool() const {
+		return elementIndex < manager->handleCount;
+	}
+};
+
+HandleIter BeginIter(const HandleManager &manager)
+{
+	HandleIter it = { .manager = &manager };
+	return it;
+}
+
 #endif // HANDLE_MANAGER_H
 

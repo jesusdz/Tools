@@ -1100,12 +1100,11 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc, ImageH imageH)
 
 TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
-	TextureH textureHandle = InvalidHandle;
+	Handle textureHandle = InvalidHandle;
 
-	const FilePath imagePath = MakePath(AssetDir, desc.filename);
-
-	ImagePixels img;
 	Arena scratch = MakeSubArena(FrameArena, "Scratch - CreateTexture");
+	const FilePath imagePath = MakePath(AssetDir, desc.filename);
+	ImagePixels img;
 	if ( ReadImagePixels(scratch, imagePath.str, img) )
 	{
 		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
@@ -1116,6 +1115,31 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 		GetFileLastWriteTimestamp(imagePath.str, texture.ts);
 	}
 
+	return textureHandle;
+}
+
+TextureH GetOrCreateTexture(Graphics &gfx, const TextureDesc &desc)
+{
+	const FilePath imagePath = MakePath(AssetDir, desc.filename);
+
+	TextureH textureHandle = InvalidHandle;
+	HandleIter it = BeginIter(gfx.textureHandles);
+	while (it)
+	{
+		Handle handle = *it;
+		const TextureDesc &desc = GetTextureDesc(gfx, handle);
+		const FilePath imagePath2 = MakePath(AssetDir, desc.filename);
+		if ( !( desc.flags & AssetFlag_Builtin ) && StrEq(imagePath.str, imagePath2.str)) {
+			textureHandle = handle;
+			break;
+		}
+		it++;
+	}
+
+	if ( textureHandle == InvalidHandle )
+	{
+		textureHandle = CreateTexture(gfx, desc);
+	}
 	return textureHandle;
 }
 
@@ -1197,7 +1221,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 	const TextureDesc &desc = texture.desc;
 
 	// TODO(jesus): Textures loaded from bin data file do not have descriptor...
-	if ( desc.filename == nullptr ) { return; };
+	if ( StrEq(desc.filename, "") ) { return; };
 
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 
@@ -1488,24 +1512,6 @@ EntityDesc &GetEntityDesc(Scene &scene, Handle handle)
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
 	EntityDesc &entityDesc = scene.entityDescs[handle.idx];
 	return entityDesc;
-}
-
-Handle GetEntityHandleAt(Scene &scene, u32 index) // Weird....
-{
-	Handle handle = InvalidHandle;
-	if ( index != U32_MAX ) {
-		const u16 handleIndex = scene.entityHandles.indices[index];
-		handle = scene.entityHandles.handles[handleIndex];
-	}
-	return handle;
-}
-
-Entity &GetEntityAt(Scene &scene, u32 index)
-{
-	const u16 handleIndex = scene.entityHandles.indices[index];
-	const Handle handle = scene.entityHandles.handles[handleIndex];
-	Entity &entity = GetEntity(scene, handle);
-	return entity;
 }
 
 Handle CreateEntity(Engine &engine, const EntityDesc &desc)
@@ -2032,7 +2038,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	// Builtin texture
 	const TextureDesc textureDesc = {
 		.name = "tex_default",
-		.filename = 0,
+		.filename = "",
 		.mipmap = 0,
 		.flags = AssetFlag_Builtin,
 	};
@@ -2725,9 +2731,9 @@ bool RenderGraphics(Engine &engine)
 		const float3 cameraPosition = camera.position;
 		const float3 cameraForward = ForwardDirectionFromAngles(camera.orientation);
 		const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
-		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
+		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
-			Entity &entity = GetEntityAt(scene, i);
+			Entity &entity = GetEntity(scene, *it);
 			entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
 		}
 	}
@@ -2753,9 +2759,9 @@ bool RenderGraphics(Engine &engine)
 		cameraPosition = camera.position;
 
 		// CPU Frustum culling
-		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
+		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
-			Entity &entity = GetEntityAt(scene, i);
+			Entity &entity = GetEntity(scene, *it);
 			entity.culled = false; // TODO: Frustum culling with a 2D camera
 		}
 	}
@@ -3029,10 +3035,10 @@ bool RenderGraphics(Engine &engine)
 		}
 
 		// Entities
-		for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
+		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
-			const Handle handle = GetHandleAt(scene.entityHandles, entityIndex);
-			const Entity &entity = GetEntityAt(scene, entityIndex);
+			const Handle handle = *it;
+			const Entity &entity = GetEntity(scene, handle);
 
 			if ( !entity.visible || entity.culled ) continue;
 

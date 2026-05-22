@@ -268,10 +268,10 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	if ( UI_Section(ui, "Scene") )
 	{
-		for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
+		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
-			Handle handle = GetEntityHandleAt(scene, i);
-			Entity &entity = GetEntityAt(scene, i);
+			Handle handle = *it;
+			Entity &entity = GetEntity(scene, handle);
 			if ( UI_Radio(ui, entity.name, editor.selectedEntity == handle) )
 			{
 				editor.selectedEntity = handle;
@@ -767,7 +767,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 					.filename = node->filename,
 					.mipmap = true,
 				};
-				TextureH textureH = CreateTexture(engine.gfx, textureDesc);
+				TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
 
 				const MaterialDesc materialDesc = {
 					.name = name,
@@ -1359,10 +1359,10 @@ void EditorRender(Engine &engine, CommandList &commandList)
 			SetVertexBuffer(commandList, vertexBuffer);
 			SetIndexBuffer(commandList, indexBuffer);
 
-			for (u32 entityIndex = 0; entityIndex < scene.entityHandles.handleCount; ++entityIndex)
+			for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 			{
-				Handle handle = GetEntityHandleAt(scene, entityIndex);
-				const Entity &entity = GetEntityAt(scene, entityIndex);
+				Handle handle = *it;
+				const Entity &entity = GetEntity(scene, handle);
 
 				if ( !entity.visible || entity.culled ) continue;
 
