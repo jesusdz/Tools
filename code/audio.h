@@ -128,7 +128,7 @@ AudioClipDesc &GetAudioClipDesc(Audio &audio, Handle handle);
 Handle CreateAudioClip(Engine &engine, const BinAudioClip &binAudioClip);
 Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc);
 void RemoveAudioClip(Engine &engine, AudioClipH handle);
-u32 PlayAudioClip(Engine &engine, u32 audioClipIndex);
+u32 PlayAudioClip(Engine &engine, AudioClipH handle);
 bool IsActiveAudioSource(Engine &engine, u32 audioSourceIndex);
 bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex);
 void PauseAudioSource(Engine &engine, u32 audioSourceIndex);
@@ -140,7 +140,8 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
 
 Handle CreateMusicFile(Engine &engine, const BinMusicFile &binMusicFile);
 Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc);
-void MusicPlay(Engine &engine, u32 musicFileIndex);
+void DestroyMusicFile(Engine &engine, Handle musicH);
+void MusicPlay(Engine &engine, Handle handle);
 void MusicPause(Engine &engine);
 void MusicStop(Engine &engine);
 bool MusicIsPlaying(Engine &engine);

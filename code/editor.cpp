@@ -175,59 +175,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 		}
 	}
 
-	if ( UI_Section(ui, "Audio") )
-	{
-		UI_SeparatorLabel(ui, "Sound");
-
-		if ( UI_Button(ui, "Play sound") )
-		{
-			const u32 index = 0;//GetAudioClipIndex(engine, "aclip_bell");
-			PlayAudioClip(engine, index);
-		}
-
-		UI_SeparatorLabel(ui, "Music");
-
-#if 0
-		static u32 audioSourceMusic = INVALID_AUDIO_SOURCE;
-		if ( !IsActiveAudioSource(engine, audioSourceMusic) ) {
-			audioSourceMusic = INVALID_AUDIO_SOURCE;
-		}
-
-		if ( audioSourceMusic == INVALID_AUDIO_SOURCE ) {
-			if ( UI_Button(ui, "Play music") ) {
-				const u32 audioClipIndex = 1; //GetAudioClipIndex(engine, "aclip_music");
-				if ( audioClipIndex != INVALID_AUDIO_CLIP ) {
-					audioSourceMusic = PlayAudioClip(engine, audioClipIndex);
-				}
-			}
-		} else {
-			if ( IsPausedAudioSource(engine, audioSourceMusic) ) {
-				if ( UI_Button(ui, "Resume music") ) {
-					ResumeAudioSource(engine, audioSourceMusic);
-				}
-			} else {
-				if ( UI_Button(ui, "Pause music") ) {
-					PauseAudioSource(engine, audioSourceMusic);
-				}
-			} if ( UI_Button(ui, "Stop music") ) {
-				StopAudioSource(engine, audioSourceMusic);
-			}
-		}
-#endif
-
-		if ( MusicIsPlaying(engine) ) {
-			if ( UI_Button(ui, "Pause music") ) {
-				MusicPause(engine);
-			} if ( UI_Button(ui, "Stop music") ) {
-				MusicStop(engine);
-			}
-		} else {
-			if ( UI_Button(ui, "Play music") ) {
-				MusicPlay(engine, 0);
-			}
-		}
-	}
-
 	if ( UI_Section(ui, "Profiling" ) )
 	{
 		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
@@ -407,85 +354,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 		UI_EndLayout(ui);
 	}
 
-#if 0
-	if ( UI_Section(ui, "Buttons") )
-	{
-		static u32 labelIndex = 0;
-		const char *labels[] = {"Label 1", "Label 2"};
-		const char *label = labels[labelIndex];
-
-		UI_Label(ui, label);
-
-		UI_Separator(ui);
-
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-
-		if ( UI_Button(ui, "Hola") )
-		{
-			labelIndex = (labelIndex + 1) % ARRAY_COUNT(labels);
-		}
-
-		UI_Button(ui, "Adios");
-
-		UI_Button(ui, "Memory");
-
-		UI_EndLayout(ui);
-
-	}
-
-	if ( UI_Section(ui, "Radio/Check") )
-	{
-		const char *radioOptions[] = { "Option 1", "Option 2", "Option 3" };
-		static int selectedOption = 0;
-
-		for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
-		{
-			if ( UI_Radio(ui, radioOptions[i], selectedOption == i) )
-			{
-				selectedOption = i;
-			}
-		}
-
-		UI_Separator(ui);
-
-		static const char *checkOptions[] = { "Check 1", "Check 2", "Check 3" };
-		static bool checkSelections[ARRAY_COUNT(checkOptions)] = {};
-
-		for (u32 i = 0; i < ARRAY_COUNT(checkOptions); ++i)
-		{
-			UI_Checkbox(ui, checkOptions[i], &checkSelections[i]);
-		}
-
-		UI_Separator(ui);
-
-		static const char *comboOptions[] = { "Combo 1", "Combo 2", "Combo 3" };
-		static u32 comboIndex = 0;
-
-		UI_Combo(ui, "Select type", comboOptions, ARRAY_COUNT(comboOptions), &comboIndex);
-	}
-
-	if ( UI_Section(ui, "Images") )
-	{
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		for (u32 i = 0; i < gfx.textureCount; ++i)
-		{
-			UI_Image(ui, gfx.textures[i].image);
-		}
-		UI_EndLayout(ui);
-	}
-
-	if ( UI_Section(ui, "Inputs") )
-	{
-		static char text[128] = "name";
-		static i32 intNumber = 0;
-		static f32 floatNumber = 0.0f;
-
-		UI_InputText(ui, "Input text", text, ARRAY_COUNT(text));
-		UI_InputInt(ui, "Input int", &intNumber);
-		UI_InputFloat(ui, "Input float", &floatNumber);
-	}
-#endif
-
 	UI_EndWindow(ui);
 }
 
@@ -558,13 +426,13 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			isImg ? iconImg :
 			editor.iconAsset;
 
-		const bool isSelected = StrEq(path.str, inspector.inspectedFilename.str);
+		const bool isSelected = inspector.assetFile ? StrEq(path.str, inspector.assetFile->filename) : false;
 		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
 		if ( UI_Image(ui, icon, float2{32,32}, flags) )
 		{
-			const bool changed = !StrEq(inspector.inspectedFilename.str, node->filename);
-			StrCopy(inspector.inspectedFilename.str, node->filename);
+			inspector.refresh = true;
+			inspector.assetFile = node;
 
 			if ( isWav )
 			{
@@ -577,18 +445,6 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			else if ( isImg )
 			{
 				editor.inspector.inspectedType = EditorInspectedType_Image;
-				if (changed)
-				{
-					WaitDeviceIdle(gfx.device);
-					RemoveTexture(gfx, inspector.textureH);
-					const TextureDesc desc = {
-						.name = "inspected_image",
-						.filename = node->filename,
-						.mipmap = true,
-						.flags = AssetFlag_Builtin,
-					};
-					inspector.textureH = CreateTexture(gfx, desc);
-				}
 			}
 			else
 			{
@@ -617,17 +473,51 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	UI_SetNextWindowDefaultSize(ui, size);
 	UI_SetNextWindowAnchor(ui, UiAnchorTopRight, displacement);
 
+	static u32 audioSourceIndex = U32_MAX;
+
+	if (inspector.refresh)
+	{
+		if (inspector.textureH != InvalidHandle) {
+			WaitDeviceIdle(engine.gfx.device);
+			RemoveTexture(engine.gfx, inspector.textureH);
+			inspector.textureH = InvalidHandle;
+		}
+		if (inspector.audioClipH != InvalidHandle) {
+			StopAudioSource(engine, audioSourceIndex);
+			audioSourceIndex = U32_MAX;
+			RemoveAudioClip(engine, inspector.audioClipH);
+			inspector.audioClipH = InvalidHandle;
+		}
+		if (inspector.musicH != InvalidHandle) {
+			MusicStop(engine);
+			DestroyMusicFile(engine, inspector.musicH);
+			inspector.musicH = InvalidHandle;
+		}
+	}
+
 	UI_BeginWindow(ui, "Inspector");
 
-	if (inspector.inspectedType >= EditorInspectedType_AssetFileBegin &&
+	if (inspector.assetFile &&
+		inspector.inspectedType >= EditorInspectedType_AssetFileBegin &&
 		inspector.inspectedType <= EditorInspectedType_AssetFileEnd)
 	{
 		UI_SeparatorLabel(ui, "Asset file: %s", EditorInspectedTypeName[inspector.inspectedType]);
 
-		UI_Label(ui, "%s", inspector.inspectedFilename);
+		UI_Label(ui, "%s", inspector.assetFile->filename);
 
 		if (inspector.inspectedType == EditorInspectedType_Image)
 		{
+			if (inspector.refresh)
+			{
+				const TextureDesc desc = {
+					.name = "inspected_image",
+					.filename = inspector.assetFile->filename,
+					.mipmap = true,
+					.flags = AssetFlag_Builtin,
+				};
+				inspector.textureH = CreateTexture(engine.gfx, desc);
+			}
+
 			const ImageH imageH = GetTextureImage(engine.gfx, inspector.textureH, engine.gfx.grayImageH);
 			UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
 
@@ -644,7 +534,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					if (isTileset)
 					{
 						const TileAtlasDesc tileAtlasDesc = {
-							.imagePath = inspector.inspectedFilename.str,
+							.imagePath = inspector.assetFile->filename,
 							.name = InternString(name),
 							.tileSize = 32.0f,
 						};
@@ -654,6 +544,50 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					{
 						LOG(Debug, "Import image\n");
 					}
+				}
+			}
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Audio)
+		{
+			if (inspector.refresh)
+			{
+				const AudioClipDesc desc = {
+					.name = "inspected_audio_clip",
+					.filename = inspector.assetFile->filename,
+					//.flags = AssetFlag_Builtin,
+				};
+				inspector.audioClipH = CreateAudioClip(engine, desc);
+			}
+
+			if (inspector.audioClipH != InvalidHandle)
+			{
+				if (UI_Button(ui, "Play")) {
+					audioSourceIndex = PlayAudioClip(engine, inspector.audioClipH);
+				}
+				if (UI_Button(ui, "Stop")) {
+					StopAudioSource(engine, audioSourceIndex);
+				}
+			}
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Music)
+		{
+			if (inspector.refresh)
+			{
+				const MusicFileDesc desc = {
+					.name = "inspected_music_file",
+					.filename = inspector.assetFile->filename,
+					//.flags = AssetFlag_Builtin,
+				};
+				inspector.musicH = CreateMusicFile(engine, desc);
+			}
+
+			if (inspector.musicH != InvalidHandle)
+			{
+				if (UI_Button(ui, "Play")) {
+					MusicPlay(engine, inspector.musicH);
+				}
+				if (UI_Button(ui, "Stop")) {
+					MusicStop(engine);
 				}
 			}
 		}
@@ -675,6 +609,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	}
 
 	UI_EndWindow(ui);
+
+	inspector.refresh = false;
 }
 
 static void EditorUpdateUI_Tilesets(Engine &engine)

@@ -44,14 +44,6 @@ static const char *EditorInspectedTypeName[] = {
 };
 CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 
-struct EditorInspector
-{
-	EditorInspectedType inspectedType;
-	FilePath inspectedFilename;
-
-	TextureH textureH;
-};
-
 enum EditorDrawTool
 {
 	EditorDrawTool_Draw,
@@ -87,6 +79,18 @@ struct SnapshotNode
 	const char *filepath;
 	ImageH imageH;
 	SnapshotNode *next;
+};
+
+struct EditorInspector
+{
+	EditorInspectedType inspectedType;
+	FileNode *assetFile;
+
+	TextureH textureH;
+	AudioClipH audioClipH;
+	Handle musicH;
+
+	bool refresh;
 };
 
 struct Editor

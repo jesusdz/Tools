@@ -433,33 +433,24 @@ u32 FindFreeAudioSource(Engine &engine)
 	return INVALID_AUDIO_SOURCE;
 }
 
-u32 PlayAudioClip(Engine &engine, u32 audioClipIndex)
+u32 PlayAudioClip(Engine &engine, AudioClipH handle)
 {
 	Audio &audio = engine.audio;
 
-	u32 audioSourceIndex = INVALID_AUDIO_SOURCE;
+	const u32 audioSourceIndex = FindFreeAudioSource(engine);
 
-	if (audioClipIndex < audio.clipHandles.handleCount)
+	if (audioSourceIndex == INVALID_AUDIO_SOURCE)
 	{
-		audioSourceIndex = FindFreeAudioSource(engine);
-
-		if (audioSourceIndex == INVALID_AUDIO_SOURCE)
-		{
-			LOG(Warning, "No available source to play audio clip %u\n", audioClipIndex);
-		}
-		else
-		{
-			AudioSource &audioSource = audio.sources[audioSourceIndex];
-			audioSource.clip = GetHandleAt(audio.clipHandles, audioClipIndex);
-			audioSource.lastWriteSampleIndex = 0;
-
-			FullWriteBarrier();
-			audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
-		}
+		LOG(Warning, "No available source to play audio clip\n");
 	}
 	else
 	{
-		LOG(Warning, "Could not play not existing audio clip %u\n", audioClipIndex);
+		AudioSource &audioSource = audio.sources[audioSourceIndex];
+		audioSource.clip = handle;
+		audioSource.lastWriteSampleIndex = 0;
+
+		FullWriteBarrier();
+		audioSource.state = AUDIO_SOURCE_STATE_PLAYING;
 	}
 
 	return audioSourceIndex;
@@ -830,68 +821,70 @@ Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc)
 	return handle;
 }
 
-void MusicPlay(Engine &engine, u32 musicFileIndex)
+void DestroyMusicFile(Engine &engine, Handle musicH)
+{
+	// TODO
+}
+
+void MusicPlay(Engine &engine, Handle handle)
 {
 	Audio &audio = engine.audio;
 
-	if (audio.musicFileIndex != musicFileIndex)
+	if (audio.musicFileIndex != handle.idx)
 	{
-		if (musicFileIndex < audio.musicHandles.handleCount)
+		ResetArena( audio.moduleArena );
+
+		MusicFile &musicFile = GetMusicFile(engine.audio, handle);
+		DataChunk chunk = {};
+
+		if (musicFile.loadSource == LOAD_SOURCE_MOD_FILE)
 		{
-			ResetArena( audio.moduleArena );
+			const char *filename = musicFile.filename;
+			FilePath filePath = MakePath( AssetDir, filename );
+			chunk = *PushFile( audio.moduleArena, filePath.str );
 
-			MusicFile &musicFile = audio.musicFiles[musicFileIndex];
-			DataChunk chunk = {};
-
-			if (musicFile.loadSource == LOAD_SOURCE_MOD_FILE)
-			{
-				const char *filename = musicFile.filename;
-				FilePath filePath = MakePath( AssetDir, filename );
-				chunk = *PushFile( audio.moduleArena, filePath.str );
-
-				if ( chunk.bytes != nullptr ) {
-					LOG(Info, "%s loaded correctly from disk\n", filename);
-				}
+			if ( chunk.bytes != nullptr ) {
+				LOG(Info, "%s loaded correctly from disk\n", filename);
 			}
-			else if (musicFile.loadSource == LOAD_SOURCE_ASSET_FILE)
-			{
-				FileSeek(engine.assets.file, musicFile.location.offset);
-				chunk.size = musicFile.location.size;
-				chunk.bytes = PushArray(audio.moduleArena, byte, chunk.size);
-				ReadFromFile(engine.assets.file, chunk.bytes, chunk.size);
-			}
+		}
+		else if (musicFile.loadSource == LOAD_SOURCE_ASSET_FILE)
+		{
+			FileSeek(engine.assets.file, musicFile.location.offset);
+			chunk.size = musicFile.location.size;
+			chunk.bytes = PushArray(audio.moduleArena, byte, chunk.size);
+			ReadFromFile(engine.assets.file, chunk.bytes, chunk.size);
+		}
 
-			if ( chunk.bytes != nullptr )
-			{
-				char message[64];
-				struct data data;
-				data.buffer = (char*)chunk.bytes;
-				data.length = chunk.size;
-				struct module *module = module_load(&data, message, &audio.moduleArena);
+		if ( chunk.bytes != nullptr )
+		{
+			char message[64];
+			struct data data;
+			data.buffer = (char*)chunk.bytes;
+			data.length = chunk.size;
+			struct module *module = module_load(&data, message, &audio.moduleArena);
 
-				if (module)
+			if (module)
+			{
+				struct replay *replay = new_replay(module, 48000, 0, &audio.moduleArena);
+
+				if (replay)
 				{
-					struct replay *replay = new_replay(module, 48000, 0, &audio.moduleArena);
-
-					if (replay)
-					{
-						audio.module = module;
-						audio.moduleReplay = replay;
-						audio.musicFileIndex = musicFileIndex;
-						audio.moduleSampleCount = replay_calculate_duration( audio.moduleReplay ) * 2;
-					}
-					else
-					{
-						LOG(Warning, "Could not create music file replay\n");
-						ResetArena(audio.moduleArena);
-						audio.module = nullptr;
-					}
+					audio.module = module;
+					audio.moduleReplay = replay;
+					audio.musicFileIndex = handle.idx;
+					audio.moduleSampleCount = replay_calculate_duration( audio.moduleReplay ) * 2;
 				}
 				else
 				{
-					LOG(Warning, "Could not load music file: %s\n", message);
+					LOG(Warning, "Could not create music file replay\n");
 					ResetArena(audio.moduleArena);
+					audio.module = nullptr;
 				}
+			}
+			else
+			{
+				LOG(Warning, "Could not load music file: %s\n", message);
+				ResetArena(audio.moduleArena);
 			}
 		}
 	}
