@@ -1507,6 +1507,21 @@ Entity &GetEntity(Scene &scene, Handle handle)
 	return entity;
 }
 
+Entity *GetEntity(const char *name)
+{
+	static Entity nullEntity = {};
+	Entity *ent = &nullEntity;
+	for ( HandleIter it = BeginIter(engine->scene.entityHandles); it; it++)
+	{
+		Entity &entity = GetEntity(engine->scene, *it);
+		if ( StrEq(entity.name, name) ) {
+			ent = &entity;
+			break;
+		}
+	}
+	return ent;
+}
+
 EntityDesc &GetEntityDesc(Scene &scene, Handle handle)
 {
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
@@ -3298,11 +3313,10 @@ ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 
 ENGINE_API bool OnPlatformPreInit(Plat &platform)
 {
-	Engine *enginePtr = PushZeroStruct(GlobalArena, Engine);
-	ASSERT( enginePtr != nullptr );
-	platform.engine = enginePtr;
+	::engine = PushZeroStruct(GlobalArena, Engine);
+	platform.engine = ::engine;
 
-	Engine &engine = GetEngine(platform);
+	Engine &engine = *::engine;
 
 #if USE_DATA_BUILD
 	bool buildAssets = false;

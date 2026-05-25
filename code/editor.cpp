@@ -1134,6 +1134,7 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				}
 				case EditorCommandClean:
 				{
+					engine.editor.inspector.inspectedType = EditorInspectedType_None;
 					CleanScene(engine);
 					break;
 				}

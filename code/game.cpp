@@ -24,6 +24,8 @@ void GameStart(Game &game)
 	game.speed = {2.0f, 10.0f};
 	game.speed2 = {};
 	game.accel2 = 50;
+
+	game.ent = GetEntity("player");
 }
 
 void GameUpdate(Game &game)
@@ -96,7 +98,8 @@ void GameUpdate(Game &game)
 			pos.y = 0.0f;
 		}
 
-		DrawBox(game.box2.pos, game.box2.size, game.box2.color);
+		game.ent->position = Float3(game.box2.pos, 0.0);
+		//DrawBox(game.box2.pos, game.box2.size, game.box2.color);
 	}
 }
 
