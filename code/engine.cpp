@@ -139,6 +139,7 @@ struct Entity
 	float scale;
 	bool visible;
 	bool culled;
+	GeometryType geometryType;
 	BufferChunk vertices;
 	BufferChunk indices;
 	MaterialH materialH;
@@ -307,7 +308,6 @@ struct TileGrid
 struct Scene
 {
 	Entity entities[MAX_ENTITIES];
-	EntityDesc entityDescs[MAX_ENTITIES];
 	HandleManager entityHandles;
 
 	TileAtlas tileAtlas;
@@ -1522,10 +1522,18 @@ Entity *GetEntity(const char *name)
 	return ent;
 }
 
-EntityDesc &GetEntityDesc(Scene &scene, Handle handle)
+EntityDesc GetEntityDesc(Scene &scene, Handle handle)
 {
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
-	EntityDesc &entityDesc = scene.entityDescs[handle.idx];
+	const Entity &entity = GetEntity(scene, handle);
+	const Material &material = GetMaterial(engine->gfx, entity.materialH);
+	EntityDesc entityDesc = {
+		.name = entity.name,
+		.materialName = material.name,
+		.pos = entity.position,
+		.scale = entity.scale,
+		.geometryType = entity.geometryType,
+	};
 	return entityDesc;
 }
 
@@ -1542,11 +1550,10 @@ Handle CreateEntity(Engine &engine, const EntityDesc &desc)
 	entity.visible = true;
 	entity.position = desc.pos;
 	entity.scale = desc.scale;
+	entity.geometryType = desc.geometryType;
 	entity.vertices = vertices;
 	entity.indices = indices;
 	entity.materialH = FindMaterialHandle(engine.gfx, desc.materialName);
-
-	scene.entityDescs[handle.idx] = desc;
 
 	return handle;
 }
