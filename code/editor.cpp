@@ -141,6 +141,7 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 		{
 			if ( UI_MenuItem(ui, "About") )
 			{
+				editor.showAbout = true;
 			}
 			UI_EndMenu(ui);
 		}
@@ -156,7 +157,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
 
-	UI_BeginWindow(ui, "Debug UI");
+	UI_BeginWindow(ui, "Debug UI", &editor.showDebugUI);
 
 	if ( UI_Section(ui, "General") )
 	{
@@ -395,7 +396,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	UI_SetNextWindowDefaultSize(ui, size);
 	UI_SetNextWindowAnchor(ui, UiAnchorBottomLeft, displacement);
 
-	UI_BeginWindow(ui, "Assets");
+	UI_BeginWindow(ui, "Assets", &editor.showAssets);
 
 	UI_BeginLayout(ui, UiLayoutItemBrowser);
 
@@ -495,7 +496,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 		}
 	}
 
-	UI_BeginWindow(ui, "Inspector");
+	UI_BeginWindow(ui, "Inspector", &editor.showInspector);
 
 	if (inspector.assetFile &&
 		inspector.inspectedType >= EditorInspectedType_AssetFileBegin &&
@@ -619,7 +620,7 @@ static void EditorUpdateUI_Tilesets(Engine &engine)
 	Graphics &gfx = engine.gfx;
 	Editor &editor = engine.editor;
 
-	UI_BeginWindow(ui, "Tilesets");
+	UI_BeginWindow(ui, "Tilesets", &editor.showTilesets);
 
 	UI_SeparatorLabel(ui, "TileAtlas");
 
@@ -658,6 +659,35 @@ static void EditorUpdateUI_Tilesets(Engine &engine)
 			tilesets.selectedTool = radioOptions[i];
 		}
 	}
+
+	UI_EndWindow(ui);
+}
+
+static void EditorUpdateUI_About(Engine &engine)
+{
+	static bool wasShown = false;
+
+	UI &ui = engine.ui;
+	Editor &editor = engine.editor;
+
+	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{0, 0});
+	UI_SetNextWindowSize(ui, ui.viewportSize);
+	UI_BeginWindow(ui, "Background", &engine.editor.showAbout, UIWindowFlag_None);
+	UI_RaiseWindow(ui);
+	const bool shouldClose = UI_IsFocusedWindow(ui);
+	UI_EndWindow(ui);
+
+	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{0, 0});
+	UI_SetNextWindowSize(ui, uint2{ 512, 350 });
+	UI_BeginWindow(ui, "About", &engine.editor.showAbout, UIWindowFlag_Border | UIWindowFlag_Background);
+	UI_RaiseWindow(ui);
+	UI_FocusWindow(ui);
+	engine.editor.showAbout &= !shouldClose;
+	wasShown = engine.editor.showAbout;
+
+	UI_Image(ui, editor.iluLogo, float2{512, 256});
+	UI_Label(ui, "                          ILU engine");
+	UI_Label(ui, "                     (by Jesus Diaz Garcia)");
 
 	UI_EndWindow(ui);
 }
@@ -762,6 +792,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showTilesets )
 	{
 		EditorUpdateUI_Tilesets(engine);
+	}
+
+	if ( editor.showAbout )
+	{
+		EditorUpdateUI_About(engine);
 	}
 
 	EditorUpdateUI_DragAndDropLost(engine);
@@ -1191,6 +1226,7 @@ void EditorInitialize(Engine &engine)
 	editor.showInspector = true;
 	editor.showTilesets = false;
 	editor.showGrid = true;
+	editor.showAbout = false;
 
 	editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
 	editor.camera[ProjectionPerspective].position = {0, 1, 2};
@@ -1207,6 +1243,7 @@ void EditorInitialize(Engine &engine)
 	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
 	editor.iconMod = EditorLoadIcon(engine, "editor/mod_32x32.png", "mod_32x32");
 	editor.iconImg = EditorLoadIcon(engine, "editor/img_32x32.png", "img_32x32");
+	editor.iluLogo = EditorLoadIcon(engine, "editor/ilu_logo.png", "ilu_logo");
 
 	// Make a liked list of free file nodes
 	constexpr u32 maxFileNodes = 4092;

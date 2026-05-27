@@ -3200,7 +3200,7 @@ bool RenderGraphics(Engine &engine)
 				const BindGroupDesc bindGroupDesc = {
 					.layout = bindGroupLayout,
 					.bindings = {
-						{ .index = 0, .sampler = gfx.skySamplerH },
+						{ .index = 0, .sampler = gfx.pointSamplerH },
 						{ .index = 1, .image = drawList.imageHandle },
 					},
 				};

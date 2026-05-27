@@ -68,11 +68,13 @@ struct UISection
 enum UIWindowFlags
 {
 	UIWindowFlag_None = 0,
-	UIWindowFlag_Resizable = 1 << 0,
-	UIWindowFlag_Titlebar = 1 << 1,
-	UIWindowFlag_Background = 1 << 2,
-	UIWindowFlag_Border = 1 << 3,
-	UIWindowFlag_ClipContents = 1 << 4,
+	UIWindowFlag_Draggable = 1 << 0,
+	UIWindowFlag_Resizable = 1 << 1,
+	UIWindowFlag_Titlebar = 1 << 2,
+	UIWindowFlag_Background = 1 << 3,
+	UIWindowFlag_Border = 1 << 4,
+	UIWindowFlag_ClipContents = 1 << 5,
+	UIWindowFlag_CloseButton = 1 << 6,
 };
 
 enum UIAnchor
@@ -81,6 +83,7 @@ enum UIAnchor
 	UiAnchorTopRight,
 	UiAnchorBottomLeft,
 	UiAnchorBottomRight,
+	UiAnchorMiddleCenter,
 };
 
 struct UIWindow
@@ -104,6 +107,7 @@ struct UIWindow
 	bool disableWidgets;
 	bool clippedContents;
 	u32 layer;
+	u32 flags;
 
 	UISection sections[16];
 	u32 sectionCount;
@@ -240,6 +244,9 @@ struct UI
 	float2 defaultWindowAnchorDislacement;
 	float2 defaultWindowSize;
 
+	bool nextWindowForceSize;
+	float2 nextWindowSize;
+
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
 
@@ -273,6 +280,12 @@ static void UI_SetNextWindowDefaultSize(UI &ui, uint2 size)
 	ui.defaultWindowSize = {(f32)size.x, (f32)size.y};
 }
 
+static void UI_SetNextWindowSize(UI &ui, uint2 size)
+{
+	ui.nextWindowSize = {(f32)size.x, (f32)size.y};
+	ui.nextWindowForceSize = true;
+}
+
 static void UI_SetNextWindowAnchor(UI &ui, UIAnchor anchor, float2 disp)
 {
 	ui.defaultWindowAnchor = anchor;
@@ -295,14 +308,19 @@ static float2 UI_GetAnchorPos(uint2 viewportSize, UIAnchor anchor)
 		anchorPos = float2{0.0f, (f32)viewportSize.y};
 	} else if (anchor == UiAnchorBottomRight) {
 		anchorPos = float2{(f32)viewportSize.x, (f32)viewportSize.y};
+	} else if (anchor == UiAnchorMiddleCenter) {
+		anchorPos = float2{0.5f * viewportSize.x, 0.5f * viewportSize.y};
 	}
 	return anchorPos;
 }
 
-static float2 UI_CalculatePosFromAnchor(uint2 viewportSize, UIAnchor anchor, float2 displacement)
+static float2 UI_CalculatePosFromAnchor(uint2 viewportSize, float2 windowSize, UIAnchor anchor, float2 displacement)
 {
 	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
-	const float2 res = anchorPos + displacement;
+	const float2 windowPos = anchor == UiAnchorMiddleCenter ?
+		anchorPos - 0.5f * windowSize:
+		anchorPos;
+	const float2 res = windowPos + displacement;
 	return res;
 }
 
@@ -623,21 +641,6 @@ void UI_PopDrawList(UI &ui)
 
 }
 
-void UI_RaiseWindow(UI &ui, UIWindow &window)
-{
-	// Push down all windows in front of the one to be raised
-	for (u32 i = 0; i < ui.windowCount; ++i)
-	{
-		if (ui.windows[i].layer < window.layer)
-		{
-			ui.windows[i].layer++;
-		}
-	}
-
-	// Finally put this window in front
-	window.layer = 0;
-}
-
 void UI_UploadVerticesToGPU(UI &ui)
 {
 	const UIVertex *srcVertexBase = ui.frontendVertices;
@@ -698,6 +701,40 @@ const UIWindow &UI_GetCurrentWindow(const UI &ui)
 	ASSERT(ui.windowStackSize > 0);
 	const u32 windowIndex = ui.windowStack[ui.windowStackSize-1];
 	return ui.windows[windowIndex];
+}
+
+void UI_RaiseWindow(UI &ui, UIWindow &window)
+{
+	// Push down all windows in front of the one to be raised
+	for (u32 i = 0; i < ui.windowCount; ++i)
+	{
+		if (ui.windows[i].layer < window.layer)
+		{
+			ui.windows[i].layer++;
+		}
+	}
+
+	// Finally put this window in front
+	window.layer = 0;
+}
+
+void UI_RaiseWindow(UI &ui)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	UI_RaiseWindow(ui, window);
+}
+
+void UI_FocusWindow(UI &ui)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	ui.activeWindow = &window;
+}
+
+bool UI_IsFocusedWindow(UI &ui)
+{
+	UIWindow &window = UI_GetCurrentWindow(ui);
+	const bool res = ui.activeWindow == &window;
+	return res;
 }
 
 bool UI_WindowHovered(const UI &ui)
@@ -1034,7 +1071,7 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	window.anchor = ui.defaultWindowAnchor;
 	window.anchorDisplacement = ui.defaultWindowAnchorDislacement;
 	window.size = ui.defaultWindowSize;
-	window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.anchor, window.anchorDisplacement);
+	window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.size, window.anchor, window.anchorDisplacement);
 	UI_RaiseWindow(ui, window);
 
 	UI_ResetWindowDefaults(ui);
@@ -1042,23 +1079,20 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	return window;
 }
 
-//void UI_BeginPanel(UI &ui, u32 index, float2 pos, float2 size, UIDrawListFlags flags = UIDrawListFlags_None)
-//{
-//	UI_PushDrawList(ui, rect{(i32)pos.x, (i32)pos.y, (u32)size.x, (u32)size.y}, ui.fontAtlasH, flags);
-//}
-//
-//void UI_EndPanel(UI &ui)
-//{
-//	UI_PopDrawList(ui);
-//}
-
-void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
+void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 {
 	ASSERT(ui.windowStackSize < ARRAY_COUNT(ui.windowStack));
 
 	UIWindow &window = UI_FindWindow(ui, windowId);
 	ui.windowStack[ui.windowStackSize++] = window.index;
 	window.visible = true;
+	window.flags = flags;
+
+	if (ui.nextWindowForceSize)
+	{
+		window.size = ui.nextWindowSize;
+		ui.nextWindowForceSize = false;
+	}
 
 	UI_PushCursorPos(ui, window.pos);
 
@@ -1097,6 +1131,20 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags)
 
 		panelPos.y += titlebarSize.y;
 		panelSize.y -= titlebarSize.y;
+
+		if (flags & UIWindowFlag_CloseButton && isOpen != nullptr)
+		{
+			const float2 closePos =  titlebarPos + float2{titlebarSize.x - titlebarSize.y, 0.0};
+			const float2 closeSize = float2{titlebarSize.y, titlebarSize.y};
+			UI_BeginWidget(ui, closePos, closeSize, false);
+
+			UI_PushColor(ui, UI_WidgetColor(ui));
+			UI_AddRectangle(ui, closePos, closeSize);
+			UI_PopColor(ui);
+
+			*isOpen = !UI_WidgetClicked(ui);
+			UI_EndWidget(ui);
+		}
 	}
 
 	if ( flags & UIWindowFlag_Background )
@@ -1226,14 +1274,14 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	return id;
 }
 
-constexpr u32 UIWindowFlags_Default = UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
+constexpr u32 UIWindowFlags_Default = UIWindowFlag_Draggable | UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_CloseButton | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
 
-void UI_BeginWindow(UI &ui, const char *caption, u32 flags = UIWindowFlags_Default)
+void UI_BeginWindow(UI &ui, const char *caption, bool *isOpen, u32 flags = UIWindowFlags_Default)
 {
 	const u32 windowId = UI_MakeID(ui, caption);
 	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, caption);
 
-	UI_BeginWindow(ui, windowId, flags);
+	UI_BeginWindow(ui, windowId, flags, isOpen);
 }
 
 void UI_EndWindow(UI &ui)
@@ -2383,7 +2431,7 @@ void UI_BeginFrame(UI &ui)
 	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
 		UIWindow &window = ui.windows[i];
-		window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.anchor, window.anchorDisplacement);
+		window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.size, window.anchor, window.anchorDisplacement);
 	}
 
 	// Resize / move window interactions
@@ -2437,7 +2485,7 @@ void UI_BeginFrame(UI &ui)
 		{
 			UI_RaiseWindow(ui, *ui.hoveredWindow);
 			ui.activeWindow = ui.hoveredWindow;
-			ui.activeWindow->dragging = true;
+			ui.activeWindow->dragging = ( ui.activeWindow->flags & UIWindowFlag_Draggable );
 			ui.wantsInput = true;
 		}
 		else

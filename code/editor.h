@@ -100,6 +100,7 @@ struct Editor
 	bool showInspector;
 	bool showTilesets;
 	bool showGrid;
+	bool showAbout;
 
 	bool selectEntity;
 	Handle selectedEntity;
@@ -117,6 +118,7 @@ struct Editor
 	ImageH iconWav;
 	ImageH iconMod;
 	ImageH iconImg;
+	ImageH iluLogo;
 
 	SnapshotNode *snapshots;
 
