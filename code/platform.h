@@ -47,6 +47,7 @@ enum Key
 	K_Q, K_R, K_S, K_T,
 	K_U, K_V, K_W, K_X,
 	K_Y, K_Z,
+	K_PERIOD,
 	K_COUNT,
 };
 

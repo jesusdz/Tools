@@ -1340,6 +1340,8 @@ static void UpdateKeyModifiers(Window &window)
 				character = '0' + (i - K_0);
 			} else if ( i == K_SPACE ) {
 				character = ' ';
+			} else if ( i == K_PERIOD ) {
+				character = '.';
 			}
 
 			if (character)

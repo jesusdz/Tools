@@ -190,7 +190,7 @@ K_NULL, // VK_OEM_1				0xBA	Miscellaneous
 K_NULL, // VK_OEM_PLUS			0xBB	For any country/region, the '+' key
 K_NULL, // VK_OEM_COMMA			0xBC	For any country/region, the ',' key
 K_NULL, // VK_OEM_MINUS			0xBD	For any country/region, the '-' key
-K_NULL, // VK_OEM_PERIOD			0xBE	For any country/region, the '.' key
+K_PERIOD, // VK_OEM_PERIOD			0xBE	For any country/region, the '.' key
 K_NULL, // VK_OEM_2				0xBF	Miscellaneous
 K_NULL, // VK_OEM_3				0xC0	Miscellaneous
 K_NULL, // -						0xC1	Reserved
