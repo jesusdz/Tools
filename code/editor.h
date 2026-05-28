@@ -20,6 +20,7 @@ struct EditorCommand
 	{
 		u32 pipelineIndex;
 		TextureH textureH;
+		const char *filepath;
 	};
 };
 
@@ -95,6 +96,8 @@ struct EditorInspector
 
 struct Editor
 {
+	bool showLoadScene;
+	bool showSaveScene;
 	bool showDebugUI;
 	bool showAssets;
 	bool showInspector;

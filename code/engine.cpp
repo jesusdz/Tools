@@ -2331,13 +2331,12 @@ static bool PopDataArenaState(Engine &engine)
 }
 
 #if USE_DATA_BUILD
-void LoadSceneFromTxt(Engine &engine)
+void LoadSceneFromTxt(Engine &engine, const char *filepath)
 {
 	if ( PushDataArenaState(engine) )
 	{
 		Arena &dataArena = DataArena;
-		const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
-		AssetDescriptors assetDescriptors = ParseDescriptors(descriptorsFilepath.str, dataArena);
+		AssetDescriptors assetDescriptors = ParseDescriptors(filepath, dataArena);
 
 		// Textures
 		for (u32 i = 0; i < assetDescriptors.textureDescCount; ++i)
@@ -2374,12 +2373,11 @@ void LoadSceneFromTxt(Engine &engine)
 	}
 }
 
-void SaveSceneToTxt(Engine &engine)
+void SaveSceneToTxt(Engine &engine, const char *filepath)
 {
 	const AssetDescriptors assetDescs = GetAssetDescriptors(engine);
 
-	FilePath path = MakePath(AssetDir, "assets_new.txt");
-	SaveAssetDescriptors(path.str, assetDescs);
+	SaveAssetDescriptors(filepath, assetDescs);
 }
 #endif // USE_DATA_BUILD
 

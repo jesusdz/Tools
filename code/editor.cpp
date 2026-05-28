@@ -72,13 +72,11 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 		{
 			if ( UI_MenuItem(ui, "Load scene") )
 			{
-				const EditorCommand command = { .type = EditorCommandLoadTxt };
-				AddEditorCommand(editor, command);
+				editor.showLoadScene = true;
 			}
 			if ( UI_MenuItem(ui, "Save scene") )
 			{
-				const EditorCommand command = { .type = EditorCommandSaveTxt };
-				AddEditorCommand(editor, command);
+				editor.showSaveScene = true;
 			}
 
 			if ( UI_MenuItem(ui, "Clear scene") )
@@ -765,6 +763,79 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 	}
 }
 
+enum EditorFileDialogMode
+{
+	EditorFileDialog_LoadFile,
+	EditorFileDialog_SaveFile,
+	EditorFileDialogModeCount,
+};
+struct EditorFileDialogStrings
+{
+	const char *caption;
+	const char *button;
+};
+static const EditorFileDialogStrings EditorFileDialogStringsArray[] = {
+	{ .caption = "Load file", .button = "Load"},
+	{ .caption = "Save file", .button = "Save"},
+};
+CT_ASSERT( ARRAY_COUNT(EditorFileDialogStringsArray) == EditorFileDialogModeCount );
+
+static bool EditorFileDialog(Engine &engine, EditorFileDialogMode mode, const char *extension, bool *isOpen, FilePath *filePath)
+{
+	bool ret = false;
+
+	UI &ui = GetUI(engine);
+	Editor &editor = engine.editor;
+
+	static bool wasOpen = false;
+	static char filename[MAX_PATH_LENGTH] = {};
+
+	const bool justOpened = !wasOpen;
+	if ( justOpened ) {
+		StrCopy(filename, "");
+	}
+
+	const char *caption = EditorFileDialogStringsArray[mode].caption;
+	const char *button = EditorFileDialogStringsArray[mode].button;
+
+	UI_BeginWindow(ui, caption, isOpen);
+
+	Dir dir;
+	if ( OpenDir(dir, AssetDir) )
+	{
+		DirEntry entry;
+		while ( ReadDir(dir, entry) )
+		{
+			if ( HasFileExtension(entry.name, extension) )
+			{
+				if ( UI_Radio(ui, entry.name, StrEq(entry.name, filename)) )
+				{
+					StrCopy(filename, entry.name);
+				}
+			}
+		}
+
+		CloseDir(dir);
+	}
+
+	if ( mode == EditorFileDialog_SaveFile )
+	{
+		UI_InputText(ui, "File name", filename, ARRAY_COUNT(filename));
+	}
+
+	if ( UI_Button(ui, button) && !StrEq(filename, "") ) {
+		*filePath = MakePath(AssetDir, filename);
+		*isOpen = false;
+		ret = true;
+	}
+
+	UI_EndWindow(ui);
+
+	wasOpen = *isOpen;
+
+	return ret;
+}
+
 static void EditorUpdateUI(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -773,6 +844,26 @@ static void EditorUpdateUI(Engine &engine)
 	Editor &editor = engine.editor;
 
 	EditorUpdateUI_MenuBar(engine);
+
+	if ( editor.showLoadScene )
+	{
+		static FilePath filePath = {};
+		if ( EditorFileDialog(engine, EditorFileDialog_LoadFile, "txt", &editor.showLoadScene, &filePath) )
+		{
+			const EditorCommand command = { .type = EditorCommandLoadTxt, .filepath = filePath.str };
+			AddEditorCommand(editor, command);
+		}
+	}
+
+	if ( editor.showSaveScene )
+	{
+		static FilePath filePath = {};
+		if ( EditorFileDialog(engine, EditorFileDialog_SaveFile, "txt", &editor.showSaveScene, &filePath) )
+		{
+			const EditorCommand command = { .type = EditorCommandSaveTxt, .filepath = filePath.str };
+			AddEditorCommand(editor, command);
+		}
+	}
 
 	if ( editor.showDebugUI )
 	{
@@ -1147,12 +1238,12 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				}
 				case EditorCommandLoadTxt:
 				{
-					LoadSceneFromTxt(engine);
+					LoadSceneFromTxt(engine, command.filepath);
 					break;
 				}
 				case EditorCommandSaveTxt:
 				{
-					SaveSceneToTxt(engine);
+					SaveSceneToTxt(engine, command.filepath);
 					break;
 				}
 				case EditorCommandLoadBin:
