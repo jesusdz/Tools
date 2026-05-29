@@ -855,13 +855,36 @@ static void EditorUpdateUI(Engine &engine)
 		}
 	}
 
+	static FilePath saveSceneFilepath = {};
+	static bool saveScene = false;
 	if ( editor.showSaveScene )
 	{
-		static FilePath filePath = {};
-		if ( EditorFileDialog(engine, EditorFileDialog_SaveFile, "txt", &editor.showSaveScene, &filePath) )
+		if ( EditorFileDialog(engine, EditorFileDialog_SaveFile, "txt", &editor.showSaveScene, &saveSceneFilepath) )
 		{
-			const EditorCommand command = { .type = EditorCommandSaveTxt, .filepath = filePath.str };
+			saveScene = true;
+		}
+	}
+	if ( saveScene )
+	{
+		const char *buttons[] = { "Yes", "No", nullptr };
+		u32 result = 0;
+		if ( ExistsFile(saveSceneFilepath.str) )
+		{
+			if ( UI_MessageBox(ui, "Save scene", "File already exists. Overwrite contents?", buttons, &result) )
+			{
+				if ( result == 0 ) {
+					EditorCommand command = { .type = EditorCommandSaveTxt, .filepath = saveSceneFilepath.str };
+					AddEditorCommand(editor, command);
+				}
+				saveScene = false;
+			}
+		}
+		else
+		{
+			EditorCommand command = { .type = EditorCommandSaveTxt, .filepath = saveSceneFilepath.str };
 			AddEditorCommand(editor, command);
+
+			saveScene = false;
 		}
 	}
 

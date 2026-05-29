@@ -2212,6 +2212,33 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 	return clicked;
 }
 
+bool UI_MessageBox(UI &ui, const char *caption, const char *text, const char **buttons, u32 *result)
+{
+	constexpr u32 flags = UIWindowFlag_Draggable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
+	UI_SetNextWindowSize(ui, uint2{350, 120});
+	UI_BeginWindow(ui, caption, nullptr, flags);
+	UI_Label(ui, text);
+
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+
+	*result = -1;
+	i32 res = 0;
+	while (*buttons)
+	{
+		if ( UI_Button(ui, *buttons) ) {
+			*result = res;
+		}
+		buttons++;
+		res++;
+	}
+
+	UI_EndLayout(ui);
+
+	UI_EndWindow(ui);
+
+	return *result != -1;
+}
+
 void UI_DragAndDropSource(UI &ui, const char *payloadType, void *payload, ImageH imageH)
 {
 	float2 prevWidgetPos = ui.widgetStack[ui.widgetStackSize].pos;
