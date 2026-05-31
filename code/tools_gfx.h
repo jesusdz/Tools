@@ -220,6 +220,7 @@ enum CompareOp
 {
 	CompareOpNone,
 	CompareOpLess,
+	CompareOpLessOrEqual,
 	CompareOpGreater,
 	CompareOpGreaterOrEqual,
 	CompareOpEqual,
@@ -1397,6 +1398,7 @@ static VkCompareOp CompareOpToVulkan(CompareOp compareOp)
 	static const VkCompareOp vkCompareOps[] = {
 		VK_COMPARE_OP_NEVER,
 		VK_COMPARE_OP_LESS,
+		VK_COMPARE_OP_LESS_OR_EQUAL,
 		VK_COMPARE_OP_GREATER,
 		VK_COMPARE_OP_GREATER_OR_EQUAL,
 		VK_COMPARE_OP_EQUAL,
