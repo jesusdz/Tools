@@ -51,6 +51,7 @@ struct ImagePixels
 #define MAX_TEXTURES 4092
 #define MAX_MATERIALS 4092
 #define MAX_ENTITIES 4092
+#define MAX_DEBUG_DRAW_VERTICES 4092
 
 #define INVALID_HANDLE -1
 
@@ -191,6 +192,7 @@ struct Graphics
 
 	BufferH debugDrawVertexBuffer[MAX_FRAMES_IN_FLIGHT];
 	DebugDrawVertex *debugDrawVertices[MAX_FRAMES_IN_FLIGHT];
+	DebugDrawVertex *debugDrawVerticesCPU;
 	u32 debugDrawVertexCount;
 
 	SamplerH pointSamplerH;
@@ -1590,7 +1592,8 @@ Handle DuplicateEntity(Engine &engine, Handle entityHandle)
 
 void DrawBox(float2 pos, float2 size, float4 color)
 {
-	DebugDrawVertex *v = engine->gfx.debugDrawVertices[engine->gfx.device.frameIndex] + engine->gfx.debugDrawVertexCount;
+	ASSERT( engine->gfx.debugDrawVertexCount + 6 <= MAX_DEBUG_DRAW_VERTICES );
+	DebugDrawVertex *v = engine->gfx.debugDrawVerticesCPU + engine->gfx.debugDrawVertexCount;
 	v[0] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
 	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
 	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, Rgba(color) };
@@ -1925,12 +1928,13 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	{
 		gfx.debugDrawVertexBuffer[i] = CreateBuffer(
 			gfx.device,
-			sizeof(DebugDrawVertex) * 1024,
+			sizeof(DebugDrawVertex) * MAX_DEBUG_DRAW_VERTICES,
 			BufferUsageVertexBuffer,
 			HeapType_Dynamic);
 
 		gfx.debugDrawVertices[i] = (DebugDrawVertex*)GetBufferPtr(gfx.device, gfx.debugDrawVertexBuffer[i]);
 	}
+	gfx.debugDrawVerticesCPU = PushArray(globalArena, DebugDrawVertex, MAX_DEBUG_DRAW_VERTICES);
 
 	CommandList commandList = BeginUploadCommandList(gfx);
 
@@ -3163,6 +3167,8 @@ bool RenderGraphics(Engine &engine)
 #endif
 
 		{ // Debug draw
+			MemCopy(gfx.debugDrawVertices[frameIndex], gfx.debugDrawVerticesCPU, gfx.debugDrawVertexCount * sizeof(DebugDrawVertex));
+
 			const UI &ui = engine.ui;
 
 			BeginDebugGroup(commandList, "DebugDraw", ColorBlack);
