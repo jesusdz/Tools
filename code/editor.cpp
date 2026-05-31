@@ -1029,6 +1029,7 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 
 static void EditorUpdateInteraction2D(Engine &engine, const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
 {
+	Editor &editor = engine.editor;
 	const Mouse &mouse = window.mouse;
 
 	Handle selectedEntity = engine.editor.selectedEntity;
@@ -1043,23 +1044,29 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 
 		constexpr int pixelIncrements = 1;
 
-		static bool isTranslating = false;
 		static float2 initialWorldOffset = {};
 		static float2 initialWorldPos = {};
-		if (KeyPress(window.keyboard, K_T)) {
-			isTranslating = true;
-			initialWorldPos = float2{entity.position.x, entity.position.y};
-			initialWorldOffset = Floor(initialWorldPos) - Floor(mouseWorldPos);
-		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
-			entity.position = Float3(initialWorldPos, entity.position.z);
-			isTranslating = false;
-		} else if (isTranslating && MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
-			isTranslating = false;
-		} else if ( isTranslating ) {
-			const f32 incr = 0.5;
-			const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
-			entity.position = Float3(finalPos, entity.position.z);
+
+		static bool wasTranslating = false;
+
+		if ( editor.isTranslating )
+		{
+			if (!wasTranslating) {
+				initialWorldPos = float2{entity.position.x, entity.position.y};
+				initialWorldOffset = Floor(initialWorldPos) - Floor(mouseWorldPos);
+			} else if (MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
+				entity.position = Float3(initialWorldPos, entity.position.z);
+				editor.isTranslating = false;
+			} else if (MouseButtonRelease(window.mouse, MOUSE_BUTTON_LEFT)) {
+				editor.isTranslating = false;
+			} else {
+				const f32 incr = 0.5;
+				const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
+				entity.position = Float3(finalPos, entity.position.z);
+			}
 		}
+
+		wasTranslating = editor.isTranslating;
 
 		static bool isScaling = false;
 		static f32 initialScale = 0.0;
@@ -1179,51 +1186,37 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 {
 	Editor &editor = engine.editor;
 
-	static bool mouseMoved = false;
 	if ( handleInput )
 	{
-		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT)) {
-			mouseMoved = false;
-		}
-		if (mouse.dx != 0 || mouse.dx != 0) {
-			mouseMoved = true;
-		}
-		if (!mouseMoved && MouseButtonRelease(mouse, MOUSE_BUTTON_LEFT)) {
+		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT))
+		{
 			editor.selectEntity = true;
 		}
-		if (engine.mode == EngineModeEditor2D && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT)) {
-			editor.setGridTile = true;
+		else if ( editor.selectEntity )
+		{
+			editor.selectEntity = false;
+
+			WaitDeviceIdle(engine.gfx.device);
+			editor.selectedEntity = *(Handle*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
+
+			if (editor.selectedEntity != InvalidHandle)
+			{
+				editor.inspector.inspectedType = EditorInspectedType_Entity;
+				editor.isTranslating = true;
+			}
+			else
+			{
+				editor.inspector.inspectedType = EditorInspectedType_None;
+			}
+		}
+
+		if (engine.mode == EngineModeEditor2D && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
+		{
 			const Camera &camera = editor.camera[ProjectionOrthographic];
 			const int2 mousePos = { mouse.x, mouse.y };
-			editor.setGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
-		}
-	}
-}
-
-static void EditorEndSceneEditing(Engine &engine)
-{
-	Editor &editor = engine.editor;
-
-	if ( editor.setGridTile )
-	{
-		editor.setGridTile = false;
-		const Tile tile = editor.tilesets.tile;
-		SetGridTileAtCoord(engine, tile, editor.setGridTileCoord);
-	}
-
-	if ( editor.selectEntity )
-	{
-		WaitDeviceIdle(engine.gfx.device);
-		editor.selectedEntity = *(Handle*)GetBufferPtr(engine.gfx.device, engine.gfx.selectionBufferH);
-		editor.selectEntity = false;
-
-		if (editor.selectedEntity != InvalidHandle)
-		{
-			editor.inspector.inspectedType = EditorInspectedType_Entity;
-		}
-		else
-		{
-			editor.inspector.inspectedType = EditorInspectedType_None;
+			const int2 setGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
+			const Tile tile = editor.tilesets.tile;
+			SetGridTileAtCoord(engine, tile, setGridTileCoord);
 		}
 	}
 }
@@ -1283,6 +1276,7 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				}
 				case EditorCommandClean:
 				{
+					engine.editor.selectedEntity = InvalidHandle;
 					engine.editor.inspector.inspectedType = EditorInspectedType_None;
 					CleanScene(engine);
 					break;
@@ -1495,8 +1489,6 @@ void EditorRender(Engine &engine, CommandList &commandList)
 
 void EditorPostRender(Engine &engine)
 {
-	EditorEndSceneEditing(engine);
-
 	EditorProcessCommands(engine, FrameArena);
 }
 

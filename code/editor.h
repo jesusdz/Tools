@@ -108,8 +108,7 @@ struct Editor
 	bool selectEntity;
 	Handle selectedEntity;
 
-	bool setGridTile;
-	int2 setGridTileCoord;
+	bool isTranslating;
 
 	Camera camera[ProjectionTypeCount];
 	bool cameraOrbit;
