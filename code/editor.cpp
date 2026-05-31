@@ -721,7 +721,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 			if (engine.mode == EngineModeEditor2D)
 			{
 				const Camera &camera = engine.editor.camera[ProjectionOrthographic];
-				const float2 worldPos = GetWorld2DCoord(engine, camera, mousePos);
+				const float2 worldPos = Floor(GetWorld2DCoord(engine, camera, mousePos));
 				LOG(Info, "World x: %f, y: %f\n", worldPos.x, worldPos.y);
 
 				const char *name = NameFromFilename(node->filename);
@@ -757,7 +757,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 			}
 			else
 			{
-				LOG(Warning, "Drag and Drop not implemented in 3D mode.\n");
+				LOG(Debug, "Drag and Drop not implemented in 3D mode.\n");
 			}
 		}
 	}
@@ -1042,8 +1042,6 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 		const int2 mousePos = {mouse.x, mouse.y};
 		const float2 mouseWorldPos = GetWorld2DCoord(engine, camera, mousePos);
 
-		constexpr int pixelIncrements = 1;
-
 		static float2 initialWorldOffset = {};
 		static float2 initialWorldPos = {};
 
@@ -1060,7 +1058,6 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 			} else if (MouseButtonRelease(window.mouse, MOUSE_BUTTON_LEFT)) {
 				editor.isTranslating = false;
 			} else {
-				const f32 incr = 0.5;
 				const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
 				entity.position = Float3(finalPos, entity.position.z);
 			}

@@ -2252,6 +2252,16 @@ void UI_DragAndDropSource(UI &ui, const char *payloadType, void *payload, ImageH
 	}
 }
 
+bool UI_DragAndDropInProgress(UI &ui, const char *payloadType)
+{
+	if ( ui.dragAndDrop.payload && StrEq(ui.dragAndDrop.payloadType, payloadType) )
+	{
+		return true;
+	}
+
+	return false;
+}
+
 bool UI_DragAndDropTarget(UI &ui, const char *payloadType)
 {
 	// TODO: Check if there was a drop event on the previous widget
