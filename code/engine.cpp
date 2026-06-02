@@ -1299,6 +1299,28 @@ MaterialH CreateMaterial(Graphics &gfx, const MaterialDesc &desc)
 	return materialHandle;
 }
 
+MaterialH GetOrCreateMaterial(Graphics &gfx, const MaterialDesc &desc)
+{
+	MaterialH materialHandle = InvalidHandle;
+	HandleIter it = BeginIter(gfx.materialHandles);
+	while (it)
+	{
+		Handle handle = *it;
+		const MaterialDesc &materialDesc = GetMaterialDesc(gfx, handle);
+		if ( !( desc.flags & AssetFlag_Builtin ) && StrEq(desc.name, materialDesc.name)) {
+			materialHandle = handle;
+			break;
+		}
+		it++;
+	}
+
+	if ( materialHandle == InvalidHandle )
+	{
+		materialHandle = CreateMaterial(gfx, desc);
+	}
+	return materialHandle;
+}
+
 MaterialH CreateMaterial( Graphics &gfx, const BinMaterialDesc &desc)
 {
 	const MaterialDesc materialDesc = {
@@ -2812,6 +2834,8 @@ bool RenderGraphics(Engine &engine)
 	const f32 f = 1.0f;
 	const float4x4 camera2dProjection = Orthogonal(l, r, b, t, n, f);
 
+	Handle selectedEntity = EditorGetSelectedEntity(editor);
+
 	// Update globals struct
 	const Globals globals = {
 		.cameraView = viewMatrix,
@@ -2829,7 +2853,7 @@ bool RenderGraphics(Engine &engine)
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
 #if USE_EDITOR
-		.selectedEntity = editor.selectedEntity.num,
+		.selectedEntity = selectedEntity.num,
 #endif
 	};
 

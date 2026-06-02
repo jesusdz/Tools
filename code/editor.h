@@ -27,10 +27,12 @@ struct EditorCommand
 enum EditorInspectedType
 {
 	EditorInspectedType_None,
+	EditorInspectedType_Entity,
+	EditorInspectedType_Material,
+	EditorInspectedType_Texture,
 	EditorInspectedType_Image,
 	EditorInspectedType_Audio,
 	EditorInspectedType_Music,
-	EditorInspectedType_Entity,
 	EditorInspectedType_Count,
 	EditorInspectedType_AssetFileBegin = EditorInspectedType_Image,
 	EditorInspectedType_AssetFileEnd = EditorInspectedType_Music,
@@ -38,10 +40,12 @@ enum EditorInspectedType
 
 static const char *EditorInspectedTypeName[] = {
 	"None",
+	"Entity",
+	"Material",
+	"Texture",
 	"Image",
 	"Audio",
 	"Music",
-	"Entity",
 };
 CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 
@@ -84,14 +88,14 @@ struct SnapshotNode
 
 struct EditorInspector
 {
+	Handle selectedItem;
 	EditorInspectedType inspectedType;
-	FileNode *assetFile;
 
-	TextureH textureH;
-	AudioClipH audioClipH;
-	Handle musicH;
+	Handle nextSelectedItem;
+	EditorInspectedType nextInspectedType;
 
-	bool refresh;
+	FileNode *selectedAssetFile;
+	FileNode *nextSelectedAssetFile;
 };
 
 struct Editor
@@ -99,6 +103,7 @@ struct Editor
 	bool showLoadScene;
 	bool showSaveScene;
 	bool showDebugUI;
+	bool showOutliner;
 	bool showAssets;
 	bool showInspector;
 	bool showTilesets;
@@ -106,7 +111,6 @@ struct Editor
 	bool showAbout;
 
 	bool selectEntity;
-	Handle selectedEntity;
 
 	bool isTranslating;
 
@@ -137,5 +141,14 @@ void EditorInitialize(Engine &engine);
 void EditorUpdate(Engine &engine);
 void EditorRender(Engine &engine, CommandList &commandList);
 void EditorPostRender(Engine &engine);
+
+inline Handle EditorGetSelectedEntity(const Editor &editor)
+{
+	Handle handle = InvalidHandle;
+	if ( editor.inspector.inspectedType == EditorInspectedType_Entity ) {
+		handle = editor.inspector.selectedItem;
+	}
+	return handle;
+}
 
 #endif // #ifndef EDITOR_H

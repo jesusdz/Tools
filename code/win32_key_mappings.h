@@ -73,7 +73,7 @@ K_E, // 							0x45	E key
 K_F, // 							0x46	F key
 K_G, // 							0x47	G key
 K_H, // 							0x48	H key
-K_Y, // 							0x49	I key
+K_I, // 							0x49	I key
 K_J, // 							0x4A	J key
 K_K, // 							0x4B	K key
 K_L, // 							0x4C	L key
