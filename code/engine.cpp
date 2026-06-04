@@ -1531,21 +1531,6 @@ Entity &GetEntity(Scene &scene, Handle handle)
 	return entity;
 }
 
-Entity *GetEntity(const char *name)
-{
-	static Entity nullEntity = {};
-	Entity *ent = &nullEntity;
-	for ( HandleIter it = BeginIter(engine->scene.entityHandles); it; it++)
-	{
-		Entity &entity = GetEntity(engine->scene, *it);
-		if ( StrEq(entity.name, name) ) {
-			ent = &entity;
-			break;
-		}
-	}
-	return ent;
-}
-
 EntityDesc GetEntityDesc(Scene &scene, Handle handle)
 {
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
@@ -3612,6 +3597,44 @@ ENGINE_API void OnPlatformCleanup(Plat &platform)
 }
 
 
+
+////////////////////////////////////////////////////////////////////////
+// Game API
+
+Entity *GetEntity(const char *name)
+{
+	static Entity nullEntity = {};
+	Entity *ent = &nullEntity;
+	for ( HandleIter it = BeginIter(engine->scene.entityHandles); it; it++)
+	{
+		Entity &entity = GetEntity(engine->scene, *it);
+		if ( StrEq(entity.name, name) ) {
+			ent = &entity;
+			break;
+		}
+	}
+	return ent;
+}
+
+AudioClipH GetAudioClip(const char *name)
+{
+	Handle handle = InvalidHandle;
+	for ( HandleIter it = BeginIter(engine->audio.clipHandles); it; it++)
+	{
+		AudioClipDesc &desc = GetAudioClipDesc(engine->audio, *it);
+		if ( StrEq(desc.name, name) ) {
+			handle = *it;
+			break;
+		}
+	}
+	return handle;
+}
+
+u32 PlayAudioClip(Handle handle)
+{
+	u32 ret = PlayAudioClip(*engine, handle);
+	return ret;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementations

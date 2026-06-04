@@ -392,6 +392,28 @@ Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 	return handle;
 }
 
+Handle GetOrCreateAudioClip(Engine &engine, const AudioClipDesc &desc)
+{
+	MaterialH clipHandle = InvalidHandle;
+	HandleIter it = BeginIter(engine.audio.clipHandles);
+	while (it)
+	{
+		Handle handle = *it;
+		const AudioClipDesc &clipDesc = GetAudioClipDesc(engine.audio, handle);
+		if ( !( desc.flags & AssetFlag_Builtin ) && StrEq(desc.name, clipDesc.name)) {
+			clipHandle = handle;
+			break;
+		}
+		it++;
+	}
+
+	if ( clipHandle == InvalidHandle )
+	{
+		clipHandle = CreateAudioClip(engine, desc);
+	}
+	return clipHandle;
+}
+
 void RemoveAudioClip(Engine &engine, AudioClipH handle)
 {
 	AudioClip &clip = GetAudioClip(engine.audio, handle);

@@ -26,6 +26,7 @@ void GameStart(Game &game)
 	game.accel2 = 50;
 
 	game.ent = GetEntity("player");
+	game.sndJump = GetAudioClip("snd_bell_wav");
 }
 
 void GameUpdate(Game &game)
@@ -84,6 +85,7 @@ void GameUpdate(Game &game)
 		if (KeyPress(*input.keyboard, K_SPACE)) {
 			if (game.speed2.y == 0) {
 				game.speed2.y = 10;
+				PlayAudioClip(game.sndJump);
 			}
 		}
 		game.speed2.y = game.speed2.y + gravity * deltaSeconds;

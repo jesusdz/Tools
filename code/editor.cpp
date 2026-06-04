@@ -410,6 +410,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 	Editor &editor = engine.editor;
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
+	Audio &audio = engine.audio;
 
 	constexpr uint2 size = {200, 500};
 	constexpr float2 displacement = {10, 30};
@@ -453,6 +454,19 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 
 			if ( UI_Button(ui, texture.name) ) {
 				EditorSelectTexture(editor, handle);
+			}
+		}
+	}
+
+	if ( UI_Section(ui, "AudioClips") )
+	{
+		for (HandleIter it = BeginIter(audio.clipHandles); it; it++)
+		{
+			Handle handle = *it;
+			const AudioClipDesc &desc = GetAudioClipDesc(audio, handle);
+
+			if ( UI_Button(ui, desc.name) ) {
+				//EditorSelectAudioClip(editor, handle);
 			}
 		}
 	}
@@ -661,7 +675,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				const AudioClipDesc desc = {
 					.name = "inspected_audio_clip",
 					.filename = inspector.selectedAssetFile->filename,
-					//.flags = AssetFlag_Builtin,
+					.flags = AssetFlag_Builtin,
 				};
 				inspector.selectedItem = CreateAudioClip(engine, desc);
 			}
@@ -882,6 +896,20 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 			{
 				LOG(Debug, "Drag and Drop not implemented in 3D mode.\n");
 			}
+		}
+		else if (node->type == FileNodeType_Sound)
+		{
+			LOG(Info, "AudioClip asset dropped: %s\n", node->filename);
+
+			const char *basename = NameFromFilename(node->filename);
+			const char *clipname = MakeName("snd_%s", basename);
+
+			const AudioClipDesc desc = {
+				.name = clipname,
+				.filename = node->filename,
+				//.flags = AssetFlag_Builtin,
+			};
+			Handle clipHandle = GetOrCreateAudioClip(engine, desc);
 		}
 	}
 }
