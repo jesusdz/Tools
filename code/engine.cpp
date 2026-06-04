@@ -518,7 +518,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			},
 			.depthTest = true,
 			.depthWrite = true,
-			.depthCompareOp = CompareOpGreater,
+			.depthCompareOp = CompareOpGreaterOrEqual,
 		}
 	},
 	{
