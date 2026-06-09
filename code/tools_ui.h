@@ -118,6 +118,7 @@ enum UIWidgetFlags
 	UIWidgetFlag_None = 0,
 	UIWidgetFlag_Outline = (1<<0),
 	UIWidgetFlag_Expand = (1<<1),
+	UIWidgetFlag_Centered = (1<<2),
 };
 
 struct UIWidget
@@ -1138,8 +1139,31 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 			const float2 closeSize = float2{titlebarSize.y, titlebarSize.y};
 			UI_BeginWidget(ui, closePos, closeSize, false);
 
+			// Surface
 			UI_PushColor(ui, UI_WidgetColor(ui));
 			UI_AddRectangle(ui, closePos, closeSize);
+			UI_PopColor(ui);
+
+			// Cross
+			UI_PushColor(ui, UiColorWhite);
+			const float2 cornerTL = closePos;
+			const float2 cornerTR = closePos + dX(closeSize);
+			const float2 cornerBL = closePos + dY(closeSize);
+			const float2 cornerBR = closePos + closeSize;
+			const float d = 5;
+			const float m = 3;
+			const float2 cornerTL1 = {cornerTL.x + d, cornerTL.y + m};
+			const float2 cornerTL2 = {cornerTL.x + m, cornerTL.y + d };
+			const float2 cornerBL1 = {cornerBL.x + m, cornerBL.y - d};
+			const float2 cornerBL2 = {cornerBL.x + d, cornerBL.y - m};
+			const float2 cornerTR1 = {cornerTR.x - d, cornerTR.y + m};
+			const float2 cornerTR2 = {cornerTR.x - m, cornerTR.y + d};
+			const float2 cornerBR1 = {cornerBR.x - m, cornerBR.y - d};
+			const float2 cornerBR2 = {cornerBR.x - d, cornerBR.y - m};
+			UI_AddTriangle(ui, cornerBL2, cornerTR2, cornerTR1);
+			UI_AddTriangle(ui, cornerBL2, cornerTR1, cornerBL1);
+			UI_AddTriangle(ui, cornerTL2, cornerBR2, cornerBR1);
+			UI_AddTriangle(ui, cornerTL2, cornerBR1, cornerTL1);
 			UI_PopColor(ui);
 
 			*isOpen = !UI_WidgetClicked(ui);
@@ -1681,7 +1705,15 @@ bool UI_Image(UI &ui, ImageH image, float2 proposedImageSize = float2{32, 32}, U
 		imageSize = float2{containerWidth, containerWidth} - 2.0f * borderSize;
 	}
 
-	const float2 framePos = UI_GetCursorPos(ui);
+	float2 pos = UI_GetCursorPos(ui);
+	if ( flags & UIWidgetFlag_Centered )
+	{
+		const UIWindow &window = UI_GetCurrentWindow(ui);
+		const f32 containerWidth = UI_GetContainerSize(window).x;
+		pos.x = window.pos.x + 0.5f * ( containerWidth - imageSize.x );
+	}
+
+	const float2 framePos = pos;
 	const float2 frameSize = imageSize + 2.0f * borderSize;
 
 	const float2 imagePos = framePos + borderSize;
