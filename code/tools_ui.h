@@ -22,22 +22,23 @@
 	const char *text = ui.tempString;
 
 // Colors
+constexpr f32 CR = 0.05;
+constexpr f32 CG = 0.15;
+constexpr f32 CB = 0.3;
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
-constexpr float4 UiColorOrange = {1.0, 0.6, 0.0, 1.0};
-constexpr float4 UiColorBorder = { 0.2, 0.2, 0.2, 0.9 };
-constexpr float4 UiColorCaption = { 0.1, 0.2, 0.4, 1.0 };
-constexpr float4 UiColorCaptionInactive = { 0.1, 0.1, 0.1, 1.0 };
-constexpr float4 UiColorPanel = { 0.05, 0.05, 0.05, 0.95 };
-constexpr float4 UiColorWidget = { 0.1, 0.2, 0.4, 1.0 };
-constexpr float4 UiColorWidgetHover = { 0.2, 0.4, 1.0, 1.0 };
-constexpr float4 UiColorWidgetInactive = { 0.02, 0.05, 0.1, 1.0 };
-constexpr float4 UiColorBox = { 0.05, 0.1, 0.2, 1.0 };
-constexpr float4 UiColorBoxHover = { 0.1, 0.2, 0.4, 1.0 };
-constexpr float4 UiColorScrollbar = { 0.2, 0.2, 0.2, 1.0 };
-constexpr float4 UiColorScrollbarHover = { 0.4, 0.4, 0.4, 1.0 };
-constexpr float4 UiColorBoxInactive = { 0.01, 0.02, 0.05, 1.0 };
-constexpr float4 UiColorMenu = { 0.05, 0.05, 0.05, 1.0 };
-constexpr float4 UiColorMenuHover = { 0.1, 0.1, 0.1, 1.0 };
+constexpr float4 UiColorOrange = { 1.0, 0.6, 0.0, 1.0 };
+constexpr float4 UiColorBorder = { 0.1, 0.1, 0.1, 0.9 };
+constexpr float4 UiColorCaption = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorCaptionInactive = { 0.05, 0.05, 0.05, 1.0 };
+constexpr float4 UiColorPanel = { 0.02, 0.02, 0.02, 0.97 };
+constexpr float4 UiColorWidget = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorWidgetHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+constexpr float4 UiColorBox = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorBoxHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+constexpr float4 UiColorScrollbar = { 0.1, 0.1, 0.1, 1.0 };
+constexpr float4 UiColorScrollbarHover = { 0.2, 0.2, 0.2, 1.0 };
+constexpr float4 UiColorMenu = { 0.02, 0.02, 0.02, 1.0 };
+constexpr float4 UiColorMenuHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 
 // Metrics
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
