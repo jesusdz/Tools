@@ -471,6 +471,18 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 		}
 	}
 
+	if ( UI_Section(ui, "MusicFiles") )
+	{
+		for (HandleIter it = BeginIter(audio.musicHandles); it; it++)
+		{
+			Handle handle = *it;
+			const MusicFileDesc &desc = GetMusicFileDesc(audio, handle);
+
+			if ( UI_Button(ui, desc.name) ) {
+				//EditorSelectAudioClip(editor, handle);
+			}
+		}
+	}
 
 	UI_EndWindow(ui);
 }
@@ -807,7 +819,8 @@ static void EditorUpdateUI_About(Engine &engine)
 	engine.editor.showAbout &= !shouldClose;
 	wasShown = engine.editor.showAbout;
 
-	UI_Image(ui, editor.iluLogo, float2{512, 256});
+	UI_Label(ui, "");
+	UI_Image(ui, editor.iluLogo, float2{256, 256}, UIWidgetFlag_Centered);
 	UI_Label(ui, "                          ILU engine");
 	UI_Label(ui, "                     (by Jesus Diaz Garcia)");
 
@@ -910,6 +923,20 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				//.flags = AssetFlag_Builtin,
 			};
 			Handle clipHandle = GetOrCreateAudioClip(engine, desc);
+		}
+		else if (node->type == FileNodeType_Music)
+		{
+			LOG(Info, "MusicFile asset dropped: %s\n", node->filename);
+
+			const char *basename = NameFromFilename(node->filename);
+			const char *modname = MakeName("mod_%s", basename);
+
+			const MusicFileDesc desc = {
+				.name = modname,
+				.filename = node->filename,
+				//.flags = AssetFlag_Builtin,
+			};
+			Handle clipHandle = GetOrCreateMusicFile(engine, desc);
 		}
 	}
 }

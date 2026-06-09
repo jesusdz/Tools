@@ -48,6 +48,9 @@ struct Game
 	Entity *ent;
 
 	Handle sndJump;
+	Handle modEquinox;
+
+	bool playingMusic;
 };
 
 ////////////////////////////////////////////////////////////////////////

@@ -139,12 +139,17 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex);
 void PreRenderAudio(Engine &engine);
 void RenderAudio(Engine &engine, SoundBuffer &soundBuffer);
 
+MusicFile &GetMusicFile(Audio &audio, Handle handle);
+MusicFileDesc &GetMusicFileDesc(Audio &audio, Handle handle);
 Handle CreateMusicFile(Engine &engine, const BinMusicFile &binMusicFile);
 Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc);
+Handle GetOrCreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc);
 void DestroyMusicFile(Engine &engine, Handle musicH);
 void MusicPlay(Engine &engine, Handle handle);
 void MusicPause(Engine &engine);
 void MusicStop(Engine &engine);
 bool MusicIsPlaying(Engine &engine);
+
+void AudioStopAll(Engine &engine);
 
 #endif // AUDIO_H

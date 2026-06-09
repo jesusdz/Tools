@@ -72,6 +72,7 @@ struct MusicFileDesc
 {
 	const char *name;
 	const char *filename;
+	AssetFlags flags;
 };
 
 struct AssetDescriptors

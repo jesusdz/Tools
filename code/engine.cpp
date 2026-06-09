@@ -3303,6 +3303,8 @@ void GameUpdate(Engine &engine)
 	{
 		GameStop(game);
 
+		AudioStopAll(engine);
+
 		game.state = GameStateStopped;
 	}
 }
@@ -3634,6 +3636,25 @@ u32 PlayAudioClip(Handle handle)
 {
 	u32 ret = PlayAudioClip(*engine, handle);
 	return ret;
+}
+
+Handle GetMusic(const char *name)
+{
+	Handle handle = InvalidHandle;
+	for ( HandleIter it = BeginIter(engine->audio.musicHandles); it; it++)
+	{
+		MusicFileDesc &desc = GetMusicFileDesc(engine->audio, *it);
+		if ( StrEq(desc.name, name) ) {
+			handle = *it;
+			break;
+		}
+	}
+	return handle;
+}
+
+void PlayMusic(Handle handle)
+{
+	MusicPlay(*engine, handle);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -394,7 +394,7 @@ Handle CreateAudioClip(Engine &engine, const AudioClipDesc &audioClipDesc)
 
 Handle GetOrCreateAudioClip(Engine &engine, const AudioClipDesc &desc)
 {
-	MaterialH clipHandle = InvalidHandle;
+	Handle clipHandle = InvalidHandle;
 	HandleIter it = BeginIter(engine.audio.clipHandles);
 	while (it)
 	{
@@ -531,9 +531,8 @@ void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 	Audio &audio = engine.audio;
 	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
 		AudioSource &audioSource = audio.sources[audioSourceIndex];
-		bool stopped = false;
-		while ( !stopped ) {
-			stopped = AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PLAYING, AUDIO_SOURCE_STATE_IDLE);
+		while ( audioSource.state != AUDIO_SOURCE_STATE_IDLE ) {
+			bool stopped = AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PLAYING, AUDIO_SOURCE_STATE_IDLE);
 			stopped = stopped || AtomicSwap(&audioSource.state, AUDIO_SOURCE_STATE_PAUSED, AUDIO_SOURCE_STATE_IDLE);
 		}
 		audioSource = {};
@@ -811,6 +810,9 @@ Handle CreateMusicFile(Engine &engine, const BinMusicFile &binMusicFile)
 		const BinMusicFileDesc &desc = *binMusicFile.desc;
 		musicFile.loadSource = LOAD_SOURCE_ASSET_FILE;
 		musicFile.location = desc.location;
+
+		//MusicFileDesc &musicFileDesc = GetMusicFileDesc(audio, handle);
+		// TODO
 	}
 	else
 	{
@@ -841,6 +843,28 @@ Handle CreateMusicFile(Engine &engine, const MusicFileDesc &musicFileDesc)
 	}
 
 	return handle;
+}
+
+Handle GetOrCreateMusicFile(Engine &engine, const MusicFileDesc &desc)
+{
+	Handle musicHandle = InvalidHandle;
+	HandleIter it = BeginIter(engine.audio.musicHandles);
+	while (it)
+	{
+		Handle handle = *it;
+		const MusicFileDesc &musicDesc = GetMusicFileDesc(engine.audio, handle);
+		if ( !( desc.flags & AssetFlag_Builtin ) && StrEq(desc.name, musicDesc.name)) {
+			musicHandle = handle;
+			break;
+		}
+		it++;
+	}
+
+	if ( musicHandle == InvalidHandle )
+	{
+		musicHandle = CreateMusicFile(engine, desc);
+	}
+	return musicHandle;
 }
 
 void DestroyMusicFile(Engine &engine, Handle handle)
@@ -952,5 +976,15 @@ bool MusicIsPlaying(Engine &engine)
 {
 	Audio &audio = engine.audio;
 	return audio.musicIsPlaying;
+}
+
+void AudioStopAll(Engine &engine)
+{
+	MusicStop(engine);
+
+	for (u32 i = 0; i < MAX_AUDIO_SOURCES; ++i)
+	{
+		StopAudioSource(engine, i);
+	}
 }
 

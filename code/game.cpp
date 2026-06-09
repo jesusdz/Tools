@@ -27,11 +27,19 @@ void GameStart(Game &game)
 
 	game.ent = GetEntity("player");
 	game.sndJump = GetAudioClip("snd_bell_wav");
+	game.modEquinox = GetMusic("mod_equinox_mod");
+	game.playingMusic = false;
 }
 
 void GameUpdate(Game &game)
 {
 	LOG(Debug, "- GameUpdate!\n");
+
+	if (!game.playingMusic)
+	{
+		PlayMusic(game.modEquinox);
+	}
+
 
 	constexpr float deltaSeconds = 1.0f / 60.0f;
 	constexpr float gravity = -15.8f;

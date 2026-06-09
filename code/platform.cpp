@@ -436,12 +436,17 @@ static void InitializeDirectories(Platform &platform)
 
 static void SendPlatformEvent(Platform &platform, PlatformEvent event)
 {
-	ASSERT(platform.eventHead - platform.eventTail < ARRAY_COUNT(platform.events));
-	
-	const i32 eventIndex = platform.eventHead % ARRAY_COUNT(platform.events);
-	platform.events[eventIndex] = event;
+	if (platform.eventHead - platform.eventTail < ARRAY_COUNT(platform.events))
+	{
+		const i32 eventIndex = platform.eventHead % ARRAY_COUNT(platform.events);
+		platform.events[eventIndex] = event;
 
-	AtomicIncrement(&platform.eventHead);
+		AtomicIncrement(&platform.eventHead);
+	}
+	else
+	{
+		LOG(Warning, "Event %d was lost\n", event.type);
+	}
 }
 
 
