@@ -1213,6 +1213,7 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 static void EditorUpdateInteraction2D(Engine &engine, const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
 {
 	Editor &editor = engine.editor;
+	UI &ui = engine.ui;
 	const Mouse &mouse = window.mouse;
 
 	Handle selectedEntity = EditorGetSelectedEntity(editor);
@@ -1303,6 +1304,10 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 			camera.position.x = cameraPositionOnClick.x - dragScaled.x;
 			camera.position.y = cameraPositionOnClick.y + dragScaled.y;
 		}
+	}
+
+	if ( ui.hoveredWindow == nullptr )
+	{
 		if (mouse.wy != 0.0)
 		{
 			const float ar = (f32) window.width / window.height;
