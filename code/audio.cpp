@@ -1,5 +1,87 @@
 
 ////////////////////////////////////////////////////////////////////////
+// Audio command queue
+
+#define AUDIO_CMD_QUEUE_CAPACITY 64
+
+enum AudioCmdType : u32
+{
+	AudioCmd_SourcePlay,
+	AudioCmd_SourcePause,
+	AudioCmd_SourceStop,
+	AudioCmd_MusicPlay,
+	AudioCmd_MusicPause,
+	AudioCmd_MusicStop,
+	AudioCmd_StopAll,
+};
+
+struct AudioCmd
+{
+	AudioCmdType type;
+	Handle handle; // Clip or Music handle
+	u32 sourceIndex; // For active audio sources
+};
+
+struct AudioCmdQueue
+{
+	AudioCmd slots[AUDIO_CMD_QUEUE_CAPACITY];
+	volatile_u32 writePos;
+	volatile_u32 readPos;
+};
+
+static AudioCmdQueue sAudioCmdQueue = {};
+
+static void AudioCmdQueue_Push(AudioCmd cmd)
+{
+	AudioCmdQueue &queue = sAudioCmdQueue;
+	ASSERT( queue.writePos - queue.readPos < AUDIO_CMD_QUEUE_CAPACITY );
+	queue.slots[queue.writePos % AUDIO_CMD_QUEUE_CAPACITY] = cmd;
+	FullWriteBarrier();
+	queue.writePos = queue.writePos + 1;
+}
+
+static void AudioCmdQueue_ProcessCommand(Audio &audio, AudioCmd cmd)
+{
+	switch (cmd.type)
+	{
+		case AudioCmd_SourcePlay:
+			audio.sources[cmd.sourceIndex].state = AUDIO_STATE_PLAYING;
+			break;
+		case AudioCmd_SourcePause:
+			audio.sources[cmd.sourceIndex].state = AUDIO_STATE_PAUSED;
+			break;
+		case AudioCmd_SourceStop:
+			audio.sources[cmd.sourceIndex] = {};
+			break;
+		case AudioCmd_MusicPlay:
+			audio.musicState = AUDIO_STATE_PLAYING;
+			break;
+		case AudioCmd_MusicPause:
+			audio.musicState = AUDIO_STATE_PAUSED;
+			break;
+		case AudioCmd_MusicStop:
+			audio.musicState = AUDIO_STATE_IDLE;
+			audio.musicBufferReadSampleIndex = 0;
+			audio.musicBufferWriteSampleIndex = 0;
+			break;
+		case AudioCmd_StopAll:
+			break;
+	};
+}
+
+static void AudioCmdQueue_Process(Audio &audio)
+{
+	AudioCmdQueue &queue = sAudioCmdQueue;
+    while (queue.readPos != queue.writePos)
+    {
+        const AudioCmd &cmd = queue.slots[queue.readPos % AUDIO_CMD_QUEUE_CAPACITY];
+        AudioCmdQueue_ProcessCommand(audio, cmd);
+        ++queue.readPos;
+    }
+}
+
+
+////////////////////////////////////////////////////////////////////////
 // Audio system init
 
 // At 48000 Hz, 2 channels, 2 bytes per mono sample, 1MB is about 6 seconds of audio
@@ -471,8 +553,9 @@ u32 PlayAudioClip(Engine &engine, AudioClipH handle)
 		audioSource.clip = handle;
 		audioSource.lastWriteSampleIndex = 0;
 
-		FullWriteBarrier();
-		audioSource.state = AUDIO_STATE_PLAYING;
+
+		AudioCmd cmd = { .type = AudioCmd_SourcePlay, .sourceIndex = audioSourceIndex };
+		AudioCmdQueue_Push(cmd);
 	}
 
 	return audioSourceIndex;
@@ -503,40 +586,22 @@ bool IsPausedAudioSource(Engine &engine, u32 audioSourceIndex)
 void PauseAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
-		AudioSource &audioSource = audio.sources[audioSourceIndex];
-		if (audioSource.state == AUDIO_STATE_PLAYING) {
-			do {
-				AtomicSwap(&audioSource.state, AUDIO_STATE_PLAYING, AUDIO_STATE_PAUSED);
-			} while (audioSource.state != AUDIO_STATE_PAUSED && audioSource.state != AUDIO_STATE_IDLE);
-		}
-	}
+	AudioCmd cmd = { .type = AudioCmd_SourcePause, .sourceIndex = audioSourceIndex };
+	AudioCmdQueue_Push(cmd);
 }
 
 void ResumeAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
-		AudioSource &audioSource = audio.sources[audioSourceIndex];
-		if (audioSource.state == AUDIO_STATE_PAUSED) {
-			do {
-				AtomicSwap(&audioSource.state, AUDIO_STATE_PAUSED, AUDIO_STATE_PLAYING);
-			} while (audioSource.state != AUDIO_STATE_PLAYING && audioSource.state != AUDIO_STATE_IDLE);
-		}
-	}
+	AudioCmd cmd = { .type = AudioCmd_SourcePlay, .sourceIndex = audioSourceIndex };
+	AudioCmdQueue_Push(cmd);
 }
 
 void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 {
 	Audio &audio = engine.audio;
-	if (audioSourceIndex < ARRAY_COUNT(audio.sources)) {
-		AudioSource &audioSource = audio.sources[audioSourceIndex];
-		while ( audioSource.state != AUDIO_STATE_IDLE ) {
-			bool stopped = AtomicSwap(&audioSource.state, AUDIO_STATE_PLAYING, AUDIO_STATE_IDLE);
-			stopped = stopped || AtomicSwap(&audioSource.state, AUDIO_STATE_PAUSED, AUDIO_STATE_IDLE);
-		}
-		audioSource = {};
-	}
+	AudioCmd cmd = { .type = AudioCmd_SourceStop, .sourceIndex = audioSourceIndex };
+	AudioCmdQueue_Push(cmd);
 }
 
 
@@ -550,7 +615,7 @@ void PreRenderAudio(Engine &engine)
 
 	Clock beginClock = GetClock();
 
-	if (AtomicSwap(&audio.musicState, AUDIO_STATE_PLAYING, AUDIO_STATE_LOCKED))
+	if ( audio.musicState == AUDIO_STATE_PLAYING )
 	{
 		struct replay *replay = audio.moduleReplay;
 
@@ -597,10 +662,6 @@ void PreRenderAudio(Engine &engine)
 				break;
 			}
 		}
-
-		if ( audio.musicState == AUDIO_STATE_LOCKED ) {
-			audio.musicState = AUDIO_STATE_PLAYING;
-		}
 	}
 
 	if (audio.musicState == AUDIO_STATE_IDLE)
@@ -626,6 +687,8 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 	}
 
 #if 1
+	AudioCmdQueue_Process(audio);
+
 	Scratch scratch;
 
 	f32 *realSamples = PushArray(scratch.arena, f32, soundBuffer.sampleCount * 2.0f );
@@ -639,7 +702,7 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 	}
 
 	// Render music
-	if (AtomicSwap(&audio.musicState, AUDIO_STATE_PLAYING, AUDIO_STATE_LOCKED))
+	if ( audio.musicState == AUDIO_STATE_PLAYING )
 	{
 		u32 availableMusicSampleCount = audio.musicBufferWriteSampleIndex - audio.musicBufferReadSampleIndex;
 		u32 musicSampleCount = Min((u32)soundBuffer.sampleCount * 2, availableMusicSampleCount);
@@ -651,7 +714,6 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 			*dstSample++ = (f32)*srcSample++;
 		}
 		audio.musicBufferReadSampleIndex += musicSampleCount;
-		audio.musicState = AUDIO_STATE_PLAYING;
 	}
 
 
@@ -662,7 +724,7 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 
 		bool audioSourceIsValid = IsValidHandle(audio.clipHandles, audioSource.clip);
 
-		if (audioSourceIsValid && AtomicSwap(&audioSource.state, AUDIO_STATE_PLAYING, AUDIO_STATE_LOCKED))
+		if ( audioSourceIsValid && audioSource.state == AUDIO_STATE_PLAYING )
 		{
 			AudioClip &audioClip = GetAudioClip(audio, audioSource.clip);
 
@@ -748,7 +810,6 @@ void RenderAudio(Engine &engine, SoundBuffer &soundBuffer)
 			}
 
 			FullWriteBarrier();
-			audioSource.state = AUDIO_STATE_PLAYING;
 		}
 
 		if ( !audioSourceIsValid )
@@ -960,32 +1021,23 @@ void MusicPlay(Engine &engine, Handle handle)
 
 	if ( audio.moduleReplay != nullptr )
 	{
-		FullWriteBarrier();
-		MusicStop(engine);
-		audio.musicState = AUDIO_STATE_PLAYING;
+		AudioCmd cmd = { .type = AudioCmd_MusicPlay };
+		AudioCmdQueue_Push(cmd);
 	}
 }
 
 void MusicPause(Engine &engine)
 {
-	Audio &audio = engine.audio;
-
-	while ( audio.musicState != AUDIO_STATE_IDLE && audio.musicState != AUDIO_STATE_PAUSED )
-	{
-		AtomicSwap(&audio.musicState, AUDIO_STATE_PLAYING, AUDIO_STATE_PAUSED);
-	}
+	AudioCmd cmd = { .type = AudioCmd_MusicPause };
+	AudioCmdQueue_Push(cmd);
 }
 
 void MusicStop(Engine &engine)
 {
+	AudioCmd cmd = { .type = AudioCmd_MusicStop };
+	AudioCmdQueue_Push(cmd);
+
 	Audio &audio = engine.audio;
-
-	while ( audio.musicState != AUDIO_STATE_IDLE )
-	{
-		AtomicSwap(&audio.musicState, AUDIO_STATE_PLAYING, AUDIO_STATE_IDLE);
-		AtomicSwap(&audio.musicState, AUDIO_STATE_PAUSED, AUDIO_STATE_IDLE);
-	}
-
 	if ( audio.moduleReplay != nullptr ) {
 		replay_set_sequence_pos( audio.moduleReplay, 0 );
 	}
@@ -994,7 +1046,7 @@ void MusicStop(Engine &engine)
 bool MusicIsPlaying(Engine &engine)
 {
 	Audio &audio = engine.audio;
-	return audio.musicState == AUDIO_STATE_PLAYING || audio.musicState == AUDIO_STATE_LOCKED;
+	return audio.musicState == AUDIO_STATE_PLAYING;
 }
 
 void AudioStopAll(Engine &engine)

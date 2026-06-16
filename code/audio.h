@@ -40,7 +40,6 @@ enum AudioState
 	AUDIO_STATE_IDLE,
 	AUDIO_STATE_PLAYING,
 	AUDIO_STATE_PAUSED,
-	AUDIO_STATE_LOCKED,
 };
 
 typedef Handle AudioClipH;
@@ -49,7 +48,7 @@ struct AudioSource
 {
 	AudioClipH clip;
 	u32 lastWriteSampleIndex = 0;
-	volatile_u32 state;
+	AudioState state;
 };
 
 struct AudioChunk
@@ -93,7 +92,7 @@ struct Audio
 	u32 musicBufferSampleCount; // Mono samples count
 
 	// Music play state
-	volatile_u32 musicState;
+	AudioState musicState;
 	u32 musicBufferReadSampleIndex;
 	u32 musicBufferWriteSampleIndex;
 
