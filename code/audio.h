@@ -35,12 +35,12 @@ struct AudioClip
 	};
 };
 
-enum AudioSourceState
+enum AudioState
 {
-	AUDIO_SOURCE_STATE_IDLE,
-	AUDIO_SOURCE_STATE_PLAYING,
-	AUDIO_SOURCE_STATE_PAUSED,
-	AUDIO_SOURCE_STATE_LOCKED,
+	AUDIO_STATE_IDLE,
+	AUDIO_STATE_PLAYING,
+	AUDIO_STATE_PAUSED,
+	AUDIO_STATE_LOCKED,
 };
 
 typedef Handle AudioClipH;
@@ -93,7 +93,7 @@ struct Audio
 	u32 musicBufferSampleCount; // Mono samples count
 
 	// Music play state
-	bool musicIsPlaying;
+	volatile_u32 musicState;
 	u32 musicBufferReadSampleIndex;
 	u32 musicBufferWriteSampleIndex;
 
