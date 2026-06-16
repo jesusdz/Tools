@@ -218,34 +218,34 @@ typedef volatile i64 volatile_i64;
 u32 U64ToU32(u64 value)
 {
 	ASSERT(value <= U32_MAX);
-	const u32 res = (u64)value;
+	const u32 res = (u32)value;
 	return res;
 }
 
 i32 U32ToI32(u32 value)
 {
-	ASSERT( value < I32_MAX );
+	ASSERT( value <= I32_MAX );
 	const i32 res = (i32)value;
 	return res;
 }
 
 i16 I32ToI16(i32 value)
 {
-	ASSERT( value >= I16_MIN && value < I16_MAX );
+	ASSERT( value >= I16_MIN && value <= I16_MAX );
 	const i16 res = (i16)value;
 	return res;
 }
 
 u16 I32ToU16(i32 value)
 {
-	ASSERT( value >= 0 && value < U16_MAX );
+	ASSERT( value >= 0 && value <= U16_MAX );
 	const u16 res = (u16)value;
 	return res;
 }
 
 u8 I32ToU8(i32 value)
 {
-	ASSERT( value >= 0 && value < U8_MAX );
+	ASSERT( value >= 0 && value <= U8_MAX );
 	const u8 res = (u8)value;
 	return res;
 }
@@ -652,7 +652,7 @@ f32 StrToFloat(const char *str, u32 len = U32_MAX)
 	i32 integer = 0;
 
 	// scan sign
-	i32 sign = 1.0f;
+	f32 sign = 1.0f;
 	if (*str == '-') {
 		sign = -1.0f;
 		str++;
@@ -681,7 +681,7 @@ f32 StrToFloat(const char *str, u32 len = U32_MAX)
 		len--;
 	}
 
-	const float value = sign * integer / (f32)tenPower;
+	const f32 value = sign * integer / (f32)tenPower;
 	return value;
 }
 
