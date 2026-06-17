@@ -30,12 +30,14 @@ enum EditorInspectedType
 	EditorInspectedType_Entity,
 	EditorInspectedType_Material,
 	EditorInspectedType_Texture,
-	EditorInspectedType_Image,
 	EditorInspectedType_Audio,
 	EditorInspectedType_Music,
+	EditorInspectedType_FileImage,
+	EditorInspectedType_FileAudio,
+	EditorInspectedType_FileMusic,
 	EditorInspectedType_Count,
-	EditorInspectedType_AssetFileBegin = EditorInspectedType_Image,
-	EditorInspectedType_AssetFileEnd = EditorInspectedType_Music,
+	EditorInspectedType_FileBegin = EditorInspectedType_FileImage,
+	EditorInspectedType_FileEnd = EditorInspectedType_FileMusic,
 };
 
 static const char *EditorInspectedTypeName[] = {
@@ -43,9 +45,11 @@ static const char *EditorInspectedTypeName[] = {
 	"Entity",
 	"Material",
 	"Texture",
-	"Image",
 	"Audio",
 	"Music",
+	"Image file",
+	"Audio file",
+	"Music file",
 };
 CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
 
@@ -88,14 +92,13 @@ struct SnapshotNode
 
 struct EditorInspector
 {
-	Handle selectedItem;
 	EditorInspectedType inspectedType;
+	FileNode *selectedFile;
+	Handle selectedHandle;
 
-	Handle nextSelectedItem;
 	EditorInspectedType nextInspectedType;
-
-	FileNode *selectedAssetFile;
-	FileNode *nextSelectedAssetFile;
+	FileNode *nextSelectedFile;
+	Handle nextSelectedHandle;
 };
 
 struct Editor
@@ -146,7 +149,7 @@ inline Handle EditorGetSelectedEntity(const Editor &editor)
 {
 	Handle handle = InvalidHandle;
 	if ( editor.inspector.inspectedType == EditorInspectedType_Entity ) {
-		handle = editor.inspector.selectedItem;
+		handle = editor.inspector.selectedHandle;
 	}
 	return handle;
 }

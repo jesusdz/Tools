@@ -154,44 +154,64 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 
 static void EditorSelectEntity(Editor &editor, Handle handle)
 {
-	editor.inspector.nextSelectedItem = handle;
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_Entity;
 }
 
 static void EditorSelectMaterial(Editor &editor, Handle handle)
 {
-	editor.inspector.nextSelectedItem = handle;
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_Material;
 }
 
 static void EditorSelectTexture(Editor &editor, Handle handle)
 {
-	editor.inspector.nextSelectedItem = handle;
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_Texture;
 }
 
-static void EditorSelectAssetImage(Editor &editor, FileNode *node)
+static void EditorSelectAudioClip(Editor &editor, Handle handle)
 {
-	editor.inspector.nextSelectedAssetFile = node;
-	editor.inspector.nextInspectedType = EditorInspectedType_Image;
-}
-
-static void EditorSelectAssetAudio(Editor &editor, FileNode *node)
-{
-	editor.inspector.nextSelectedAssetFile = node;
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_Audio;
 }
 
-static void EditorSelectAssetMusic(Editor &editor, FileNode *node)
+static void EditorSelectMusic(Editor &editor, Handle handle)
 {
-	editor.inspector.nextSelectedAssetFile = node;
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_Music;
+}
+
+static void EditorSelectFileImage(Editor &editor, FileNode *node)
+{
+	editor.inspector.nextSelectedFile = node;
+	editor.inspector.nextSelectedHandle = InvalidHandle;
+	editor.inspector.nextInspectedType = EditorInspectedType_FileImage;
+}
+
+static void EditorSelectFileAudio(Editor &editor, FileNode *node)
+{
+	editor.inspector.nextSelectedFile = node;
+	editor.inspector.nextSelectedHandle = InvalidHandle;
+	editor.inspector.nextInspectedType = EditorInspectedType_FileAudio;
+}
+
+static void EditorSelectFileMusic(Editor &editor, FileNode *node)
+{
+	editor.inspector.nextSelectedFile = node;
+	editor.inspector.nextSelectedHandle = InvalidHandle;
+	editor.inspector.nextInspectedType = EditorInspectedType_FileMusic;
 }
 
 static void EditorUnselectAll(Editor &editor)
 {
-	editor.inspector.nextSelectedItem = InvalidHandle;
-	editor.inspector.nextSelectedAssetFile = nullptr;
+	editor.inspector.nextSelectedHandle = InvalidHandle;
+	editor.inspector.nextSelectedFile = nullptr;
 	editor.inspector.nextInspectedType = EditorInspectedType_None;
 }
 
@@ -466,7 +486,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 			const AudioClipDesc &desc = GetAudioClipDesc(audio, handle);
 
 			if ( UI_Button(ui, desc.name) ) {
-				//EditorSelectAudioClip(editor, handle);
+				EditorSelectAudioClip(editor, handle);
 			}
 		}
 	}
@@ -479,7 +499,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 			const MusicFileDesc &desc = GetMusicFileDesc(audio, handle);
 
 			if ( UI_Button(ui, desc.name) ) {
-				//EditorSelectAudioClip(editor, handle);
+				EditorSelectMusic(editor, handle);
 			}
 		}
 	}
@@ -556,22 +576,22 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			isImg ? iconImg :
 			editor.iconAsset;
 
-		const bool isSelected = inspector.selectedAssetFile ? StrEq(path.str, inspector.selectedAssetFile->filename) : false;
+		const bool isSelected = inspector.selectedFile ? StrEq(path.str, inspector.selectedFile->filename) : false;
 		const UIWidgetFlags flags = isSelected ? UIWidgetFlag_Outline : UIWidgetFlag_None;
 
 		if ( UI_Image(ui, icon, float2{32,32}, flags) )
 		{
 			if ( isWav )
 			{
-				EditorSelectAssetAudio(editor, node);
+				EditorSelectFileAudio(editor, node);
 			}
 			else if ( isMusic )
 			{
-				EditorSelectAssetMusic(editor, node);
+				EditorSelectFileMusic(editor, node);
 			}
 			else if ( isImg )
 			{
-				EditorSelectAssetImage(editor, node);
+				EditorSelectFileImage(editor, node);
 			}
 			else
 			{
@@ -604,54 +624,56 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 
 	const bool refresh =
 		inspector.inspectedType != inspector.nextInspectedType ||
-		inspector.selectedItem != inspector.nextSelectedItem ||
-		inspector.selectedAssetFile != inspector.nextSelectedAssetFile;
+		inspector.selectedHandle != inspector.nextSelectedHandle ||
+		inspector.selectedFile != inspector.nextSelectedFile;
 
-	if (refresh)
+	if ( refresh )
 	{
-		if (inspector.inspectedType == EditorInspectedType_Image) {
+		AudioStopAll(engine);
+
+		if (inspector.inspectedType == EditorInspectedType_FileImage) {
 			WaitDeviceIdle(engine.gfx.device);
-			RemoveTexture(engine.gfx, inspector.selectedItem);
+			RemoveTexture(engine.gfx, inspector.selectedHandle);
 		}
-		if (inspector.inspectedType == EditorInspectedType_Audio) {
-			StopAudioSource(engine, audioSourceIndex);
+		if (inspector.inspectedType == EditorInspectedType_FileAudio) {
 			audioSourceIndex = U32_MAX;
-			RemoveAudioClip(engine, inspector.selectedItem);
+			RemoveAudioClip(engine, inspector.selectedHandle);
 		}
-		if (inspector.inspectedType == EditorInspectedType_Music) {
-			MusicStop(engine);
-			DestroyMusicFile(engine, inspector.selectedItem);
+		if (inspector.inspectedType == EditorInspectedType_FileMusic) {
+			DestroyMusicFile(engine, inspector.selectedHandle);
 		}
 	}
 
 	inspector.inspectedType = inspector.nextInspectedType;
-	inspector.selectedItem = inspector.nextSelectedItem;
-	inspector.selectedAssetFile = inspector.nextSelectedAssetFile;
+	inspector.selectedHandle = inspector.nextSelectedHandle;
+	inspector.selectedFile = inspector.nextSelectedFile;
 
 	UI_BeginWindow(ui, "Inspector", &editor.showInspector);
 
-	if (inspector.selectedAssetFile &&
-		inspector.inspectedType >= EditorInspectedType_AssetFileBegin &&
-		inspector.inspectedType <= EditorInspectedType_AssetFileEnd)
+	UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
+
+	if (inspector.selectedFile &&
+		inspector.inspectedType >= EditorInspectedType_FileBegin &&
+		inspector.inspectedType <= EditorInspectedType_FileEnd)
 	{
-		UI_SeparatorLabel(ui, "Asset file: %s", EditorInspectedTypeName[inspector.inspectedType]);
+		const bool createFromFile = refresh;
 
-		UI_Label(ui, "%s", inspector.selectedAssetFile->filename);
+		UI_Label(ui, "%s", inspector.selectedFile->filename);
 
-		if (inspector.inspectedType == EditorInspectedType_Image)
+		if (inspector.inspectedType == EditorInspectedType_FileImage)
 		{
-			if (refresh)
+			if (createFromFile)
 			{
 				const TextureDesc desc = {
 					.name = "inspected_image",
-					.filename = inspector.selectedAssetFile->filename,
+					.filename = inspector.selectedFile->filename,
 					.mipmap = true,
 					.flags = AssetFlag_Builtin,
 				};
-				inspector.selectedItem = CreateTexture(engine.gfx, desc);
+				inspector.selectedHandle = CreateTexture(engine.gfx, desc);
 			}
 
-			const ImageH imageH = GetTextureImage(engine.gfx, inspector.selectedItem, engine.gfx.grayImageH);
+			const ImageH imageH = GetTextureImage(engine.gfx, inspector.selectedHandle, engine.gfx.grayImageH);
 			UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
 
 			if (UI_Section(ui, "Import settings"))
@@ -667,7 +689,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					if (isTileset)
 					{
 						const TileAtlasDesc tileAtlasDesc = {
-							.imagePath = inspector.selectedAssetFile->filename,
+							.imagePath = inspector.selectedFile->filename,
 							.name = InternString(name),
 							.tileSize = 32.0f,
 						};
@@ -680,44 +702,45 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				}
 			}
 		}
-		else if (inspector.inspectedType == EditorInspectedType_Audio)
+		else if (inspector.inspectedType == EditorInspectedType_FileAudio)
 		{
-			if (refresh)
+			if (createFromFile)
 			{
 				const AudioClipDesc desc = {
 					.name = "inspected_audio_clip",
-					.filename = inspector.selectedAssetFile->filename,
+					.filename = inspector.selectedFile->filename,
 					.flags = AssetFlag_Builtin,
 				};
-				inspector.selectedItem = CreateAudioClip(engine, desc);
+				inspector.selectedHandle = CreateAudioClip(engine, desc);
 			}
 
-			if (inspector.selectedItem != InvalidHandle)
+			if (inspector.selectedHandle != InvalidHandle)
 			{
 				if (UI_Button(ui, "Play")) {
-					audioSourceIndex = PlayAudioClip(engine, inspector.selectedItem);
+					audioSourceIndex = PlayAudioClip(engine, inspector.selectedHandle);
 				}
 				if (UI_Button(ui, "Stop")) {
 					StopAudioSource(engine, audioSourceIndex);
+					audioSourceIndex = U32_MAX;
 				}
 			}
 		}
-		else if (inspector.inspectedType == EditorInspectedType_Music)
+		else if (inspector.inspectedType == EditorInspectedType_FileMusic)
 		{
-			if (refresh)
+			if (createFromFile)
 			{
 				const MusicFileDesc desc = {
 					.name = "inspected_music_file",
-					.filename = inspector.selectedAssetFile->filename,
+					.filename = inspector.selectedFile->filename,
 					//.flags = AssetFlag_Builtin,
 				};
-				inspector.selectedItem = CreateMusicFile(engine, desc);
+				inspector.selectedHandle = CreateMusicFile(engine, desc);
 			}
 
-			if (inspector.selectedItem != InvalidHandle)
+			if (inspector.selectedHandle != InvalidHandle)
 			{
 				if (UI_Button(ui, "Play")) {
-					MusicPlay(engine, inspector.selectedItem);
+					MusicPlay(engine, inspector.selectedHandle);
 				}
 				if (UI_Button(ui, "Stop")) {
 					MusicStop(engine);
@@ -725,27 +748,64 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			}
 		}
 	}
-	else if(inspector.inspectedType == EditorInspectedType_Entity)
+	else
 	{
-		UI_SeparatorLabel(ui, "%s", EditorInspectedTypeName[inspector.inspectedType]);
+		if(inspector.inspectedType == EditorInspectedType_Entity)
+		{
+			Entity &entity = GetEntity(engine.scene, engine.editor.inspector.selectedHandle);
 
-		Entity &entity = GetEntity(engine.scene, engine.editor.inspector.selectedItem);
+			static char name[64];
+			StrCopy(name, entity.name);
+			UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+			entity.name = InternString(name);
 
-		static char name[64];
-		StrCopy(name, entity.name);
-		UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
-		entity.name = InternString(name);
-
-		UI_InputFloat3(ui, "Position", &entity.position);
-		UI_InputFloat(ui, "Scale", &entity.scale);
-		UI_Checkbox(ui, "Visible", &entity.visible);
+			UI_InputFloat3(ui, "Position", &entity.position);
+			UI_InputFloat(ui, "Scale", &entity.scale);
+			UI_Checkbox(ui, "Visible", &entity.visible);
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Material)
+		{
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Texture)
+		{
+			if (inspector.selectedHandle != InvalidHandle)
+			{
+				const ImageH imageH = GetTextureImage(engine.gfx, inspector.selectedHandle, engine.gfx.grayImageH);
+				UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
+			}
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Audio)
+		{
+			if (inspector.selectedHandle != InvalidHandle)
+			{
+				if (UI_Button(ui, "Play")) {
+					audioSourceIndex = PlayAudioClip(engine, inspector.selectedHandle);
+				}
+				if (UI_Button(ui, "Stop")) {
+					StopAudioSource(engine, audioSourceIndex);
+					audioSourceIndex = U32_MAX;
+				}
+			}
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Music)
+		{
+			if (inspector.selectedHandle != InvalidHandle)
+			{
+				if (UI_Button(ui, "Play")) {
+					MusicPlay(engine, inspector.selectedHandle);
+				}
+				if (UI_Button(ui, "Stop")) {
+					MusicStop(engine);
+				}
+			}
+		}
 	}
 
 	UI_EndWindow(ui);
 
 	inspector.nextInspectedType = inspector.inspectedType;
-	inspector.nextSelectedItem = inspector.selectedItem;
-	inspector.nextSelectedAssetFile = inspector.selectedAssetFile;
+	inspector.nextSelectedHandle = inspector.selectedHandle;
+	inspector.nextSelectedFile = inspector.selectedFile;
 }
 
 static void EditorUpdateUI_Tilesets(Engine &engine)

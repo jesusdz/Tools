@@ -599,9 +599,12 @@ void ResumeAudioSource(Engine &engine, u32 audioSourceIndex)
 
 void StopAudioSource(Engine &engine, u32 audioSourceIndex)
 {
-	Audio &audio = engine.audio;
-	AudioCmd cmd = { .type = AudioCmd_SourceStop, .sourceIndex = audioSourceIndex };
-	AudioCmdQueue_Push(cmd);
+	if ( audioSourceIndex < MAX_AUDIO_SOURCES )
+	{
+		Audio &audio = engine.audio;
+		AudioCmd cmd = { .type = AudioCmd_SourceStop, .sourceIndex = audioSourceIndex };
+		AudioCmdQueue_Push(cmd);
+	}
 }
 
 
