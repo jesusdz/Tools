@@ -30,7 +30,7 @@ constexpr float4 UiColorOrange = { 1.0, 0.6, 0.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.1, 0.1, 0.1, 0.9 };
 constexpr float4 UiColorCaption = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.05, 0.05, 0.05, 1.0 };
-constexpr float4 UiColorPanel = { 0.02, 0.02, 0.02, 0.97 };
+constexpr float4 UiColorBackground = { 0.02, 0.02, 0.02, 0.97 };
 constexpr float4 UiColorWidget = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorWidgetHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 constexpr float4 UiColorBox = { CR, CG, CB, 1.0 };
@@ -76,6 +76,7 @@ enum UIWindowFlags
 	UIWindowFlag_Border = 1 << 4,
 	UIWindowFlag_ClipContents = 1 << 5,
 	UIWindowFlag_CloseButton = 1 << 6,
+	UIWindowFlag_NoRaise = 1 << 7,
 };
 
 enum UIAnchor
@@ -198,6 +199,18 @@ struct UIDragAndDrop
 	ImageH imageH;
 };
 
+struct UIColorStack
+{
+	float4 stack[8];
+	uint stackSize;
+};
+
+enum UIElement
+{
+	UIElementBackground,
+	UIElementCount,
+};
+
 struct UI
 {
 	u32 frameIndex;
@@ -227,6 +240,8 @@ struct UI
 	float4 colors[16];
 	u32 colorCount;
 
+	UIColorStack colorElems[UIElementCount];
+
 	float2 cursorStack[16];
 	u32 cursorStackSize;
 
@@ -239,6 +254,7 @@ struct UI
 	u32 windowStack[16];
 	u32 windowStackSize;
 
+	UIWindow *modalWindow;
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
@@ -246,6 +262,7 @@ struct UI
 	float2 defaultWindowAnchorDislacement;
 	float2 defaultWindowSize;
 
+	bool nextWindowModal;
 	bool nextWindowForceSize;
 	float2 nextWindowSize;
 
@@ -726,10 +743,15 @@ void UI_RaiseWindow(UI &ui)
 	UI_RaiseWindow(ui, window);
 }
 
+void UI_FocusWindow(UI &ui, UIWindow &window)
+{
+	ui.activeWindow = &window;
+}
+
 void UI_FocusWindow(UI &ui)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
-	ui.activeWindow = &window;
+	UI_FocusWindow(ui, window);
 }
 
 bool UI_IsFocusedWindow(UI &ui)
@@ -862,6 +884,30 @@ float4 UI_GetColor(const UI &ui)
 {
 	const float4 color = ui.colors[ui.colorCount-1];
 	return color;
+}
+
+void UI_PushElemColor(UI &ui, UIElement elem, float4 color)
+{
+	ASSERT(ui.colorElems[elem].stackSize < ARRAY_COUNT(ui.colorElems[0].stack));
+	ui.colorElems[elem].stack[ui.colorElems[elem].stackSize++] = color;
+}
+
+void UI_PopElemColor(UI &ui, UIElement elem)
+{
+	ASSERT(ui.colorElems[elem].stackSize > 1);
+	ui.colorElems[elem].stackSize--;
+}
+
+float4 UI_GetElemColor(UI &ui, UIElement elem)
+{
+	const float4 color = ui.colorElems[elem].stack[ui.colorElems[elem].stackSize-1];
+	return color;
+}
+
+void UI_PushColor(UI &ui, UIElement elem)
+{
+	const float4 color = UI_GetElemColor(ui, elem);
+	UI_PushColor(ui, color);
 }
 
 void UI_AddTriangle(UI &ui, const UIVertex &v0, const UIVertex &v1, const UIVertex v2)
@@ -1081,6 +1127,12 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	return window;
 }
 
+void UI_SetNextWindowModal(UI &ui)
+{
+	ASSERT(ui.modalWindow == nullptr);
+	ui.nextWindowModal = true;
+}
+
 void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 {
 	ASSERT(ui.windowStackSize < ARRAY_COUNT(ui.windowStack));
@@ -1094,6 +1146,13 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 	{
 		window.size = ui.nextWindowSize;
 		ui.nextWindowForceSize = false;
+	}
+
+	if (ui.nextWindowModal)
+	{
+		ASSERT(ui.modalWindow == nullptr);
+		ui.modalWindow = &window;
+		ui.nextWindowModal = false;
 	}
 
 	UI_PushCursorPos(ui, window.pos);
@@ -1174,7 +1233,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 
 	if ( flags & UIWindowFlag_Background )
 	{
-		UI_PushColor(ui, UiColorPanel);
+		UI_PushColor(ui, UIElementBackground);
 		UI_AddRectangle(ui, panelPos, panelSize);
 		UI_PopColor(ui);
 	}
@@ -1620,7 +1679,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			const f32 textWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) );
 			UI_BeginWidget(ui, itemPos, itemSize);
 			const bool itemHovered = UI_WidgetHovered(ui);
-			UI_PushColor(ui, itemHovered ? UiColorBoxHover : UiColorPanel);
+			UI_PushColor(ui, itemHovered ? UiColorBoxHover : UiColorBackground);
 			UI_AddRectangle(ui, itemPos, itemSize);
 			UI_PopColor(ui);
 			const float2 textPos = itemPos + padding;
@@ -2342,6 +2401,8 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 
 	UI_PushColor(ui, UiColorWidget);
 
+	UI_PushElemColor(ui, UIElementBackground, UiColorBackground);
+
 	struct SizedFont
 	{
 		const char *filename;
@@ -2553,10 +2614,13 @@ void UI_BeginFrame(UI &ui)
 	{
 		if ( ui.hoveredWindow && ui.hoveredWindow->visible )
 		{
-			UI_RaiseWindow(ui, *ui.hoveredWindow);
-			ui.activeWindow = ui.hoveredWindow;
-			ui.activeWindow->dragging = ( ui.activeWindow->flags & UIWindowFlag_Draggable );
-			ui.wantsInput = true;
+			if ( !( ui.hoveredWindow->flags & UIWindowFlag_NoRaise ) )
+			{
+				UI_RaiseWindow(ui, *ui.hoveredWindow);
+				ui.activeWindow = ui.hoveredWindow;
+				ui.activeWindow->dragging = ( ui.activeWindow->flags & UIWindowFlag_Draggable );
+				ui.wantsInput = true;
+			}
 		}
 		else
 		{
@@ -2619,6 +2683,27 @@ void UI_EndFrame(UI &ui)
 		{
 			ui.dragAndDrop.payload = 0;
 		}
+	}
+
+	// Modal window
+	if ( ui.modalWindow )
+	{
+		const char *idString = "$modalbg";
+		const u32 windowId = UI_MakeID(ui, idString);
+
+		UI_PushElemColor(ui, UIElementBackground, float4{0.0, 0.0, 0.0, 0.8});
+		UI_SetNextWindowSize(ui, ui.viewportSize);
+		UI_SetNextWindowAnchor(ui, UiAnchorTopLeft, float2{0.0f, 0.0f});
+		UI_BeginWindow(ui, idString, nullptr, UIWindowFlag_Background | UIWindowFlag_NoRaise );
+		UI_EndWindow(ui);
+		UI_PopElemColor(ui, UIElementBackground);
+
+		UIWindow &bgWindow = UI_FindWindow(ui, windowId);
+		UI_RaiseWindow(ui, bgWindow);
+		UI_RaiseWindow(ui, *ui.modalWindow);
+		UI_FocusWindow(ui, *ui.modalWindow);
+
+		ui.modalWindow = nullptr;
 	}
 
 	// Create an array of draw list indices

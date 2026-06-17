@@ -859,25 +859,16 @@ static void EditorUpdateUI_Tilesets(Engine &engine)
 
 static void EditorUpdateUI_About(Engine &engine)
 {
-	static bool wasShown = false;
-
 	UI &ui = engine.ui;
 	Editor &editor = engine.editor;
 
-	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{0, 0});
-	UI_SetNextWindowSize(ui, ui.viewportSize);
-	UI_BeginWindow(ui, "Background", &engine.editor.showAbout, UIWindowFlag_None);
-	UI_RaiseWindow(ui);
-	const bool shouldClose = UI_IsFocusedWindow(ui);
-	UI_EndWindow(ui);
-
+	UI_SetNextWindowModal(ui);
 	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{0, 0});
 	UI_SetNextWindowSize(ui, uint2{ 512, 350 });
-	UI_BeginWindow(ui, "About", &engine.editor.showAbout, UIWindowFlag_Border | UIWindowFlag_Background);
+
+	UI_BeginWindow(ui, "About", nullptr, UIWindowFlag_Border | UIWindowFlag_Background);
 	UI_RaiseWindow(ui);
 	UI_FocusWindow(ui);
-	engine.editor.showAbout &= !shouldClose;
-	wasShown = engine.editor.showAbout;
 
 	UI_Label(ui, "");
 	UI_Image(ui, editor.iluLogo, float2{256, 256}, UIWidgetFlag_Centered);
@@ -885,6 +876,12 @@ static void EditorUpdateUI_About(Engine &engine)
 	UI_Label(ui, "                     (by Jesus Diaz Garcia)");
 
 	UI_EndWindow(ui);
+
+	static bool wasShown = false;
+	if ( UI_IsMouseClickWithAnyButton(ui) && wasShown ) {
+		engine.editor.showAbout = false;
+	}
+	wasShown = engine.editor.showAbout;
 }
 
 static const char * NameFromFilename(const char *name)
@@ -1036,6 +1033,7 @@ static bool EditorFileDialog(Engine &engine, EditorFileDialogMode mode, const ch
 	const char *caption = EditorFileDialogStringsArray[mode].caption;
 	const char *button = EditorFileDialogStringsArray[mode].button;
 
+	UI_SetNextWindowModal(ui);
 	UI_BeginWindow(ui, caption, isOpen);
 
 	Dir dir;
