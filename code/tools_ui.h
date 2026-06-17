@@ -336,10 +336,7 @@ static float2 UI_GetAnchorPos(uint2 viewportSize, UIAnchor anchor)
 static float2 UI_CalculatePosFromAnchor(uint2 viewportSize, float2 windowSize, UIAnchor anchor, float2 displacement)
 {
 	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
-	const float2 windowPos = anchor == UiAnchorMiddleCenter ?
-		anchorPos - 0.5f * windowSize:
-		anchorPos;
-	const float2 res = windowPos + displacement;
+	const float2 res = anchorPos + displacement;
 	return res;
 }
 

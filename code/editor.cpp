@@ -863,10 +863,11 @@ static void EditorUpdateUI_About(Engine &engine)
 	Editor &editor = engine.editor;
 
 	UI_SetNextWindowModal(ui);
-	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{0, 0});
+	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{-256, -175});
 	UI_SetNextWindowSize(ui, uint2{ 512, 350 });
 
 	UI_BeginWindow(ui, "About", nullptr, UIWindowFlag_Border | UIWindowFlag_Background);
+
 	UI_RaiseWindow(ui);
 	UI_FocusWindow(ui);
 
