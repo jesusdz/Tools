@@ -245,6 +245,9 @@ struct UI
 	float2 cursorStack[16];
 	u32 cursorStackSize;
 
+	f32 indentStack[16];
+	u32 indentStackSize;
+
 	UIInput input;
 	uint2 viewportSize;
 
@@ -459,6 +462,19 @@ void UI_MoveCursorRight(UI &ui, float amount)
 	float2 cursorPos = UI_GetCursorPos(ui);
 	cursorPos.x += amount;
 	UI_SetCursorPos(ui, cursorPos);
+}
+
+void UI_Indent(UI &ui, f32 amount = UiSpacing)
+{
+	ASSERT(ui.indentStackSize < ARRAY_COUNT(ui.indentStack));
+	ui.indentStack[ui.indentStackSize++] = UI_GetCursorPos(ui).x;
+	UI_MoveCursorRight(ui, amount);
+}
+
+void UI_Unindent(UI &ui)
+{
+	ASSERT(ui.indentStackSize > 0);
+	UI_SetCursorPosX(ui, ui.indentStack[--ui.indentStackSize]);
 }
 
 UILayout UI_GetLayout(const UI &ui)
