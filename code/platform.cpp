@@ -449,6 +449,51 @@ static void SendPlatformEvent(Platform &platform, PlatformEvent event)
 	}
 }
 
+static u32 capturedButtons = 0; // bitmask: bit i set means MOUSE_BUTTON_i is currently pressed
+
+static void CaptureButton(MouseButton button, Window &window)
+{
+	if (!capturedButtons) {
+#if PLATFORM_WINDOWS
+		SetCapture(window.impl->hWnd);
+#else
+#error Not implemented
+#endif
+	}
+	capturedButtons |= (1 << button);
+}
+
+static void ReleaseButton(MouseButton button)
+{
+	capturedButtons &= ~(1 << MOUSE_BUTTON_LEFT);
+	if (!capturedButtons) {
+#if PLATFORM_WINDOWS
+		ReleaseCapture();
+#else
+#error Not implemented
+#endif
+	}
+}
+
+static void ReleaseCapturedButtons(Platform &platform, Window &window)
+{
+	for (u32 i = 0; i < MOUSE_BUTTON_COUNT; ++i)
+	{
+		if (capturedButtons & (1 << i))
+		{
+#if USE_UPDATE_THREAD
+			const PlatformEvent event = {
+				.type = PlatformEventTypeMouseClick,
+				.mouseClick = { .button = (MouseButton)i, .state = BUTTON_STATE_RELEASE },
+			};
+			SendPlatformEvent(platform, event);
+#else
+			window.mouse.buttons[i] = BUTTON_STATE_RELEASE;
+#endif
+		}
+	}
+	capturedButtons = 0;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -829,6 +874,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 		case WM_LBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+				CaptureButton(MOUSE_BUTTON_LEFT, platform.window);
 #if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
@@ -862,11 +908,13 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
 #endif
+				ReleaseButton(MOUSE_BUTTON_LEFT);
 			}
 			break;
 		case WM_RBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+				CaptureButton(MOUSE_BUTTON_RIGHT, platform.window);
 #if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
@@ -898,11 +946,13 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
 #endif
+				ReleaseButton(MOUSE_BUTTON_RIGHT);
 			}
 			break;
 		case WM_MBUTTONDOWN:
 			if ( processMouseEvents )
 			{
+				CaptureButton(MOUSE_BUTTON_MIDDLE, platform.window);
 #if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
@@ -934,6 +984,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				ASSERT(window);
 				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
 #endif
+				ReleaseButton(MOUSE_BUTTON_MIDDLE);
 			}
 			break;
 
@@ -972,8 +1023,8 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 		case WM_MOUSEMOVE:
 			if ( processMouseEvents )
 			{
-				i16 xPos = GET_X_LPARAM(lParam);
-				i16 yPos = GET_Y_LPARAM(lParam);
+				i16 xPos = Max(0, Min((i32)platform.window.width, GET_X_LPARAM(lParam)));
+				i16 yPos = Max(0, Min((i32)platform.window.height, GET_Y_LPARAM(lParam)));
 #if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseMove,
@@ -990,6 +1041,12 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
 			}
 			break;
+
+		case WM_CAPTURECHANGED:
+			{
+				ReleaseCapturedButtons(platform, platform.window);
+				break;
+			}
 
 		case WM_MOUSEHOVER:
 		case WM_MOUSELEAVE:
