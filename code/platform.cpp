@@ -465,7 +465,7 @@ static void CaptureButton(MouseButton button, Window &window)
 
 static void ReleaseButton(MouseButton button)
 {
-	capturedButtons &= ~(1 << MOUSE_BUTTON_LEFT);
+	capturedButtons &= ~(1 << button);
 	if (!capturedButtons) {
 #if PLATFORM_WINDOWS
 		ReleaseCapture();
