@@ -43,6 +43,25 @@ struct MaterialDesc
 	AssetFlags flags;
 };
 
+struct SpriteDesc
+{
+	const char *name;
+	const char *textureName;
+	float2 uvPos;
+	float2 uvSize;
+};
+
+struct AnimationDesc
+{
+	const char *name;
+	const char *textureName;
+	uint2 framePos;
+	uint2 frameSize;
+	u32 frameCount;
+	u32 fps;
+	u8 loop;
+};
+
 enum GeometryType
 {
 	GeometryTypeCube,
@@ -55,10 +74,16 @@ enum GeometryType
 struct EntityDesc
 {
 	const char *name;
+	// 3D entity
 	const char *materialName;
+	GeometryType geometryType;
+	// Sprite entity
+	const char *spriteName;
+	const char *animationName;
+	i32 layer;
+	// Common
 	float3 pos;
 	float scale;
-	GeometryType geometryType;
 };
 
 struct AudioClipDesc
@@ -82,6 +107,12 @@ struct AssetDescriptors
 
 	TextureDesc *textureDescs;
 	u32 textureDescCount;
+
+	SpriteDesc *spriteDescs;
+	u32 spriteDescCount;
+
+	AnimationDesc *animationDescs;
+	u32 animationDescCount;
 
 	MaterialDesc *materialDescs;
 	u32 materialDescCount;
@@ -162,12 +193,35 @@ struct BinMaterialDesc
 	float uvScale;
 };
 
+struct BinSpriteDesc
+{
+	const char *name;
+	const char *textureName;
+	float2 uvPos;
+	float2 uvSize;
+};
+
+struct BinAnimationDesc
+{
+	const char *name;
+	const char *textureName;
+	u32 framePosX, framePosY;
+	u32 frameSizeX, frameSizeY;
+	u32 frameCount;
+	u32 fps;
+	u8 loop;
+	u8 _pad[3];
+};
+
 struct BinEntityDesc
 {
 	const char *name;
 	const char *materialName;
+	const char *spriteName;
+	const char *animationName;
 	float3 pos;
 	float scale;
+	i32 layer;
 	GeometryType geometryType;
 };
 
@@ -184,6 +238,10 @@ struct BinAssetsHeader
 	u32 musicFileCount;
 	u32 materialsOffset;
 	u32 materialCount;
+	u32 spritesOffset;
+	u32 spriteCount;
+	u32 animationsOffset;
+	u32 animationCount;
 	u32 entitiesOffset;
 	u32 entityCount;
 	u32 stringPoolOffset;
@@ -217,6 +275,16 @@ struct BinMaterial
 	BinMaterialDesc *desc;
 };
 
+struct BinSprite
+{
+	BinSpriteDesc *desc;
+};
+
+struct BinAnimation
+{
+	BinAnimationDesc *desc;
+};
+
 struct BinEntity
 {
 	BinEntityDesc *desc;
@@ -236,6 +304,8 @@ struct BinAssets
 	BinAudioClip *audioClips;
 	BinMusicFile *musicFiles;
 	BinMaterial *materials;
+	BinSprite *sprites;
+	BinAnimation *animations;
 	BinEntity *entities;
 };
 

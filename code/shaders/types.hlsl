@@ -25,6 +25,14 @@ struct Globals
 struct SEntity
 {
 	float4x4 world;
+	uint spriteIndex;
+};
+
+struct SSpriteData
+{
+	float2 uvOffset;
+	float2 uvSize;
+	float2 worldSize;
 };
 
 struct SMaterial

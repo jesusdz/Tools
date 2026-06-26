@@ -152,6 +152,21 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 	}
 }
 
+static void EditorUpdateUI_ToolBar(Engine &engine)
+{
+	UI &ui = GetUI(engine);
+
+	if ( UI_BeginToolBar(ui) )
+	{
+		if ( UI_ButtonIcon(ui, 0) )
+		{
+			engine.game.state = GameStateStarting;
+		}
+
+		UI_EndToolBar(ui);
+	}
+}
+
 static void EditorSelectEntity(Editor &editor, Handle handle)
 {
 	editor.inspector.nextSelectedHandle = handle;
@@ -433,9 +448,9 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 	Audio &audio = engine.audio;
 
 	constexpr uint2 size = {200, 500};
-	constexpr float2 displacement = {10, 30};
 	UI_SetNextWindowDefaultSize(ui, size);
-	UI_SetNextWindowAnchor(ui, UiAnchorTopLeft, displacement);
+	UI_SetNextWindowAnchor(ui, {0,0});
+	UI_SetNextWindowDefaultDisplacement(ui, {10, 50});
 
 	UI_BeginWindow(ui, "Outliner", &editor.showOutliner);
 
@@ -448,6 +463,19 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 
 			if ( UI_Button(ui, entity.name) ) {
 				EditorSelectEntity(editor, handle);
+			}
+		}
+	}
+
+	if ( UI_Section(ui, "Sprites") )
+	{
+		for (HandleIter it = BeginIter(scene.spriteHandles); it; it++)
+		{
+			Handle handle = *it;
+			const Sprite &sprite = GetSprite(scene, handle);
+
+			if ( UI_Button(ui, sprite.name) ) {
+				//EditorSelectSprite(editor, handle);
 			}
 		}
 	}
@@ -541,9 +569,10 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	EditorInspector &inspector = editor.inspector;
 
 	constexpr uint2 size = {500, 200};
-	constexpr float2 displacement = {10, -10 - (f32)size.y};
+	constexpr float2 displacement = {10, -10};
 	UI_SetNextWindowDefaultSize(ui, size);
-	UI_SetNextWindowAnchor(ui, UiAnchorBottomLeft, displacement);
+	UI_SetNextWindowAnchor(ui, {0, 1});
+	UI_SetNextWindowDefaultDisplacement(ui, displacement);
 
 	UI_BeginWindow(ui, "Assets", &editor.showAssets);
 
@@ -616,9 +645,10 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	EditorInspector &inspector = editor.inspector;
 
 	constexpr uint2 size = {200, 500};
-	constexpr float2 displacement = {-10 - (f32)size.x, 30};
+	constexpr float2 displacement = {-10, 50};
 	UI_SetNextWindowDefaultSize(ui, size);
-	UI_SetNextWindowAnchor(ui, UiAnchorTopRight, displacement);
+	UI_SetNextWindowDefaultDisplacement(ui, displacement);
+	UI_SetNextWindowAnchor(ui, {1, 0});
 
 	static u32 audioSourceIndex = U32_MAX;
 
@@ -863,8 +893,9 @@ static void EditorUpdateUI_About(Engine &engine)
 	Editor &editor = engine.editor;
 
 	UI_SetNextWindowModal(ui);
-	UI_SetNextWindowAnchor(ui, UiAnchorMiddleCenter, float2{-256, -175});
+	UI_SetNextWindowAnchor(ui, {0.5, 0.5});
 	UI_SetNextWindowSize(ui, uint2{ 512, 350 });
+	UI_SetNextWindowDefaultDisplacement(ui, {0, 0});
 
 	UI_BeginWindow(ui, "About", nullptr, UIWindowFlag_Border | UIWindowFlag_Background);
 
@@ -933,6 +964,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				const char *basename = NameFromFilename(node->filename);
 				const char *texname = MakeName("tex_%s", basename);
 				const char *matname = MakeName("mat_%s", basename);
+				const char *spriteName = MakeName("spr_%s", basename);
 
 				const TextureDesc textureDesc = {
 					.name = texname,
@@ -941,24 +973,30 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				};
 				TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
 
-				const MaterialDesc materialDesc = {
-					.name = matname,
+//				const MaterialDesc materialDesc = {
+//					.name = matname,
+//					.textureName = texname,
+//					.pipelineName = "pipeline_shading",
+//					.uvScale = 1.0,
+//				};
+//				MaterialH materialH = GetOrCreateMaterial(engine.gfx, materialDesc);
+
+				const SpriteDesc spriteDesc = {
+					.name = spriteName,
 					.textureName = texname,
-					.pipelineName = "pipeline_shading",
-					.uvScale = 1.0,
+					.uvPos = { 0, 0 },
+					.uvSize = {1, 1},
 				};
-				MaterialH materialH = GetOrCreateMaterial(engine.gfx, materialDesc);
+				SpriteH spriteH = GetOrCreateSprite(engine, spriteDesc);
 
 				const Texture &texture = GetTexture(engine.gfx, textureH);
 				constexpr float pixelsPerGridTile = 32;
-				const float scale = texture.size.x / pixelsPerGridTile;
 
 				const EntityDesc entityDesc = {
 					.name = "entity",
-					.materialName = matname,
-					.pos = Float3(worldPos, 0.0f),
-					.scale = scale,
-					.geometryType = GeometryTypeSprite,
+					.spriteName = spriteName,
+					.pos = Float3(worldPos, 0.0),
+					.scale = 1.0f,
 				};
 
 				CreateEntity(engine, entityDesc);
@@ -1035,6 +1073,8 @@ static bool EditorFileDialog(Engine &engine, EditorFileDialogMode mode, const ch
 	const char *button = EditorFileDialogStringsArray[mode].button;
 
 	UI_SetNextWindowModal(ui);
+	UI_SetNextWindowDefaultSize(ui, {400, 300});
+	UI_SetNextWindowAnchor(ui, {0.5, 0.5});
 	UI_BeginWindow(ui, caption, isOpen);
 
 	Dir dir;
@@ -1081,6 +1121,7 @@ static void EditorUpdateUI(Engine &engine)
 	Editor &editor = engine.editor;
 
 	EditorUpdateUI_MenuBar(engine);
+	EditorUpdateUI_ToolBar(engine);
 
 	if ( editor.showLoadScene )
 	{
@@ -1678,7 +1719,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 			const uint2 framebufferSize = GetFramebufferSize(gfx.renderTargets.idFramebuffer);
 			SetViewportAndScissor(commandList, framebufferSize);
 
-			SetPipeline(commandList, gfx.idPipelineH);
+			SetPipeline(commandList, gfx.modelIdPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 
 			SetVertexBuffer(commandList, vertexBuffer);
@@ -1690,12 +1731,33 @@ void EditorRender(Engine &engine, CommandList &commandList)
 				const Entity &entity = GetEntity(scene, handle);
 
 				if ( !entity.visible || entity.culled ) continue;
+				if ( entity.materialH == InvalidHandle ) continue;
 
 				// Draw!!!
 				const uint32_t indexCount = entity.indices.size/2; // div 2 (2 bytes per index)
 				const uint32_t firstIndex = entity.indices.offset/2; // div 2 (2 bytes per index)
 				const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 				DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
+			}
+
+			{ // Sprite entities
+				const uint32_t spriteIndexCount = gfx.spriteIndices.size / sizeof(Index);
+				const uint32_t spriteFirstIndex = gfx.spriteIndices.offset / sizeof(Index);
+				const int32_t spriteFirstVertex = gfx.spriteVertices.offset / sizeof(Vertex);
+
+				SetPipeline(commandList, gfx.spriteIdPipelineH);
+
+				for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
+				{
+					Handle handle = *it;
+					const Entity &entity = GetEntity(scene, handle);
+
+					if ( !entity.visible || entity.culled ) continue;
+					if ( !IsValidHandle(scene.animationHandles, entity.animationH) &&
+					     !IsValidHandle(scene.spriteHandles, entity.spriteH) ) continue;
+
+					DrawIndexed(commandList, spriteIndexCount, spriteFirstIndex, spriteFirstVertex, handle.num);
+				}
 			}
 
 			EndRenderPass(commandList);

@@ -79,15 +79,6 @@ enum UIWindowFlags
 	UIWindowFlag_NoRaise = 1 << 7,
 };
 
-enum UIAnchor
-{
-	UiAnchorTopLeft,
-	UiAnchorTopRight,
-	UiAnchorBottomLeft,
-	UiAnchorBottomRight,
-	UiAnchorMiddleCenter,
-};
-
 struct UIWindow
 {
 	u32 id;
@@ -95,8 +86,9 @@ struct UIWindow
 	char caption[64];
 	float2 pos;
 	float2 size;
-	UIAnchor anchor;
-	float2 anchorDisplacement;
+	float2 anchor;
+	float2 pivot;
+	float2 displacement;
 	float2 containerSize;
 	float2 contentSize; // Only known after filling container
 	float contentOffset;
@@ -261,13 +253,19 @@ struct UI
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
-	UIAnchor defaultWindowAnchor;
-	float2 defaultWindowAnchorDislacement;
+//	float2 defaultWindowAnchor;
+//	float2 defaultWindowPivot;
+	float2 defaultWindowDisplacement;
 	float2 defaultWindowSize;
 
 	bool nextWindowModal;
 	bool nextWindowForceSize;
+	bool nextWindowForceAnchorAndPivot;
+	bool nextWindowForceDisplacement;
 	float2 nextWindowSize;
+	float2 nextWindowAnchor;
+	float2 nextWindowPivot;
+	float2 nextWindowDisplacement;
 
 	UIWidget widgetStack[16];
 	u32 widgetStackSize;
@@ -291,6 +289,7 @@ struct UI
 	char *tempString;
 
 	bool menuBarBegan;
+	bool toolBarBegan;
 	UIWindow *activeMenu;
 	UIVertex *activeMenuVertexPtr;
 
@@ -308,46 +307,63 @@ static void UI_SetNextWindowSize(UI &ui, uint2 size)
 	ui.nextWindowForceSize = true;
 }
 
-static void UI_SetNextWindowAnchor(UI &ui, UIAnchor anchor, float2 disp)
+static void UI_SetNextWindowDefaultDisplacement(UI &ui, float2 disp)
 {
-	ui.defaultWindowAnchor = anchor;
-	ui.defaultWindowAnchorDislacement = disp;
+	ui.defaultWindowDisplacement = disp;
+}
+
+static void UI_SetNextWindowDisplacement(UI &ui, float2 displacement)
+{
+	ui.nextWindowDisplacement = displacement;
+	ui.nextWindowForceDisplacement = true;
+}
+
+static void UI_SetNextWindowAnchorAndPivot(UI &ui, float2 anchor, float2 pivot)
+{
+	ui.nextWindowAnchor = anchor;
+	ui.nextWindowPivot = pivot;
+	ui.nextWindowForceAnchorAndPivot = true;
+}
+
+static void UI_SetNextWindowAnchor(UI &ui, float2 anchor)
+{
+	UI_SetNextWindowAnchorAndPivot(ui, anchor, anchor);
 }
 
 static void UI_ResetWindowDefaults(UI &ui)
 {
-	ui.defaultWindowAnchor = UiAnchorTopLeft;
-	ui.defaultWindowAnchorDislacement = {100, 100};
-	ui.defaultWindowSize = float2{ 200, 300 };
+	ui.defaultWindowSize = {200, 300};
+//	ui.defaultWindowAnchor = {0, 0};
+//	ui.defaultWindowPivot = {0, 0};
+	ui.defaultWindowDisplacement = {0, 0};
 }
 
-static float2 UI_GetAnchorPos(uint2 viewportSize, UIAnchor anchor)
+static float2 UI_GetAnchorPos(uint2 viewportSize, float2 anchor)
 {
-	float2 anchorPos = { 0, 0 };
-	if (anchor == UiAnchorTopRight) {
-		anchorPos = float2{(f32)viewportSize.x, 0.0f};
-	} else if (anchor == UiAnchorBottomLeft) {
-		anchorPos = float2{0.0f, (f32)viewportSize.y};
-	} else if (anchor == UiAnchorBottomRight) {
-		anchorPos = float2{(f32)viewportSize.x, (f32)viewportSize.y};
-	} else if (anchor == UiAnchorMiddleCenter) {
-		anchorPos = float2{0.5f * viewportSize.x, 0.5f * viewportSize.y};
-	}
+	const float2 anchorPos = anchor * float2{(f32)viewportSize.x, (f32)viewportSize.y};
 	return anchorPos;
 }
 
-static float2 UI_CalculatePosFromAnchor(uint2 viewportSize, float2 windowSize, UIAnchor anchor, float2 displacement)
+static float2 UI_GetPivotDisplacement(float2 windowSize, float2 pivot)
 {
-	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
-	const float2 res = anchorPos + displacement;
-	return res;
+	const float2 pivotDisplacement = -1.0f * pivot * windowSize;
+	return pivotDisplacement;
 }
 
-static float2 UI_CalculateAnchorDisplacement(uint2 viewportSize, UIAnchor anchor, float2 pos)
+static void UI_PositionWindow(UIWindow &window, uint2 viewportSize, float2 windowSize, float2 anchor, float2 displacement)
 {
 	const float2 anchorPos = UI_GetAnchorPos(viewportSize, anchor);
-	const float2 res = pos - anchorPos;
-	return res;
+	const float2 pivotDisp = UI_GetPivotDisplacement(windowSize, window.pivot);
+	const float2 windowPos = anchorPos + pivotDisp + displacement;
+	window.pos = windowPos;
+}
+
+static void UI_PositionWindow(UIWindow &window, float2 position)
+{
+	window.pos = position;
+	window.anchor = {0, 0};
+	window.pivot = {0, 0};
+	window.displacement = position;
 }
 
 static float2 dX(float2 v)
@@ -1129,13 +1145,15 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	window.index = windowIndex;
 	StrCopy(window.caption, caption);
 	window.layer = windowIndex;
-	window.anchor = ui.defaultWindowAnchor;
-	window.anchorDisplacement = ui.defaultWindowAnchorDislacement;
-	window.size = ui.defaultWindowSize;
-	window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.size, window.anchor, window.anchorDisplacement);
-	UI_RaiseWindow(ui, window);
 
+//	window.anchor = ui.defaultWindowAnchor;
+//	window.pivot = ui.defaultWindowPivot;
+	window.displacement = ui.defaultWindowDisplacement;
+	window.size = ui.defaultWindowSize;
 	UI_ResetWindowDefaults(ui);
+
+	UI_PositionWindow(window, ui.viewportSize, window.size, window.anchor, window.displacement);
+	UI_RaiseWindow(ui, window);
 
 	return window;
 }
@@ -1155,10 +1173,33 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 	window.visible = true;
 	window.flags = flags;
 
+	bool needsRepositioning = false;
+
 	if (ui.nextWindowForceSize)
 	{
 		window.size = ui.nextWindowSize;
 		ui.nextWindowForceSize = false;
+		needsRepositioning = true;
+	}
+
+	if (ui.nextWindowForceAnchorAndPivot)
+	{
+		window.anchor = ui.nextWindowAnchor;
+		window.pivot = ui.nextWindowPivot;
+		ui.nextWindowForceAnchorAndPivot = false;
+		needsRepositioning = true;
+	}
+
+	if (ui.nextWindowForceDisplacement)
+	{
+		window.displacement = ui.nextWindowDisplacement;
+		ui.nextWindowForceDisplacement = false;
+		needsRepositioning = true;
+	}
+
+	if (needsRepositioning)
+	{
+		UI_PositionWindow(window, ui.viewportSize, window.size, window.anchor, window.displacement);
 	}
 
 	if (ui.nextWindowModal)
@@ -1679,8 +1720,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 		UIWindow &comboPanel = UI_FindOrCreateWindow(ui, comboId, "$combo");
 		UI_RaiseWindow(ui, comboPanel);
 		comboPanel.size = panelSize;
-		comboPanel.pos = panelPos;
-		comboPanel.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, comboPanel.anchor, comboPanel.pos);
+		UI_PositionWindow(comboPanel, panelPos);
 
 		UI_BeginWindow(ui, comboId, UIWindowFlag_Border);
 
@@ -2149,8 +2189,8 @@ bool UI_BeginMenuBar(UI &ui)
 	UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 
 	window.pos = {0, 0};
-	window.anchor = UiAnchorTopLeft;
-	window.anchorDisplacement = {0, 0};
+	window.anchor = {0, 0};
+	window.displacement = {0, 0};
 	window.size = {(f32)ui.viewportSize.x, 22.0f};
 
 	const float2 pos = window.pos;
@@ -2175,6 +2215,51 @@ void UI_EndMenuBar(UI &ui)
 {
 	ASSERT(ui.menuBarBegan);
 	ui.menuBarBegan = false;
+
+	UI_EndLayout(ui);
+	UI_PopColor(ui);
+	UI_EndWindow(ui);
+}
+
+bool UI_BeginToolBar(UI &ui)
+{
+	ASSERT(ui.windowStackSize == 0);
+	ui.toolBarBegan = true;
+
+	const char *idString = "UI_BeginToolBar";
+	const u32 windowId = UI_MakeID(ui, idString);
+	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, idString);
+	UI_BeginWindow(ui, windowId, UIWindowFlag_None);
+
+	constexpr float menuBarHeight = 22.0f;
+	constexpr float borderHeight = 1.0f;
+	window.pos = {0, menuBarHeight + borderHeight};
+	window.anchor = {0, 0};
+	window.displacement = window.pos;
+	window.size = {(f32)ui.viewportSize.x, 22.0f};
+
+	const float2 pos = window.pos;
+	const float2 size = window.size;
+
+	UI_PushColor(ui, UiColorMenu);
+	UI_AddRectangle(ui, pos, size);
+
+	const float2 borderPos = pos + float2{0.0f, size.y};
+	const float2 borderSize = float2{size.x, 1.0f};
+	UI_PushColor(ui, UiColorBorder);
+	UI_AddRectangle(ui, borderPos, borderSize);
+	UI_PopColor(ui);
+
+	UI_SetCursorPos(ui, pos + float2{UiSpacing, 0.0f});
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+
+	return true;
+}
+
+void UI_EndToolBar(UI &ui)
+{
+	ASSERT(ui.toolBarBegan);
+	ui.toolBarBegan = false;
 
 	UI_EndLayout(ui);
 	UI_PopColor(ui);
@@ -2224,9 +2309,8 @@ bool UI_BeginMenu(UI &ui, const char *name)
 	const bool showMenu = ui.activeMenu == &window;
 	if ( showMenu )
 	{
-		window.pos = itemPos + dY(itemSize);
-		window.anchor = UiAnchorTopLeft;
-		window.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, window.anchor, window.pos);
+		const float2 menuPos = itemPos + dY(itemSize);
+		UI_PositionWindow(window, menuPos);
 
 		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 		UI_RaiseWindow(ui, window);
@@ -2424,17 +2508,28 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 
 	const SizedFont fonts[] = {
 		{ "editor/fonts/proggy/ProggyClean.ttf", 13 },
+		{ "editor/fonts/pixelarial/PIXEARG_.ttf", 11 },
 		{ "editor/fonts/refixedsys/refixedsys-mono.ttf", 15 },
 	};
-
-	const SizedFont sizedFont = fonts[1];
 
 	Arena scratch = globalArena;
 	#define globalArena invalidArena // NOTE: Cannot use globalArena after scratching it
 
 	// Load TTF font texture
-	FilePath fontPath = MakePath(ProjectDir, sizedFont.filename);
-	DataChunk *chunk = PushFile( scratch, fontPath.str );
+	SizedFont sizedFont = {};
+	FilePath fontPath = {};
+	DataChunk *chunk = nullptr;
+	for (u32 i = 0; i < ARRAY_COUNT(fonts); ++i)
+	{
+		const u32 fontIndex = ARRAY_COUNT(fonts) - i - 1;
+		sizedFont = fonts[fontIndex];
+		fontPath = MakePath(ProjectDir, sizedFont.filename);
+		chunk = PushFile( scratch, fontPath.str );
+		if (chunk) {
+			break;
+		}
+	}
+
 	if ( !chunk )
 	{
 		LOG(Error, "Could not open file %s\n", fontPath.str);
@@ -2575,7 +2670,7 @@ void UI_BeginFrame(UI &ui)
 	for (u32 i = 0; i < ui.windowCount; ++i)
 	{
 		UIWindow &window = ui.windows[i];
-		window.pos = UI_CalculatePosFromAnchor(ui.viewportSize, window.size, window.anchor, window.anchorDisplacement);
+		UI_PositionWindow(window, ui.viewportSize, window.size, window.anchor, window.displacement);
 	}
 
 	// Resize / move window interactions
@@ -2598,12 +2693,15 @@ void UI_BeginFrame(UI &ui)
 				constexpr float2 minWindowSize = { 100.0f, 100.0f };
 				const int2 resizeDelta = UI_MousePos(ui) - UI_LastMouseClickPos(ui);
 				const int2 newWindowSize = window.sizeBeforeResize + resizeDelta;
+				const float2 oldSize = window.size;
 				window.size = Max(minWindowSize, float2{(float)newWindowSize.x, (float)newWindowSize.y});
+				window.displacement += window.pivot * (window.size - oldSize);
 			}
 			else if ( window.dragging )
 			{
+				const float2 oldPos = window.pos;
 				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
-				window.anchorDisplacement = UI_CalculateAnchorDisplacement(ui.viewportSize, window.anchor, window.pos);
+				window.displacement += window.pos - oldPos;
 			}
 		}
 	}
@@ -2706,7 +2804,7 @@ void UI_EndFrame(UI &ui)
 
 		UI_PushElemColor(ui, UIElementBackground, float4{0.0, 0.0, 0.0, 0.8});
 		UI_SetNextWindowSize(ui, ui.viewportSize);
-		UI_SetNextWindowAnchor(ui, UiAnchorTopLeft, float2{0.0f, 0.0f});
+		UI_SetNextWindowAnchorAndPivot(ui, float2{0, 0}, float2{0, 0});
 		UI_BeginWindow(ui, idString, nullptr, UIWindowFlag_Background | UIWindowFlag_NoRaise );
 		UI_EndWindow(ui);
 		UI_PopElemColor(ui, UIElementBackground);

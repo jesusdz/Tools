@@ -51,7 +51,11 @@ struct ImagePixels
 #define MAX_TEXTURES 4092
 #define MAX_MATERIALS 4092
 #define MAX_ENTITIES 4092
+#define MAX_SPRITE_DEFS 256
+#define MAX_ANIMATION_DEFS 256
+#define MAX_SPRITE_QUADS 1024
 #define MAX_DEBUG_DRAW_VERTICES 4092
+#define PIXELS_PER_METER 16
 
 #define INVALID_HANDLE -1
 
@@ -133,6 +137,38 @@ struct Camera
 	f32 height; // orthographic only
 };
 
+struct Sprite
+{
+	const char *name;
+	TextureH textureH;
+	float2 uvPos;
+	float2 uvSize;
+};
+
+typedef Handle SpriteH;
+
+struct Animation
+{
+	const char *name;
+	const char *textureName;
+	TextureH textureH;
+	float2 frameUvPos;
+	float2 frameUvSize;
+	uint2 framePixelPos;
+	uint2 framePixelSize;
+	u32 frameCount;
+	u32 fps;
+	bool loop;
+};
+
+typedef Handle AnimationH;
+
+struct SpriteAnimState
+{
+	f32 elapsedTime;
+	u32 currentFrame;
+};
+
 struct Entity
 {
 	const char *name;
@@ -140,10 +176,15 @@ struct Entity
 	float scale;
 	bool visible;
 	bool culled;
+	// 3D entity
 	GeometryType geometryType;
 	BufferChunk vertices;
 	BufferChunk indices;
 	MaterialH materialH;
+	// Sprite/animation entity
+	SpriteH spriteH;
+	AnimationH animationH;
+	i32 layer;
 };
 
 #define MAX_TIME_SAMPLES 32
@@ -195,6 +236,8 @@ struct Graphics
 	DebugDrawVertex *debugDrawVerticesCPU;
 	u32 debugDrawVertexCount;
 
+	BufferH spriteDataBuffer[MAX_FRAMES_IN_FLIGHT];
+
 	SamplerH pointSamplerH;
 	SamplerH linearSamplerH;
 	SamplerH shadowmapSamplerH;
@@ -241,11 +284,13 @@ struct Graphics
 
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
+	PipelineH spritePipelineH;
 	PipelineH guiPipelineH;
 #if USE_EDITOR
 	PipelineH grid2dPipelineH;
 	PipelineH grid3dPipelineH;
-	PipelineH idPipelineH;
+	PipelineH modelIdPipelineH;
+	PipelineH spriteIdPipelineH;
 #endif
 	PipelineH debugDrawPipelineH;
 
@@ -311,6 +356,14 @@ struct Scene
 {
 	Entity entities[MAX_ENTITIES];
 	HandleManager entityHandles;
+
+	Sprite sprites[MAX_SPRITE_DEFS];
+	HandleManager spriteHandles;
+
+	Animation animations[MAX_ANIMATION_DEFS];
+	HandleManager animationHandles;
+
+	SpriteAnimState spriteAnimStates[MAX_ENTITIES];
 
 	TileAtlas tileAtlas;
 	TileGrid tileGrid;
@@ -489,8 +542,10 @@ static ShaderSourceDesc shaderSourceDescs[] = {
 	{ .type = ShaderTypeFragment, .filename = "grid_3d.hlsl",        .entryPoint = "PSMain",      .name = "fs_grid_3d" },
 	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .name = "vs_ui" },
 	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .name = "fs_ui" },
-	{ .type = ShaderTypeVertex,   .filename = "id.hlsl",             .entryPoint = "VSMain",      .name = "vs_id" },
-	{ .type = ShaderTypeFragment, .filename = "id.hlsl",             .entryPoint = "PSMain",      .name = "fs_id" },
+	{ .type = ShaderTypeVertex,   .filename = "id_model.hlsl",       .entryPoint = "VSMain",      .name = "vs_id_model" },
+	{ .type = ShaderTypeFragment, .filename = "id_model.hlsl",       .entryPoint = "PSMain",      .name = "fs_id_model" },
+	{ .type = ShaderTypeVertex,   .filename = "id_sprite.hlsl",      .entryPoint = "VSMain",      .name = "vs_id_sprite" },
+	{ .type = ShaderTypeFragment, .filename = "id_sprite.hlsl",      .entryPoint = "PSMain",      .name = "fs_id_sprite" },
 	{ .type = ShaderTypeCompute,  .filename = "compute_select.hlsl", .entryPoint = "CSMain",      .name = "compute_select" },
 	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_clear",  .name = "compute_clear" },
 	{ .type = ShaderTypeCompute,  .filename = "compute.hlsl",        .entryPoint = "main_update", .name = "compute_update" },
@@ -539,7 +594,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			},
 			.depthTest = true,
 			.depthWrite = true,
-			.depthCompareOp = CompareOpGreater,
+			.depthCompareOp = CompareOpGreaterOrEqual,
 			.blending = true,
 		}
 	},
@@ -646,11 +701,32 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	},
 #if USE_EDITOR
 	{
-		.vsName = "vs_id",
-		.fsName = "fs_id",
+		.vsName = "vs_id_model",
+		.fsName = "fs_id_model",
 		.renderPass = "id_renderpass",
 		.desc = {
-			.name = "pipeline_id",
+			.name = "pipeline_model_id",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = false,
+			.depthCompareOp = CompareOpEqual,
+		}
+	},
+	{
+		.vsName = "vs_id_sprite",
+		.fsName = "fs_id_sprite",
+		.renderPass = "id_renderpass",
+		.desc = {
+			.name = "pipeline_sprite_id",
 			.vsFunction = "VSMain",
 			.fsFunction = "PSMain",
 			.vertexBufferCount = 1,
@@ -824,6 +900,7 @@ const u32 FindShaderSourceDescIndex(const char *name)
 
 RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 {
+	//if (!name) return InvalidHandle;
 	for (u32 i = 0; i < gfx.device.renderPassCount; ++i) {
 		if ( StrEq(gfx.device.renderPasses[i].name, name) ) {
 			return { .index = i };
@@ -836,6 +913,7 @@ RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 
 PipelineH FindPipelineHandle(const Graphics &gfx, const char *name)
 {
+	//if (!name) return InvalidHandle;
 	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i) {
 		if ( StrEq(pipelineDescs[i].desc.name, name) ) {
 			return pipelineHandles[i];
@@ -1190,6 +1268,7 @@ static bool IsTextureName( Handle handle, const char *name, void *data )
 
 TextureH FindTextureHandle(Graphics &gfx, const char *name)
 {
+	if (!name) return InvalidHandle;
 	const HandleFinder finder = {
 		.checkHandle = IsTextureName,
 		.name = name,
@@ -1343,6 +1422,7 @@ static bool IsMaterialName( Handle handle, const char *name, void *data )
 
 MaterialH FindMaterialHandle(Graphics &gfx, const char *name)
 {
+	if (!name) return InvalidHandle;
 	const HandleFinder finder = {
 		.checkHandle = IsMaterialName,
 		.name = name,
@@ -1350,6 +1430,110 @@ MaterialH FindMaterialHandle(Graphics &gfx, const char *name)
 	};
 	const MaterialH handle = FindHandle(gfx.materialHandles, finder);
 	return handle;
+}
+
+SpriteH CreateSprite(Engine &engine, const SpriteDesc &desc)
+{
+	Scene &scene = engine.scene;
+
+	const TextureH textureH = FindTextureHandle(engine.gfx, desc.textureName);
+
+	Sprite sprite = {};
+	sprite.name        = desc.name;
+	sprite.textureH    = textureH;
+	sprite.uvPos       = desc.uvPos;
+	sprite.uvSize      = desc.uvSize;
+
+	SpriteH handle = NewHandle(scene.spriteHandles);
+	scene.sprites[handle.idx] = sprite;
+	return handle;
+}
+
+Sprite &GetSprite(Scene &scene, SpriteH handle)
+{
+	ASSERT( IsValidHandle(scene.spriteHandles, handle) );
+	return scene.sprites[handle.idx];
+}
+
+static SpriteH FindSpriteHandle(const Scene &scene, const char *name)
+{
+	if (!name) return InvalidHandle;
+	for (HandleIter it = BeginIter(scene.spriteHandles); it; it++)
+	{
+		Handle handle = *it;
+		if (StrEq(scene.sprites[handle.idx].name, name)) return handle;
+	}
+	return InvalidHandle;
+}
+
+SpriteH GetOrCreateSprite(Engine &engine, const SpriteDesc &desc)
+{
+	SpriteH handle = FindSpriteHandle(engine.scene, desc.name);
+	if (handle == InvalidHandle)
+		handle = CreateSprite(engine, desc);
+	return handle;
+}
+
+void RemoveSprite(Scene &scene, SpriteH handle)
+{
+	scene.sprites[handle.idx] = {};
+	FreeHandle(scene.spriteHandles, handle);
+}
+
+AnimationH CreateAnimation(Engine &engine, const AnimationDesc &desc)
+{
+	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
+
+	const TextureH textureH = FindTextureHandle(gfx, desc.textureName);
+	const Texture &tex = GetTexture(gfx, textureH);
+
+	Animation ani = {};
+	ani.name           = desc.name;
+	ani.textureName    = desc.textureName;
+	ani.textureH       = textureH;
+	ani.framePixelPos  = desc.framePos;
+	ani.framePixelSize = desc.frameSize;
+	ani.frameUvPos  = { (f32)desc.framePos.x  / tex.size.x, (f32)desc.framePos.y  / tex.size.y };
+	ani.frameUvSize = { (f32)desc.frameSize.x / tex.size.x, (f32)desc.frameSize.y / tex.size.y };
+	ani.frameCount  = desc.frameCount;
+	ani.fps         = desc.fps;
+	ani.loop        = desc.loop != 0;
+
+	AnimationH handle = NewHandle(scene.animationHandles);
+	scene.animations[handle.idx] = ani;
+	return handle;
+}
+
+Animation &GetAnimation(Scene &scene, AnimationH handle)
+{
+	ASSERT( IsValidHandle(scene.animationHandles, handle) );
+	return scene.animations[handle.idx];
+}
+
+static AnimationH FindAnimationHandle(const Scene &scene, const char *name)
+{
+	if (!name) return InvalidHandle;
+	for (HandleIter it = BeginIter(scene.animationHandles); it; it++)
+	{
+		Handle handle = *it;
+		if (StrEq(scene.animations[handle.idx].name, name)) return handle;
+	}
+	return InvalidHandle;
+}
+
+AnimationH GetOrCreateAnimation(Engine &engine, const AnimationDesc &desc)
+{
+	AnimationH handle = FindAnimationHandle(engine.scene, desc.name);
+	if (handle == InvalidHandle)
+		handle = CreateAnimation(engine, desc);
+	return handle;
+}
+
+void RemoveAnimation(Scene &scene, AnimationH handle)
+{
+	scene.animations[handle.idx] = {};
+	FreeHandle(scene.animationHandles, handle);
 }
 
 void RemoveMaterial(Graphics &gfx, MaterialH materialH)
@@ -1535,14 +1719,21 @@ EntityDesc GetEntityDesc(Scene &scene, Handle handle)
 {
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
 	const Entity &entity = GetEntity(scene, handle);
-	const Material &material = GetMaterial(engine->gfx, entity.materialH);
 	EntityDesc entityDesc = {
-		.name = entity.name,
-		.materialName = material.name,
-		.pos = entity.position,
+		.name  = entity.name,
+		.layer = entity.layer,
+		.pos   = entity.position,
 		.scale = entity.scale,
-		.geometryType = entity.geometryType,
 	};
+	if (IsValidHandle(scene.animationHandles, entity.animationH)) {
+		entityDesc.animationName = GetAnimation(scene, entity.animationH).name;
+	} else if (IsValidHandle(scene.spriteHandles, entity.spriteH)) {
+		entityDesc.spriteName = GetSprite(scene, entity.spriteH).name;
+	} else {
+		const Material &material = GetMaterial(engine->gfx, entity.materialH);
+		entityDesc.materialName = material.name;
+		entityDesc.geometryType = entity.geometryType;
+	}
 	return entityDesc;
 }
 
@@ -1559,10 +1750,13 @@ Handle CreateEntity(Engine &engine, const EntityDesc &desc)
 	entity.visible = true;
 	entity.position = desc.pos;
 	entity.scale = desc.scale;
+	entity.layer = desc.layer;
 	entity.geometryType = desc.geometryType;
 	entity.vertices = vertices;
 	entity.indices = indices;
 	entity.materialH = FindMaterialHandle(engine.gfx, desc.materialName);
+	entity.spriteH = FindSpriteHandle(scene, desc.spriteName);
+	entity.animationH = FindAnimationHandle(scene, desc.animationName);
 
 	return handle;
 }
@@ -1572,9 +1766,12 @@ Handle CreateEntity(Engine &engine, const BinEntityDesc &desc)
 	const EntityDesc entityDesc = {
 		.name = desc.name,
 		.materialName = desc.materialName,
+		.geometryType = desc.geometryType,
+		.spriteName = desc.spriteName,
+		.animationName = desc.animationName,
+		.layer = desc.layer,
 		.pos = desc.pos,
 		.scale = desc.scale,
-		.geometryType = desc.geometryType,
 	};
 	return CreateEntity(engine, entityDesc);
 }
@@ -1826,11 +2023,13 @@ void LinkHandles(Graphics &gfx)
 	// Graphics pipelines
 	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
+	gfx.spritePipelineH = FindPipelineHandle(gfx, "pipeline_shading_2d");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
 #if USE_EDITOR
 	gfx.grid2dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_2d");
 	gfx.grid3dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_3d");
-	gfx.idPipelineH = FindPipelineHandle(gfx, "pipeline_id");
+	gfx.modelIdPipelineH = FindPipelineHandle(gfx, "pipeline_model_id");
+	gfx.spriteIdPipelineH = FindPipelineHandle(gfx, "pipeline_sprite_id");
 #endif // USE_EDITOR
 	gfx.debugDrawPipelineH = FindPipelineHandle(gfx, "pipeline_debug_draw");
 
@@ -1988,6 +2187,17 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 			HeapType_Dynamic);
 	}
 
+	// Create sprite data buffer
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		const u32 spriteDataBufferSize = (MAX_SPRITE_DEFS + MAX_ANIMATION_DEFS) * sizeof(SSpriteData);
+		gfx.spriteDataBuffer[i] = CreateBuffer(
+			gfx.device,
+			spriteDataBufferSize,
+			BufferUsageStorageBuffer,
+			HeapType_Dynamic);
+	}
+
 	// Create material buffer
 	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset );
 	gfx.materialBuffer = CreateBuffer(gfx.device, materialBufferSize, BufferUsageUniformBuffer | BufferUsageTransferDst, HeapType_General);
@@ -2048,6 +2258,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		{ .set = 0, .binding = BINDING_ENTITIES, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
+		{ .set = 0, .binding = BINDING_SPRITE_DATA, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
 	};
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
@@ -2132,7 +2343,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	UIIcon *icons = nullptr;
 	u32 iconCount = 0;
 #if USE_EDITOR
-	const char *iconFilenames[] = { "editor/open.png", "editor/save.png", "editor/reload.png" };
+	const char *iconFilenames[] = { "editor/play_16.png", "editor/open.png", "editor/save.png", "editor/reload.png" };
 	iconCount = ARRAY_COUNT(iconFilenames);
 	icons = PushArray(globalArena, UIIcon, iconCount);
 	for (u32 i = 0; i < iconCount; ++i) {
@@ -2160,6 +2371,7 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx, u32 frameIndex)
 			{ .index = BINDING_ENTITIES, .buffer = gfx.entityBuffer[frameIndex] },
 			{ .index = BINDING_SHADOWMAP, .image = gfx.renderTargets.shadowmapImage },
 			{ .index = BINDING_SHADOWMAP_SAMPLER, .sampler = gfx.shadowmapSamplerH },
+			{ .index = BINDING_SPRITE_DATA, .buffer = gfx.spriteDataBuffer[frameIndex] },
 		},
 	};
 	return bindGroupDesc;
@@ -2464,6 +2676,18 @@ void CleanEntity(Handle handle, void* data)
 	RemoveEntity(engine, handle);
 }
 
+void CleanSprite(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveSprite(engine.scene, handle);
+}
+
+void CleanAnimation(Handle handle, void* data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveAnimation(engine.scene, handle);
+}
+
 void CleanAudioClip(Handle handle, void* data)
 {
 	Engine &engine = *(Engine*)data;
@@ -2481,6 +2705,8 @@ void CleanScene(Engine &engine)
 	ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
 	ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
 	ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
+	ForAllHandles(engine.scene.spriteHandles, CleanSprite, &engine);
+	ForAllHandles(engine.scene.animationHandles, CleanAnimation, &engine);
 	ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
 	CloseAssets(engine.assets);
 
@@ -2915,14 +3141,67 @@ bool RenderGraphics(Engine &engine)
 		EndUploadCommandList(gfx, commandList);
 	}
 
+	// Advance animation states (one state per animation definition, shared across entities)
+	for (u32 i = 0; i < scene.animationHandles.handleCount; ++i)
+	{
+		const Handle handle = GetHandleAt(scene.animationHandles, i);
+		const Animation &anim = scene.animations[handle.idx];
+		SpriteAnimState &state = scene.spriteAnimStates[handle.idx];
+		state.elapsedTime += gfx.deltaSeconds;
+		const f32 totalDuration = (f32)anim.frameCount / (f32)anim.fps;
+		if (anim.loop && state.elapsedTime >= totalDuration)
+			state.elapsedTime = fmodf(state.elapsedTime, totalDuration);
+		state.currentFrame = (u32)(state.elapsedTime * (f32)anim.fps);
+		if (state.currentFrame >= anim.frameCount)
+			state.currentFrame = anim.frameCount - 1;
+	}
+
+	// Update sprite data buffer (UV per sprite/animation)
+	SSpriteData *spriteDataPtr = (SSpriteData*)GetBufferPtr(gfx.device, gfx.spriteDataBuffer[frameIndex]);
+	for (u32 i = 0; i < scene.spriteHandles.handleCount; ++i)
+	{
+		const Handle handle = GetHandleAt(scene.spriteHandles, i);
+		const Sprite &sprite = scene.sprites[handle.idx];
+		const Texture &texture = GetTexture(gfx, sprite.textureH);
+		spriteDataPtr[handle.idx].uvOffset  = sprite.uvPos;
+		spriteDataPtr[handle.idx].uvSize    = sprite.uvSize;
+		spriteDataPtr[handle.idx].worldSize = float2{(f32)texture.size.x, (f32)texture.size.y} / PIXELS_PER_METER;
+	}
+	for (u32 i = 0; i < scene.animationHandles.handleCount; ++i)
+	{
+		const Handle handle = GetHandleAt(scene.animationHandles, i);
+		const Animation &anim = scene.animations[handle.idx];
+		const SpriteAnimState &state = scene.spriteAnimStates[handle.idx];
+		const u32 bufferIndex = MAX_SPRITE_DEFS + handle.idx;
+		spriteDataPtr[bufferIndex].uvOffset = {anim.frameUvPos.x + state.currentFrame * anim.frameUvSize.x, anim.frameUvPos.y};
+		spriteDataPtr[bufferIndex].uvSize   = anim.frameUvSize;
+	}
+
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
 	for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
 	{
 		const Handle handle = GetHandleAt(scene.entityHandles, i);
 		const Entity &entity = GetEntity(scene, handle);
-		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(Float3(entity.scale))); // TODO: Apply also rotation
+		float3 entityScale = Float3(entity.scale);
+//		if (IsValidHandle(scene.spriteHandles, entity.spriteH)) {
+//			const Sprite &spr = GetSprite(scene, entity.spriteH);
+//			if (spr.pixelSize.x > 0)
+//				entityScale.y = entity.scale * (f32)spr.pixelSize.y / spr.pixelSize.x;
+//		} else if (IsValidHandle(scene.animationHandles, entity.animationH)) {
+//			const Animation &anim = GetAnimation(scene, entity.animationH);
+//			if (anim.framePixelSize.x > 0)
+//				entityScale.y = entity.scale * (f32)anim.framePixelSize.y / anim.framePixelSize.x;
+//		}
+		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(entityScale)); // TODO: Apply also rotation
 		entities[handle.idx].world = worldMatrix;
+
+		u32 spriteIndex = 0;
+		if (IsValidHandle(scene.animationHandles, entity.animationH))
+			spriteIndex = MAX_SPRITE_DEFS + entity.animationH.idx;
+		else if (IsValidHandle(scene.spriteHandles, entity.spriteH))
+			spriteIndex = entity.spriteH.idx;
+		entities[handle.idx].spriteIndex = spriteIndex;
 	}
 
 	// Update materials
@@ -3074,6 +3353,7 @@ bool RenderGraphics(Engine &engine)
 			const Entity &entity = GetEntity(scene, handle);
 
 			if ( !entity.visible || entity.culled ) continue;
+			if ( entity.materialH == InvalidHandle ) continue;
 
 			const MaterialH materialH = entity.materialH;
 			const Material &material = GetMaterial(gfx, materialH);
@@ -3097,6 +3377,47 @@ bool RenderGraphics(Engine &engine)
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
 
+			EndDebugGroup(commandList);
+		}
+
+		// Sprite entities
+		const Pipeline &spritePipeline = GetPipeline(gfx.device, gfx.spritePipelineH);
+		const uint32_t spriteIndexCount = gfx.spriteIndices.size / sizeof(Index);
+		const uint32_t spriteFirstIndex = gfx.spriteIndices.offset / sizeof(Index);
+		const int32_t spriteFirstVertex = gfx.spriteVertices.offset / sizeof(Vertex);
+
+		SetPipeline(commandList, gfx.spritePipelineH);
+		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+		SetVertexBuffer(commandList, vertexBuffer);
+		SetIndexBuffer(commandList, indexBuffer);
+
+		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
+		{
+			const Handle handle = *it;
+			const Entity &entity = GetEntity(scene, handle);
+
+			if (!entity.visible || entity.culled) continue;
+
+			TextureH textureH = InvalidHandle;
+			if (IsValidHandle(scene.animationHandles, entity.animationH))
+				textureH = GetAnimation(scene, entity.animationH).textureH;
+			else if (IsValidHandle(scene.spriteHandles, entity.spriteH))
+				textureH = GetSprite(scene, entity.spriteH).textureH;
+			else
+				continue;
+
+			const ImageH imageH = GetTextureImage(gfx, textureH, gfx.pinkImageH);
+			const BindGroupDesc textureBindGroupDesc = {
+				.layout = spritePipeline.layout.bindGroupLayouts[2],
+				.bindings = {
+					{ .index = 0, .image = imageH },
+				},
+			};
+			const BindGroup textureBindGroup = CreateFullBindGroup(gfx.device, textureBindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+
+			BeginDebugGroup(commandList, entity.name ? entity.name : "sprite", ColorBlack);
+			SetBindGroup(commandList, 2, textureBindGroup);
+			DrawIndexed(commandList, spriteIndexCount, spriteFirstIndex, spriteFirstVertex, handle.num);
 			EndDebugGroup(commandList);
 		}
 
@@ -3437,6 +3758,8 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 		}
 
 		Initialize(engine.scene.entityHandles, GlobalArena, MAX_ENTITIES);
+		Initialize(engine.scene.spriteHandles, GlobalArena, MAX_SPRITE_DEFS);
+		Initialize(engine.scene.animationHandles, GlobalArena, MAX_ANIMATION_DEFS);
 
 #if USE_EDITOR
 		EditorInitialize(engine);

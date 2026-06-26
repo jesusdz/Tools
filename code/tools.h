@@ -517,6 +517,9 @@ bool StrEq(const String &s11, const char *s2)
 
 bool StrEq(const char *s1, const char *s2)
 {
+	if ( !s1 && !s2 ) return true;
+	if ( s1 != s2 && ( !s1 || !s2 ) ) return false;
+
 	while ( *s1 == *s2 && *s1 )
 	{
 		s1++;
@@ -1838,6 +1841,12 @@ float3 operator*(float a, float3 b)
 float2 operator*(float2 a, float2 b)
 {
 	const float2 res = { .x = a.x * b.x, .y = a.y * b.y };
+	return res;
+}
+
+float2 operator/(float2 a, float b)
+{
+	const float2 res = { .x = a.x / b, .y = a.y / b };
 	return res;
 }
 

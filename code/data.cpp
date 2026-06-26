@@ -250,6 +250,45 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 		NewLine(ctx);
 	}
 
+	WriteSectionLine(ctx, "Sprites");
+
+	for (u32 i = 0; i < assets.spriteDescCount; ++i)
+	{
+		const SpriteDesc &desc = assets.spriteDescs[i];
+
+		WriteLine(ctx, "Sprite %s = {", desc.name);
+
+		PushIndent(ctx);
+		WriteLine(ctx, ".textureName = \"%s\",", desc.textureName);
+		WriteLine(ctx, ".uvPos = {%f, %f},", desc.uvPos.x, desc.uvPos.y);
+		WriteLine(ctx, ".uvSize = {%f, %f},", desc.uvSize.x, desc.uvSize.y);
+		PopIndent(ctx);
+
+		WriteLine(ctx, "};");
+		NewLine(ctx);
+	}
+
+	WriteSectionLine(ctx, "Animations");
+
+	for (u32 i = 0; i < assets.animationDescCount; ++i)
+	{
+		const AnimationDesc &desc = assets.animationDescs[i];
+
+		WriteLine(ctx, "Animation %s = {", desc.name);
+
+		PushIndent(ctx);
+		WriteLine(ctx, ".textureName = \"%s\",", desc.textureName);
+		WriteLine(ctx, ".framePos = {%u, %u},", desc.framePos.x, desc.framePos.y);
+		WriteLine(ctx, ".frameSize = {%u, %u},", desc.frameSize.x, desc.frameSize.y);
+		WriteLine(ctx, ".frameCount = %u,", desc.frameCount);
+		WriteLine(ctx, ".fps = %u,", desc.fps);
+		WriteLine(ctx, ".loop = %d,", desc.loop);
+		PopIndent(ctx);
+
+		WriteLine(ctx, "};");
+		NewLine(ctx);
+	}
+
 	WriteSectionLine(ctx, "Materials");
 
 	for (u32 i = 0; i < assets.materialDescCount; ++i)
@@ -277,10 +316,19 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 		WriteLine(ctx, "Entity %s = {", desc.name);
 
 		PushIndent(ctx);
-		WriteLine(ctx, ".materialName = \"%s\",", desc.materialName);
-		WriteLine(ctx, ".pos = {%f, %f, %f},", desc.pos.x, desc.pos.y, desc.pos.z );
+		if (desc.animationName) {
+			WriteLine(ctx, ".animationName = \"%s\",", desc.animationName);
+		} else if (desc.spriteName) {
+			WriteLine(ctx, ".spriteName = \"%s\",", desc.spriteName);
+		} else if (desc.materialName) {
+			WriteLine(ctx, ".materialName = \"%s\",", desc.materialName);
+			WriteLine(ctx, ".geometryType = %s,", GeometryTypeToString(desc.geometryType));
+		}
+		WriteLine(ctx, ".pos = {%f, %f, %f},", desc.pos.x, desc.pos.y, desc.pos.z);
 		WriteLine(ctx, ".scale = %f,", desc.scale);
-		WriteLine(ctx, ".geometryType = %s,", GeometryTypeToString(desc.geometryType));
+		if (desc.spriteName || desc.animationName) {
+			WriteLine(ctx, ".layer = %d,", desc.layer);
+		}
 		PopIndent(ctx);
 
 		WriteLine(ctx, "};");
@@ -749,6 +797,41 @@ static GeometryType DParser_ConsumeGeometryType( DParser &parser )
 	return res;
 }
 
+static i32 DParser_ConsumeI32( DParser &parser )
+{
+	const bool neg = DParser_TryConsume(parser, TOKEN_MINUS);
+	const DToken &token = DParser_Consume(parser);
+	const i32 res = StrToInt(token.lexeme);
+	return neg ? -res : res;
+}
+
+static uint2 DParser_ConsumeUint2( DParser &parser )
+{
+	uint2 res = {};
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+	res.x = (u32)StrToInt(DParser_ConsumeLexeme(parser));
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	res.y = (u32)StrToInt(DParser_ConsumeLexeme(parser));
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+	return res;
+}
+
+static float2 DParser_ConsumeFloat2( DParser &parser )
+{
+	float2 res = {};
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+	const bool sx = DParser_TryConsume(parser, TOKEN_MINUS);
+	res.x = DParser_ConsumeF32(parser);
+	res.x = sx ? -res.x : res.x;
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	const bool sy = DParser_TryConsume(parser, TOKEN_MINUS);
+	res.y = DParser_ConsumeF32(parser);
+	res.y = sy ? -res.y : res.y;
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+	return res;
+}
+
 static float3 DParser_ConsumeFloat3( DParser &parser )
 {
 	float3 res = {};
@@ -781,6 +864,8 @@ static void DParser_ConsumeUntil( DParser &parser, DTokenId tokenId )
 
 static const String sMaterialStr = MakeString("Material");
 static const String sTextureStr = MakeString("Texture");
+static const String sSpriteStr = MakeString("Sprite");
+static const String sAnimationStr = MakeString("Animation");
 static const String sEntityStr = MakeString("Entity");
 static const String sAudioClipStr = MakeString("AudioClip");
 static const String sMusicFileStr = MakeString("MusicFile");
@@ -859,6 +944,83 @@ static void DParseDescriptors(DParser &parser, bool countOnly)
 					DParser_TryConsume( parser, TOKEN_COMMA );
 				}
 
+			// Sprite
+			} else if ( StrEq(type, sSpriteStr) ) {
+
+				const uint index = descriptors.spriteDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				SpriteDesc &desc = descriptors.spriteDescs[index];
+				const String name = DParser_ConsumeLexeme( parser );
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sTextureName = MakeString("textureName");
+					static const String sPos = MakeString("pos");
+					static const String sSize = MakeString("size");
+
+					if ( StrEq( field, sTextureName ) ) {
+						desc.textureName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sPos ) ) {
+						desc.uvPos = DParser_ConsumeFloat2(parser);
+					} else if ( StrEq( field, sSize ) ) {
+						desc.uvSize = DParser_ConsumeFloat2(parser);
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
+
+			// Animation
+			} else if ( StrEq(type, sAnimationStr) ) {
+
+				const uint index = descriptors.animationDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				AnimationDesc &desc = descriptors.animationDescs[index];
+				const String name = DParser_ConsumeLexeme( parser );
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sTextureName = MakeString("textureName");
+					static const String sFramePos = MakeString("framePos");
+					static const String sFrameSize = MakeString("frameSize");
+					static const String sFrameCount = MakeString("frameCount");
+					static const String sFps = MakeString("fps");
+					static const String sLoop = MakeString("loop");
+
+					if ( StrEq( field, sTextureName ) ) {
+						desc.textureName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sFramePos ) ) {
+						desc.framePos = DParser_ConsumeUint2(parser);
+					} else if ( StrEq( field, sFrameSize ) ) {
+						desc.frameSize = DParser_ConsumeUint2(parser);
+					} else if ( StrEq( field, sFrameCount ) ) {
+						desc.frameCount = (u32)StrToInt(DParser_ConsumeLexeme(parser));
+					} else if ( StrEq( field, sFps ) ) {
+						desc.fps = (u32)StrToInt(DParser_ConsumeLexeme(parser));
+					} else if ( StrEq( field, sLoop ) ) {
+						desc.loop = DParser_ConsumeU8(parser);
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
+
 			// Entity
 			} else if ( StrEq(type, sEntityStr) ) {
 
@@ -879,16 +1041,25 @@ static void DParseDescriptors(DParser &parser, bool countOnly)
 					DParser_TryConsume( parser, TOKEN_EQUAL );
 
 					static const String sMaterialName = MakeString("materialName");
+					static const String sSpriteName = MakeString("spriteName");
+					static const String sAnimationName = MakeString("animationName");
 					static const String sPos = MakeString("pos");
 					static const String sScale = MakeString("scale");
+					static const String sLayer = MakeString("layer");
 					static const String sGeometryType = MakeString("geometryType");
 
 					if ( StrEq( field, sMaterialName ) ) {
 						desc.materialName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sSpriteName ) ) {
+						desc.spriteName = PushString(*parser.arena, DParser_ConsumeString(parser));
+					} else if ( StrEq( field, sAnimationName ) ) {
+						desc.animationName = PushString(*parser.arena, DParser_ConsumeString(parser));
 					} else if ( StrEq( field, sPos ) ) {
 						desc.pos = DParser_ConsumeFloat3(parser);
 					} else if ( StrEq( field, sScale ) ) {
 						desc.scale = DParser_ConsumeF32(parser);
+					} else if ( StrEq( field, sLayer ) ) {
+						desc.layer = DParser_ConsumeI32(parser);
 					} else if ( StrEq( field, sGeometryType ) ) {
 						desc.geometryType = DParser_ConsumeGeometryType(parser);
 					}
@@ -984,6 +1155,10 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 				// Reserve memory and reset counts
 				descriptors.textureDescs = PushArray(arena, TextureDesc, descriptors.textureDescCount);
 				descriptors.textureDescCount = 0;
+				descriptors.spriteDescs = PushArray(arena, SpriteDesc, descriptors.spriteDescCount + 1);
+				descriptors.spriteDescCount = 0;
+				descriptors.animationDescs = PushArray(arena, AnimationDesc, descriptors.animationDescCount + 1);
+				descriptors.animationDescCount = 0;
 				descriptors.materialDescs = PushArray(arena, MaterialDesc, descriptors.materialDescCount);
 				descriptors.materialDescCount = 0;
 				descriptors.entityDescs = PushArray(arena, EntityDesc, descriptors.entityDescCount);
@@ -1047,6 +1222,8 @@ struct DataStringPool
 
 static const char *DataInternString( DataStringPool &stringPool, const char *str )
 {
+	if (!str) { return nullptr; }
+
 	u32 offset = stringPool.size;
 	char *dst = stringPool.str + offset;
 	while (*str) { *dst++ = *str++; stringPool.size++; }
@@ -1058,7 +1235,7 @@ static const char *DataInternString( DataStringPool &stringPool, const char *str
 
 static const char *DataGetString( const char *stringPool, const char *offsetPtr )
 {
-	const char *str = stringPool + (uintptr_t)offsetPtr;
+	const char *str = offsetPtr ? stringPool + (uintptr_t)offsetPtr : nullptr;
 	return str;
 }
 
@@ -1093,13 +1270,21 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		const u32 materialsSize = materialCount * sizeof(BinMaterialDesc);
 		const u32 materialsOffset = PostIncrement(&offset, materialsSize);
 
+		const u32 spriteCount = descriptors.spriteDescCount;
+		const u32 spritesSize = spriteCount * sizeof(BinSpriteDesc);
+		const u32 spritesOffset = PostIncrement(&offset, spritesSize);
+
+		const u32 animationCount = descriptors.animationDescCount;
+		const u32 animationsSize = animationCount * sizeof(BinAnimationDesc);
+		const u32 animationsOffset = PostIncrement(&offset, animationsSize);
+
 		const u32 entityCount = descriptors.entityDescCount;
 		const u32 entitiesSize = entityCount * sizeof(BinEntityDesc);
 		const u32 entitiesOffset = PostIncrement(&offset, entitiesSize);
 
 		const u32 maxStringPoolSize = KB(128);
 		char *stringPoolBase = PushArray(tempArena, char, maxStringPoolSize);
-		DataStringPool stringPool = { stringPoolBase };
+		DataStringPool stringPool = { stringPoolBase, 1 }; // offset 0 is reserved for nullptr
 
 		// Reserve space for asset descs
 		BinShaderDesc *binShaderDescs = PushArray(tempArena, BinShaderDesc, shaderCount);
@@ -1107,6 +1292,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		BinAudioClipDesc *binAudioClipDescs = PushArray(tempArena, BinAudioClipDesc, audioClipCount);
 		BinMusicFileDesc *binMusicFileDescs = PushArray(tempArena, BinMusicFileDesc, musicFileCount);
 		BinMaterialDesc *binMaterialDescs = PushArray(tempArena, BinMaterialDesc, materialCount);
+		BinSpriteDesc *binSpriteDescs = PushArray(tempArena, BinSpriteDesc, spriteCount);
+		BinAnimationDesc *binAnimationDescs = PushArray(tempArena, BinAnimationDesc, animationCount);
 		BinEntityDesc *binEntityDescs = PushArray(tempArena, BinEntityDesc, entityCount);
 
 		// Prepare asset descs and write asset payloads
@@ -1248,17 +1435,48 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			d.uvScale = desc.uvScale;
 		}
 
+		// Sprites
+		for (u32 i = 0; i < spriteCount; ++i)
+		{
+			const SpriteDesc &desc = descriptors.spriteDescs[i];
+
+			BinSpriteDesc &d = binSpriteDescs[i];
+			d.name        = DataInternString(stringPool, desc.name);
+			d.textureName = DataInternString(stringPool, desc.textureName);
+			d.uvPos.x  = desc.uvPos.x;  d.uvPos.y  = desc.uvPos.y;
+			d.uvSize.x = desc.uvSize.x; d.uvSize.y = desc.uvSize.y;
+		}
+
+		// Animations
+		for (u32 i = 0; i < animationCount; ++i)
+		{
+			const AnimationDesc &desc = descriptors.animationDescs[i];
+
+			BinAnimationDesc &d = binAnimationDescs[i];
+			d.name        = DataInternString(stringPool, desc.name);
+			d.textureName = DataInternString(stringPool, desc.textureName);
+			d.framePosX  = desc.framePos.x;  d.framePosY  = desc.framePos.y;
+			d.frameSizeX = desc.frameSize.x; d.frameSizeY = desc.frameSize.y;
+			d.frameCount = desc.frameCount;
+			d.fps        = desc.fps;
+			d.loop       = desc.loop;
+			d._pad[0] = d._pad[1] = d._pad[2] = 0;
+		}
+
 		// Entities
 		for (u32 i = 0; i < entityCount; ++i)
 		{
 			const EntityDesc &desc = descriptors.entityDescs[i];
 
 			BinEntityDesc &d = binEntityDescs[i];
-			d.name         = DataInternString(stringPool, desc.name);
-			d.materialName = DataInternString(stringPool, desc.materialName);
-			d.pos          = desc.pos;
-			d.scale        = desc.scale;
-			d.geometryType = desc.geometryType;
+			d.name          = DataInternString(stringPool, desc.name);
+			d.materialName  = DataInternString(stringPool, desc.materialName);
+			d.spriteName    = DataInternString(stringPool, desc.spriteName);
+			d.animationName = DataInternString(stringPool, desc.animationName);
+			d.pos           = desc.pos;
+			d.scale         = desc.scale;
+			d.layer         = desc.layer;
+			d.geometryType  = desc.geometryType;
 		}
 
 		// Write string pool after payloads
@@ -1273,6 +1491,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		fwrite(binAudioClipDescs, sizeof(binAudioClipDescs[0]), audioClipCount, file);
 		fwrite(binMusicFileDescs, sizeof(binMusicFileDescs[0]), musicFileCount, file);
 		fwrite(binMaterialDescs,  sizeof(binMaterialDescs[0]),  materialCount,  file);
+		if (spriteCount)    fwrite(binSpriteDescs,    sizeof(binSpriteDescs[0]),    spriteCount,    file);
+		if (animationCount) fwrite(binAnimationDescs, sizeof(binAnimationDescs[0]), animationCount, file);
 		fwrite(binEntityDescs,    sizeof(binEntityDescs[0]),    entityCount,    file);
 
 		// Write file header last (string pool offset is now known)
@@ -1288,6 +1508,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			.musicFileCount   = musicFileCount,
 			.materialsOffset  = materialsOffset,
 			.materialCount    = materialCount,
+			.spritesOffset    = spritesOffset,
+			.spriteCount      = spriteCount,
+			.animationsOffset = animationsOffset,
+			.animationCount   = animationCount,
 			.entitiesOffset   = entitiesOffset,
 			.entityCount      = entityCount,
 			.stringPoolOffset = stringPoolOffset,
@@ -1341,6 +1565,8 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 	assets.audioClips = PushArray(dataArena, BinAudioClip, assets.header.audioClipCount);
 	assets.musicFiles = PushArray(dataArena, BinMusicFile, assets.header.musicFileCount);
 	assets.materials = PushArray(dataArena, BinMaterial, assets.header.materialCount);
+	assets.sprites = PushArray(dataArena, BinSprite, assets.header.spriteCount + 1);
+	assets.animations = PushArray(dataArena, BinAnimation, assets.header.animationCount + 1);
 	assets.entities = PushArray(dataArena, BinEntity, assets.header.entityCount);
 
 	const char *stringPool = (const char*)PushDataFromFile(
@@ -1399,14 +1625,44 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 		assets.materials[i].desc = &d;
 	}
 
+	// Sprites
+	if (assets.header.spriteCount > 0)
+	{
+		BinSpriteDesc *spriteDescs = (BinSpriteDesc*)PushDataFromFile(
+			dataArena, file, assets.header.spritesOffset, assets.header.spriteCount * sizeof(BinSpriteDesc));
+		for (u32 i = 0; i < assets.header.spriteCount; ++i)
+		{
+			BinSpriteDesc &d = spriteDescs[i];
+			d.name        = DataGetString(stringPool, d.name);
+			d.textureName = DataGetString(stringPool, d.textureName);
+			assets.sprites[i].desc = &d;
+		}
+	}
+
+	// Animations
+	if (assets.header.animationCount > 0)
+	{
+		BinAnimationDesc *animDescs = (BinAnimationDesc*)PushDataFromFile(
+			dataArena, file, assets.header.animationsOffset, assets.header.animationCount * sizeof(BinAnimationDesc));
+		for (u32 i = 0; i < assets.header.animationCount; ++i)
+		{
+			BinAnimationDesc &d = animDescs[i];
+			d.name        = DataGetString(stringPool, d.name);
+			d.textureName = DataGetString(stringPool, d.textureName);
+			assets.animations[i].desc = &d;
+		}
+	}
+
 	// Entities
 	BinEntityDesc *entityDescs = (BinEntityDesc*)PushDataFromFile(
 		dataArena, file, assets.header.entitiesOffset, assets.header.entityCount * sizeof(BinEntityDesc));
 	for (u32 i = 0; i < assets.header.entityCount; ++i)
 	{
 		BinEntityDesc &d = entityDescs[i];
-		d.name         = DataGetString( stringPool, d.name );
-		d.materialName = DataGetString( stringPool, d.materialName );
+		d.name          = DataGetString(stringPool, d.name);
+		d.materialName  = DataGetString(stringPool, d.materialName);
+		d.spriteName    = DataGetString(stringPool, d.spriteName);
+		d.animationName = DataGetString(stringPool, d.animationName);
 		assets.entities[i].desc = &d;
 	}
 
