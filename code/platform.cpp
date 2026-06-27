@@ -896,6 +896,8 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 		case WM_SYSKEYDOWN:
 			if (wParam == VK_RETURN)
 				ToggleFullscreen(hWnd);
+			else
+				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			break;
 
 		case WM_SYSCHAR:
@@ -1180,7 +1182,7 @@ static bool InitializeWindow(
 		WindowImpl &windowImpl,
 		u32 width = 640,
 		u32 height = 480,
-		const char *title = "Ilu"
+		const char *title = "ILU Engine"
 		)
 {
 	ZeroStruct(&window);
@@ -1295,6 +1297,8 @@ static bool InitializeWindow(
 
 #if USE_WINAPI
 
+	FilePath iconPath = MakePath(ProjectDir, "editor/ilu.ico");
+
 	// Register the window class.
 	const char CLASS_NAME[]  = "Ilu Class";
 	HINSTANCE hInstance = GetModuleHandle(NULL);
@@ -1305,6 +1309,7 @@ static bool InitializeWindow(
 	wc.hInstance     = hInstance;
 	wc.lpszClassName = CLASS_NAME;
 	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+	wc.hIcon         = (HICON)LoadImage(NULL, iconPath.str, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
 	//wc.hbrBackground = GetSysColorBrush(COLOR_GRAYTEXT); //(HBRUSH)GetStockObject(GRAY_BRUSH); //CreateSolidBrush(RGB(20,20,20));
 	ATOM classAtom = RegisterClassA(&wc);
 
