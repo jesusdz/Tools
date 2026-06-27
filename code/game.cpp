@@ -33,7 +33,8 @@ void GameStart(Game &game)
 	game.camera = {
 		.projectionType = ProjectionOrthographic,
 		.position = {0, 0, -1},
-		.height = 180.0f / PIXELS_PER_METER,
+		//.height = 180.0f / PIXELS_PER_METER,
+		.height = 90.0f / PIXELS_PER_METER,
 	};
 }
 
