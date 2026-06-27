@@ -1186,11 +1186,11 @@ AnimationH CreateAnimation(Engine &engine, const AnimationDesc &desc)
 	ani.textureH       = textureH;
 	ani.framePixelPos  = desc.framePos;
 	ani.framePixelSize = desc.frameSize;
-	ani.frameUvPos  = { (f32)desc.framePos.x  / tex.size.x, (f32)desc.framePos.y  / tex.size.y };
-	ani.frameUvSize = { (f32)desc.frameSize.x / tex.size.x, (f32)desc.frameSize.y / tex.size.y };
-	ani.frameCount  = desc.frameCount;
-	ani.fps         = desc.fps;
-	ani.loop        = desc.loop != 0;
+	ani.frameUvPos     = { (f32)desc.framePos.x  / tex.size.x, (f32)desc.framePos.y  / tex.size.y };
+	ani.frameUvSize    = { (f32)desc.frameSize.x / tex.size.x, (f32)desc.frameSize.y / tex.size.y };
+	ani.frameCount     = desc.frameCount;
+	ani.fps            = desc.fps;
+	ani.loop           = desc.loop != 0;
 
 	AnimationH handle = NewHandle(scene.animationHandles);
 	scene.animations[handle.idx] = ani;
@@ -2947,8 +2947,9 @@ bool RenderGraphics(Engine &engine)
 		const Animation &anim = scene.animations[handle.idx];
 		const SpriteAnimState &state = scene.spriteAnimStates[handle.idx];
 		const u32 bufferIndex = MAX_SPRITES + handle.idx;
-		spriteDataPtr[bufferIndex].uvOffset = {anim.frameUvPos.x + state.currentFrame * anim.frameUvSize.x, anim.frameUvPos.y};
-		spriteDataPtr[bufferIndex].uvSize   = anim.frameUvSize;
+		spriteDataPtr[bufferIndex].uvOffset  = {anim.frameUvPos.x + state.currentFrame * anim.frameUvSize.x, anim.frameUvPos.y};
+		spriteDataPtr[bufferIndex].uvSize    = anim.frameUvSize;
+		spriteDataPtr[bufferIndex].worldSize = float2{(f32)anim.framePixelSize.x, (f32)anim.framePixelSize.y} / PIXELS_PER_METER;
 	}
 
 	// Update entity data

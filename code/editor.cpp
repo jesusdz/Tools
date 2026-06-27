@@ -5,6 +5,32 @@ static const char * InternString(const char *str)
 	return intern;
 }
 
+static const char * NameFromFilename(const char *name)
+{
+	FilePath path = {};
+	StrCopy(path.str, name);
+	char *ptr = path.str;
+	while (*ptr) {
+		if (*ptr == '.') {
+			*ptr = '_';
+		}
+		ptr++;
+	}
+	const char *outName = InternString(path.str);
+	return outName;
+}
+
+static const char *MakeName(const char *format, ...)
+{
+	FilePath path = {};
+	va_list vaList;
+	va_start(vaList, format);
+	VSPrintf(path.str, format, vaList);
+	va_end(vaList);
+	const char *outName = InternString(path.str);
+	return outName;
+}
+
 static bool EditorMode3D(Editor &editor)
 {
 	return editor.cameraType == ProjectionPerspective;
@@ -516,6 +542,28 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 		}
 	}
 
+	if ( UI_Section(ui, "Animations") )
+	{
+		for (HandleIter it = BeginIter(scene.animationHandles); it; it++)
+		{
+			Handle handle = *it;
+			const Animation &ani = GetAnimation(scene, handle);
+
+			if ( UI_Button(ui, ani.name) ) {
+
+				//EditorSelectSprite(editor, handle);
+				const EntityDesc entityDesc = {
+					.name = "entity",
+					.animationName = ani.name,
+					.pos = {},
+					.scale = 1.0f,
+				};
+
+				CreateEntity(engine, entityDesc);
+			}
+		}
+	}
+
 	if ( UI_Section(ui, "Materials") )
 	{
 		for (HandleIter it = BeginIter(gfx.materialHandles); it; it++)
@@ -744,27 +792,42 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 
 			if (UI_Section(ui, "Import settings"))
 			{
-				static bool isTileset = false;
 				static char name[64] = {};
-
 				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
-				UI_Checkbox(ui, "Tileset", &isTileset);
 
-				if (UI_Button(ui, "Import"))
+				if (UI_Button(ui, "Import as Tileset"))
 				{
-					if (isTileset)
-					{
-						const TileAtlasDesc tileAtlasDesc = {
-							.imagePath = inspector.selectedFile->filename,
-							.name = InternString(name),
-							.tileSize = 32.0f,
-						};
-						CreateTileAtlas(engine, tileAtlasDesc);
-					}
-					else
-					{
-						LOG(Debug, "Import image\n");
-					}
+					const TileAtlasDesc desc = {
+						.imagePath = inspector.selectedFile->filename,
+						.name = InternString(name),
+						.tileSize = 32.0f,
+					};
+					CreateTileAtlas(engine, desc);
+				}
+				if ( UI_Button(ui, "Import as animation") )
+				{
+					const char *filename = inspector.selectedFile->filename;
+					const char *basename = NameFromFilename(filename);
+					const char *textureName = MakeName("tex_%s", basename);
+					const char *animationName = MakeName("ani_%s", basename);
+
+					const TextureDesc textureDesc = {
+						.name = textureName,
+						.filename = filename,
+						.mipmap = true,
+					};
+					TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
+
+					const AnimationDesc desc = {
+						.name = animationName,
+						.textureName = textureName,
+						.framePos = {0, 0},
+						.frameSize = {32, 32},
+						.frameCount = 4,
+						.fps = 4,
+						.loop = true,
+					};
+					GetOrCreateAnimation(engine, desc);
 				}
 			}
 		}
@@ -952,32 +1015,6 @@ static void EditorUpdateUI_About(Engine &engine)
 	wasShown = engine.editor.showAbout;
 }
 
-static const char * NameFromFilename(const char *name)
-{
-	FilePath path = {};
-	StrCopy(path.str, name);
-	char *ptr = path.str;
-	while (*ptr) {
-		if (*ptr == '.') {
-			*ptr = '_';
-		}
-		ptr++;
-	}
-	const char *outName = InternString(path.str);
-	return outName;
-}
-
-static const char *MakeName(const char *format, ...)
-{
-	FilePath path = {};
-	va_list vaList;
-	va_start(vaList, format);
-	VSPrintf(path.str, format, vaList);
-	va_end(vaList);
-	const char *outName = InternString(path.str);
-	return outName;
-}
-
 static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 {
 	UI &ui = GetUI(engine);
@@ -1008,14 +1045,6 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 					.mipmap = true,
 				};
 				TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
-
-//				const MaterialDesc materialDesc = {
-//					.name = matname,
-//					.textureName = texname,
-//					.pipelineName = "pipeline_shading",
-//					.uvScale = 1.0,
-//				};
-//				MaterialH materialH = GetOrCreateMaterial(engine.gfx, materialDesc);
 
 				const SpriteDesc spriteDesc = {
 					.name = spriteName,
