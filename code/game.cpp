@@ -36,6 +36,10 @@ void GameStart(Game &game)
 		//.height = 180.0f / PIXELS_PER_METER,
 		.height = 90.0f / PIXELS_PER_METER,
 	};
+
+	game.screen = {
+		.boundingBox = { 0, 0, 10 * SCENE_WIDTH/PIXELS_PER_METER, 2 * SCENE_HEIGHT/PIXELS_PER_METER},
+	};
 }
 
 void GameUpdate(Game &game)
@@ -52,6 +56,8 @@ void GameUpdate(Game &game)
 
 	constexpr float deltaSeconds = 1.0f / 60.0f;
 	constexpr float gravity = -15.8f;
+
+	DrawBoxOutline(Float2(game.screen.boundingBox.pos), Float2(game.screen.boundingBox.size), ColorOrange);
 
 	{
 		float2 &pos = game.box1.pos;
@@ -70,7 +76,8 @@ void GameUpdate(Game &game)
 	}
 
 	{
-		float2 &pos = game.box2.pos;
+		float2 &playerPos = game.ent->position.xy;
+
 		i32 direction = 0;
 
 		// X ///////////////////////////////////////////////////////////
@@ -95,7 +102,7 @@ void GameUpdate(Game &game)
 
 		game.speed2.x = Clamp(game.speed2.x, -15.0f, 15.0f);
 
-		pos.x += game.speed2.x * deltaSeconds;
+		playerPos.x += game.speed2.x * deltaSeconds;
 
 		// Y ///////////////////////////////////////////////////////////
 
@@ -106,22 +113,34 @@ void GameUpdate(Game &game)
 			}
 		}
 		game.speed2.y = game.speed2.y + gravity * deltaSeconds;
-		pos.y += game.speed2.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
+		playerPos.y += game.speed2.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
 
-		if (pos.y < 0) {
-			pos.y = 0;
+		if (playerPos.y < 0) {
+			playerPos.y = 0;
 			game.speed2.y = 0;
 		}
 
-		if (pos.y < 0.0f ) {
-			pos.y = 0.0f;
+		if (playerPos.y < 0.0f ) {
+			playerPos.y = 0.0f;
 		}
 
-		game.ent->position = Float3(game.box2.pos, 0.0);
-		//DrawBox(game.box2.pos, game.box2.size, game.box2.color);
-	}
+		const f32 screenLeft = game.screen.boundingBox.pos.x;
+		const f32 screenRight = game.screen.boundingBox.pos.x + game.screen.boundingBox.size.x;
+		const f32 screenBottom = game.screen.boundingBox.pos.y;
+		const f32 screenTop = game.screen.boundingBox.pos.y + game.screen.boundingBox.size.y;
+		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight);
+		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop);
 
-	game.camera.position.x = game.ent->position.x;
+		const float2 halfSceneSize = 0.5f * float2{SCENE_WIDTH, SCENE_HEIGHT} / PIXELS_PER_METER;
+		const f32 cameraX = playerPos.x;
+		const f32 cameraY = playerPos.y;
+		const f32 cameraLeft = screenLeft + halfSceneSize.x;
+		const f32 cameraRight = screenRight - halfSceneSize.x;
+		const f32 cameraBottom = screenBottom + halfSceneSize.y;
+		const f32 cameraTop = screenTop - halfSceneSize.y;
+		game.camera.position.x = Clamp(cameraX, cameraLeft, cameraRight);
+		game.camera.position.y = Clamp(cameraY, cameraBottom, cameraTop);
+	}
 }
 
 void GameStop(Game &game)

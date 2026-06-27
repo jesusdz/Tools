@@ -89,6 +89,10 @@ static constexpr bool sLoadShadersFromText = false;
 #endif
 
 static constexpr float4 ColorBlack = { 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float4 ColorRed = { 1.0f, 0.0f, 0.0f, 1.0f };
+static constexpr float4 ColorGreen = { 0.0f, 1.0f, 0.0f, 1.0f };
+static constexpr float4 ColorBlue = { 0.0f, 0.0f, 1.0f, 1.0f };
+static constexpr float4 ColorOrange = { 1.0f, 0.5f, 0.0f, 1.0f };
 
 
 static Engine *engine = nullptr;
@@ -1493,6 +1497,15 @@ void DrawBox(float2 pos, float2 size, float4 color)
 	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, Rgba(color) };
 	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
 	engine->gfx.debugDrawVertexCount += 6;
+}
+
+void DrawBoxOutline(float2 pos, float2 size, float4 color)
+{
+	constexpr f32 d = 1.0f / PIXELS_PER_METER;
+	DrawBox(pos, float2{size.x, d}, color);
+	DrawBox(pos, float2{d, size.y}, color);
+	DrawBox(pos + dX(size), float2{d, size.y}, color);
+	DrawBox(pos + dY(size), float2{size.x, d}, color);
 }
 
 

@@ -1747,9 +1747,17 @@ struct float2
 
 struct float3
 {
-	union { float x, r; };
-	union { float y, g; };
-	union { float z, b; };
+	union
+	{
+		f32 vec[3];
+		struct
+		{
+			union { float x, r; };
+			union { float y, g; };
+			union { float z, b; };
+		};
+		float2 xy;
+	};
 };
 
 struct float4
@@ -1901,6 +1909,18 @@ rgba Rgba(float4 color)
 		(byte)(color.b * 255),
 		(byte)(color.a * 255),
 	};
+	return res;
+}
+
+float2 Float2(int2 value)
+{
+	const float2 res = {(f32)value.x, (f32)value.y};
+	return res;
+}
+
+float2 Float2(uint2 value)
+{
+	const float2 res = {(f32)value.x, (f32)value.y};
 	return res;
 }
 

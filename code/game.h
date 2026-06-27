@@ -34,6 +34,11 @@ struct Box
 	float4 color;
 };
 
+struct Screen
+{
+	rect boundingBox;
+};
+
 struct Game
 {
 	GameState state;
@@ -53,6 +58,8 @@ struct Game
 	bool playingMusic;
 
 	Camera camera;
+
+	Screen screen;
 };
 
 ////////////////////////////////////////////////////////////////////////
