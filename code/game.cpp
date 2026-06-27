@@ -29,11 +29,19 @@ void GameStart(Game &game)
 	game.sndJump = GetAudioClip("snd_bell_wav");
 	game.modEquinox = GetMusic("mod_equinox_mod");
 	game.playingMusic = false;
+
+	game.camera = {
+		.projectionType = ProjectionOrthographic,
+		.position = {0, 0, -1},
+		.height = 180.0f / PIXELS_PER_METER,
+	};
 }
 
 void GameUpdate(Game &game)
 {
 	LOG(Debug, "- GameUpdate!\n");
+
+	SetCamera(game.camera);
 
 	if (!game.playingMusic)
 	{
@@ -111,6 +119,8 @@ void GameUpdate(Game &game)
 		game.ent->position = Float3(game.box2.pos, 0.0);
 		//DrawBox(game.box2.pos, game.box2.size, game.box2.color);
 	}
+
+	game.camera.position.x = game.ent->position.x;
 }
 
 void GameStop(Game &game)

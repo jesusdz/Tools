@@ -46,7 +46,6 @@ struct ImagePixels
 #include "handle_manager.h"
 #include "data.h"
 #include "audio.h"
-#include "game.h"
 
 #define MAX_TEXTURES 4092
 #define MAX_MATERIALS 4092
@@ -187,6 +186,8 @@ struct Entity
 	i32 layer;
 };
 
+#include "game.h"
+
 #define MAX_TIME_SAMPLES 32
 struct TimeSamples
 {
@@ -307,6 +308,8 @@ struct Graphics
 	TimeSamples gpuFrameTimes;
 
 	f32 deltaSeconds;
+
+	const Camera *activeCamera;
 };
 
 struct TileAtlasDesc
@@ -384,14 +387,6 @@ struct ShaderAndComputeDesc
 	ComputeDesc desc;
 };
 
-enum EngineMode
-{
-	EngineModeEditor2D,
-	EngineModeEditor3D,
-	EngineModeGame2D,
-	EngineModeGame3D,
-};
-
 struct Engine
 {
 	Graphics gfx;
@@ -412,35 +407,9 @@ struct Engine
 
 	Arena dataArenaStates[1];
 	u32 dataArenaStateCount;
-
-	EngineMode mode;
 };
 
 static Engine *engine = nullptr;
-
-inline bool IsEngineModeEditor(EngineMode engineMode)
-{
-	const bool res = engineMode == EngineModeEditor2D || engineMode == EngineModeEditor3D;
-	return res;
-}
-
-inline bool IsEngineModeGame(EngineMode engineMode)
-{
-	const bool res = !IsEngineModeEditor(engineMode);
-	return res;
-}
-
-inline bool IsEngineMode2D(EngineMode engineMode)
-{
-	const bool res = engineMode == EngineModeEditor2D || engineMode == EngineModeGame2D;
-	return res;
-}
-
-inline bool IsEngineMode3D(EngineMode engineMode)
-{
-	const bool res = !IsEngineMode2D(engineMode);
-	return res;
-}
 
 static const Vertex cubeVertices[] = {
 	// front
@@ -2935,26 +2904,32 @@ bool RenderGraphics(Engine &engine)
 	float3 cameraPosition = {};
 
 	Camera camera = {};
-#if USE_EDITOR
-	if (engine.mode == EngineModeEditor3D) {
-		camera = engine.editor.camera[ProjectionPerspective];
-	} else if (engine.mode == EngineModeEditor2D) {
-		camera = engine.editor.camera[ProjectionOrthographic];
-	}
-#endif
-	if (engine.mode == EngineModeGame3D) {
-		camera = {
-			.projectionType = ProjectionPerspective,
-			.position = {0, 1, 2},
-			.orientation = {0, -0.45f},
-		};
-	} else if (engine.mode == EngineModeGame2D) {
+
+	if (engine.gfx.activeCamera) {
+		camera = *engine.gfx.activeCamera;
+	} else {
+		// There should always have to be an active camera...
+		// but this is a fallback camera to render something
 		camera = {
 			.projectionType = ProjectionOrthographic,
 			.position = {0, 0, 0},
 			.orientation = {0, 0},
 		};
 	}
+
+//	if (engine.mode == EngineModeGame3D) {
+//		camera = {
+//			.projectionType = ProjectionPerspective,
+//			.position = {0, 1, 2},
+//			.orientation = {0, -0.45f},
+//		};
+//	} else if (engine.mode == EngineModeGame2D) {
+//		camera = {
+//			.projectionType = ProjectionOrthographic,
+//			.position = {0, 0, 0},
+//			.orientation = {0, 0},
+//		};
+//	}
 
 	if (camera.projectionType == ProjectionPerspective)
 	{
@@ -3260,7 +3235,7 @@ bool RenderGraphics(Engine &engine)
 	const BufferH indexBuffer = gfx.globalIndexArena.buffer;
 
 	// Shadow map
-	if (IsEngineMode3D(engine.mode))
+	if (camera.projectionType == ProjectionPerspective)
 	{
 		BeginDebugGroup(commandList, "Shadow map", ColorBlack);
 
@@ -3422,7 +3397,7 @@ bool RenderGraphics(Engine &engine)
 		}
 
 		// Sky
-		if (IsEngineMode3D(engine.mode))
+		if (camera.projectionType == ProjectionPerspective)
 		{
 			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.grayImageH);
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
@@ -3457,7 +3432,7 @@ bool RenderGraphics(Engine &engine)
 		// TileGrid
 		if (editor.showGrid)
 		{
-			if (IsEngineMode3D(engine.mode))
+			if (camera.projectionType == ProjectionPerspective)
 			{
 				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
 				const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
@@ -3815,23 +3790,7 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 		RecreateModifiedTextures(engine);
 	}
 
-	if ( KeyPress(platform.window->keyboard, K_F5) )
-	{
-		if ( engine.game.state == GameStateStopped ) {
-				engine.game.state = GameStateStarting;
-		}
-	}
-	else if ( KeyPress(platform.window->keyboard, K_ESCAPE) )
-	{
-		if ( engine.game.state == GameStateRunning ) {
-			engine.game.state = GameStateStopping;
-		}
-	}
-
-	if ( engine.game.state == GameStateStopped )
-	{
-		EditorUpdate(engine);
-	}
+	EditorUpdate(engine);
 #endif
 
 	GameUpdate(engine);
@@ -3925,6 +3884,11 @@ ENGINE_API void OnPlatformCleanup(Plat &platform)
 
 ////////////////////////////////////////////////////////////////////////
 // Game API
+
+void SetCamera(const Camera &camera)
+{
+	engine->gfx.activeCamera = &camera;
+}
 
 Entity *GetEntity(const char *name)
 {

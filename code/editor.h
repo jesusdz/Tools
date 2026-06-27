@@ -118,6 +118,7 @@ struct Editor
 	bool isTranslating;
 
 	Camera camera[ProjectionTypeCount];
+	ProjectionType cameraType;
 	bool cameraOrbit;
 
 	EditorCommand commands[128];

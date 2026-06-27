@@ -5,6 +5,33 @@ static const char * InternString(const char *str)
 	return intern;
 }
 
+static bool EditorMode3D(Editor &editor)
+{
+	return editor.cameraType == ProjectionPerspective;
+}
+
+static bool EditorMode2D(Editor &editor)
+{
+	return !EditorMode3D(editor);
+}
+
+static void EditorSetCamera(Editor &editor)
+{
+	SetCamera(editor.camera[editor.cameraType]);
+}
+
+static void EditorSetMode3D(Editor &editor)
+{
+	editor.cameraType = ProjectionPerspective;
+	EditorSetCamera(editor);
+}
+
+static void EditorSetMode2D(Editor &editor)
+{
+	editor.cameraType = ProjectionOrthographic;
+	EditorSetCamera(editor);
+}
+
 static void AddEditorCommand(Editor &editor, const EditorCommand &command)
 {
 	ASSERT(editor.commandCount < ARRAY_COUNT(editor.commands));
@@ -163,6 +190,15 @@ static void EditorUpdateUI_ToolBar(Engine &engine)
 			engine.game.state = GameStateStarting;
 		}
 
+		UI_Separator(ui);
+
+		if ( UI_Radio(ui, "2D", EditorMode2D(engine.editor)) ) {
+			EditorSetMode2D(engine.editor);
+		}
+		if ( UI_Radio(ui, "3D", EditorMode3D(engine.editor)) ) {
+			EditorSetMode3D(engine.editor);
+		}
+
 		UI_EndToolBar(ui);
 	}
 }
@@ -241,16 +277,16 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	if ( UI_Section(ui, "General") )
 	{
-		if (IsEngineModeEditor(engine.mode))
+		if (EditorMode3D(editor))
 		{
 			const char *radioOptions[] = { "3D mode", "2D mode" };
-			const EngineMode engineModes[] = { EngineModeEditor3D, EngineModeEditor2D };
+			const ProjectionType mode[] = { ProjectionPerspective, ProjectionOrthographic };
 
 			for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
 			{
-				if ( UI_Radio(ui, radioOptions[i], engine.mode == engineModes[i]) )
+				if ( UI_Radio(ui, radioOptions[i], editor.cameraType == mode[i]) )
 				{
-					engine.mode = engineModes[i];
+					editor.cameraType = mode[i];
 				}
 			}
 		}
@@ -342,7 +378,7 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	if ( UI_Section(ui, "Camera") )
 	{
-		if ( engine.mode == EngineModeEditor3D )
+		if ( editor.cameraType == ProjectionPerspective )
 		{
 			UI_SeparatorLabel(ui, "Perspective options");
 			UI_Checkbox(ui, "Orbit", &editor.cameraOrbit);
@@ -955,7 +991,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 			const Mouse &mouse = sPlatform->window->mouse;
 			const int2 mousePos = { mouse.x, mouse.y };
 
-			if (engine.mode == EngineModeEditor2D)
+			if (EditorMode2D(engine.editor))
 			{
 				const Camera &camera = engine.editor.camera[ProjectionOrthographic];
 				const float2 worldPos = Floor(GetWorld2DCoord(engine, camera, mousePos));
@@ -1494,7 +1530,7 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 			}
 		}
 
-		if (engine.mode == EngineModeEditor2D && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
+		if (EditorMode2D(engine.editor) && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
 		{
 			const Camera &camera = editor.camera[ProjectionOrthographic];
 			const int2 mousePos = { mouse.x, mouse.y };
@@ -1629,6 +1665,9 @@ void EditorInitialize(Engine &engine)
 	editor.camera[ProjectionOrthographic].orientation = {};
 	editor.camera[ProjectionOrthographic].height = 8.0;
 
+	editor.cameraType = ProjectionOrthographic;
+	engine.gfx.activeCamera = &editor.camera[ProjectionOrthographic];
+
 	editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
 	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
 	editor.iconMod = EditorLoadIcon(engine, "editor/mod_32x32.png", "mod_32x32");
@@ -1675,11 +1714,30 @@ void EditorUpdate(Engine &engine)
 	Plat &platform = *sPlatform;
 	Graphics &gfx = engine.gfx;
 
+	if ( KeyPress(platform.window->keyboard, K_F5) )
+	{
+		if ( engine.game.state == GameStateStopped ) {
+			engine.game.state = GameStateStarting;
+		}
+	}
+	else if ( KeyPress(platform.window->keyboard, K_ESCAPE) )
+	{
+		if ( engine.game.state == GameStateRunning ) {
+			engine.game.state = GameStateStopping;
+			EditorSetCamera(engine.editor);
+		}
+	}
+
+	if ( engine.game.state != GameStateStopped )
+	{
+		return;
+	}
+
 	EditorUpdateUI(engine);
 
 	const bool handleInput = !engine.ui.wantsInput;
 
-	if (engine.mode == EngineModeEditor3D)
+	if (EditorMode3D(engine.editor))
 	{
 		if (engine.editor.cameraOrbit)
 		{
@@ -1690,7 +1748,7 @@ void EditorUpdate(Engine &engine)
 			EditorUpdateCamera3D(*platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
 		}
 	}
-	else if (engine.mode == EngineModeEditor2D)
+	else
 	{
 		EditorUpdateInteraction2D(engine, *platform.window, *platform.gamepad, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
 	}
