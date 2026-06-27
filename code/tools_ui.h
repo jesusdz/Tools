@@ -1760,9 +1760,13 @@ void UI_Separator(UI &ui)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const float containerWidth = UI_GetContainerSize(window).x;
+	const float containerHeight = UI_GetContainerSize(window).y;
+
+	const UILayout layout = UI_GetLayout(ui);
 
 	const float2 pos = UI_GetCursorPos(ui);
-	const float2 size = { containerWidth, 1.0 };
+	const float2 size = layout == UiLayoutVertical ?
+		float2{ containerWidth, 1.0 } : float2{ 1.0, containerHeight };
 
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
