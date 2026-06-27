@@ -183,9 +183,9 @@ static const Index planeIndices[] = {
 };
 
 static const Vertex screenTriangleVertices[] = {
-	{{-1.0f,  1.0f, 0.0f}, {0.0f, 0.0f}},
-	{{-1.0f, -3.0f, 0.0f}, {0.0f, 2.0f}},
-	{{ 3.0f,  1.0f, 0.0f}, {2.0f, 0.0f}},
+	{{-1.0f,  1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+	{{-1.0f, -3.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 2.0f}},
+	{{ 3.0f,  1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {2.0f, 0.0f}},
 };
 
 static const Index screenTriangleIndices[] = {
@@ -205,6 +205,8 @@ static ShaderSourceDesc shaderSourceDescs[] = {
 	{ .type = ShaderTypeFragment, .filename = "grid_2d.hlsl",        .entryPoint = "PSMain",      .name = "fs_grid_2d" },
 	{ .type = ShaderTypeVertex,   .filename = "grid_3d.hlsl",        .entryPoint = "VSMain",      .name = "vs_grid_3d" },
 	{ .type = ShaderTypeFragment, .filename = "grid_3d.hlsl",        .entryPoint = "PSMain",      .name = "fs_grid_3d" },
+	{ .type = ShaderTypeVertex,   .filename = "blit.hlsl",           .entryPoint = "VSMain",      .name = "vs_blit" },
+	{ .type = ShaderTypeFragment, .filename = "blit.hlsl",           .entryPoint = "PSMain",      .name = "fs_blit" },
 	{ .type = ShaderTypeVertex,   .filename = "ui.hlsl",             .entryPoint = "VSMain",      .name = "vs_ui" },
 	{ .type = ShaderTypeFragment, .filename = "ui.hlsl",             .entryPoint = "PSMain",      .name = "fs_ui" },
 	{ .type = ShaderTypeVertex,   .filename = "id_model.hlsl",       .entryPoint = "VSMain",      .name = "vs_id_model" },
@@ -223,7 +225,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_shading",
 		.fsName = "fs_shading",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_shading",
 			.vsFunction = "VSMain",
@@ -244,7 +246,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_shading_2d",
 		.fsName = "fs_shading_2d",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_shading_2d",
 			.vsFunction = "VSMain",
@@ -285,7 +287,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_sky",
 		.fsName = "fs_sky",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_sky",
 			.vsFunction = "VSMain",
@@ -295,7 +297,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.vertexAttributeCount = 2,
 			.vertexAttributes = {
 				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 24, .format = FormatFloat2, },
 			},
 			.depthTest = true,
 			.depthWrite = false,
@@ -305,7 +307,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_grid_2d",
 		.fsName = "fs_grid_2d",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_grid_2d",
 			.vsFunction = "VSMain",
@@ -315,7 +317,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.vertexAttributeCount = 2,
 			.vertexAttributes = {
 				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 24, .format = FormatFloat2, },
 			},
 			.depthTest = true,
 			.depthWrite = false,
@@ -326,7 +328,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_grid_3d",
 		.fsName = "fs_grid_3d",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_grid_3d",
 			.vsFunction = "VSMain",
@@ -336,7 +338,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.vertexAttributeCount = 2,
 			.vertexAttributes = {
 				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
-				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 24, .format = FormatFloat2, },
 			},
 			.depthTest = true,
 			.depthWrite = false,
@@ -345,9 +347,28 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		}
 	},
 	{
+		.vsName = "vs_blit",
+		.fsName = "fs_blit",
+		.renderPass = "display_renderpass",
+		.desc = {
+			.name = "pipeline_blit",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 2,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0,  .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = false,
+			.blending = false,
+		}
+	},
+	{
 		.vsName = "vs_ui",
 		.fsName = "fs_ui",
-		.renderPass = "main_renderpass",
+		.renderPass = "display_renderpass",
 		.desc = {
 			.name = "pipeline_ui",
 			.vsFunction = "VSMain",
@@ -411,7 +432,7 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	{
 		.vsName = "vs_debug_draw",
 		.fsName = "fs_debug_draw",
-		.renderPass = "main_renderpass",
+		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_debug_draw",
 			.vsFunction = "VSMain",
@@ -785,6 +806,8 @@ ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height,
 	}
 
 	EndUploadCommandList(gfx, commandList);
+
+	SetObjectNameImage(gfx.device, image, name);
 
 	return image;
 }
@@ -1476,7 +1499,7 @@ void DrawBox(float2 pos, float2 size, float4 color)
 ////////////////////////////////////////////////////////////////////////
 // Render targets
 
-RenderTargets CreateRenderTargets(Graphics &gfx)
+void CreateRenderTargets(Graphics &gfx, u32 sceneWidth = 0, u32 sceneHeight = 0)
 {
 	RenderTargets renderTargets = {};
 
@@ -1485,28 +1508,58 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 	const Format depthFormat = gfx.device.defaultDepthFormat;
 	const u32 swapchainWidth = gfx.device.swapchain.extent.width;
 	const u32 swapchainHeight = gfx.device.swapchain.extent.height;
+	if (sceneWidth == 0) sceneWidth = swapchainWidth;
+	if (sceneHeight == 0) sceneHeight = swapchainHeight;
+	renderTargets.sceneSize = { sceneWidth, sceneHeight };
 
 	// Depth buffer
 	renderTargets.depthImage = CreateImage(gfx.device,
-			swapchainWidth, swapchainHeight, 1,
+			sceneWidth, sceneHeight, 1,
 			depthFormat,
 			ImageUsageDepthStencilAttachment,
 			HeapType_RTs);
 	TransitionImageLayout(commandList, renderTargets.depthImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
+	SetObjectNameImage(gfx.device, renderTargets.depthImage, "scene_depth");
 
-	// Framebuffer
-	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
+	// Scene color buffer
+	renderTargets.sceneImage = CreateImage(gfx.device,
+		sceneWidth, sceneHeight, 1,
+		gfx.device.swapchainInfo.format,
+		ImageUsageColorAttachment | ImageUsageSampled,
+		HeapType_RTs);
+	TransitionImageLayout(commandList, renderTargets.sceneImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
+	SetObjectNameImage(gfx.device, renderTargets.sceneImage, "scene_image");
+
+	// Scene framebuffer
 	{
 		const FramebufferDesc desc = {
 			.renderPass = gfx.litRenderPassH,
 			.attachments = {
-				gfx.device.swapchain.images[i],
+				renderTargets.sceneImage,
 				renderTargets.depthImage,
 			},
 			.attachmentCount = 2,
 		};
 
-		renderTargets.framebuffers[i] = CreateFramebuffer(gfx.device, desc);
+		renderTargets.sceneFramebuffer = CreateFramebuffer(gfx.device, desc);
+	}
+
+	// Display framebuffer
+	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
+	{
+		char name[16];
+		SPrintf(name, "swapchain_%u", i);
+		SetObjectNameImage(gfx.device, gfx.device.swapchain.images[i], name);
+
+		const FramebufferDesc desc = {
+			.renderPass = gfx.displayRenderPassH,
+			.attachments = {
+				gfx.device.swapchain.images[i],
+			},
+			.attachmentCount = 1,
+		};
+
+		renderTargets.displayFramebuffers[i] = CreateFramebuffer(gfx.device, desc);
 	}
 
 	// Shadowmap
@@ -1517,6 +1570,7 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 				ImageUsageDepthStencilAttachment | ImageUsageSampled,
 				HeapType_RTs);
 		TransitionImageLayout(commandList, renderTargets.shadowmapImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
+		SetObjectNameImage(gfx.device, renderTargets.shadowmapImage, "scene_shadowmap");
 
 		const FramebufferDesc desc = {
 			.renderPass = gfx.shadowmapRenderPassH,
@@ -1527,14 +1581,16 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 		renderTargets.shadowmapFramebuffer = CreateFramebuffer( gfx.device, desc );
 	}
 
+#if USE_EDITOR
 	// ID buffer
 	{
 		renderTargets.idImage = CreateImage(gfx.device,
-			 swapchainWidth, swapchainHeight, 1,
+			 sceneWidth, sceneHeight, 1,
 			 FormatUInt,
 			 ImageUsageColorAttachment | ImageUsageSampled,
 			 HeapType_RTs);
 		TransitionImageLayout(commandList, renderTargets.idImage, ImageStateInitial, ImageStateRenderTarget, 0, 1);
+		SetObjectNameImage(gfx.device, renderTargets.idImage, "scene_id");
 
 		const FramebufferDesc desc = {
 			.renderPass = gfx.idRenderPassH,
@@ -1544,12 +1600,14 @@ RenderTargets CreateRenderTargets(Graphics &gfx)
 
 		renderTargets.idFramebuffer = CreateFramebuffer( gfx.device, desc );
 	}
+#endif
 
 	EndTransientCommandList(gfx.device, commandList);
 
 	renderTargets.initialized = true;
 
-	return renderTargets;
+	gfx.renderTargets = renderTargets;
+	gfx.shouldUpdateGlobalBindGroups = true;
 }
 
 void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
@@ -1560,14 +1618,17 @@ void DestroyRenderTargets(Graphics &gfx, RenderTargets &renderTargets)
 	}
 
 	DestroyImageH(gfx.device, renderTargets.depthImage);
+	DestroyImageH(gfx.device, renderTargets.sceneImage);
 
 	// Reset the heap used for render targets
 	Heap &rtHeap = gfx.device.heaps[HeapType_RTs];
 	rtHeap.used = 0;
 
+	DestroyFramebuffer( gfx.device, renderTargets.sceneFramebuffer );
+
 	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
 	{
-		DestroyFramebuffer( gfx.device, renderTargets.framebuffers[i] );
+		DestroyFramebuffer( gfx.device, renderTargets.displayFramebuffers[i] );
 	}
 
 	DestroyImageH(gfx.device, renderTargets.shadowmapImage);
@@ -1650,7 +1711,7 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateGraphicsPipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
-	SetObjectName(gfx.device, pipelineH, desc.name);
+	SetObjectNamePipeline(gfx.device, pipelineH, desc.name);
 	pipelineHandles[pipelineIndex] = pipelineH;
 }
 
@@ -1675,7 +1736,7 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateComputePipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
-	SetObjectName(gfx.device, pipelineH, desc.name);
+	SetObjectNamePipeline(gfx.device, pipelineH, desc.name);
 	computeHandles[pipelineIndex] = pipelineH;
 }
 
@@ -1689,6 +1750,7 @@ void LinkHandles(Graphics &gfx)
 	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
 	gfx.spritePipelineH = FindPipelineHandle(gfx, "pipeline_shading_2d");
+	gfx.blitPipelineH = FindPipelineHandle(gfx, "pipeline_blit");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
 #if USE_EDITOR
 	gfx.grid2dPipelineH = FindPipelineHandle(gfx, "pipeline_grid_2d");
@@ -1735,27 +1797,37 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		return false;
 	}
 
-	// Global render pass
+	// Scene render pass
 	{
 		const Format format = gfx.device.swapchainInfo.format;
-#if USE_EDITOR
-		const StoreOp storeOp = StoreOpStore;
-#else
-		const StoreOp storeOp = StoreOpDontCare;
-#endif
 
 		const RenderpassDesc renderpassDesc = {
-			.name = "main_renderpass",
+			.name = "scene_renderpass",
+			.colorAttachmentCount = 1,
+			.colorAttachments = {
+				{ .format = format, .loadOp = LoadOpClear, .storeOp = StoreOpStore, .isSwapchain = false },
+			},
+			.hasDepthAttachment = true,
+			.depthAttachment = {
+				.loadOp = LoadOpClear, .storeOp = StoreOpStore,
+			}
+		};
+		gfx.litRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
+	}
+
+	// Display render pass
+	{
+		const Format format = gfx.device.swapchainInfo.format;
+
+		const RenderpassDesc renderpassDesc = {
+			.name = "display_renderpass",
 			.colorAttachmentCount = 1,
 			.colorAttachments = {
 				{ .format = format, .loadOp = LoadOpClear, .storeOp = StoreOpStore, .isSwapchain = true },
 			},
-			.hasDepthAttachment = true,
-			.depthAttachment = {
-				.loadOp = LoadOpClear, .storeOp = storeOp
-			}
+			.hasDepthAttachment = false,
 		};
-		gfx.litRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
+		gfx.displayRenderPassH = CreateRenderPass( gfx.device, renderpassDesc );
 	}
 
 	// Shadowmap render pass
@@ -2437,10 +2509,24 @@ uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 	return size;
 }
 
+const ImageH GetDisplayImageH(const Graphics &gfx)
+{
+	const u32 imageIndex = gfx.device.swapchain.currentImageIndex;
+	const ImageH displayImageH = gfx.device.swapchain.images[imageIndex];
+	return displayImageH;
+}
+
+const Image &GetDisplayImage(const Graphics &gfx)
+{
+	const ImageH displayImageH = GetDisplayImageH(gfx);
+	const Image &displayImage = GetImageConst(gfx.device, displayImageH);
+	return displayImage;
+}
+
 Framebuffer GetDisplayFramebuffer(const Graphics &gfx)
 {
 	const u32 imageIndex = gfx.device.swapchain.currentImageIndex;
-	const Framebuffer framebuffer = gfx.renderTargets.framebuffers[imageIndex];
+	const Framebuffer framebuffer = gfx.renderTargets.displayFramebuffers[imageIndex];
 	return framebuffer;
 }
 
@@ -2586,9 +2672,13 @@ bool RenderGraphics(Engine &engine)
 	UI_UploadVerticesToGPU(engine.ui);
 #endif
 
+	// Scene size
+	const i32 sceneWidth = gfx.renderTargets.sceneSize.x;
+	const i32 sceneHeight = gfx.renderTargets.sceneSize.y;
+
 	// Display size
-	const f32 displayWidth = static_cast<f32>(gfx.device.swapchain.extent.width);
-	const f32 displayHeight = static_cast<f32>(gfx.device.swapchain.extent.height);
+	const i32 displayWidth = gfx.device.swapchain.extent.width;
+	const i32 displayHeight = gfx.device.swapchain.extent.height;
 
 	// Camera setup
 	float4x4 viewMatrix = Eye();
@@ -2633,7 +2723,7 @@ bool RenderGraphics(Engine &engine)
 		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
 		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
+		const f32 ar = isLandscapeRotation ?  (f32) sceneWidth / sceneHeight : (f32) sceneHeight / sceneWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
 		inverseViewMatrix = Float4x4(Transpose(Float3x3(viewMatrix)));
 		const float fovy = 60.0f;
@@ -2672,7 +2762,7 @@ bool RenderGraphics(Engine &engine)
 		const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
 		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-		const f32 ar = isLandscapeRotation ?  displayWidth / displayHeight : displayHeight / displayWidth;
+		const f32 ar = isLandscapeRotation ?  (f32) sceneWidth / sceneHeight : (f32) sceneHeight / sceneWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
 		//inverseViewMatrix = Inverse2D(viewMatrix);
 		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
@@ -2709,9 +2799,9 @@ bool RenderGraphics(Engine &engine)
 
 	// Camera UI 2D
 	const f32 l = 0.0f;
-	const f32 r = displayWidth;
+	const f32 r = (f32) displayWidth;
 	const f32 t = 0.0f;
-	const f32 b = displayHeight;
+	const f32 b = (f32) displayHeight;
 	const f32 n = 0.0f;
 	const f32 f = 1.0f;
 	const float4x4 camera2dProjection = Orthogonal(l, r, b, t, n, f);
@@ -2974,17 +3064,17 @@ bool RenderGraphics(Engine &engine)
 	const ImageH shadowmapImage = gfx.renderTargets.shadowmapImage;
 	TransitionImageLayout(commandList, shadowmapImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
 
-	// Scene and UI
+	// Scene
 	{
-		BeginDebugGroup(commandList, "Scene and UI", ColorBlack);
+		BeginDebugGroup(commandList, "Scene", ColorBlack);
 
 		SetClearColorFloat4(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
 		SetClearDepth(commandList, 1, 0.0f);
 
-		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
-		BeginRenderPass(commandList, displayFramebuffer);
+		const Framebuffer &sceneFramebuffer = gfx.renderTargets.sceneFramebuffer;
+		BeginRenderPass(commandList, sceneFramebuffer);
 
-		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
+		const uint2 displaySize = GetFramebufferSize(sceneFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
 
 		// TileGrid
@@ -3125,7 +3215,7 @@ bool RenderGraphics(Engine &engine)
 		}
 
 #if USE_EDITOR
-		// TileGrid
+		// Editor grid
 		if (editor.showGrid)
 		{
 			if (camera.projectionType == ProjectionPerspective)
@@ -3184,14 +3274,78 @@ bool RenderGraphics(Engine &engine)
 			EndDebugGroup(commandList);
 		}
 
+		EndRenderPass(commandList);
+
+		EndDebugGroup(commandList);
+	}
+
+	// Display
+	{
+		BeginDebugGroup(commandList, "Display", ColorBlack);
+
+		TransitionImageLayout(commandList, gfx.renderTargets.sceneImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
+
+		const Framebuffer displayFramebuffer = GetDisplayFramebuffer(gfx);
+		BeginRenderPass(commandList, displayFramebuffer);
+
+		const uint2 displaySize = GetFramebufferSize(displayFramebuffer);
+		SetViewportAndScissor(commandList, displaySize);
+
+		{ // Scene blit
+			BeginDebugGroup(commandList, "Blit", ColorBlack);
+
+			const uint2 sceneSize = gfx.renderTargets.sceneSize;
+			const u32 multiplier = Min(displaySize.x / sceneSize.x, displaySize.y / sceneSize.y);
+			const uint2 scaledSceneSize = multiplier * sceneSize;
+			const rect viewport = {
+				displaySize.x > scaledSceneSize.x ? (i32)(displaySize.x - scaledSceneSize.x) / 2 : 0,
+				displaySize.y > scaledSceneSize.y ? (i32)(displaySize.y - scaledSceneSize.y) / 2 : 0,
+				scaledSceneSize.x,
+				scaledSceneSize.y,
+			};
+			SetViewport(commandList, viewport);
+			SetScissor(commandList, viewport);
+
+			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.blitPipelineH);
+			const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[3];
+
+			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
+			const BufferChunk vertices = GetVerticesForGeometryType(gfx, GeometryTypeScreen);
+			const uint32_t indexCount = indices.size/sizeof(Index);
+			const uint32_t firstIndex = indices.offset/sizeof(Index);
+			const int32_t firstVertex = vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
+
+			SetPipeline(commandList, gfx.blitPipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+
+			ImageH sceneImage = gfx.renderTargets.sceneImage;
+			const BindGroupDesc bindGroupDesc = {
+				.layout = bindGroupLayout,
+				.bindings = {
+					{ .index = 0, .sampler = gfx.pointSamplerH },
+					{ .index = 1, .image = sceneImage },
+				},
+			};
+			const BindGroup textureBindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+			SetBindGroup(commandList, 3, textureBindGroup);
+
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
+
+			SetViewportAndScissor(commandList, displaySize);
+
+			EndDebugGroup(commandList);
+		}
+
 #if USE_UI
 		{ // GUI
+			BeginDebugGroup(commandList, "GUI", ColorBlack);
+
 			const UI &ui = engine.ui;
 
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.guiPipelineH);
 			const BindGroupLayout &bindGroupLayout = pipeline.layout.bindGroupLayouts[3];
-
-			BeginDebugGroup(commandList, "GUI", ColorBlack);
 
 			SetPipeline(commandList, gfx.guiPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
@@ -3274,7 +3428,6 @@ void UIEndFrameRecording(Engine &engine)
 
 #endif
 
-
 void GameUpdate(Engine &engine)
 {
 	Game &game = engine.game;
@@ -3282,6 +3435,10 @@ void GameUpdate(Engine &engine)
 	if (game.state == GameStateStarting)
 	{
 		GameStart(game);
+
+		EngineWaitDeviceIdle(engine.gfx);
+		DestroyRenderTargets(engine.gfx, engine.gfx.renderTargets);
+		CreateRenderTargets(engine.gfx, SCENE_WIDTH, SCENE_HEIGHT);
 
 		game.state = GameStateRunning;
 	}
@@ -3296,6 +3453,10 @@ void GameUpdate(Engine &engine)
 		GameStop(game);
 
 		AudioStopAll(engine);
+
+		EngineWaitDeviceIdle(engine.gfx);
+		DestroyRenderTargets(engine.gfx, engine.gfx.renderTargets);
+		CreateRenderTargets(engine.gfx);
 
 		game.state = GameStateStopped;
 	}
@@ -3523,8 +3684,14 @@ ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 		if ( platform.window->width != 0 && platform.window->height != 0 )
 		{
 			CreateSwapchain(gfx.device, *platform.window);
-			gfx.renderTargets = CreateRenderTargets(gfx);
-			gfx.shouldUpdateGlobalBindGroups = true;
+
+			u32 sceneWidth = 0;
+			u32 sceneHeight = 0;
+			if ( engine.game.state != GameStateStopped ) {
+				sceneWidth = SCENE_WIDTH;
+				sceneHeight = SCENE_HEIGHT;
+			}
+			CreateRenderTargets(gfx, sceneWidth, sceneHeight);
 		}
 	}
 

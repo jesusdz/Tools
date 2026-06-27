@@ -1844,6 +1844,12 @@ float2 operator*(float2 a, float2 b)
 	return res;
 }
 
+uint2 operator*(u32 a, uint2 b)
+{
+	const uint2 res = { .x = a * b.x, .y= a * b.y };
+	return res;
+}
+
 float2 operator/(float2 a, float b)
 {
 	const float2 res = { .x = a.x / b, .y = a.y / b };

@@ -63,7 +63,7 @@ void CompileShader(u32 index)
 			flags, target, entry,
 			filepathSpirv.str, filepathDisasm.str,
 			filepathHlsl.str);
-	LOG(Debug, "%s\n", commandline);
+	LOG(Info, "%s\n", commandline);
 	ExecuteProcess(commandline);
 }
 

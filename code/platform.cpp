@@ -31,6 +31,7 @@ struct WindowImpl
 #elif USE_WINAPI
 	HINSTANCE hInstance;
 	HWND hWnd;
+	WINDOWPLACEMENT windowPlacement = { sizeof(WINDOWPLACEMENT) };
 #endif
 };
 
@@ -830,6 +831,32 @@ static int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *eve
 
 #include "win32_key_mappings.h"
 
+static void ToggleFullscreen(HWND hWnd)
+{
+	DWORD style = GetWindowLong(hWnd, GWL_STYLE);
+	if (style & WS_OVERLAPPEDWINDOW)
+	{
+		MONITORINFO mi = { sizeof(mi) };
+		if (GetWindowPlacement(hWnd, &platform.windowImpl.windowPlacement) &&
+			GetMonitorInfo(MonitorFromWindow(hWnd, MONITOR_DEFAULTTOPRIMARY), &mi))
+		{
+			SetWindowLong(hWnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+			SetWindowPos(hWnd, HWND_TOP,
+				mi.rcMonitor.left, mi.rcMonitor.top,
+				mi.rcMonitor.right - mi.rcMonitor.left,
+				mi.rcMonitor.bottom - mi.rcMonitor.top,
+				SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		}
+	}
+	else
+	{
+		SetWindowLong(hWnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+		SetWindowPlacement(hWnd, &platform.windowImpl.windowPlacement);
+		SetWindowPos(hWnd, NULL, 0, 0, 0, 0,
+			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+	}
+}
+
 static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if !USE_UPDATE_THREAD
@@ -866,9 +893,13 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			}
 			break;
 
+		case WM_SYSKEYDOWN:
+			if (wParam == VK_RETURN)
+				ToggleFullscreen(hWnd);
+			break;
+
 		case WM_SYSCHAR:
-			// If this message is not handled the default window procedure will
-			// play a system notification sound when Alt+Enter is pressed.
+			// Handled to suppress the system notification sound on Alt+Enter.
 			break;
 
 		case WM_LBUTTONDOWN:

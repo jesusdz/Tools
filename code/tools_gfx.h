@@ -672,7 +672,9 @@ typedef void FN_WaitDeviceIdle(const GraphicsDevice &device);
 typedef void FN_BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor);
 typedef void FN_EndDebugGroup(const CommandList &cmd);
 typedef void FN_InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor);
-typedef void FN_SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *name);
+typedef void FN_SetObjectNamePipeline(const GraphicsDevice &device, PipelineH handle, const char *name);
+typedef void FN_SetObjectNameShader(const GraphicsDevice &device, const ShaderModule &shader, const char *name);
+typedef void FN_SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char *name);
 typedef void FN_CreateSwapchain(GraphicsDevice &device, Window &window);
 typedef void FN_DestroySwapchain(GraphicsDevice &device);
 typedef bool FN_IsValidSwapchain(const GraphicsDevice &device);
@@ -727,8 +729,8 @@ typedef void FN_CopyBufferToImage(const CommandList &commandBuffer, BufferH buff
 typedef void FN_Blit(const CommandList &commandBuffer, const Image &srcImage, const BlitRegion &srcRegion, const Image &dstImage, const BlitRegion &dstRegion);
 typedef void FN_TransitionImageLayout(const CommandList &commandBuffer, ImageH imageH, ImageState oldState, ImageState newState, u32 baseMipLevel, u32 levelCount);
 typedef void FN_BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuffer);
-typedef void FN_SetViewport(const CommandList &commandList, uint2 size);
-typedef void FN_SetScissor(const CommandList &commandList, rect r);
+typedef void FN_SetViewport(const CommandList &commandList, rect viewport);
+typedef void FN_SetScissor(const CommandList &commandList, rect scissor);
 typedef void FN_SetViewportAndScissor(const CommandList &commandList, uint2 size);
 typedef void FN_SetClearColorFloat4(CommandList &commandList, u32 renderTargetIndex, float4 color);
 typedef void FN_SetClearColorU32(CommandList &commandList, u32 renderTargetIndex, u32 color);
@@ -763,7 +765,9 @@ typedef const char* FN_FormatName(Format format);
 	EXPAND_MACRO(BeginDebugGroup) \
 	EXPAND_MACRO(EndDebugGroup) \
 	EXPAND_MACRO(InsertDebugLabel) \
-	EXPAND_MACRO(SetObjectName) \
+	EXPAND_MACRO(SetObjectNamePipeline) \
+	EXPAND_MACRO(SetObjectNameShader) \
+	EXPAND_MACRO(SetObjectNameImage) \
 	EXPAND_MACRO(CreateSwapchain) \
 	EXPAND_MACRO(DestroySwapchain) \
 	EXPAND_MACRO(IsValidSwapchain) \
@@ -1972,7 +1976,7 @@ void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labe
 	vkCmdInsertDebugUtilsLabelEXT(cmd.handle, &label);
 }
 
-void SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *name)
+void SetObjectNamePipeline(const GraphicsDevice &device, PipelineH handle, const char *name)
 {
 	const Pipeline &pipeline = GetPipeline(device, handle);
 
@@ -1980,6 +1984,30 @@ void SetObjectName(const GraphicsDevice &device, PipelineH handle, const char *n
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
 		.objectType = VK_OBJECT_TYPE_PIPELINE,
 		.objectHandle = (uint64_t)pipeline.handle,
+		.pObjectName = name,
+	};
+	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
+}
+
+void SetObjectNameShader(const GraphicsDevice &device, const ShaderModule &shader, const char *name)
+{
+	const VkDebugUtilsObjectNameInfoEXT objectName = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		.objectType = VK_OBJECT_TYPE_SHADER_MODULE,
+		.objectHandle = (uint64_t)shader.handle,
+		.pObjectName = name,
+	};
+	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
+}
+
+void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char *name)
+{
+	const Image &image = GetImageConst(device, handle);
+
+	const VkDebugUtilsObjectNameInfoEXT objectName = {
+		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		.objectType = VK_OBJECT_TYPE_IMAGE,
+		.objectHandle = (uint64_t)image.handle,
 		.pObjectName = name,
 	};
 	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
@@ -2113,8 +2141,7 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 		.imageColorSpace = swapchainInfo.colorSpace,
 		.imageExtent = swapchain.extent,
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, // we will render directly on it
-		//.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT, // for typical engines with several render passes before
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		.imageSharingMode = imageSharingMode,
 		.queueFamilyIndexCount = queueFamilyIndexCount,
 		.pQueueFamilyIndices = pQueueFamilyIndices,
@@ -4128,13 +4155,13 @@ void BeginRenderPass(const CommandList &commandList, const Framebuffer &framebuf
 	vkCmdBeginRenderPass( commandList.handle, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
 }
 
-void SetViewport(const CommandList &commandList, uint2 size)
+void SetViewport(const CommandList &commandList, rect r)
 {
 	const VkViewport viewport = {
-		.x = 0.0f,
-		.y = static_cast<float>(size.y),
-		.width = static_cast<float>(size.x),
-		.height = -static_cast<float>(size.y),
+		.x = static_cast<float>(r.pos.x),
+		.y = static_cast<float>(r.size.y + r.pos.y),
+		.width = static_cast<float>(r.size.x),
+		.height = -static_cast<float>(r.size.y),
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	};
@@ -4157,7 +4184,7 @@ void SetScissor(const CommandList &commandList, rect r)
 
 void SetViewportAndScissor(const CommandList &commandList, uint2 size)
 {
-	SetViewport(commandList, size);
+	SetViewport(commandList, rect{0, 0, size.x, size.y});
 
 	SetScissor(commandList, rect{0, 0, size.x, size.y});
 }

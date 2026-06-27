@@ -42,8 +42,12 @@ typedef Handle MaterialH;
 
 struct RenderTargets
 {
+	uint2 sceneSize;
 	ImageH depthImage;
-	Framebuffer framebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
+	ImageH sceneImage;
+	Framebuffer sceneFramebuffer;
+
+	Framebuffer displayFramebuffers[MAX_SWAPCHAIN_IMAGE_COUNT];
 
 	ImageH shadowmapImage;
 	Framebuffer shadowmapFramebuffer;
@@ -181,6 +185,7 @@ struct Graphics
 	RenderPassH litRenderPassH;
 	RenderPassH shadowmapRenderPassH;
 	RenderPassH idRenderPassH;
+	RenderPassH displayRenderPassH;
 
 	Texture textures[MAX_TEXTURES];
 	TextureDesc textureDescs[MAX_TEXTURES];
@@ -220,6 +225,7 @@ struct Graphics
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
 	PipelineH spritePipelineH;
+	PipelineH blitPipelineH;
 	PipelineH guiPipelineH;
 #if USE_EDITOR
 	PipelineH grid2dPipelineH;
@@ -287,6 +293,9 @@ struct TileGrid
 #define MAX_ENTITIES 4092
 #define MAX_SPRITES 256
 #define MAX_ANIMATIONS 256
+
+constexpr u32 SCENE_WIDTH = 320;
+constexpr u32 SCENE_HEIGHT = 180;
 
 struct Scene
 {
