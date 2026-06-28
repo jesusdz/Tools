@@ -181,6 +181,7 @@ struct Graphics
 	SamplerH linearSamplerH;
 	SamplerH shadowmapSamplerH;
 	SamplerH skySamplerH;
+	SamplerH screenSamplerH;
 
 	RenderPassH litRenderPassH;
 	RenderPassH shadowmapRenderPassH;

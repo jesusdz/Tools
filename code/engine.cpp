@@ -1968,9 +1968,9 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	{
 		const BindGroupAllocatorCounts allocatorCounts = {
 			.uniformBufferCount = MAX_FRAMES_IN_FLIGHT,
-			.storageBufferCount = MAX_FRAMES_IN_FLIGHT,
+			.storageBufferCount = MAX_FRAMES_IN_FLIGHT * 2,
 			.textureCount = 1000,
-			.samplerCount = MAX_FRAMES_IN_FLIGHT * 4,
+			.samplerCount = MAX_FRAMES_IN_FLIGHT * 5,
 			.groupCount = MAX_FRAMES_IN_FLIGHT,
 		};
 		gfx.globalBindGroupAllocator = CreateBindGroupAllocator(gfx.device, allocatorCounts);
@@ -2059,6 +2059,11 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		.filter = FilterLinear,
 	};
 	gfx.linearSamplerH = CreateSampler(gfx.device, materialSamplerDesc);
+	const SamplerDesc screenSamplerDesc = {
+		.addressMode = AddressModeClampToEdge,
+		.filter = FilterNearest,
+	};
+	gfx.screenSamplerH = CreateSampler(gfx.device, screenSamplerDesc);
 	const SamplerDesc shadowmapSamplerDesc = {
 		.addressMode = AddressModeClampToBorder,
 		.filter = FilterNearest,
@@ -3336,7 +3341,7 @@ bool RenderGraphics(Engine &engine)
 			const BindGroupDesc bindGroupDesc = {
 				.layout = bindGroupLayout,
 				.bindings = {
-					{ .index = 0, .sampler = gfx.pointSamplerH },
+					{ .index = 0, .sampler = gfx.screenSamplerH },
 					{ .index = 1, .image = sceneImage },
 				},
 			};
