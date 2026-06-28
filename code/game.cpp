@@ -124,6 +124,7 @@ void GameUpdate(Game &game)
 			playerPos.y = 0.0f;
 		}
 
+		// Player bounds
 		const f32 screenLeft = game.screen.boundingBox.pos.x;
 		const f32 screenRight = game.screen.boundingBox.pos.x + game.screen.boundingBox.size.x;
 		const f32 screenBottom = game.screen.boundingBox.pos.y;
@@ -131,13 +132,14 @@ void GameUpdate(Game &game)
 		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight);
 		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop);
 
+		// Camera bounds
 		const float2 halfSceneSize = 0.5f * float2{SCENE_WIDTH, SCENE_HEIGHT} / PIXELS_PER_METER;
-		const f32 cameraX = playerPos.x;
-		const f32 cameraY = playerPos.y;
 		const f32 cameraLeft = screenLeft + halfSceneSize.x;
 		const f32 cameraRight = screenRight - halfSceneSize.x;
 		const f32 cameraBottom = screenBottom + halfSceneSize.y;
 		const f32 cameraTop = screenTop - halfSceneSize.y;
+		const f32 cameraX = Lerp(game.camera.position.x, playerPos.x, 0.2f);
+		const f32 cameraY = Lerp(game.camera.position.y, playerPos.y, 0.2f);
 		game.camera.position.x = Clamp(cameraX, cameraLeft, cameraRight);
 		game.camera.position.y = Clamp(cameraY, cameraBottom, cameraTop);
 	}
