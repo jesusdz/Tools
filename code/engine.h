@@ -77,17 +77,6 @@ struct Sprite
 {
 	const char *name;
 	TextureH textureH;
-	float2 uvPos;
-	float2 uvSize;
-};
-
-typedef Handle SpriteH;
-
-struct Animation
-{
-	const char *name;
-	const char *textureName;
-	TextureH textureH;
 	float2 frameUvPos;
 	float2 frameUvSize;
 	uint2 framePixelPos;
@@ -97,7 +86,7 @@ struct Animation
 	bool loop;
 };
 
-typedef Handle AnimationH;
+typedef Handle SpriteH;
 
 struct SpriteAnimState
 {
@@ -117,9 +106,8 @@ struct Entity
 	BufferChunk vertices;
 	BufferChunk indices;
 	MaterialH materialH;
-	// Sprite/animation entity
+	// Sprite entity
 	SpriteH spriteH;
-	AnimationH animationH;
 	i32 layer;
 };
 
@@ -293,7 +281,6 @@ struct TileGrid
 
 #define MAX_ENTITIES 4092
 #define MAX_SPRITES 256
-#define MAX_ANIMATIONS 256
 
 constexpr u32 SCENE_WIDTH = 320;
 constexpr u32 SCENE_HEIGHT = 180;
@@ -306,10 +293,7 @@ struct Scene
 	Sprite sprites[MAX_SPRITES];
 	HandleManager spriteHandles;
 
-	Animation animations[MAX_ANIMATIONS];
-	HandleManager animationHandles;
-
-	SpriteAnimState spriteAnimStates[MAX_ENTITIES];
+	SpriteAnimState spriteAnimStates[MAX_SPRITES];
 
 	TileAtlas tileAtlas;
 	TileGrid tileGrid;

@@ -18,6 +18,7 @@ struct Globals
 	float unused1;
 	float unused2;
 
+	int2 sceneResolution;
 	int2 mousePosition;
 	uint selectedEntity;
 };

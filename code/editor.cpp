@@ -264,6 +264,13 @@ static void EditorSelectMusic(Editor &editor, Handle handle)
 	editor.inspector.nextInspectedType = EditorInspectedType_Music;
 }
 
+static void EditorSelectSprite(Editor &editor, Handle handle)
+{
+	editor.inspector.nextSelectedHandle = handle;
+	editor.inspector.nextSelectedFile = nullptr;
+	editor.inspector.nextInspectedType = EditorInspectedType_Sprite;
+}
+
 static void EditorSelectFileImage(Editor &editor, FileNode *node)
 {
 	editor.inspector.nextSelectedFile = node;
@@ -537,29 +544,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 			const Sprite &sprite = GetSprite(scene, handle);
 
 			if ( UI_Button(ui, sprite.name) ) {
-				//EditorSelectSprite(editor, handle);
-			}
-		}
-	}
-
-	if ( UI_Section(ui, "Animations") )
-	{
-		for (HandleIter it = BeginIter(scene.animationHandles); it; it++)
-		{
-			Handle handle = *it;
-			const Animation &ani = GetAnimation(scene, handle);
-
-			if ( UI_Button(ui, ani.name) ) {
-
-				//EditorSelectSprite(editor, handle);
-				const EntityDesc entityDesc = {
-					.name = "entity",
-					.animationName = ani.name,
-					.pos = {},
-					.scale = 1.0f,
-				};
-
-				CreateEntity(engine, entityDesc);
+				EditorSelectSprite(editor, handle);
 			}
 		}
 	}
@@ -809,17 +794,17 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					const char *filename = inspector.selectedFile->filename;
 					const char *basename = NameFromFilename(filename);
 					const char *textureName = MakeName("tex_%s", basename);
-					const char *animationName = MakeName("ani_%s", basename);
+					const char *spriteName = MakeName("spr_%s", basename);
 
 					const TextureDesc textureDesc = {
 						.name = textureName,
 						.filename = filename,
 						.mipmap = true,
 					};
-					TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
+					GetOrCreateTexture(engine.gfx, textureDesc);
 
-					const AnimationDesc desc = {
-						.name = animationName,
+					const SpriteDesc desc = {
+						.name = spriteName,
 						.textureName = textureName,
 						.framePos = {0, 0},
 						.frameSize = {32, 32},
@@ -827,7 +812,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 						.fps = 4,
 						.loop = true,
 					};
-					GetOrCreateAnimation(engine, desc);
+					GetOrCreateSprite(engine, desc);
 				}
 			}
 		}
@@ -925,6 +910,63 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				}
 				if (UI_Button(ui, "Stop")) {
 					MusicStop(engine);
+				}
+			}
+		}
+		else if (inspector.inspectedType == EditorInspectedType_Sprite)
+		{
+			if (inspector.selectedHandle != InvalidHandle)
+			{
+				Sprite &sprite = GetSprite(engine.scene, inspector.selectedHandle);
+
+				static char name[64];
+				StrCopy(name, sprite.name);
+				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+				sprite.name = InternString(name);
+
+				if (IsValidHandle(engine.gfx.textureHandles, sprite.textureH))
+				{
+					const Texture &texture = GetTexture(engine.gfx, sprite.textureH);
+					UI_Label(ui, "Texture: %s", texture.name);
+					UI_Image(ui, texture.image, float2{0, 0}, UIWidgetFlag_Expand);
+				}
+
+				i32 framePosX  = (i32)sprite.framePixelPos.x;
+				i32 framePosY  = (i32)sprite.framePixelPos.y;
+				i32 frameSizeX = (i32)sprite.framePixelSize.x;
+				i32 frameSizeY = (i32)sprite.framePixelSize.y;
+				i32 frameCount = (i32)sprite.frameCount;
+				i32 fps        = (i32)sprite.fps;
+
+				const uint2 oldFramePixelPos  = sprite.framePixelPos;
+				const uint2 oldFramePixelSize = sprite.framePixelSize;
+				const u32   oldFrameCount     = sprite.frameCount;
+				const u32   oldFps            = sprite.fps;
+
+				UI_InputInt(ui, "Frame Pos X",  &framePosX);
+				UI_InputInt(ui, "Frame Pos Y",  &framePosY);
+				UI_InputInt(ui, "Frame Size X", &frameSizeX);
+				UI_InputInt(ui, "Frame Size Y", &frameSizeY);
+				UI_InputInt(ui, "Frame Count",  &frameCount);
+				UI_InputInt(ui, "FPS",          &fps);
+				UI_Checkbox(ui, "Loop",         &sprite.loop);
+
+				sprite.framePixelPos  = { (u32)Max(0, framePosX),  (u32)Max(0, framePosY)  };
+				sprite.framePixelSize = { (u32)Max(0, frameSizeX), (u32)Max(0, frameSizeY) };
+				sprite.frameCount     = (u32)Max(0, frameCount);
+				sprite.fps            = (u32)Max(0, fps);
+
+				const bool pixelsChanged =
+					sprite.framePixelPos  != oldFramePixelPos  ||
+					sprite.framePixelSize != oldFramePixelSize ||
+					sprite.frameCount     != oldFrameCount     ||
+					sprite.fps            != oldFps;
+
+				if (pixelsChanged && IsValidHandle(engine.gfx.textureHandles, sprite.textureH))
+				{
+					const Texture &texture = GetTexture(engine.gfx, sprite.textureH);
+					sprite.frameUvPos  = { (f32)sprite.framePixelPos.x  / texture.size.x, (f32)sprite.framePixelPos.y  / texture.size.y };
+					sprite.frameUvSize = { (f32)sprite.framePixelSize.x / texture.size.x, (f32)sprite.framePixelSize.y / texture.size.y };
 				}
 			}
 		}
@@ -1049,8 +1091,6 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				const SpriteDesc spriteDesc = {
 					.name = spriteName,
 					.textureName = texname,
-					.uvPos = { 0, 0 },
-					.uvSize = {1, 1},
 				};
 				SpriteH spriteH = GetOrCreateSprite(engine, spriteDesc);
 
@@ -1840,8 +1880,7 @@ void EditorRender(Engine &engine, CommandList &commandList)
 					const Entity &entity = GetEntity(scene, handle);
 
 					if ( !entity.visible || entity.culled ) continue;
-					if ( !IsValidHandle(scene.animationHandles, entity.animationH) &&
-					     !IsValidHandle(scene.spriteHandles, entity.spriteH) ) continue;
+					if ( !IsValidHandle(scene.spriteHandles, entity.spriteH) ) continue;
 
 					DrawIndexed(commandList, spriteIndexCount, spriteFirstIndex, spriteFirstVertex, handle.num);
 				}

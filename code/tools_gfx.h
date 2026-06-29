@@ -3298,17 +3298,18 @@ Sampler CreateSamplerInternal(const GraphicsDevice &device, const SamplerDesc &d
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(device.physicalDevice, &properties);
 
+	const bool useLinear = desc.filter == FilterLinear;
 	const VkSamplerCreateInfo samplerCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 		.magFilter = FilterToVulkan(desc.filter),
 		.minFilter = FilterToVulkan(desc.filter),
-		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		.mipmapMode = useLinear ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST,
 		.addressModeU = AddressModeToVulkan(desc.addressMode),
 		.addressModeV = AddressModeToVulkan(desc.addressMode),
 		.addressModeW = AddressModeToVulkan(desc.addressMode),
 		.mipLodBias = 0.0f,
-		.anisotropyEnable = VK_TRUE,
-		.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+		.anisotropyEnable = useLinear ? VK_TRUE : VK_FALSE,
+		.maxAnisotropy = useLinear ? properties.limits.maxSamplerAnisotropy : 1.0f,
 		.compareEnable = desc.compareOp != CompareOpNone, // For PCF shadows for instance
 		.compareOp = CompareOpToVulkan(desc.compareOp),
 		.minLod = 0.0f,

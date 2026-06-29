@@ -47,14 +47,6 @@ struct SpriteDesc
 {
 	const char *name;
 	const char *textureName;
-	float2 uvPos;
-	float2 uvSize;
-};
-
-struct AnimationDesc
-{
-	const char *name;
-	const char *textureName;
 	uint2 framePos;
 	uint2 frameSize;
 	u32 frameCount;
@@ -79,7 +71,6 @@ struct EntityDesc
 	GeometryType geometryType;
 	// Sprite entity
 	const char *spriteName;
-	const char *animationName;
 	i32 layer;
 	// Common
 	float3 pos;
@@ -110,9 +101,6 @@ struct AssetDescriptors
 
 	SpriteDesc *spriteDescs;
 	u32 spriteDescCount;
-
-	AnimationDesc *animationDescs;
-	u32 animationDescCount;
 
 	MaterialDesc *materialDescs;
 	u32 materialDescCount;
@@ -197,14 +185,6 @@ struct BinSpriteDesc
 {
 	const char *name;
 	const char *textureName;
-	float2 uvPos;
-	float2 uvSize;
-};
-
-struct BinAnimationDesc
-{
-	const char *name;
-	const char *textureName;
 	u32 framePosX, framePosY;
 	u32 frameSizeX, frameSizeY;
 	u32 frameCount;
@@ -218,7 +198,6 @@ struct BinEntityDesc
 	const char *name;
 	const char *materialName;
 	const char *spriteName;
-	const char *animationName;
 	float3 pos;
 	float scale;
 	i32 layer;
@@ -240,8 +219,6 @@ struct BinAssetsHeader
 	u32 materialCount;
 	u32 spritesOffset;
 	u32 spriteCount;
-	u32 animationsOffset;
-	u32 animationCount;
 	u32 entitiesOffset;
 	u32 entityCount;
 	u32 stringPoolOffset;
@@ -280,11 +257,6 @@ struct BinSprite
 	BinSpriteDesc *desc;
 };
 
-struct BinAnimation
-{
-	BinAnimationDesc *desc;
-};
-
 struct BinEntity
 {
 	BinEntityDesc *desc;
@@ -305,7 +277,6 @@ struct BinAssets
 	BinMusicFile *musicFiles;
 	BinMaterial *materials;
 	BinSprite *sprites;
-	BinAnimation *animations;
 	BinEntity *entities;
 };
 

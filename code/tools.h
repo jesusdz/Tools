@@ -1810,6 +1810,12 @@ static constexpr f32 TwoPi = 2.0f * Pi;
 static constexpr f32 ToRadians = Pi / 180.0f;
 static constexpr f32 ToDegrees = 180.0f / Pi;
 
+bool operator!=(uint2 a, uint2 b)
+{
+	const bool res = a.x != b.x || a.y != b.y;
+	return res;
+}
+
 float2 operator+(float2 a, float2 b)
 {
 	const float2 res = { .x = a.x + b.x, .y = a.y + b.y };
