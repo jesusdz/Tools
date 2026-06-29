@@ -955,19 +955,6 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				sprite.framePixelSize = { (u32)Max(0, frameSizeX), (u32)Max(0, frameSizeY) };
 				sprite.frameCount     = (u32)Max(0, frameCount);
 				sprite.fps            = (u32)Max(0, fps);
-
-				const bool pixelsChanged =
-					sprite.framePixelPos  != oldFramePixelPos  ||
-					sprite.framePixelSize != oldFramePixelSize ||
-					sprite.frameCount     != oldFrameCount     ||
-					sprite.fps            != oldFps;
-
-				if (pixelsChanged && IsValidHandle(engine.gfx.textureHandles, sprite.textureH))
-				{
-					const Texture &texture = GetTexture(engine.gfx, sprite.textureH);
-					sprite.frameUvPos  = { (f32)sprite.framePixelPos.x  / texture.size.x, (f32)sprite.framePixelPos.y  / texture.size.y };
-					sprite.frameUvSize = { (f32)sprite.framePixelSize.x / texture.size.x, (f32)sprite.framePixelSize.y / texture.size.y };
-				}
 			}
 		}
 	}

@@ -77,8 +77,6 @@ struct Sprite
 {
 	const char *name;
 	TextureH textureH;
-	float2 frameUvPos;
-	float2 frameUvSize;
 	uint2 framePixelPos;
 	uint2 framePixelSize;
 	u32 frameCount;
