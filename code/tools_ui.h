@@ -249,7 +249,9 @@ struct UI
 	u32 windowStack[16];
 	u32 windowStackSize;
 
-	UIWindow *modalWindow;
+	UIWindow *modalWindowStack[16];
+	u32 modalWindowStackSize;
+
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
@@ -1160,7 +1162,7 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 
 void UI_SetNextWindowModal(UI &ui)
 {
-	ASSERT(ui.modalWindow == nullptr);
+	ASSERT(ui.modalWindowStackSize < ARRAY_COUNT(ui.modalWindowStack));
 	ui.nextWindowModal = true;
 }
 
@@ -1204,8 +1206,8 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 
 	if (ui.nextWindowModal)
 	{
-		ASSERT(ui.modalWindow == nullptr);
-		ui.modalWindow = &window;
+		ASSERT(ui.modalWindowStackSize < ARRAY_COUNT(ui.modalWindowStack));
+		ui.modalWindowStack[ui.modalWindowStackSize++] = &window;
 		ui.nextWindowModal = false;
 	}
 
@@ -2407,6 +2409,11 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 
 bool UI_MessageBox(UI &ui, const char *caption, const char *text, const char **buttons, u32 *result)
 {
+	UI_SetNextWindowModal(ui);
+	UI_SetNextWindowAnchor(ui, {0.5, 0.5});
+	UI_SetNextWindowSize(ui, uint2{ 350, 120 });
+	UI_SetNextWindowDefaultDisplacement(ui, {0, 0});
+
 	constexpr u32 flags = UIWindowFlag_Draggable | UIWindowFlag_Titlebar | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
 	UI_SetNextWindowSize(ui, uint2{350, 120});
 	UI_BeginWindow(ui, caption, nullptr, flags);
@@ -2801,7 +2808,7 @@ void UI_EndFrame(UI &ui)
 	}
 
 	// Modal window
-	if ( ui.modalWindow )
+	if ( ui.modalWindowStackSize )
 	{
 		const char *idString = "$modalbg";
 		const u32 windowId = UI_MakeID(ui, idString);
@@ -2814,11 +2821,18 @@ void UI_EndFrame(UI &ui)
 		UI_PopElemColor(ui, UIElementBackground);
 
 		UIWindow &bgWindow = UI_FindWindow(ui, windowId);
-		UI_RaiseWindow(ui, bgWindow);
-		UI_RaiseWindow(ui, *ui.modalWindow);
-		UI_FocusWindow(ui, *ui.modalWindow);
 
-		ui.modalWindow = nullptr;
+		for (u32 i = 0; i < ui.modalWindowStackSize; ++i)
+		{
+			// Put background right below the topmost modal window
+			if (i == ui.modalWindowStackSize-1) {
+				UI_RaiseWindow(ui, bgWindow);
+			}
+			UI_RaiseWindow(ui, *ui.modalWindowStack[i]);
+			UI_FocusWindow(ui, *ui.modalWindowStack[i]);
+		}
+
+		ui.modalWindowStackSize = 0;
 	}
 
 	// Create an array of draw list indices
