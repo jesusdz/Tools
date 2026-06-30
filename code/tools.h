@@ -2558,6 +2558,28 @@ static void Yield()
 	SwitchToThread();
 }
 
+typedef SRWLOCK Mutex;
+
+static bool CreateMutex( Mutex &mutex )
+{
+	InitializeSRWLock(&mutex);
+	return true;
+}
+
+static void DestroyMutex( Mutex &mutex )
+{
+}
+
+static void LockMutex( Mutex &mutex )
+{
+	AcquireSRWLockExclusive(&mutex);
+}
+
+static void UnlockMutex( Mutex &mutex )
+{
+	ReleaseSRWLockExclusive(&mutex);
+}
+
 
 #elif PLATFORM_LINUX || PLATFORM_ANDROID
 
@@ -2629,9 +2651,45 @@ static void Yield()
 	SleepMillis(1);
 }
 
+typedef pthread_mutex_t Mutex;
+
+static bool CreateMutex( Mutex &mutex )
+{
+	bool success = true;
+	if ( pthread_mutex_init(&mutex, nullptr) != 0 ) {
+		LinuxReportError("pthread_mutex_init");
+		success = false;
+	}
+	return success;
+}
+
+static void DestroyMutex( Mutex &mutex )
+{
+	pthread_mutex_destroy(&mutex);
+}
+
+static void LockMutex( Mutex &mutex )
+{
+	pthread_mutex_lock(&mutex);
+}
+
+static void UnlockMutex( Mutex &mutex )
+{
+	pthread_mutex_unlock(&mutex);
+}
+
 #else
 #error "Missing implementation"
 #endif
+
+struct MutexScope
+{
+	Mutex &mutex;
+	MutexScope( Mutex &mutex ) : mutex(mutex) { LockMutex(mutex); }
+	~MutexScope() { UnlockMutex(mutex); }
+	MutexScope( const MutexScope & ) = delete;
+	MutexScope &operator=( const MutexScope & ) = delete;
+};
 
 
 

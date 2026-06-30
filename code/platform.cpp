@@ -190,6 +190,7 @@ struct Platform
 	bool windowInitialized;
 
 	Semaphore updateThreadFinishSemaphore;
+	Mutex renderLock;
 
 	bool audioPaused;
 	Semaphore audioThreadPauseSemaphore;
@@ -857,6 +858,8 @@ static void ToggleFullscreen(HWND hWnd)
 	}
 }
 
+static void UpdateAndRender(Platform &platform);
+
 static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if !USE_UPDATE_THREAD
@@ -1090,11 +1093,26 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				break;
 			}
 
+		case WM_PAINT:
+#if USE_UPDATE_THREAD
+			if ( platform.windowInitialized )
+			{
+				UpdateAndRender(platform);
+			}
+			ValidateRect(hWnd, NULL);
+			return 0;
+#else
+			break;
+#endif
+
 		case WM_SIZE:
 			{
 				const u16 width = LOWORD(lParam);
 				const u16 height = HIWORD(lParam);
 #if USE_UPDATE_THREAD
+				platform.window.width = Max(width, 0);
+				platform.window.height = Max(height, 0);
+				platform.window.flags |= WindowFlags_WasResized;
 				const PlatformEvent event = {
 					.type = PlatformEventTypeWindowResize,
 					.windowResize = { .width = width, .height = height },
@@ -2695,6 +2713,13 @@ static void ProcessPlatformEvents(Platform &platform)
 
 static void CheckEngineHotReload(Platform &platform);
 
+static void UpdateAndRender(Platform &platform)
+{
+	MutexScope renderScope(platform.renderLock);
+	platform.UpdateCallback(platform.pub);
+	platform.RenderGraphicsCallback(platform.pub);
+}
+
 static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
@@ -2711,10 +2736,7 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 		{
 			UpdateGamepad(platform);
 
-			platform.UpdateCallback(platform.pub);
-
-			platform.RenderGraphicsCallback(platform.pub);
-
+			UpdateAndRender(platform);
 			platform.window.flags = 0;
 		}
 		else
@@ -2736,6 +2758,11 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 static bool InitializeUpdateThread(Platform &platform)
 {
 	bool ok = true;
+
+	if ( !CreateMutex( platform.renderLock ) )
+	{
+		return false;
+	}
 
 	if ( !CreateSemaphore( platform.updateThreadFinishSemaphore, 0, 1 ) )
 	{
