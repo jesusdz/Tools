@@ -2208,7 +2208,7 @@ void CleanupGraphics(Graphics &gfx)
 		DestroyBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[i] );
 	}
 
-	CleanupGraphicsDevice( gfx.device );
+	CleanupGraphicsDevice( gfx.device, FrameArena );
 
 	CleanupGraphicsDriver( gfx.device );
 

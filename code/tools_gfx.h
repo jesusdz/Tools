@@ -753,7 +753,7 @@ typedef SubmitResult FN_Submit(GraphicsDevice &device, const CommandList &comman
 typedef bool FN_Present(GraphicsDevice &device, SubmitResult submitResult);
 typedef bool FN_BeginFrame(GraphicsDevice &device);
 typedef void FN_EndFrame(GraphicsDevice &device);
-typedef void FN_CleanupGraphicsDevice(const GraphicsDevice &device);
+typedef void FN_CleanupGraphicsDevice(const GraphicsDevice &device, Arena scratch);
 typedef void FN_CleanupGraphicsSurface(const GraphicsDevice &device);
 typedef void FN_CleanupGraphicsDriver(GraphicsDevice &device);
 typedef const char* FN_FormatName(Format format);
@@ -1087,6 +1087,7 @@ inline bool IsValid(const BindGroup &bindGroup)
 	EXPAND_MACRO(vkGetBufferMemoryRequirements) \
 	EXPAND_MACRO(vkGetDeviceQueue) \
 	EXPAND_MACRO(vkGetImageMemoryRequirements) \
+	EXPAND_MACRO(vkGetPipelineCacheData) \
 	EXPAND_MACRO(vkGetQueryPoolResults) \
 	EXPAND_MACRO(vkMapMemory) \
 	EXPAND_MACRO(vkQueueSubmit) \
@@ -1519,6 +1520,7 @@ static VkPipelineStageFlagBits PipelineStageToVulkan( PipelineStage stage )
 // Internal functions
 ////////////////////////////////////////////////////////////////////////
 
+#if DEVELOPMENT_BUILD
 static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT		message_severity,
     VkDebugUtilsMessageTypeFlagsEXT				message_type,
@@ -1539,6 +1541,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsMessengerCallback(
 	}
 	return VK_FALSE;
 }
+#endif // DEVELOPMENT_BUILD
 
 static const char *VkResultToString(VkResult result)
 {
@@ -1918,6 +1921,48 @@ static void DestroyImageView(const GraphicsDevice &device, const VkImageView &im
 	vkDestroyImageView(device.handle, imageView, VULKAN_ALLOCATORS);
 }
 
+static const char *sPipelineCachePath = "build/pipeline_cache.bin";
+
+static void SavePipelineCacheData(const GraphicsDevice &device, Arena scratch)
+{
+	size_t pipelineCacheSize = 0;
+	if ( vkGetPipelineCacheData( device.handle, device.pipelineCache, &pipelineCacheSize, NULL ) == VK_SUCCESS && pipelineCacheSize > 0 )
+	{
+		void *pipelineCacheData = PushSize(scratch, (u32)pipelineCacheSize);
+		if ( pipelineCacheData )
+		{
+			if ( vkGetPipelineCacheData( device.handle, device.pipelineCache, &pipelineCacheSize, pipelineCacheData ) == VK_SUCCESS )
+			{
+				WriteEntireFile( sPipelineCachePath, pipelineCacheData, (u64)pipelineCacheSize );
+				LOG(Info, "Pipeline cache saved to %s (%zu bytes).\n", sPipelineCachePath, pipelineCacheSize);
+			}
+		}
+	}
+
+}
+
+static void *LoadPipelineCacheData(const GraphicsDevice &device, Arena &arena, u32 *pipelineCacheSize)
+{
+	void *pipelineCacheData = NULL;
+	u64 pipelineCacheSize64 = 0;
+	if ( GetFileSize(sPipelineCachePath, pipelineCacheSize64, false) && pipelineCacheSize64 > 0 )
+	{
+		pipelineCacheData = PushSize(arena, (u32)pipelineCacheSize64);
+		if ( ReadEntireFile(sPipelineCachePath, pipelineCacheData, pipelineCacheSize64) )
+		{
+			LOG(Info, "Pipeline cache loaded from %s (%llu bytes).\n", sPipelineCachePath, pipelineCacheSize64);
+		}
+		else
+		{
+			pipelineCacheData = NULL;
+			pipelineCacheSize64 = 0;
+		}
+	}
+
+	*pipelineCacheSize = (u32)pipelineCacheSize64;
+	return pipelineCacheData;
+}
+
 
 
 
@@ -1947,10 +1992,9 @@ void WaitDeviceIdle(const GraphicsDevice &device)
 // Debug utils
 //////////////////////////////
 
-static constexpr float4 s_defaultDebugLabelColor = { 0.0f, 0.0f, 0.0f, 0.0f };
-
 void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 labelColor)
 {
+#if DEVELOPMENT_BUILD
 	const VkDebugUtilsLabelEXT label = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
 		.pNext = NULL,
@@ -1958,15 +2002,19 @@ void BeginDebugGroup(const CommandList &cmd, const char *labelName, float4 label
 		.color = { labelColor.r, labelColor.g, labelColor.b, labelColor.a },
 	};
 	vkCmdBeginDebugUtilsLabelEXT(cmd.handle, &label);
+#endif
 }
 
 void EndDebugGroup(const CommandList &cmd)
 {
+#if DEVELOPMENT_BUILD
 	vkCmdEndDebugUtilsLabelEXT(cmd.handle);
+#endif
 }
 
 void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labelColor)
 {
+#if DEVELOPMENT_BUILD
 	const VkDebugUtilsLabelEXT label = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
 		.pNext = NULL,
@@ -1974,10 +2022,12 @@ void InsertDebugLabel(const CommandList &cmd, const char *labelName, float4 labe
 		.color = { labelColor.r, labelColor.g, labelColor.b, labelColor.a },
 	};
 	vkCmdInsertDebugUtilsLabelEXT(cmd.handle, &label);
+#endif
 }
 
 void SetObjectNamePipeline(const GraphicsDevice &device, PipelineH handle, const char *name)
 {
+#if DEVELOPMENT_BUILD
 	const Pipeline &pipeline = GetPipeline(device, handle);
 
 	const VkDebugUtilsObjectNameInfoEXT objectName = {
@@ -1987,10 +2037,12 @@ void SetObjectNamePipeline(const GraphicsDevice &device, PipelineH handle, const
 		.pObjectName = name,
 	};
 	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
+#endif
 }
 
 void SetObjectNameShader(const GraphicsDevice &device, const ShaderModule &shader, const char *name)
 {
+#if DEVELOPMENT_BUILD
 	const VkDebugUtilsObjectNameInfoEXT objectName = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
 		.objectType = VK_OBJECT_TYPE_SHADER_MODULE,
@@ -1998,10 +2050,12 @@ void SetObjectNameShader(const GraphicsDevice &device, const ShaderModule &shade
 		.pObjectName = name,
 	};
 	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
+#endif
 }
 
 void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char *name)
 {
+#if DEVELOPMENT_BUILD
 	const Image &image = GetImageConst(device, handle);
 
 	const VkDebugUtilsObjectNameInfoEXT objectName = {
@@ -2011,6 +2065,7 @@ void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char 
 		.pObjectName = name,
 	};
 	VK_CALL( vkSetDebugUtilsObjectNameEXT(device.handle, &objectName) );
+#endif
 }
 
 //////////////////////////////
@@ -2230,13 +2285,14 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 		.apiVersion = VK_API_VERSION_1_1,
 	};
 
+#if DEVELOPMENT_BUILD
 	u32 instanceLayerCount;
 	VK_CALL( vkEnumerateInstanceLayerProperties( &instanceLayerCount, NULL ) );
 	VkLayerProperties *instanceLayers = PushArray(scratch, VkLayerProperties, instanceLayerCount);
 	VK_CALL( vkEnumerateInstanceLayerProperties( &instanceLayerCount, instanceLayers ) );
 
 	const char *wantedInstanceLayerNames[] = {
-		"VK_LAYER_KHRONOS_validation"
+		"VK_LAYER_KHRONOS_validation",
 	};
 	const char *enabledInstanceLayerNames[ARRAY_COUNT(wantedInstanceLayerNames)];
 	u32 enabledInstanceLayerCount = 0;
@@ -2257,8 +2313,12 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 			}
 		}
 
-		LOG(Info, "%c %s\n", enabled?'*':'-', instanceLayers[i].layerName);
+		LOG(Info, "%c %s%s\n", enabled?'*':'-', instanceLayers[i].layerName, enabled ? " (enabled)" : "");
 	}
+#else
+	const char *enabledInstanceLayerNames[1] = {};
+	u32 enabledInstanceLayerCount = 0;
+#endif
 
 	u32 availableInstanceExtensionCount;
 	VK_CALL( vkEnumerateInstanceExtensionProperties( NULL, &availableInstanceExtensionCount, NULL ) );
@@ -2310,6 +2370,7 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 	}
 
 	// Enable optional extensions
+#if DEVELOPMENT_BUILD
 	if ( EnableExtension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME ) ) {
 		device.support.debugUtils = true;
 	}
@@ -2319,7 +2380,9 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 	{
 		LOG(Info, "- %s\n", enabledInstanceExtensionNames[i]);
 	}
+#endif
 
+#if DEVELOPMENT_BUILD
 	const VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
 		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
@@ -2330,9 +2393,12 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 	const void *pNext = nullptr;
 	if ( device.support.debugUtils )
 	{
-		// To capture events that occur while creating or destroying the instance 
+		// To capture events that occur while creating or destroying the instance
 		pNext = &debugUtilsCreateInfo;
 	}
+#else
+	const void *pNext = nullptr;
+#endif
 
 	const VkInstanceCreateInfo instanceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -2353,10 +2419,12 @@ bool InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch)
 	// Load the instance-related Vulkan function pointers
 	VulkanLoadInstanceFunctions(device.instance);
 
+#if DEVELOPMENT_BUILD
 	if ( device.support.debugUtils )
 	{
 		VK_CALL( vkCreateDebugUtilsMessengerEXT( device.instance, &debugUtilsCreateInfo, VULKAN_ALLOCATORS, &device.debugUtilsMessenger ) );
 	}
+#endif
 
 	return true;
 }
@@ -2794,12 +2862,15 @@ bool InitializeGraphicsDevice(GraphicsDevice &device, Arena scratch)
 	}
 
 
-	// Create pipeline cache
+	// Create pipeline cache, loading previously saved data if available
+	u32 pipelineCacheSize = 0;
+	void *pipelineCacheData = LoadPipelineCacheData(device, scratch, &pipelineCacheSize);
+
 	const VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
 		.flags = 0,
-		.initialDataSize = 0,
-		.pInitialData = NULL,
+		.initialDataSize = (size_t)pipelineCacheSize,
+		.pInitialData = pipelineCacheData,
 	};
 	VK_CALL( vkCreatePipelineCache( device.handle, &pipelineCacheCreateInfo, VULKAN_ALLOCATORS, &device.pipelineCache ) );
 
@@ -4295,6 +4366,7 @@ void EndRenderPass(const CommandList &commandList)
 
 TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries)
 {
+#if DEVELOPMENT_BUILD
 	const VkQueryPoolCreateInfo createInfo = {
 		.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
 		.queryType = VK_QUERY_TYPE_TIMESTAMP,
@@ -4312,11 +4384,16 @@ TimestampPool CreateTimestampPool(const GraphicsDevice &device, u32 maxQueries)
 		.nanosPerTick = device.limits.timestampPeriod,
 	};
 	return pool;
+#else
+	return {};
+#endif
 }
 
 void DestroyTimestampPool(const GraphicsDevice &device, const TimestampPool &pool)
 {
+#if DEVELOPMENT_BUILD
 	vkDestroyQueryPool(device.handle, pool.handle, VULKAN_ALLOCATORS);
+#endif
 }
 
 //void ResetTimestampPool(const GraphicsDevice &device, TimestampPool &pool)
@@ -4328,22 +4405,29 @@ void DestroyTimestampPool(const GraphicsDevice &device, const TimestampPool &poo
 
 void ResetTimestampPool(const CommandList &commandBuffer, TimestampPool &pool)
 {
+#if DEVELOPMENT_BUILD
 	vkCmdResetQueryPool(commandBuffer.handle, pool.handle, 0, pool.maxQueries);
 	pool.queryCount = 0;
+#endif
 }
 
 u32 WriteTimestamp(const CommandList &commandBuffer, TimestampPool &pool, PipelineStage stage)
 {
+#if DEVELOPMENT_BUILD
 	ASSERT(pool.queryCount < pool.maxQueries);
 	const VkPipelineStageFlagBits vkState = PipelineStageToVulkan(stage);
 	const VkQueryPool queryPool = pool.handle;
 	const u32 queryIndex = pool.queryCount++;
 	vkCmdWriteTimestamp(commandBuffer.handle, vkState, queryPool, queryIndex);
 	return queryIndex;
+#else
+	return 0;
+#endif
 }
 
 Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex)
 {
+#if DEVELOPMENT_BUILD
 	double millis = 0.0f;
 
 	if ( queryIndex < pool.queryCount )
@@ -4374,6 +4458,9 @@ Timestamp ReadTimestamp(const TimestampPool &pool, u32 queryIndex)
 		.millis = millis,
 	};
 	return timestamp;
+#else
+	return {};
+#endif
 }
 
 
@@ -4518,8 +4605,10 @@ void EndFrame(GraphicsDevice &device)
 // Cleanup
 //////////////////////////////
 
-void CleanupGraphicsDevice(const GraphicsDevice &device)
+void CleanupGraphicsDevice(const GraphicsDevice &device, Arena scratch)
 {
+	SavePipelineCacheData(device, scratch);
+
 	for (u32 i = 0; i < device.renderPassCount; ++i)
 	{
 		DestroyRenderPass( device, device.renderPasses[i] );
@@ -4593,10 +4682,12 @@ void CleanupGraphicsSurface(const GraphicsDevice &device)
 
 void CleanupGraphicsDriver(GraphicsDevice &device)
 {
+#if DEVELOPMENT_BUILD
 	if ( device.support.debugUtils )
 	{
 		vkDestroyDebugUtilsMessengerEXT( device.instance, device.debugUtilsMessenger, VULKAN_ALLOCATORS );
 	}
+#endif
 
 	vkDestroyInstance(device.instance, VULKAN_ALLOCATORS);
 }

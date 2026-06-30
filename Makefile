@@ -1,7 +1,7 @@
 .PHONY: default build_and_run build_and_debug main_interpreter engine dll game main_spirv reflex main_reflect_serialize main_clon cast data clean main_alsa main_gamepad directories
 
 CXX=g++
-CXXFLAGS= -g
+CXXFLAGS= -g -DDEVELOPMENT_BUILD
 BUILD_DIR=build
 DATA_DIR=${BUILD_DIR}
 DATA_SHADERS_DIR=${DATA_DIR}/shaders
