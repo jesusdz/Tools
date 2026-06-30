@@ -1347,8 +1347,6 @@ static bool InitializeWindow(
 		return false;
 	}
 
-	ShowWindow(hWnd, SW_SHOW);
-
 	window.impl->hInstance = hInstance;
 	window.impl->hWnd = hWnd;
 
@@ -2636,6 +2634,9 @@ static void ProcessPlatformEvents(Platform &platform)
 			{
 				platform.WindowInitCallback(platform.pub);
 				platform.windowInitialized = true;
+#if PLATFORM_WINDOWS
+				ShowWindow(platform.window.impl->hWnd, SW_SHOW);
+#endif
 				break;
 			};
 			case PlatformEventTypeWindowWillDestroy:
