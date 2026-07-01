@@ -1140,9 +1140,9 @@ SpriteH CreateSprite(Engine &engine, const SpriteDesc &desc)
 
 	{
 		const Texture &tex = GetTexture(gfx, textureH);
-		const uint2 frameSize = (desc.frameSize.x > 0 || desc.frameSize.y > 0) ? desc.frameSize : tex.size;
-		sprite.framePixelPos  = desc.framePos;
-		sprite.framePixelSize = frameSize;
+		const uint2 size = (desc.size.x > 0 || desc.size.y > 0) ? desc.size : tex.size;
+		sprite.pos  = desc.pos;
+		sprite.size = size;
 	}
 
 	SpriteH handle = NewHandle(scene.spriteHandles);
@@ -1155,8 +1155,8 @@ SpriteH CreateSprite(Engine &engine, const BinSpriteDesc &desc)
 	const SpriteDesc txtDesc = {
 		.name        = desc.name,
 		.textureName = desc.textureName,
-		.framePos    = {desc.framePosX, desc.framePosY},
-		.frameSize   = {desc.frameSizeX, desc.frameSizeY},
+		.pos         = desc.pos,
+		.size        = desc.size,
 		.frameCount  = desc.frameCount,
 		.fps         = desc.fps,
 		.loop        = desc.loop,
@@ -1178,8 +1178,8 @@ const SpriteDesc GetSpriteDesc(Scene &scene, SpriteH handle)
 	const SpriteDesc desc = {
 		.name = sprite.name,
 		.textureName = tex.name,
-		.framePos = sprite.framePixelPos,
-		.frameSize = sprite.framePixelSize,
+		.pos = sprite.pos,
+		.size = sprite.size,
 		.frameCount = sprite.frameCount,
 		.fps = sprite.fps,
 		.loop = sprite.loop,
@@ -2933,14 +2933,14 @@ bool RenderGraphics(Engine &engine)
 		const Sprite &sprite = scene.sprites[handle.idx];
 		const Texture &texture = GetTexture(gfx, sprite.textureH);
 		{
-			const float2 frameUvPos  = { (f32)sprite.framePixelPos.x / texture.size.x, (f32)sprite.framePixelPos.y / texture.size.y };
-			const float2 frameUvSize = { (f32)sprite.framePixelSize.x / texture.size.x, (f32)sprite.framePixelSize.y / texture.size.y };
+			const float2 frameUvPos  = { (f32)sprite.pos.x / texture.size.x, (f32)sprite.pos.y / texture.size.y };
+			const float2 frameUvSize = { (f32)sprite.size.x / texture.size.x, (f32)sprite.size.y / texture.size.y };
 			const float frameOffsetU = sprite.frameCount > 1
 				? scene.spriteAnimStates[handle.idx].currentFrame * frameUvSize.x
 				: 0.0f;
 			spriteDataPtr[handle.idx].uvOffset  = {frameUvPos.x + frameOffsetU, frameUvPos.y};
 			spriteDataPtr[handle.idx].uvSize    = frameUvSize;
-			spriteDataPtr[handle.idx].worldSize = float2{(f32)sprite.framePixelSize.x, (f32)sprite.framePixelSize.y} / PIXELS_PER_METER;
+			spriteDataPtr[handle.idx].worldSize = float2{(f32)sprite.size.x, (f32)sprite.size.y} / PIXELS_PER_METER;
 		}
 	}
 

@@ -77,8 +77,8 @@ struct Sprite
 {
 	const char *name;
 	TextureH textureH;
-	uint2 framePixelPos;
-	uint2 framePixelSize;
+	uint2 pos;
+	uint2 size;
 	u32 frameCount;
 	u32 fps;
 	bool loop;

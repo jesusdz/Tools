@@ -260,10 +260,10 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 
 		PushIndent(ctx);
 		WriteLine(ctx, ".textureName = \"%s\",", desc.textureName);
-		if (desc.framePos.x || desc.framePos.y)
-			WriteLine(ctx, ".framePos = {%u, %u},", desc.framePos.x, desc.framePos.y);
-		if (desc.frameSize.x || desc.frameSize.y)
-			WriteLine(ctx, ".frameSize = {%u, %u},", desc.frameSize.x, desc.frameSize.y);
+		if (desc.pos.x || desc.pos.y)
+			WriteLine(ctx, ".pos = {%u, %u},", desc.pos.x, desc.pos.y);
+		if (desc.size.x || desc.size.y)
+			WriteLine(ctx, ".size = {%u, %u},", desc.size.x, desc.size.y);
 		if (desc.frameCount > 1)
 		{
 			WriteLine(ctx, ".frameCount = %u,", desc.frameCount);
@@ -948,18 +948,18 @@ static void DParseDescriptors(DParser &parser, bool countOnly)
 					DParser_TryConsume( parser, TOKEN_EQUAL );
 
 					static const String sTextureName = MakeString("textureName");
-					static const String sFramePos   = MakeString("framePos");
-					static const String sFrameSize  = MakeString("frameSize");
+					static const String sPos        = MakeString("pos");
+					static const String sSize       = MakeString("size");
 					static const String sFrameCount = MakeString("frameCount");
 					static const String sFps        = MakeString("fps");
 					static const String sLoop       = MakeString("loop");
 
 					if ( StrEq( field, sTextureName ) ) {
 						desc.textureName = PushString(*parser.arena, DParser_ConsumeString(parser));
-					} else if ( StrEq( field, sFramePos ) ) {
-						desc.framePos = DParser_ConsumeUint2(parser);
-					} else if ( StrEq( field, sFrameSize ) ) {
-						desc.frameSize = DParser_ConsumeUint2(parser);
+					} else if ( StrEq( field, sPos ) ) {
+						desc.pos = DParser_ConsumeUint2(parser);
+					} else if ( StrEq( field, sSize ) ) {
+						desc.size = DParser_ConsumeUint2(parser);
 					} else if ( StrEq( field, sFrameCount ) ) {
 						desc.frameCount = (u32)StrToInt(DParser_ConsumeLexeme(parser));
 					} else if ( StrEq( field, sFps ) ) {
@@ -1383,8 +1383,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			BinSpriteDesc &d = binSpriteDescs[i];
 			d.name        = DataInternString(stringPool, desc.name);
 			d.textureName = DataInternString(stringPool, desc.textureName);
-			d.framePosX  = desc.framePos.x;  d.framePosY  = desc.framePos.y;
-			d.frameSizeX = desc.frameSize.x; d.frameSizeY = desc.frameSize.y;
+			d.pos  = desc.pos;
+			d.size = desc.size;
 			d.frameCount = desc.frameCount;
 			d.fps        = desc.fps;
 			d.loop       = desc.loop;

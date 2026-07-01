@@ -44,7 +44,9 @@ constexpr float4 UiColorMenuHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
 constexpr float2 UiWindowPadding = { 4.0f, 8.0f };
 constexpr float UiSpacing = 8.0f;
+constexpr float UiSpacingTight = 2.0f; // Vertical gap between stacked components of a vector control
 constexpr float UiDragClickThreshold = 3.0f; // Max drag distance (px) still considered a click
+constexpr float2 UiDefaultInputPadding = { 4.0f, 3.0f };
 
 struct UIVertex
 {
@@ -240,6 +242,9 @@ struct UI
 
 	f32 indentStack[16];
 	u32 indentStackSize;
+
+	float2 paddingStack[16];
+	u32 paddingStackSize;
 
 	UIInput input;
 	uint2 viewportSize;
@@ -898,6 +903,25 @@ void UI_EndWidget(UI &ui)
 	ui.lastWidgetPos = ui.widgetStack[ui.widgetStackSize-1].pos;
 	ui.lastWidgetSize = ui.widgetStack[ui.widgetStackSize-1].size;
 	ui.widgetStackSize--;
+}
+
+void UI_PushPadding(UI &ui, float2 padding)
+{
+	ASSERT(ui.paddingStackSize < ARRAY_COUNT(ui.paddingStack));
+	ui.paddingStack[ui.paddingStackSize++] = padding;
+}
+
+void UI_PopPadding(UI &ui)
+{
+	ASSERT(ui.paddingStackSize > 1); // Avoid popping the default padding
+	ui.paddingStackSize--;
+}
+
+float2 UI_GetPadding(const UI &ui)
+{
+	ASSERT(ui.paddingStackSize > 0);
+	const float2 padding = ui.paddingStack[ui.paddingStackSize-1];
+	return padding;
 }
 
 void UI_PushColor(UI &ui, float4 color)
@@ -2068,12 +2092,12 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	UI_CursorAdvance(ui, widgetSize);
 }
 
-void UI_InputInt(UI &ui, const char *label, i32 *number)
+void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
-	constexpr float2 padding = {4.0f, 3.0f};
+	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
 	const f32 side = textHeight + 2.0f * padding.y;
@@ -2201,15 +2225,15 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	const float2 labelPos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
-	UI_CursorAdvance(ui, widgetSize);
+	UI_CursorAdvance(ui, widgetSize, spacing);
 }
 
-void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f)
+void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 spacing = UiSpacing)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
-	constexpr float2 padding = {4.0f, 3.0f};
+	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
 	const f32 side = textHeight + 2.0f * padding.y;
@@ -2337,17 +2361,103 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f)
 	const float2 labelPos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
-	UI_CursorAdvance(ui, widgetSize);
+	UI_CursorAdvance(ui, widgetSize, spacing);
 }
 
-void UI_InputFloat2(UI &ui, const char *text, float2 *value)
+void UI_InputInt2(UI &ui, const char *label, int2 *value)
 {
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 2.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputInt(ui, subLabel, &value->y);
+
+	UI_PopPadding(ui);
 }
-void UI_InputFloat3(UI &ui, const char *text, float3 *value)
+
+void UI_InputInt3(UI &ui, const char *label, int3 *value)
 {
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 2.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
+	SPrintf(subLabel, "Z");
+	UI_InputInt(ui, subLabel, &value->z);
+
+	UI_PopPadding(ui);
 }
-void UI_InputFloat4(UI &ui, const char *text, float4 *value)
+
+void UI_InputInt4(UI &ui, const char *label, int4 *value)
 {
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 2.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
+	SPrintf(subLabel, "Z");
+	UI_InputInt(ui, subLabel, &value->z, UiSpacingTight);
+	SPrintf(subLabel, "W");
+	UI_InputInt(ui, subLabel, &value->w);
+
+	UI_PopPadding(ui);
+}
+
+void UI_InputFloat2(UI &ui, const char *label, float2 *value)
+{
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 1.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputFloat(ui, subLabel, &value->y);
+
+	UI_PopPadding(ui);
+}
+
+void UI_InputFloat3(UI &ui, const char *label, float3 *value)
+{
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 1.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "Z");
+	UI_InputFloat(ui, subLabel, &value->z);
+
+	UI_PopPadding(ui);
+}
+
+void UI_InputFloat4(UI &ui, const char *label, float4 *value)
+{
+	const float2 padding = UI_GetPadding(ui);
+	UI_PushPadding(ui, float2{padding.x, 1.0f});
+
+	char subLabel[128];
+	SPrintf(subLabel, "X %s", label);
+	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "Y");
+	UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "Z");
+	UI_InputFloat(ui, subLabel, &value->z, 0.1f, UiSpacingTight);
+	SPrintf(subLabel, "W");
+	UI_InputFloat(ui, subLabel, &value->w);
+
+	UI_PopPadding(ui);
 }
 
 void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
@@ -2703,6 +2813,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	}
 
 	UI_PushColor(ui, UiColorWidget);
+	UI_PushPadding(ui, UiDefaultInputPadding);
 
 	UI_PushElemColor(ui, UIElementBackground, UiColorBackground);
 

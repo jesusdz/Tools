@@ -47,8 +47,8 @@ struct SpriteDesc
 {
 	const char *name;
 	const char *textureName;
-	uint2 framePos;
-	uint2 frameSize;
+	uint2 pos;
+	uint2 size;
 	u32 frameCount;
 	u32 fps;
 	u8 loop;
@@ -185,8 +185,8 @@ struct BinSpriteDesc
 {
 	const char *name;
 	const char *textureName;
-	u32 framePosX, framePosY;
-	u32 frameSizeX, frameSizeY;
+	uint2 pos;
+	uint2 size;
 	u32 frameCount;
 	u32 fps;
 	u8 loop;

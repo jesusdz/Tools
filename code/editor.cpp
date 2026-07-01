@@ -806,8 +806,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					const SpriteDesc desc = {
 						.name = spriteName,
 						.textureName = textureName,
-						.framePos = {0, 0},
-						.frameSize = {32, 32},
+						.pos = {0, 0},
+						.size = {32, 32},
 						.frameCount = 4,
 						.fps = 4,
 						.loop = true,
@@ -874,7 +874,6 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			entity.name = InternString(name);
 
 			UI_InputFloat3(ui, "Position", &entity.position);
-			UI_InputFloat(ui, "X", &entity.position.x);
 			UI_InputFloat(ui, "Scale", &entity.scale);
 			UI_Checkbox(ui, "Visible", &entity.visible);
 		}
@@ -932,28 +931,24 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					UI_Image(ui, texture.image, float2{0, 0}, UIWidgetFlag_Expand);
 				}
 
-				i32 framePosX  = (i32)sprite.framePixelPos.x;
-				i32 framePosY  = (i32)sprite.framePixelPos.y;
-				i32 frameSizeX = (i32)sprite.framePixelSize.x;
-				i32 frameSizeY = (i32)sprite.framePixelSize.y;
+				int2 pos  = { (i32)sprite.pos.x,  (i32)sprite.pos.y  };
+				int2 size = { (i32)sprite.size.x, (i32)sprite.size.y };
 				i32 frameCount = (i32)sprite.frameCount;
 				i32 fps        = (i32)sprite.fps;
 
-				const uint2 oldFramePixelPos  = sprite.framePixelPos;
-				const uint2 oldFramePixelSize = sprite.framePixelSize;
+				const uint2 oldPos  = sprite.pos;
+				const uint2 oldSize = sprite.size;
 				const u32   oldFrameCount     = sprite.frameCount;
 				const u32   oldFps            = sprite.fps;
 
-				UI_InputInt(ui, "Frame Pos X",  &framePosX);
-				UI_InputInt(ui, "Frame Pos Y",  &framePosY);
-				UI_InputInt(ui, "Frame Size X", &frameSizeX);
-				UI_InputInt(ui, "Frame Size Y", &frameSizeY);
-				UI_InputInt(ui, "Frame Count",  &frameCount);
-				UI_InputInt(ui, "FPS",          &fps);
-				UI_Checkbox(ui, "Loop",         &sprite.loop);
+				UI_InputInt2(ui, "Pos",  &pos);
+				UI_InputInt2(ui, "Size", &size);
+				UI_InputInt(ui, "Frame Count", &frameCount);
+				UI_InputInt(ui, "FPS",         &fps);
+				UI_Checkbox(ui, "Loop",        &sprite.loop);
 
-				sprite.framePixelPos  = { (u32)Max(0, framePosX),  (u32)Max(0, framePosY)  };
-				sprite.framePixelSize = { (u32)Max(0, frameSizeX), (u32)Max(0, frameSizeY) };
+				sprite.pos  = { (u32)Max(0, pos.x),  (u32)Max(0, pos.y)  };
+				sprite.size = { (u32)Max(0, size.x), (u32)Max(0, size.y) };
 				sprite.frameCount     = (u32)Max(0, frameCount);
 				sprite.fps            = (u32)Max(0, fps);
 			}

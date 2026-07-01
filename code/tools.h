@@ -1757,6 +1757,37 @@ struct int2
 	union { i32 y, g; };
 };
 
+struct int3
+{
+	union
+	{
+		i32 vec[3];
+		struct
+		{
+			union { i32 x, r; };
+			union { i32 y, g; };
+			union { i32 z, b; };
+		};
+		int2 xy;
+	};
+};
+
+struct int4
+{
+	union
+	{
+		i32 vec[4];
+		struct
+		{
+			union { i32 x, r; };
+			union { i32 y, g; };
+			union { i32 z, b; };
+			union { i32 w, a; };
+		};
+		int3 xyz;
+	};
+};
+
 struct uint2
 {
 	union { u32 x, r; };
