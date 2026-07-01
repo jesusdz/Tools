@@ -2556,7 +2556,7 @@ struct FrustumPlanes
 	Plane planes[6];
 };
 
-FrustumPlanes FrustumPlanesFromCamera(float3 cameraPosition, float3 cameraForward, float zNear, float zFar, float fovy, float aspect)
+static FrustumPlanes FrustumPlanesFromCamera(float3 cameraPosition, float3 cameraForward, float zNear, float zFar, float fovy, float aspect)
 {
 	const float3 up = Float3(0.0f, 1.0f, 0.0f);
 	const float3 cameraRight = Normalize(Cross(cameraForward, up));
@@ -2603,37 +2603,22 @@ FrustumPlanes FrustumPlanesFromCamera(float3 cameraPosition, float3 cameraForwar
 }
 
 
-bool PointIsInFrontOfPlane(float3 point, const Plane &plane)
+static bool PointIsInFrontOfPlane(float3 point, const Plane &plane)
 {
 	const float3 dir = FromTo(plane.point, point);
 	const float dotResult = Dot(plane.normal, dir);
 	return dotResult >= 0.0f;
 }
 
-bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
+static bool PointsAreInFrustum(const float3 *points, u32 pointCount, const FrustumPlanes &frustum)
 {
-	// TODO: Calculate entity size properly
-	const float x = 0.5f * entity.scale;
-	const float y = 0.5f * entity.scale;
-	const float z = 0.5f * entity.scale;
-
-	const float3 bounds[] = {
-		Add(entity.position, Float3(-x,-y,-z)),
-		Add(entity.position, Float3( x,-y,-z)),
-		Add(entity.position, Float3(-x, y,-z)),
-		Add(entity.position, Float3( x, y,-z)),
-		Add(entity.position, Float3(-x,-y, z)),
-		Add(entity.position, Float3( x,-y, z)),
-		Add(entity.position, Float3(-x, y, z)),
-		Add(entity.position, Float3( x, y, z)),
-	};
 	bool entityIsBehindPlane = false;
 	for (u32 j = 0; j < ARRAY_COUNT(frustum.planes); ++j)
 	{
 		entityIsBehindPlane = true;
-		for (u32 i = 0; i < ARRAY_COUNT(bounds); ++i)
+		for (u32 i = 0; i < pointCount; ++i)
 		{
-			if (PointIsInFrontOfPlane(bounds[i], frustum.planes[j]))
+			if (PointIsInFrontOfPlane(points[i], frustum.planes[j]))
 			{
 				entityIsBehindPlane = false;
 				break;
@@ -2645,6 +2630,71 @@ bool EntityIsInFrustum(const Entity &entity, const FrustumPlanes &frustum)
 		}
 	}
 	return !entityIsBehindPlane;
+}
+
+static void GetSpriteBounds(const Sprite &sprite, float2 bounds[4])
+{
+	const float2 size = float2{(f32)sprite.size.x, (f32)sprite.size.y} / PIXELS_PER_METER;
+	bounds[0] = { 0, 0 };
+	bounds[1] = { (f32)sprite.size.x, 0 };
+	bounds[3] = { 0, (f32)sprite.size.y };
+	bounds[2] = { (f32)sprite.size.x, (f32)sprite.size.y };
+}
+
+static bool EntityIsInFrustum3D(Scene &scene, const Entity &entity, const FrustumPlanes &frustum)
+{
+	bool entityIsInFrustum = false;
+
+	float3 points[8] = {};
+	u32 pointCount = 0;
+
+	if (IsValidHandle(scene.spriteHandles, entity.spriteH))
+	{
+		const Sprite &sprite = GetSprite(scene, entity.spriteH);
+		float2 sbounds[4] = {};
+		GetSpriteBounds(sprite, sbounds);
+
+		for (u32 i = 0; i < ARRAY_COUNT(sbounds); ++i) {
+			points[pointCount++] = Float3(sbounds[i], 0.0f);
+		}
+	}
+	else
+	{
+		float x = 0.5f * entity.scale;
+		float y = 0.5f * entity.scale;
+		const float z = 0.5f * entity.scale;
+
+		points[pointCount++] = Add(entity.position, Float3(-x,-y,-z));
+		points[pointCount++] = Add(entity.position, Float3( x,-y,-z));
+		points[pointCount++] = Add(entity.position, Float3(-x, y,-z));
+		points[pointCount++] = Add(entity.position, Float3( x, y,-z));
+		points[pointCount++] = Add(entity.position, Float3(-x,-y, z));
+		points[pointCount++] = Add(entity.position, Float3( x,-y, z));
+		points[pointCount++] = Add(entity.position, Float3(-x, y, z));
+		points[pointCount++] = Add(entity.position, Float3( x, y, z));
+	}
+
+	entityIsInFrustum = PointsAreInFrustum(points, pointCount, frustum);
+
+	return entityIsInFrustum;
+}
+
+static bool EntityIsInFrustum2D(Scene &scene, const Entity &entity, float2 rectMin, float2 rectMax)
+{
+	float2 halfSize = { 0.5f * entity.scale, 0.5f * entity.scale };
+
+	if (IsValidHandle(scene.spriteHandles, entity.spriteH))
+	{
+		const Sprite &sprite = GetSprite(scene, entity.spriteH);
+		halfSize = 0.5f * float2{(f32)sprite.size.x, (f32)sprite.size.y} / PIXELS_PER_METER;
+	}
+
+	const float2 entityMin = { entity.position.x - halfSize.x, entity.position.y - halfSize.y };
+	const float2 entityMax = { entity.position.x + halfSize.x, entity.position.y + halfSize.y };
+
+	const bool outsideX = entityMax.x < rectMin.x || entityMin.x > rectMax.x;
+	const bool outsideY = entityMax.y < rectMin.y || entityMin.y > rectMax.y;
+	return !(outsideX || outsideY);
 }
 
 
@@ -2759,7 +2809,7 @@ bool RenderGraphics(Engine &engine)
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
 			Entity &entity = GetEntity(scene, *it);
-			entity.culled = !EntityIsInFrustum(entity, frustumPlanes);
+			entity.culled = !EntityIsInFrustum3D(scene, entity, frustumPlanes);
 		}
 	}
 	else
@@ -2784,10 +2834,13 @@ bool RenderGraphics(Engine &engine)
 		cameraPosition = camera.position;
 
 		// CPU Frustum culling
+		const float2 rectHalfExtent = { height*ar, height };
+		const float2 rectMin = { cameraPosition.x - rectHalfExtent.x, cameraPosition.y - rectHalfExtent.y };
+		const float2 rectMax = { cameraPosition.x + rectHalfExtent.x, cameraPosition.y + rectHalfExtent.y };
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
 			Entity &entity = GetEntity(scene, *it);
-			entity.culled = false; // TODO: Frustum culling with a 2D camera
+			entity.culled = !EntityIsInFrustum2D(scene, entity, rectMin, rectMax);
 		}
 	}
 
