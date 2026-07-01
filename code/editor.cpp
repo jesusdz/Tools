@@ -874,6 +874,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			entity.name = InternString(name);
 
 			UI_InputFloat3(ui, "Position", &entity.position);
+			UI_InputFloat(ui, "X", &entity.position.x);
 			UI_InputFloat(ui, "Scale", &entity.scale);
 			UI_Checkbox(ui, "Visible", &entity.visible);
 		}

@@ -44,6 +44,7 @@ constexpr float4 UiColorMenuHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 constexpr float2 UiBorderSize = { 1.0, 1.0 };
 constexpr float2 UiWindowPadding = { 4.0f, 8.0f };
 constexpr float UiSpacing = 8.0f;
+constexpr float UiDragClickThreshold = 3.0f; // Max drag distance (px) still considered a click
 
 struct UIVertex
 {
@@ -1876,7 +1877,14 @@ enum UpdateTextAction
 	UpdateTextCancel,
 };
 #define TEXT_BOX_BUFER_LEN 128
-UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &cursorIndex)
+enum UpdateTextFilter
+{
+	UpdateTextFilterNone,
+	UpdateTextFilterInt,
+	UpdateTextFilterFloat,
+};
+
+UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &cursorIndex, UpdateTextFilter filter = UpdateTextFilterNone)
 {
 	UpdateTextAction action = UpdateTextUpdating;
 
@@ -1888,7 +1896,16 @@ UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &
 		StrCopy(tmp, activeBuffer + cursorIndex); // Save characters after the cursor
 		for (u32 i = 0; i < ui.input.chars.charCount; ++i)
 		{
-			activeBuffer[cursorIndex+i] = ui.input.chars.chars[i];
+			const char c = ui.input.chars.chars[i];
+			if ( filter == UpdateTextFilterInt || filter == UpdateTextFilterFloat )
+			{
+				const bool isDigit = c >= '0' && c <= '9';
+				const bool isMinusSign = c == '-' && cursorIndex == 0;
+				const bool isDot = filter == UpdateTextFilterFloat && c == '.' && StrChar(activeBuffer, '.') == nullptr;
+				if ( !isDigit && !isMinusSign && !isDot )
+					continue;
+			}
+			activeBuffer[cursorIndex] = c;
 			cursorIndex++;
 		}
 		StrCopy(activeBuffer + cursorIndex, tmp);
@@ -1932,6 +1949,31 @@ UpdateTextAction UpdateText(UI &ui, char activeBuffer[TEXT_BOX_BUFER_LEN], i32 &
 	return action;
 }
 
+i32 UI_TextCursorIndexAtPos(const UI &ui, const char *text, f32 relativeX)
+{
+	const i32 len = StrLen(text);
+	i32 cursorIndex = len;
+	for (i32 i = 0; i <= len; ++i)
+	{
+		const f32 width = UI_TextWidth(ui, text, i);
+		if (width >= relativeX)
+		{
+			if (i > 0)
+			{
+				const f32 prevWidth = UI_TextWidth(ui, text, i-1);
+				const f32 midWidth = (prevWidth + width) * 0.5f;
+				cursorIndex = (relativeX < midWidth) ? i - 1 : i;
+			}
+			else
+			{
+				cursorIndex = 0;
+			}
+			break;
+		}
+	}
+	return cursorIndex;
+}
+
 void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
@@ -1959,6 +2001,7 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const u32 id = UI_MakeID(ui, label);
 
 	static char activeBuffer[128] = {};
+	static char originalBuffer[128] = {};
 	static Clock activeBeginClock;
 	static i32 cursorIndex;
 
@@ -1968,26 +2011,32 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	{
 		UI_SetActiveWidget(ui, id);
 		StrCopy(activeBuffer, buffer);
+		StrCopy(originalBuffer, buffer);
 		activeBeginClock = GetClock();
-		cursorIndex = StrLen(activeBuffer);
+		const f32 relativeX = UI_MousePos(ui).x - textPos.x;
+		cursorIndex = UI_TextCursorIndexAtPos(ui, activeBuffer, relativeX);
 	}
 
 	if (active)
 	{
 		const UpdateTextAction action = UpdateText(ui, activeBuffer, cursorIndex);
 
-		if ( action == UpdateTextDone )
+		if ( action == UpdateTextCancel )
+		{
+			StrCopy(buffer, originalBuffer);
+			UI_SetActiveWidget(ui, 0);
+		}
+		else
 		{
 			StrCopy(buffer, activeBuffer);
-			UI_SetActiveWidget(ui, 0);
-		}
-		else if ( action == UpdateTextCancel )
-		{
-			UI_SetActiveWidget(ui, 0);
-		}
-		else if ( action == UpdateTextUpdating )
-		{
-			activeBeginClock = GetClock();
+			if ( action == UpdateTextDone )
+			{
+				UI_SetActiveWidget(ui, 0);
+			}
+			else if ( action == UpdateTextUpdating )
+			{
+				activeBeginClock = GetClock();
+			}
 		}
 
 		const Clock currentClock = GetClock();
@@ -2033,56 +2082,129 @@ void UI_InputInt(UI &ui, const char *label, i32 *number)
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
-	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
+	const float2 boxSize = widgetSize;
+
+	const u32 id = UI_MakeID(ui, label);
+
+	static char activeBuffer[TEXT_BOX_BUFER_LEN] = {};
+	static Clock activeBeginClock;
+	static i32 cursorIndex;
+	static i32 originalNumber;
+	static bool dragging;
+	static u32 draggingId;
+	static i32 numberBeforeDrag;
+
 	UI_BeginWidget(ui, boxPos, boxSize);
 	UI_PushColor(ui, UI_BoxColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
-	UI_EndWidget(ui);
 
-	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
-	const float2 minusSize = float2{side, side};
-	UI_BeginWidget(ui, minusPos, minusSize);
-	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddRectangle(ui, minusPos, minusSize);
-	UI_PopColor(ui);
-	UI_PushColor(ui, UiColorWhite);
-	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
-	UI_PopColor(ui);
-	if ( UI_WidgetClicked(ui) ) {
-		(*number)--;
+	const bool boxClicked = UI_WidgetClicked(ui);
+	const bool active = UI_IsActiveWidget(ui, id);
+
+	if (boxClicked && !active)
+	{
+		dragging = true;
+		draggingId = id;
+		numberBeforeDrag = *number;
 	}
-	UI_EndWidget(ui);
 
-	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
-	const float2 plusSize = float2{side, side};
-	UI_BeginWidget(ui, plusPos, plusSize);
-	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddRectangle(ui, plusPos, plusSize);
-	UI_PopColor(ui);
-	UI_PushColor(ui, UiColorWhite);
-	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
-	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
-	UI_PopColor(ui);
-	if ( UI_WidgetClicked(ui) ) {
-		(*number)++;
+	if (dragging && draggingId == id)
+	{
+		const f32 dragDelta = (f32)(UI_MousePos(ui).x - UI_LastMouseClickPos(ui).x);
+		*number = numberBeforeDrag + (i32)dragDelta;
+
+		if ( ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_RELEASE )
+		{
+			dragging = false;
+			if ( dragDelta > -UiDragClickThreshold && dragDelta < UiDragClickThreshold )
+			{
+				UI_SetActiveWidget(ui, id);
+				SPrintf(activeBuffer, "%d", *number);
+				originalNumber = *number;
+				activeBeginClock = GetClock();
+				const f32 relativeX = UI_MousePos(ui).x - (boxPos + padding).x;
+				cursorIndex = UI_TextCursorIndexAtPos(ui, activeBuffer, relativeX);
+			}
+		}
+	}
+
+	if (UI_WidgetHovered(ui))
+	{
+		const i32 wheel = UI_MouseScroll(ui).y;
+		if (wheel != 0)
+		{
+			*number -= wheel; // Scrolling up (negative wheel) increases the number
+			if (active)
+			{
+				SPrintf(activeBuffer, "%d", *number);
+				cursorIndex = StrLen(activeBuffer);
+			}
+		}
+	}
+
+	if (active)
+	{
+		const UpdateTextAction action = UpdateText(ui, activeBuffer, cursorIndex, UpdateTextFilterInt);
+
+		if ( action == UpdateTextCancel )
+		{
+			*number = originalNumber;
+			UI_SetActiveWidget(ui, 0);
+		}
+		else
+		{
+			if ( StrIsInteger(activeBuffer) )
+			{
+				*number = StrToInt(activeBuffer);
+			}
+			if ( action == UpdateTextDone )
+			{
+				UI_SetActiveWidget(ui, 0);
+			}
+			else if ( action == UpdateTextUpdating )
+			{
+				activeBeginClock = GetClock();
+			}
+		}
+
+		const Clock currentClock = GetClock();
+		const float secondsActive = GetSecondsElapsed(activeBeginClock, currentClock);
+
+		const bool printCursor = (int)(secondsActive * 3) % 3 != 2; // Show 2/3 second, hide 1/3 second
+		if ( printCursor )
+		{
+			const f32 textWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
+			const float2 cursorPos = boxPos + padding + float2{textWidth + 1.0f, 0.0f};
+			const float2 cursorSize = {1.0f, textHeight};
+			UI_PushColor(ui, UiColorWhite);
+			UI_AddRectangle(ui, cursorPos, cursorSize);
+			UI_PopColor(ui);
+		}
 	}
 	UI_EndWidget(ui);
 
 	// Number
-	char numberText[TEXT_BOX_BUFER_LEN];
-	SPrintf(numberText, "%d", *number);
 	const float2 textPos = boxPos + padding;
-	UI_AddText(ui, textPos, numberText);
+	if (active)
+	{
+		UI_AddText(ui, textPos, activeBuffer);
+	}
+	else
+	{
+		char numberText[TEXT_BOX_BUFER_LEN];
+		SPrintf(numberText, "%d", *number);
+		UI_AddText(ui, textPos, numberText);
+	}
 
 	// Label
-	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
+	const float2 labelPos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
 	UI_CursorAdvance(ui, widgetSize);
 }
 
-void UI_InputFloat(UI &ui, const char *label, f32 *number)
+void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f)
 {
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
@@ -2096,50 +2218,123 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number)
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
 
 	const float2 boxPos = widgetPos;
-	const float2 boxSize = float2{widgetSize.x - 2.0f*side - padding.x*2.0f, side};
+	const float2 boxSize = widgetSize;
+
+	const u32 id = UI_MakeID(ui, label);
+
+	static char activeBuffer[TEXT_BOX_BUFER_LEN] = {};
+	static Clock activeBeginClock;
+	static i32 cursorIndex;
+	static f32 originalNumber;
+	static bool dragging;
+	static u32 draggingId;
+	static f32 numberBeforeDrag;
+
 	UI_BeginWidget(ui, boxPos, boxSize);
 	UI_PushColor(ui, UI_BoxColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
-	UI_EndWidget(ui);
 
-	const float2 minusPos = boxPos + float2{boxSize.x + padding.x, 0.0f};
-	const float2 minusSize = float2{side, side};
-	UI_BeginWidget(ui, minusPos, minusSize);
-	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddRectangle(ui, minusPos, minusSize);
-	UI_PopColor(ui);
-	UI_PushColor(ui, UiColorWhite);
-	UI_AddRectangle(ui, float2{minusPos.x + minusSize.x*0.15f,minusPos.y + minusSize.y*0.4f}, float2{minusSize.x*0.7f,minusSize.y*0.2f});
-	UI_PopColor(ui);
-	if ( UI_WidgetClicked(ui) ) {
-		(*number) -= 0.1f;
+	const bool boxClicked = UI_WidgetClicked(ui);
+	const bool active = UI_IsActiveWidget(ui, id);
+
+	if (boxClicked && !active)
+	{
+		dragging = true;
+		draggingId = id;
+		numberBeforeDrag = *number;
 	}
-	UI_EndWidget(ui);
 
-	const float2 plusPos = minusPos + float2{minusSize.x + padding.x, 0.0f};
-	const float2 plusSize = float2{side, side};
-	UI_BeginWidget(ui, plusPos, plusSize);
-	UI_PushColor(ui, UI_WidgetColor(ui));
-	UI_AddRectangle(ui, plusPos, plusSize);
-	UI_PopColor(ui);
-	UI_PushColor(ui, UiColorWhite);
-	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.15f,plusPos.y + plusSize.y*0.4f}, float2{plusSize.x*0.7f,plusSize.y*0.2f});
-	UI_AddRectangle(ui, float2{plusPos.x + plusSize.x*0.4f,plusPos.y + plusSize.y*0.15f}, float2{plusSize.x*0.2f,plusSize.y*0.7f});
-	UI_PopColor(ui);
-	if ( UI_WidgetClicked(ui) ) {
-		(*number) += 0.1f;
+	if (dragging && draggingId == id)
+	{
+		const f32 dragDelta = (f32)(UI_MousePos(ui).x - UI_LastMouseClickPos(ui).x);
+		*number = numberBeforeDrag + dragDelta * step;
+
+		if ( ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_RELEASE )
+		{
+			dragging = false;
+			if ( dragDelta > -UiDragClickThreshold && dragDelta < UiDragClickThreshold )
+			{
+				UI_SetActiveWidget(ui, id);
+				SPrintf(activeBuffer, "%f", *number);
+				originalNumber = *number;
+				activeBeginClock = GetClock();
+				const f32 relativeX = UI_MousePos(ui).x - (boxPos + padding).x;
+				cursorIndex = UI_TextCursorIndexAtPos(ui, activeBuffer, relativeX);
+			}
+		}
+	}
+
+	if (UI_WidgetHovered(ui))
+	{
+		const i32 wheel = UI_MouseScroll(ui).y;
+		if (wheel != 0)
+		{
+			*number -= wheel * step; // Scrolling up (negative wheel) increases the number
+			if (active)
+			{
+				SPrintf(activeBuffer, "%f", *number);
+				cursorIndex = StrLen(activeBuffer);
+			}
+		}
+	}
+
+	if (active)
+	{
+		const UpdateTextAction action = UpdateText(ui, activeBuffer, cursorIndex, UpdateTextFilterFloat);
+
+		if ( action == UpdateTextCancel )
+		{
+			*number = originalNumber;
+			UI_SetActiveWidget(ui, 0);
+		}
+		else
+		{
+			if ( StrIsFloat(activeBuffer) )
+			{
+				*number = StrToFloat(activeBuffer);
+			}
+			if ( action == UpdateTextDone )
+			{
+				UI_SetActiveWidget(ui, 0);
+			}
+			else if ( action == UpdateTextUpdating )
+			{
+				activeBeginClock = GetClock();
+			}
+		}
+
+		const Clock currentClock = GetClock();
+		const float secondsActive = GetSecondsElapsed(activeBeginClock, currentClock);
+
+		const bool printCursor = (int)(secondsActive * 3) % 3 != 2; // Show 2/3 second, hide 1/3 second
+		if ( printCursor )
+		{
+			const f32 textWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
+			const float2 cursorPos = boxPos + padding + float2{textWidth + 1.0f, 0.0f};
+			const float2 cursorSize = {1.0f, textHeight};
+			UI_PushColor(ui, UiColorWhite);
+			UI_AddRectangle(ui, cursorPos, cursorSize);
+			UI_PopColor(ui);
+		}
 	}
 	UI_EndWidget(ui);
 
 	// Number
-	char numberText[TEXT_BOX_BUFER_LEN];
-	SPrintf(numberText, "%f", *number);
 	const float2 textPos = boxPos + padding;
-	UI_AddText(ui, textPos, numberText);
+	if (active)
+	{
+		UI_AddText(ui, textPos, activeBuffer);
+	}
+	else
+	{
+		char numberText[TEXT_BOX_BUFER_LEN];
+		SPrintf(numberText, "%f", *number);
+		UI_AddText(ui, textPos, numberText);
+	}
 
 	// Label
-	const float2 labelPos = plusPos + float2{plusSize.x + UiSpacing, padding.y};
+	const float2 labelPos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
 	UI_AddText(ui, labelPos, label);
 
 	UI_CursorAdvance(ui, widgetSize);

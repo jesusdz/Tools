@@ -694,6 +694,36 @@ f32 StrToFloat(const String &s)
 	return number;
 }
 
+bool StrIsInteger(const char *str)
+{
+	if (*str == '-') str++;
+	if (*str == '\0') return false;
+	while (*str) {
+		if (*str < '0' || *str > '9') return false;
+		str++;
+	}
+	return true;
+}
+
+bool StrIsFloat(const char *str)
+{
+	if (*str == '-') str++;
+	if (*str == '.') return false;
+	bool hasDigit = false;
+	bool hasDot = false;
+	while (*str) {
+		if (*str >= '0' && *str <= '9') {
+			hasDigit = true;
+		} else if (*str == '.' && !hasDot) {
+			hasDot = true;
+		} else {
+			return false;
+		}
+		str++;
+	}
+	return hasDigit;
+}
+
 i32 VSPrintf(char *buffer, const char *format, va_list vaList)
 {
 	const i32 res = vsprintf(buffer, format, vaList);
