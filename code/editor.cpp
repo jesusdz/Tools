@@ -1,10 +1,4 @@
 
-static const char * InternString(const char *str)
-{
-	const char *intern = MakeStringIntern(sPlatform->stringInterning, str);
-	return intern;
-}
-
 static const char * NameFromFilename(const char *name)
 {
 	FilePath path = {};
@@ -525,6 +519,12 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 
 	if ( UI_Section(ui, "Scene") )
 	{
+		//UI_Combo(ui, "Room", roomNames, roomCount, &roomIndex);
+
+		if ( UI_Button(ui, "Layer") )
+		{
+		}
+
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
 			Handle handle = *it;
@@ -780,15 +780,6 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				static char name[64] = {};
 				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
 
-				if (UI_Button(ui, "Import as Tileset"))
-				{
-					const TileAtlasDesc desc = {
-						.imagePath = inspector.selectedFile->filename,
-						.name = InternString(name),
-						.tileSize = 32.0f,
-					};
-					CreateTileAtlas(engine, desc);
-				}
 				if ( UI_Button(ui, "Import as animation") )
 				{
 					const char *filename = inspector.selectedFile->filename;
@@ -965,36 +956,28 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 static void EditorUpdateUI_Tilesets(Engine &engine)
 {
 	UI &ui = GetUI(engine);
-	Graphics &gfx = engine.gfx;
+	Scene &scene = engine.scene;
 	Editor &editor = engine.editor;
 
 	UI_BeginWindow(ui, "Tilesets", &editor.showTilesets);
 
-	UI_SeparatorLabel(ui, "TileAtlas");
+	UI_SeparatorLabel(ui, "Sprites");
 
-	if ( IsTileAtlasValid(engine) )
+	if ( scene.spriteHandles.handleCount == 0 )
 	{
-		const TileAtlas &tileAtlas = GetTileAtlas(engine);
-		const i32 tileCountPerSide = Floor(tileAtlas.size / tileAtlas.tileSize);
-		const f32 normalizedTileSize = tileAtlas.tileSize / tileAtlas.size;
-		const Texture &texture = GetTexture(gfx, tileAtlas.textureH);
-		if (UI_Image(ui, texture.image, float2{0, 0}, UIWidgetFlag_Expand))
-		{
-			const float2 normalizedCoord = UI_LastMouseClickPosInWidgetNormalized(ui);
-			const int2 tileCoord = {
-				.x = Clamp((i32) (normalizedCoord.x / normalizedTileSize), 0, tileCountPerSide - 1),
-				.y = Clamp((i32) (normalizedCoord.y / normalizedTileSize), 0, tileCountPerSide - 1),
-			};
-
-			editor.tilesets.tile.used = editor.tilesets.selectedTool == EditorDrawTool_Draw ? 1 : 0;
-			editor.tilesets.tile.atlasId = 0;
-			editor.tilesets.tile.tileId = tileCoord.y * tileCountPerSide + tileCoord.x;
-			//LOG(Debug, "Pos %u %u %u\n", tileCoord.x, tileCoord.y, editor.tilesets.tile.tileId);
-		}
+		UI_Label(ui, "No sprites available");
 	}
 	else
 	{
-		UI_Label(ui, "No tile atlas available");
+		for (HandleIter it = BeginIter(scene.spriteHandles); it; it++)
+		{
+			const Handle handle = *it;
+			const Sprite &sprite = scene.sprites[handle.idx];
+			if ( UI_Radio(ui, sprite.name, editor.tilesets.selectedSprite == handle) )
+			{
+				editor.tilesets.selectedSprite = handle;
+			}
+		}
 	}
 
 	UI_SeparatorLabel(ui, "Action");
@@ -1419,15 +1402,20 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 
 		static bool wasTranslating = false;
 
+		if ( !editor.isTranslating && KeyPress(window.keyboard, K_T) )
+		{
+			editor.isTranslating = true;
+		}
+
 		if ( editor.isTranslating )
 		{
 			if (!wasTranslating) {
 				initialWorldPos = float2{entity.position.x, entity.position.y};
 				initialWorldOffset = Floor(initialWorldPos) - Floor(mouseWorldPos);
-			} else if (MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT)) {
+			} else if (MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT) || KeyPress(window.keyboard, K_ESCAPE)) {
 				entity.position = Float3(initialWorldPos, entity.position.z);
 				editor.isTranslating = false;
-			} else if (MouseButtonRelease(window.mouse, MOUSE_BUTTON_LEFT)) {
+			} else if (MouseButtonRelease(window.mouse, MOUSE_BUTTON_LEFT) || MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
 				editor.isTranslating = false;
 			} else {
 				const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
@@ -1467,7 +1455,9 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 
 			if (KeyPress(window.keyboard, K_D))
 			{
-				DuplicateEntity(engine, selectedEntity);
+				const Handle newEntity = DuplicateEntity(engine, selectedEntity);
+				EditorSelectEntity(editor, newEntity);
+				editor.isTranslating = true;
 			}
 		}
 	}
@@ -1557,10 +1547,14 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool handleInput)
 {
 	Editor &editor = engine.editor;
+	Scene &scene = engine.scene;
 
 	if ( handleInput )
 	{
-		if (MouseButtonPress(mouse, MOUSE_BUTTON_LEFT))
+		// While the Tilesets panel is open, left click paints/erases tiles instead of selecting entities
+		const bool tileEditMode = EditorMode2D(editor) && editor.showTilesets;
+
+		if (!tileEditMode && MouseButtonPress(mouse, MOUSE_BUTTON_LEFT) && !editor.isTranslating)
 		{
 			editor.selectEntity = true;
 		}
@@ -1582,13 +1576,15 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 			}
 		}
 
-		if (EditorMode2D(engine.editor) && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
+		if (tileEditMode && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
 		{
 			const Camera &camera = editor.camera[ProjectionOrthographic];
 			const int2 mousePos = { mouse.x, mouse.y };
-			const int2 setGridTileCoord = GetGridTileCoord(engine, camera, mousePos);
-			const Tile tile = editor.tilesets.tile;
-			SetGridTileAtCoord(engine, tile, setGridTileCoord);
+			const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos);
+			const SpriteH spriteH = editor.tilesets.selectedTool == EditorDrawTool_Draw
+				? editor.tilesets.selectedSprite : InvalidHandle;
+			TileGrid &tileGrid = scene.rooms[0].layers[0].tileGrid;
+			SetGridTileAtCoord(engine, tileGrid, spriteH, gridCoord);
 		}
 	}
 }
@@ -1759,6 +1755,8 @@ void EditorInitialize(Engine &engine)
 
 		CloseDir(dir);
 	}
+
+	CleanScene(engine);
 }
 
 void EditorUpdate(Engine &engine)
@@ -1806,6 +1804,12 @@ void EditorUpdate(Engine &engine)
 	}
 
 	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);
+
+	for (HandleIter it = BeginIter(engine.scene.roomHandles); it; it++)
+	{
+		const Room &room = GetRoom(engine.scene, *it);
+		DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
+	}
 }
 
 void EditorRender(Engine &engine, CommandList &commandList)

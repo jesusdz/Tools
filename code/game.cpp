@@ -37,9 +37,7 @@ void GameStart(Game &game)
 		.height = 90.0f / PIXELS_PER_METER,
 	};
 
-	game.screen = {
-		.boundingBox = { 0, 0, 10 * SCENE_WIDTH/PIXELS_PER_METER, 2 * SCENE_HEIGHT/PIXELS_PER_METER},
-	};
+	game.room = GetRoom("main_room");
 }
 
 void GameUpdate(Game &game)
@@ -57,7 +55,8 @@ void GameUpdate(Game &game)
 	constexpr float deltaSeconds = 1.0f / 60.0f;
 	constexpr float gravity = -15.8f;
 
-	DrawBoxOutline(Float2(game.screen.boundingBox.pos), Float2(game.screen.boundingBox.size), ColorOrange);
+	const Room &room = *game.room;
+	DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
 
 	{
 		float2 &pos = game.box1.pos;
@@ -125,10 +124,10 @@ void GameUpdate(Game &game)
 		}
 
 		// Player bounds
-		const f32 screenLeft = game.screen.boundingBox.pos.x;
-		const f32 screenRight = game.screen.boundingBox.pos.x + game.screen.boundingBox.size.x;
-		const f32 screenBottom = game.screen.boundingBox.pos.y;
-		const f32 screenTop = game.screen.boundingBox.pos.y + game.screen.boundingBox.size.y;
+		const f32 screenLeft = room.boundingBox.pos.x;
+		const f32 screenRight = room.boundingBox.pos.x + room.boundingBox.size.x;
+		const f32 screenBottom = room.boundingBox.pos.y;
+		const f32 screenTop = room.boundingBox.pos.y + room.boundingBox.size.y;
 		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight);
 		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop);
 

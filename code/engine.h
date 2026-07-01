@@ -143,8 +143,6 @@ struct Graphics
 	BufferChunk spriteIndices;
 	BufferChunk screenTriangleVertices;
 	BufferChunk screenTriangleIndices;
-	BufferChunk tileGridVertices;
-	BufferChunk tileGridIndices;
 
 	BufferH globalsBuffer[MAX_FRAMES_IN_FLIGHT];
 	BufferH entityBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -239,52 +237,49 @@ struct Graphics
 	const Camera *activeCamera;
 };
 
-struct TileAtlasDesc
-{
-	const char *imagePath;
-	const char *name;
-	f32 tileSize;
-};
-
-struct TileAtlas
-{
-	TextureH textureH;
-	MaterialH materialH;
-	f32 size;
-	f32 tileSize;
-};
-
-union Tile
-{
-	u32 value;
-	struct
-	{
-		u32 used : 1;
-		u32 atlasId : 8;
-		u32 tileId : 23;
-	};
-};
-
-#define TILE_GRID_SIZE_X 20
-#define TILE_GRID_SIZE_Y 15
+//#define TILE_GRID_SIZE_X 20
+//#define TILE_GRID_SIZE_Y 15
+#define TILE_GRID_SIZE_X 40
+#define TILE_GRID_SIZE_Y 30
+#define TILE_SIZE_PIXELS 16.0f // size of each grid cell, in pixels (at PIXELS_PER_METER scale)
 
 struct TileGrid
 {
-	Tile tiles[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y];
-	BufferChunk vertices;
-	BufferChunk indices;
-	u32 indexCount;
-	bool needsUpdate;
+	Handle entities[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite entity per cell, InvalidHandle if empty
+};
+
+
+struct Layer
+{
+	const char *name;
+	TileGrid tileGrid;
+	float2 parallaxFactor; // 1 = scrolls with the camera; <1 = background; >1 = foreground
+	i32 order; // draw order within the room, lower values drawn first (further back)
+	bool visible;
+};
+
+#define MAX_LAYERS 4
+
+struct Room
+{
+	const char *name;
+	rect boundingBox; // position and size in world units, so rooms can differ in size
+	Layer layers[MAX_LAYERS];
+	u32 layerCount;
 };
 
 #define MAX_ENTITIES 4092
-#define MAX_SPRITES 256
+#define MAX_SPRITES 4092
+#define MAX_ROOMS 256
 
 constexpr u32 SCENE_WIDTH = 320;
 constexpr u32 SCENE_HEIGHT = 180;
 
 struct Scene
 {
+	Room rooms[MAX_ROOMS];
+	HandleManager roomHandles;
+
 	Entity entities[MAX_ENTITIES];
 	HandleManager entityHandles;
 
@@ -292,10 +287,6 @@ struct Scene
 	HandleManager spriteHandles;
 
 	SpriteAnimState spriteAnimStates[MAX_SPRITES];
-
-	TileAtlas tileAtlas;
-	TileGrid tileGrid;
-	u32 tileGridCount;
 };
 
 #endif // ENGINE_H

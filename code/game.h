@@ -34,11 +34,6 @@ struct Box
 	float4 color;
 };
 
-struct Screen
-{
-	rect boundingBox;
-};
-
 struct Game
 {
 	GameState state;
@@ -59,7 +54,7 @@ struct Game
 
 	Camera camera;
 
-	Screen screen;
+	Room *room;
 };
 
 ////////////////////////////////////////////////////////////////////////

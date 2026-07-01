@@ -63,7 +63,7 @@ enum EditorDrawTool
 
 struct EditorTilesets
 {
-	Tile tile;
+	SpriteH selectedSprite;
 	EditorDrawTool selectedTool;
 };
 

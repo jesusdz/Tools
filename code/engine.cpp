@@ -471,6 +471,12 @@ static const ShaderAndComputeDesc computeDescs[] =
 
 static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
 
+static const char * InternString(const char *str)
+{
+	const char *intern = MakeStringIntern(sPlatform->stringInterning, str);
+	return intern;
+}
+
 u32 U32FromChars(char a, char b, char c, char d)
 {
 	const u32 res =
@@ -1228,127 +1234,6 @@ void RemoveMaterial(Graphics &gfx, MaterialH materialH)
 
 
 ////////////////////////////////////////////////////////////////////////
-// TileAtlas management
-
-void CreateTileAtlas(Engine &engine, const TileAtlasDesc &desc)
-{
-	Graphics &gfx = engine.gfx;
-	TileAtlas &tileAtlas = engine.scene.tileAtlas;
-
-	if ( !IsValidHandle(gfx.textureHandles, tileAtlas.textureH))
-	{
-		const TextureDesc textureDesc = {
-			.name = desc.name,
-			.filename = desc.imagePath,
-			.mipmap = false,
-		};
-
-		const TextureH textureHandle = CreateTexture(gfx, textureDesc);
-		if ( IsValidHandle(gfx.textureHandles, textureHandle) )
-		{
-			tileAtlas.textureH = textureHandle;
-			const Texture &texture = GetTexture(gfx, textureHandle);
-			const Image &image = GetImage(gfx.device, texture.image);
-
-			const MaterialDesc materialDesc = {
-				.name = desc.name,
-				.textureName = desc.name,
-				.pipelineName = "pipeline_shading_2d",
-				.uvScale = 1.0f,
-			};
-			const MaterialH materialHandle = CreateMaterial(engine.gfx, materialDesc);
-			tileAtlas.materialH = materialHandle;
-			tileAtlas.size = image.width;
-			tileAtlas.tileSize = desc.tileSize;
-
-			// TODO(jesus): Put this in a better place
-			engine.scene.tileGrid.vertices = engine.gfx.tileGridVertices;
-			engine.scene.tileGrid.indices = engine.gfx.tileGridIndices;
-			engine.scene.tileGridCount = 1;
-		}
-	}
-	else
-	{
-		LOG(Warning, "Cannot create more than one tile atlas.\n");
-	}
-}
-
-void DestroyTileAtlas(Engine &engine)
-{
-	Graphics &gfx = engine.gfx;
-	TileAtlas &tileAtlas = engine.scene.tileAtlas;
-
-	if ( IsValidHandle(gfx.textureHandles, tileAtlas.textureH) )
-	{
-		RemoveMaterial(engine.gfx, tileAtlas.materialH);
-		tileAtlas.materialH = {};
-
-		RemoveTexture(engine.gfx, tileAtlas.textureH);
-		tileAtlas.textureH = {};
-
-		engine.scene.tileGridCount = 0;
-	}
-}
-
-bool IsTileAtlasValid(const Engine &engine)
-{
-	const Graphics &gfx = engine.gfx;
-	const TileAtlas &tileAtlas = engine.scene.tileAtlas;
-	const bool res = IsValidHandle(gfx.textureHandles, tileAtlas.textureH);
-	return res;
-}
-
-const TileAtlas &GetTileAtlas(const Engine &engine)
-{
-	const TileAtlas &tileAtlas = engine.scene.tileAtlas;
-	return tileAtlas;
-}
-
-float2 GetWorld2DCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
-{
-	const Window &window = *sPlatform->window;
-	const uint2 windowSize = { window.width, window.height };
-	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
-	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
-	const f32 aspect = (f32)windowSize.x / (f32)windowSize.y;
-	const float2 scale = {camera.height * aspect, camera.height};
-	const float2 worldCoords = scale * ndcCoords + float2{camera.position.x, camera.position.y};
-	return worldCoords;
-}
-
-int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
-{
-	const float2 worldCoords = GetWorld2DCoord(engine, camera, pixelCoord);
-	const int2 res = {(i32)Floor(worldCoords.x), (i32)Floor(worldCoords.y)};
-	//LOG(Debug, "Tile coord: (%f, %f)\n", uvCoords.x, uvCoords.y);
-	//LOG(Debug, "Tile coord: (%d, %d)\n", res.x, res.y);
-	return res;
-}
-
-void SetGridTileAtCoord(Engine &engine, Tile tile, int2 coord)
-{
-	//LOG(Debug, "Tile %u %u %u\n", (u32)tile.used, tile.atlasId, tile.tileId);
-	Graphics &gfx = engine.gfx;
-	TileAtlas &tileAtlas = engine.scene.tileAtlas;
-
-	const bool tileAtlasValid = IsValidHandle(gfx.textureHandles, tileAtlas.textureH);
-	const bool tileGridValid = engine.scene.tileGridCount > 0;
-
-	if (tileAtlasValid && tileGridValid)
-	{
-		if (coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
-				coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y )
-		{
-			TileGrid &tileGrid = engine.scene.tileGrid;
-			if ( tileGrid.tiles[coord.x][coord.y].value != tile.value ) {
-				tileGrid.tiles[coord.x][coord.y] = tile;
-				tileGrid.needsUpdate = true;
-			}
-		}
-	}
-}
-
-////////////////////////////////////////////////////////////////////////
 // Builtin geometry
 
 BufferChunk GetVerticesForGeometryType(Graphics &gfx, GeometryType geometryType)
@@ -1379,6 +1264,17 @@ BufferChunk GetIndicesForGeometryType(Graphics &gfx, GeometryType geometryType)
 	} else {
 		return gfx.screenTriangleIndices;
 	}
+}
+
+
+////////////////////////////////////////////////////////////////////////
+// Room management
+
+Room &GetRoom(Scene &scene, Handle handle)
+{
+	ASSERT( IsValidHandle(scene.roomHandles, handle) );
+	Room &room = scene.rooms[handle.idx];
+	return room;
 }
 
 
@@ -1461,6 +1357,69 @@ Handle DuplicateEntity(Engine &engine, Handle entityHandle)
 {
 	const EntityDesc &desc = GetEntityDesc(engine.scene, entityHandle);
 	return CreateEntity(engine, desc);
+}
+
+
+////////////////////////////////////////////////////////////////////////
+// Tile grid management
+
+float2 GetWorld2DCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
+{
+	const Window &window = *sPlatform->window;
+	const uint2 windowSize = { window.width, window.height };
+	const float2 uvCoords = {(f32)pixelCoord.x/windowSize.x, 1.0f - (f32)pixelCoord.y/windowSize.y};
+	const float2 ndcCoords = 2.0f * uvCoords - float2{1.0f, 1.0f};
+	const f32 aspect = (f32)windowSize.x / (f32)windowSize.y;
+	const float2 scale = {camera.height * aspect, camera.height};
+	const float2 worldCoords = scale * ndcCoords + float2{camera.position.x, camera.position.y};
+	return worldCoords;
+}
+
+int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoord)
+{
+	const float2 worldCoords = GetWorld2DCoord(engine, camera, pixelCoord);
+	const f32 cellWorldSize = TILE_SIZE_PIXELS / PIXELS_PER_METER;
+	const int2 res = {(i32)Floor(worldCoords.x / cellWorldSize), (i32)Floor(worldCoords.y / cellWorldSize)};
+	//LOG(Debug, "Tile coord: (%f, %f)\n", uvCoords.x, uvCoords.y);
+	//LOG(Debug, "Tile coord: (%d, %d)\n", res.x, res.y);
+	return res;
+}
+
+void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int2 coord)
+{
+	Scene &scene = engine.scene;
+
+	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
+			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
+	if (!coordValid) return;
+
+	Handle &cellEntity = tileGrid.entities[coord.x][coord.y];
+
+	const bool cellHasEntity = IsValidHandle(scene.entityHandles, cellEntity);
+	const SpriteH currentSpriteH = cellHasEntity ? GetEntity(scene, cellEntity).spriteH : InvalidHandle;
+
+	if (currentSpriteH == spriteH)
+		return; // Nothing changed
+
+	if (cellHasEntity)
+	{
+		RemoveEntity(engine, cellEntity);
+		cellEntity = InvalidHandle;
+	}
+
+	if (IsValidHandle(scene.spriteHandles, spriteH))
+	{
+		const Sprite &sprite = GetSprite(scene, spriteH);
+		const f32 cellWorldSize = TILE_SIZE_PIXELS / PIXELS_PER_METER;
+
+		const EntityDesc entityDesc = {
+			.name = "tile",
+			.spriteName = sprite.name,
+			.pos = Float3((f32)coord.x * cellWorldSize, (f32)coord.y * cellWorldSize, 0.0f),
+			.scale = 1.0f,
+		};
+		cellEntity = CreateEntity(engine, entityDesc);
+	}
 }
 
 
@@ -1886,13 +1845,6 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	gfx.spriteIndices = PushData(gfx, commandList, gfx.globalIndexArena, spriteIndices, sizeof(spriteIndices));
 	gfx.screenTriangleVertices = PushData(gfx, commandList, gfx.globalVertexArena, screenTriangleVertices, sizeof(screenTriangleVertices));
 	gfx.screenTriangleIndices = PushData(gfx, commandList, gfx.globalIndexArena, screenTriangleIndices, sizeof(screenTriangleIndices));
-
-	const u32 numTileVertices = TILE_GRID_SIZE_X * TILE_GRID_SIZE_Y * 4;
-	const u32 numTileIndices = TILE_GRID_SIZE_X * TILE_GRID_SIZE_Y * 2 * 3;
-	const u32 tileVertexSize = numTileVertices * sizeof(Vertex);
-	const u32 tileIndexSize = numTileIndices * sizeof(Index);
-	gfx.tileGridVertices = PushData(gfx, commandList, gfx.globalVertexArena, nullptr, tileVertexSize);
-	gfx.tileGridIndices = PushData(gfx, commandList, gfx.globalIndexArena, nullptr, tileIndexSize);
 
 	EndUploadCommandList(gfx, commandList);
 
@@ -2439,6 +2391,21 @@ void CleanAudioClip(Handle handle, void* data)
 	RemoveAudioClip(engine, handle);
 }
 
+void CreateRoom(Engine &engine)
+{
+	// TODO: Make this properly
+	Handle roomH = NewHandle(engine.scene.roomHandles);
+	Room &room = engine.scene.rooms[roomH.idx];
+
+	room.name = InternString("main_room");
+	room.boundingBox = rect{0, 0, TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y};
+
+	room.layerCount = 1;
+	Layer &layer = room.layers[0];
+	layer.name = InternString("Main layer");
+	layer.visible = true;
+}
+
 void CleanScene(Engine &engine)
 {
 	WaitDeviceIdle(engine.gfx.device);
@@ -2456,6 +2423,8 @@ void CleanScene(Engine &engine)
 
 	engine.gfx.shouldUpdateMaterials = true;
 	engine.gfx.shouldUpdateMaterialBindGroups = true;
+
+	CreateRoom(engine);
 }
 
 #if USE_DATA_BUILD
@@ -2689,8 +2658,8 @@ static bool EntityIsInFrustum2D(Scene &scene, const Entity &entity, float2 rectM
 		halfSize = 0.5f * float2{(f32)sprite.size.x, (f32)sprite.size.y} / PIXELS_PER_METER;
 	}
 
-	const float2 entityMin = { entity.position.x - halfSize.x, entity.position.y - halfSize.y };
-	const float2 entityMax = { entity.position.x + halfSize.x, entity.position.y + halfSize.y };
+	const float2 entityMin = entity.position.xy;// { entity.position.x - halfSize.x, entity.position.y - halfSize.y };
+	const float2 entityMax = entity.position.xy + 2.0f * halfSize;//{ entity.position.x + halfSize.x, entity.position.y + halfSize.y };
 
 	const bool outsideX = entityMax.x < rectMin.x || entityMin.x > rectMax.x;
 	const bool outsideY = entityMax.y < rectMin.y || entityMin.y > rectMax.y;
@@ -2893,75 +2862,6 @@ bool RenderGraphics(Engine &engine)
 	Globals *globalsBufferPtr = (Globals*)GetBufferPtr(gfx.device, gfx.globalsBuffer[frameIndex]);
 	*globalsBufferPtr = globals;
 
-	// Update tile grids
-	if (scene.tileGrid.needsUpdate)
-	{
-		CommandList commandList = BeginUploadCommandList(gfx);
-
-		const TileGrid &grid = scene.tileGrid;
-
-		Arena scratch = FrameArena;
-
-		// Count vertices and indices
-		u32 vertexCount = 0;
-		u32 indexCount = 0;
-		for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
-			for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
-				if (grid.tiles[x][y].value != 0) {
-					vertexCount += 4;
-					indexCount += 6;
-				}
-			}
-		}
-
-		scene.tileGrid.indexCount = indexCount;
-
-		const f32 atlasSize = scene.tileAtlas.size;
-		const f32 tileSize = scene.tileAtlas.tileSize;
-		const f32 du = tileSize / atlasSize;
-		const f32 dv = tileSize / atlasSize;
-		const u32 atlasCellCountX = (u32)atlasSize / (u32)tileSize;
-
-		Vertex *tileVertices = PushArray(scratch, Vertex, vertexCount);
-		Index *tileIndices = PushArray(scratch, Index, indexCount);
-		const u32 tileVertexSize = vertexCount * sizeof(Vertex);
-		const u32 tileIndexSize = indexCount * sizeof(Index);
-
-		Vertex *vertex = tileVertices;
-		Index *index = tileIndices;
-		u32 indexOffset = 0;
-		for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
-			for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
-				if (grid.tiles[x][y].value != 0) {
-					const f32 atlasX = grid.tiles[x][y].tileId % atlasCellCountX;
-					const f32 atlasY = grid.tiles[x][y].tileId / atlasCellCountX;
-					const f32 u0 = atlasX * du;
-					const f32 u1 = u0 + du;
-					const f32 v0 = atlasY * dv;
-					const f32 v1 = v0 + dv;
-					*vertex++ = Vertex{{(f32)(x + 0), (f32)(y + 0), 0}, {0,0,0}, {u0,v1}};
-					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 0), 0}, {0,0,0}, {u1,v1}};
-					*vertex++ = Vertex{{(f32)(x + 1), (f32)(y + 1), 0}, {0,0,0}, {u1,v0}};
-					*vertex++ = Vertex{{(f32)(x + 0), (f32)(y + 1), 0}, {0,0,0}, {u0,v0}};
-					*index++ = indexOffset + 0;
-					*index++ = indexOffset + 1;
-					*index++ = indexOffset + 2;
-					*index++ = indexOffset + 0;
-					*index++ = indexOffset + 2;
-					*index++ = indexOffset + 3;
-					indexOffset += 4;
-				}
-			}
-		}
-
-		WaitDeviceIdle(gfx.device);
-		UploadData(gfx, commandList, tileVertices, tileVertexSize, scene.tileGrid.vertices.buffer, scene.tileGrid.vertices.offset);
-		UploadData(gfx, commandList, tileIndices, tileIndexSize, scene.tileGrid.indices.buffer, scene.tileGrid.indices.offset);
-		scene.tileGrid.needsUpdate = false;
-
-		EndUploadCommandList(gfx, commandList);
-	}
-
 	// Advance animation states for animated sprites (frameCount > 1)
 	for (u32 i = 0; i < scene.spriteHandles.handleCount; ++i)
 	{
@@ -3122,36 +3022,6 @@ bool RenderGraphics(Engine &engine)
 
 		const uint2 displaySize = GetFramebufferSize(sceneFramebuffer);
 		SetViewportAndScissor(commandList, displaySize);
-
-		// TileGrid
-		for (u32 i = 0; i < scene.tileGridCount; ++i)
-		{
-			const TileGrid &tileGrid = scene.tileGrid;
-			const TileAtlas &tileAtlas = scene.tileAtlas;
-			const MaterialH materialH = tileAtlas.materialH;
-			const Material &material = GetMaterial(gfx, materialH);
-
-			BeginDebugGroup(commandList, "TileGrid", ColorBlack);
-
-			// Pipeline
-			SetPipeline(commandList, material.pipelineH);
-
-			// Bind groups
-			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-			SetBindGroup(commandList, 1, gfx.materialBindGroups[materialH.idx]);
-
-			// Geometry
-			SetVertexBuffer(commandList, vertexBuffer);
-			SetIndexBuffer(commandList, indexBuffer);
-
-			// Draw!!!
-			const uint32_t indexCount = tileGrid.indexCount;
-			const uint32_t firstIndex = tileGrid.indices.offset/sizeof(Index);
-			const int32_t firstVertex = tileGrid.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
-			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, 0);
-
-			EndDebugGroup(commandList);
-		}
 
 		// Entities
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
@@ -3633,6 +3503,7 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 			return false;
 		}
 
+		Initialize(engine.scene.roomHandles, GlobalArena, MAX_ROOMS);
 		Initialize(engine.scene.entityHandles, GlobalArena, MAX_ENTITIES);
 		Initialize(engine.scene.spriteHandles, GlobalArena, MAX_SPRITES);
 
@@ -3794,6 +3665,21 @@ ENGINE_API void OnPlatformCleanup(Plat &platform)
 void SetCamera(const Camera &camera)
 {
 	engine->gfx.activeCamera = &camera;
+}
+
+Room *GetRoom(const char *name)
+{
+	static Room nullRoom = {};
+	Room *roomPtr = &nullRoom;
+	for ( HandleIter it = BeginIter(engine->scene.roomHandles); it; it++)
+	{
+		Room &room = GetRoom(engine->scene, *it);
+		if ( StrEq(room.name, name) ) {
+			roomPtr = &room;
+			break;
+		}
+	}
+	return roomPtr;
 }
 
 Entity *GetEntity(const char *name)
