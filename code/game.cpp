@@ -37,7 +37,7 @@ void GameStart(Game &game)
 		.height = 90.0f / PIXELS_PER_METER,
 	};
 
-	game.room = GetRoom("main_room");
+	game.room = GetRoom("Room");
 }
 
 void GameUpdate(Game &game)
