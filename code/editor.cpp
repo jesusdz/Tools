@@ -930,11 +930,11 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
 				room.name = InternString(name);
 
-				UI_InputInt2(ui, "Position", &room.boundingBox.pos);
+				UI_InputInt2(ui, "Pos", &room.boundingBox.pos);
 
 				int2 size = { (i32)room.boundingBox.size.x, (i32)room.boundingBox.size.y };
 				UI_InputInt2(ui, "Size", &size);
-				room.boundingBox.size = { (u32)Max(0, size.x), (u32)Max(0, size.y) };
+				room.boundingBox.size = { (u32)Max(1, size.x), (u32)Max(1, size.y) };
 
 				UI_Label(ui, "Layers: %u", room.layerCount);
 			}
@@ -963,7 +963,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
 			entity.name = InternString(name);
 
-			UI_InputFloat3(ui, "Position", &entity.position);
+			UI_InputFloat3(ui, "Pos", &entity.position);
 			UI_InputFloat(ui, "Scale", &entity.scale);
 			UI_Checkbox(ui, "Visible", &entity.visible);
 		}

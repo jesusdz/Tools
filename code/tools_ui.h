@@ -258,6 +258,9 @@ struct UI
 	UIWindow *modalWindowStack[16];
 	u32 modalWindowStackSize;
 
+	i32 idStack[16];
+	u32 idStackSize;
+
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
@@ -1110,6 +1113,14 @@ float2 UI_AdjustTextVertically(const UI &ui, float2 pos, float height)
 	return res;
 }
 
+float2 UI_AdjustTextHorizontally(const UI &ui, float2 pos, float width, const char *text)
+{
+	const float textWidth = UI_TextWidth(ui, text);
+	const float xpos = Round(pos.x + width / 2.0 - textWidth / 2.0);
+	const float2 res = { xpos, pos.y };
+	return res;
+}
+
 float2 UI_TextSize(const UI &ui, const char *text)
 {
 	const float textWidth = UI_TextWidth(ui, text);
@@ -1433,6 +1444,19 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 	UI_BeginLayout(ui, UiLayoutVertical);
 }
 
+void UI_PushID(UI &ui, i32 id)
+{
+	ASSERT(ui.idStackSize < ARRAY_COUNT(ui.idStack));
+	const i32 parentId = ui.idStackSize > 0 ? ui.idStack[ui.idStackSize-1] : 1;
+	ui.idStack[ui.idStackSize++] = parentId * id;
+}
+
+void UI_PopID(UI &ui)
+{
+	ASSERT(ui.idStackSize > 0);
+	ui.idStackSize--;
+}
+
 i32 UI_MakeID(const UI &ui, const char *text)
 {
 	u32 parentId = 0;
@@ -1440,6 +1464,11 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	{
 		const UIWindow &window = UI_GetCurrentWindow(ui);
 		parentId = window.id;
+	}
+
+	if (ui.idStackSize > 0)
+	{
+		parentId *= ui.idStack[ui.idStackSize-1];
 	}
 
 	const u32 id = HashStringFNV(text, parentId);
@@ -2156,7 +2185,8 @@ void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 				SPrintf(activeBuffer, "%d", *number);
 				originalNumber = *number;
 				activeBeginClock = GetClock();
-				const f32 relativeX = UI_MousePos(ui).x - (boxPos + padding).x;
+				const float2 textOrigin = UI_AdjustTextHorizontally(ui, boxPos, boxSize.x, activeBuffer);
+				const f32 relativeX = UI_MousePos(ui).x - textOrigin.x;
 				cursorIndex = UI_TextCursorIndexAtPos(ui, activeBuffer, relativeX);
 			}
 		}
@@ -2207,8 +2237,9 @@ void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 		const bool printCursor = (int)(secondsActive * 3) % 3 != 2; // Show 2/3 second, hide 1/3 second
 		if ( printCursor )
 		{
-			const f32 textWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
-			const float2 cursorPos = boxPos + padding + float2{textWidth + 1.0f, 0.0f};
+			const float2 textOrigin = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, activeBuffer);
+			const f32 prefixWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
+			const float2 cursorPos = textOrigin + float2{prefixWidth + 1.0f, 0.0f};
 			const float2 cursorSize = {1.0f, textHeight};
 			UI_PushColor(ui, UiColorWhite);
 			UI_AddRectangle(ui, cursorPos, cursorSize);
@@ -2218,15 +2249,16 @@ void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 	UI_EndWidget(ui);
 
 	// Number
-	const float2 textPos = boxPos + padding;
 	if (active)
 	{
+		const float2 textPos = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, activeBuffer);
 		UI_AddText(ui, textPos, activeBuffer);
 	}
 	else
 	{
 		char numberText[TEXT_BOX_BUFER_LEN];
 		SPrintf(numberText, "%d", *number);
+		const float2 textPos = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, numberText);
 		UI_AddText(ui, textPos, numberText);
 	}
 
@@ -2292,7 +2324,8 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 				SPrintf(activeBuffer, "%f", *number);
 				originalNumber = *number;
 				activeBeginClock = GetClock();
-				const f32 relativeX = UI_MousePos(ui).x - (boxPos + padding).x;
+				const float2 textOrigin = UI_AdjustTextHorizontally(ui, boxPos, boxSize.x, activeBuffer);
+				const f32 relativeX = UI_MousePos(ui).x - textOrigin.x;
 				cursorIndex = UI_TextCursorIndexAtPos(ui, activeBuffer, relativeX);
 			}
 		}
@@ -2343,8 +2376,9 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 		const bool printCursor = (int)(secondsActive * 3) % 3 != 2; // Show 2/3 second, hide 1/3 second
 		if ( printCursor )
 		{
-			const f32 textWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
-			const float2 cursorPos = boxPos + padding + float2{textWidth + 1.0f, 0.0f};
+			const float2 textOrigin = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, activeBuffer);
+			const f32 prefixWidth = UI_TextWidth(ui, activeBuffer, cursorIndex);
+			const float2 cursorPos = textOrigin + float2{prefixWidth + 1.0f, 0.0f};
 			const float2 cursorSize = {1.0f, textHeight};
 			UI_PushColor(ui, UiColorWhite);
 			UI_AddRectangle(ui, cursorPos, cursorSize);
@@ -2354,15 +2388,16 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 	UI_EndWidget(ui);
 
 	// Number
-	const float2 textPos = boxPos + padding;
 	if (active)
 	{
+		const float2 textPos = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, activeBuffer);
 		UI_AddText(ui, textPos, activeBuffer);
 	}
 	else
 	{
 		char numberText[TEXT_BOX_BUFER_LEN];
 		SPrintf(numberText, "%f", *number);
+		const float2 textPos = UI_AdjustTextHorizontally(ui, boxPos + float2{0.0f, padding.y}, boxSize.x, numberText);
 		UI_AddText(ui, textPos, numberText);
 	}
 
@@ -2378,11 +2413,16 @@ void UI_InputInt2(UI &ui, const char *label, int2 *value)
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
 
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
+
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
 	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
 	SPrintf(subLabel, "Y");
 	UI_InputInt(ui, subLabel, &value->y);
+
+	UI_PopID(ui);
 
 	UI_PopPadding(ui);
 }
@@ -2392,6 +2432,9 @@ void UI_InputInt3(UI &ui, const char *label, int3 *value)
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
 
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
+
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
 	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
@@ -2400,6 +2443,8 @@ void UI_InputInt3(UI &ui, const char *label, int3 *value)
 	SPrintf(subLabel, "Z");
 	UI_InputInt(ui, subLabel, &value->z);
 
+	UI_PopID(ui);
+
 	UI_PopPadding(ui);
 }
 
@@ -2407,6 +2452,9 @@ void UI_InputInt4(UI &ui, const char *label, int4 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
+
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
 
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
@@ -2418,6 +2466,8 @@ void UI_InputInt4(UI &ui, const char *label, int4 *value)
 	SPrintf(subLabel, "W");
 	UI_InputInt(ui, subLabel, &value->w);
 
+	UI_PopID(ui);
+
 	UI_PopPadding(ui);
 }
 
@@ -2426,11 +2476,16 @@ void UI_InputFloat2(UI &ui, const char *label, float2 *value)
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
 
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
+
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
 	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Y");
 	UI_InputFloat(ui, subLabel, &value->y);
+
+	UI_PopID(ui);
 
 	UI_PopPadding(ui);
 }
@@ -2440,6 +2495,9 @@ void UI_InputFloat3(UI &ui, const char *label, float3 *value)
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
 
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
+
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
 	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
@@ -2448,6 +2506,8 @@ void UI_InputFloat3(UI &ui, const char *label, float3 *value)
 	SPrintf(subLabel, "Z");
 	UI_InputFloat(ui, subLabel, &value->z);
 
+	UI_PopID(ui);
+
 	UI_PopPadding(ui);
 }
 
@@ -2455,6 +2515,9 @@ void UI_InputFloat4(UI &ui, const char *label, float4 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
+
+	const i32 id = UI_MakeID(ui, label);
+	UI_PushID(ui, id);
 
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
@@ -2465,6 +2528,8 @@ void UI_InputFloat4(UI &ui, const char *label, float4 *value)
 	UI_InputFloat(ui, subLabel, &value->z, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "W");
 	UI_InputFloat(ui, subLabel, &value->w);
+
+	UI_PopID(ui);
 
 	UI_PopPadding(ui);
 }
