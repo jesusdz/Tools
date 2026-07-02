@@ -1078,6 +1078,14 @@ float UI_TextHeight(const UI &ui)
 	return textHeight;
 }
 
+// Shared height for one-line controls (buttons, checkboxes, text/number boxes...)
+// so that widgets placed side by side in a horizontal layout line up.
+float UI_ControlHeight(const UI &ui)
+{
+	const float controlHeight = UI_TextHeight(ui) + 2.0f * UI_GetPadding(ui).y;
+	return controlHeight;
+}
+
 float UI_TextWidth(const UI &ui, const char *text, u32 maxChars = U32_MAX)
 {
 	float textWidth = 0.0f;
@@ -1538,7 +1546,8 @@ void UI_Label(UI &ui, const char *format, ...)
 {
 	UI_VSPRINTF(format, text);
 
-	UI_AddText(ui, UI_GetCursorPos(ui), text);
+	const float2 pos = UI_AdjustTextVertically(ui, UI_GetCursorPos(ui), UI_ControlHeight(ui));
+	UI_AddText(ui, pos, text);
 
 	const f32 textWidth = UI_TextWidth(ui, text);
 	const f32 textHeight = UI_TextHeight(ui);
@@ -1548,9 +1557,9 @@ void UI_Label(UI &ui, const char *format, ...)
 
 bool UI_Button(UI &ui, const char *text)
 {
-	constexpr float2 padding = {4.0f, 3.0f};
+	const float2 padding = UI_GetPadding(ui);
 	const float2 textSize = UI_TextSize(ui, text);
-	const float2 size = textSize + 2.0f * padding;
+	const float2 size = { textSize.x + 2.0f * padding.x, UI_ControlHeight(ui) };
 
 	const float2 pos = UI_GetCursorPos(ui);
 
@@ -1603,7 +1612,8 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 bool UI_Radio(UI &ui, const char *text, bool active)
 {
 	const float2 ballPos = UI_GetCursorPos(ui);
-	const float2 ballSize = {15.0, 15.0};
+	const float controlHeight = UI_ControlHeight(ui);
+	const float2 ballSize = {controlHeight, controlHeight};
 	const float2 textPos = ballPos + float2{ballSize.x + UiSpacing * 0.5f, 0.0};
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, ballSize.y);
 	const float  textWidth = UI_TextWidth(ui, text);
@@ -1640,7 +1650,8 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	ASSERT(checked != nullptr);
 
 	const float2 boxPos = UI_GetCursorPos(ui);
-	const float2 boxSize = {15.0, 15.0};
+	const float controlHeight = UI_ControlHeight(ui);
+	const float2 boxSize = {controlHeight, controlHeight};
 	const float2 textPos = boxPos + float2{boxSize.x + UiSpacing * 0.5f, 0.0};
 	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, boxSize.y);
 	const float  textWidth = UI_TextWidth(ui, text);
@@ -1684,10 +1695,8 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
-	constexpr float2 padding = {4.0f, 3.0f};
-	const f32 textHeight = UI_TextHeight(ui);
-
-	const f32 side = textHeight + 2.0f * padding.y;
+	const float2 padding = UI_GetPadding(ui);
+	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
@@ -1735,8 +1744,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 
 	if (ui.comboBox.id == comboId)
 	{
-		const f32 textHeight = UI_TextHeight(ui);
-		const f32 itemHeight = textHeight + 2.0f*padding.y;
+		const f32 itemHeight = UI_ControlHeight(ui);
 		const float2 panelPos = boxPos + float2{0.0f, boxSize.y};
 		float2 panelSize = 2.0f * UiBorderSize;
 		for (u32 i = 0; i < itemCount; ++i)
@@ -2005,10 +2013,9 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
-	constexpr float2 padding = {4.0f, 3.0f};
+	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
-
-	const f32 side = textHeight + 2.0f * padding.y;
+	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
@@ -2102,7 +2109,7 @@ void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
-	const f32 side = textHeight + 2.0f * padding.y;
+	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
@@ -2238,7 +2245,7 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
-	const f32 side = textHeight + 2.0f * padding.y;
+	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
