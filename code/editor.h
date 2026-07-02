@@ -61,16 +61,10 @@ static const char *EditorSelectedTypeName[] = {
 };
 CT_ASSERT(ARRAY_COUNT(EditorSelectedTypeName) == EditorSelectedType_Count);
 
-enum EditorDrawTool
+enum EditorTool
 {
-	EditorDrawTool_Draw,
-	EditorDrawTool_Erase,
-};
-
-struct EditorTilesets
-{
-	SpriteH selectedSprite;
-	EditorDrawTool selectedTool;
+	EditorTool_Draw,
+	EditorTool_Erase,
 };
 
 enum FileNodeType
@@ -124,9 +118,8 @@ struct EditorContext
 	FileNode *selectedFile;
 	Room *room;
 	Layer *layer;
-	// Layer
-	// Brush
-	// Tool
+	Handle spriteH; // brush
+	EditorTool tool;
 };
 
 struct Editor
@@ -137,7 +130,6 @@ struct Editor
 	bool showOutliner;
 	bool showAssets;
 	bool showInspector;
-	bool showTilesets;
 	bool showGrid;
 	bool showAbout;
 
@@ -162,7 +154,6 @@ struct Editor
 
 	EditorContext context;
 	EditorInspector inspector;
-	EditorTilesets tilesets;
 
 	FileNode *root;
 	FileNode *freeNodes;

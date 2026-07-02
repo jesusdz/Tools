@@ -168,10 +168,6 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showInspector = !editor.showInspector;
 			}
-			if ( UI_MenuItem(ui, "Tilesets", editor.showTilesets) )
-			{
-				editor.showTilesets = !editor.showTilesets;
-			}
 			if ( UI_MenuItem(ui, "Debug UI", editor.showDebugUI) )
 			{
 				editor.showDebugUI = !editor.showDebugUI;
@@ -230,6 +226,16 @@ static void EditorUpdateUI_ToolBar(Engine &engine)
 			if (context.layer)
 			{
 				UI_Label(ui, "> %s", context.layer->name);
+
+				UI_Separator(ui);
+
+				static EditorTool tool = EditorTool_Draw;;
+				if (UI_Radio(ui, "Draw", context.tool == EditorTool_Draw)) {
+					context.tool = EditorTool_Draw;
+				}
+				if (UI_Radio(ui, "Erase", context.tool == EditorTool_Erase)) {
+					context.tool = EditorTool_Erase;
+				}
 			}
 		}
 
@@ -251,8 +257,9 @@ static void EditorSelectRoom(Editor &editor, Room &room)
 	editor.inspector.nextSelected.type = EditorSelectedType_Room;
 }
 
-static void EditorSelectLayer(Editor &editor, Layer &layer)
+static void EditorSelectLayer(Editor &editor, Room &room, Layer &layer)
 {
+	editor.context.room = &room;
 	editor.context.layer = &layer;
 	editor.inspector.nextSelected.layer = &layer;
 	editor.inspector.nextSelected.type = EditorSelectedType_Layer;
@@ -290,6 +297,7 @@ static void EditorSelectMusic(Editor &editor, Handle handle)
 
 static void EditorSelectSprite(Editor &editor, Handle handle)
 {
+	editor.context.spriteH = handle;
 	editor.inspector.nextSelected.handle = handle;
 	editor.inspector.nextSelected.type = EditorSelectedType_Sprite;
 }
@@ -594,7 +602,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 						Layer &layer = room.layers[layerIndex];
 						if (UI_Button(ui, layer.name))
 						{
-							EditorSelectLayer(editor, layer);
+							EditorSelectLayer(editor, room, layer);
 						}
 					}
 					UI_Unindent(ui);
@@ -1043,47 +1051,6 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	inspector.nextSelected.value = inspector.selected.value;
 }
 
-static void EditorUpdateUI_Tilesets(Engine &engine)
-{
-	UI &ui = GetUI(engine);
-	Scene &scene = engine.scene;
-	Editor &editor = engine.editor;
-
-	UI_BeginWindow(ui, "Tilesets", &editor.showTilesets);
-
-	UI_SeparatorLabel(ui, "Sprites");
-
-	if ( scene.spriteHandles.handleCount == 0 )
-	{
-		UI_Label(ui, "No sprites available");
-	}
-	else
-	{
-		for (HandleIter it = BeginIter(scene.spriteHandles); it; it++)
-		{
-			const Handle handle = *it;
-			const Sprite &sprite = scene.sprites[handle.idx];
-			if ( UI_Radio(ui, sprite.name, editor.tilesets.selectedSprite == handle) )
-			{
-				editor.tilesets.selectedSprite = handle;
-			}
-		}
-	}
-
-	UI_SeparatorLabel(ui, "Action");
-
-	EditorTilesets &tilesets = editor.tilesets;
-	const char *radioOptionStrs[] { "Draw", "Erase" };
-	const EditorDrawTool radioOptions[] = { EditorDrawTool_Draw, EditorDrawTool_Erase };
-	for (u32 i = 0; i < ARRAY_COUNT(radioOptionStrs); ++i) {
-		if ( UI_Radio(ui, radioOptionStrs[i], tilesets.selectedTool == radioOptions[i]) ) {
-			tilesets.selectedTool = radioOptions[i];
-		}
-	}
-
-	UI_EndWindow(ui);
-}
-
 static void EditorUpdateUI_About(Engine &engine)
 {
 	UI &ui = engine.ui;
@@ -1340,11 +1307,6 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showInspector )
 	{
 		EditorUpdateUI_Inspector(engine);
-	}
-
-	if ( editor.showTilesets )
-	{
-		EditorUpdateUI_Tilesets(engine);
 	}
 
 	if ( editor.showDebugUI )
@@ -1642,7 +1604,7 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 	if ( handleInput )
 	{
 		// While the Tilesets panel is open, left click paints/erases tiles instead of selecting entities
-		const bool tileEditMode = EditorMode2D(editor) && editor.showTilesets;
+		const bool tileEditMode = EditorMode2D(editor) && editor.context.layer != nullptr;
 
 		if (!tileEditMode && MouseButtonPress(mouse, MOUSE_BUTTON_LEFT) && !editor.isTranslating)
 		{
@@ -1671,11 +1633,24 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 			const Camera &camera = editor.camera[ProjectionOrthographic];
 			const int2 mousePos = { mouse.x, mouse.y };
 			const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos);
-			const SpriteH spriteH = editor.tilesets.selectedTool == EditorDrawTool_Draw
-				? editor.tilesets.selectedSprite : InvalidHandle;
-			TileGrid &tileGrid = scene.rooms[0].layers[0].tileGrid;
-			SetGridTileAtCoord(engine, tileGrid, spriteH, gridCoord);
+			const SpriteH spriteH = editor.context.tool == EditorTool_Draw
+				? editor.context.spriteH : InvalidHandle;
+
+			if (editor.context.layer)
+			{
+				TileGrid &tileGrid = editor.context.layer->tileGrid;
+				SetGridTileAtCoord(engine, tileGrid, spriteH, gridCoord);
+			}
 		}
+	}
+}
+
+void EditorDebugDraw(Engine &engine)
+{
+	for (HandleIter it = BeginIter(engine.scene.roomHandles); it; it++)
+	{
+		const Room &room = GetRoom(engine.scene, *it);
+		DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
 	}
 }
 
@@ -1789,7 +1764,6 @@ void EditorInitialize(Engine &engine)
 	editor.showOutliner = true;
 	editor.showAssets = true;
 	editor.showInspector = true;
-	editor.showTilesets = false;
 	editor.showDebugUI = false;
 	editor.showGrid = true;
 	editor.showAbout = false;
@@ -1895,11 +1869,7 @@ void EditorUpdate(Engine &engine)
 
 	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);
 
-	for (HandleIter it = BeginIter(engine.scene.roomHandles); it; it++)
-	{
-		const Room &room = GetRoom(engine.scene, *it);
-		DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
-	}
+	EditorDebugDraw(engine);
 }
 
 void EditorRender(Engine &engine, CommandList &commandList)
