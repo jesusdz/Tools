@@ -1444,8 +1444,8 @@ void DrawBoxOutline(float2 pos, float2 size, float4 color)
 	constexpr f32 d = 1.0f / PIXELS_PER_METER;
 	DrawBox(pos, float2{size.x, d}, color);
 	DrawBox(pos, float2{d, size.y}, color);
-	DrawBox(pos + dX(size), float2{d, size.y}, color);
-	DrawBox(pos + dY(size), float2{size.x, d}, color);
+	DrawBox(pos + dX(size) - float2{d, 0}, float2{d, size.y}, color);
+	DrawBox(pos + dY(size) - float2{0, d}, float2{size.x, d}, color);
 }
 
 
@@ -2391,19 +2391,63 @@ void CleanAudioClip(Handle handle, void* data)
 	RemoveAudioClip(engine, handle);
 }
 
-void CreateRoom(Engine &engine)
+u32 CreateLayer(Room &room)
 {
-	// TODO: Make this properly
+	u32 index = U32_MAX;
+
+	if ( room.layerCount < ARRAY_COUNT(room.layers) )
+	{
+		for (u32 i = 0; i < ARRAY_COUNT(room.layers); ++i)
+		{
+			Layer &layer = room.layers[i];
+			if (!layer.initialized)
+			{
+				room.layerCount++;
+				layer.initialized = true;
+				index = i;
+				break;
+			}
+		}
+	}
+
+	return index;
+}
+
+void RemoveLayer(Room &room, u32 index)
+{
+	if ( room.layerCount > 1 && index < ARRAY_COUNT(room.layers) )
+	{
+		Layer &layer = room.layers[index];
+		if (layer.initialized)
+		{
+			layer = {};
+			room.layerCount--;
+		}
+	}
+}
+
+Handle CreateRoom(Engine &engine)
+{
 	Handle roomH = NewHandle(engine.scene.roomHandles);
 	Room &room = engine.scene.rooms[roomH.idx];
 
-	room.name = InternString("main_room");
+	room.name = InternString("Room");
 	room.boundingBox = rect{0, 0, TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y};
 
 	room.layerCount = 1;
 	Layer &layer = room.layers[0];
-	layer.name = InternString("Main layer");
+	layer = {};
+	layer.name = InternString("Layer");
 	layer.visible = true;
+
+	return roomH;
+}
+
+void RemoveRoom(Engine &engine, Handle handle)
+{
+	Room &room = GetRoom(engine.scene, handle);
+	room = {};
+	FreeHandle(engine.scene.roomHandles, handle);
 }
 
 void CleanScene(Engine &engine)

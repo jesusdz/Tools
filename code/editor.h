@@ -24,25 +24,31 @@ struct EditorCommand
 	};
 };
 
-enum EditorInspectedType
+enum EditorSelectedType
 {
-	EditorInspectedType_None,
-	EditorInspectedType_Entity,
-	EditorInspectedType_Material,
-	EditorInspectedType_Texture,
-	EditorInspectedType_Audio,
-	EditorInspectedType_Music,
-	EditorInspectedType_Sprite,
-	EditorInspectedType_FileImage,
-	EditorInspectedType_FileAudio,
-	EditorInspectedType_FileMusic,
-	EditorInspectedType_Count,
-	EditorInspectedType_FileBegin = EditorInspectedType_FileImage,
-	EditorInspectedType_FileEnd = EditorInspectedType_FileMusic,
+	EditorSelectedType_None,
+	EditorSelectedType_Scene,
+	EditorSelectedType_Room,
+	EditorSelectedType_Layer,
+	EditorSelectedType_Entity,
+	EditorSelectedType_Material,
+	EditorSelectedType_Texture,
+	EditorSelectedType_Audio,
+	EditorSelectedType_Music,
+	EditorSelectedType_Sprite,
+	EditorSelectedType_FileImage,
+	EditorSelectedType_FileAudio,
+	EditorSelectedType_FileMusic,
+	EditorSelectedType_Count,
+	EditorSelectedType_FileBegin = EditorSelectedType_FileImage,
+	EditorSelectedType_FileEnd = EditorSelectedType_FileMusic,
 };
 
-static const char *EditorInspectedTypeName[] = {
+static const char *EditorSelectedTypeName[] = {
 	"None",
+	"Scene",
+	"Room",
+	"Layer",
 	"Entity",
 	"Material",
 	"Texture",
@@ -53,7 +59,7 @@ static const char *EditorInspectedTypeName[] = {
 	"Audio file",
 	"Music file",
 };
-CT_ASSERT(ARRAY_COUNT(EditorInspectedTypeName) == EditorInspectedType_Count);
+CT_ASSERT(ARRAY_COUNT(EditorSelectedTypeName) == EditorSelectedType_Count);
 
 enum EditorDrawTool
 {
@@ -92,15 +98,35 @@ struct SnapshotNode
 	SnapshotNode *next;
 };
 
+struct EditorSelection
+{
+	EditorSelectedType type;
+	union
+	{
+		Scene *scene;
+		Room *room;
+		Layer *layer;
+		Handle handle;
+		FileNode *file;
+		u64 value;
+	};
+};
+
 struct EditorInspector
 {
-	EditorInspectedType inspectedType;
-	FileNode *selectedFile;
-	Handle selectedHandle;
+	EditorSelection selected;
+	EditorSelection nextSelected;
+	Handle tmpHandle;
+};
 
-	EditorInspectedType nextInspectedType;
-	FileNode *nextSelectedFile;
-	Handle nextSelectedHandle;
+struct EditorContext
+{
+	FileNode *selectedFile;
+	Room *room;
+	Layer *layer;
+	// Layer
+	// Brush
+	// Tool
 };
 
 struct Editor
@@ -134,6 +160,7 @@ struct Editor
 
 	SnapshotNode *snapshots;
 
+	EditorContext context;
 	EditorInspector inspector;
 	EditorTilesets tilesets;
 
@@ -151,8 +178,8 @@ void EditorPostRender(Engine &engine);
 inline Handle EditorGetSelectedEntity(const Editor &editor)
 {
 	Handle handle = InvalidHandle;
-	if ( editor.inspector.inspectedType == EditorInspectedType_Entity ) {
-		handle = editor.inspector.selectedHandle;
+	if ( editor.inspector.selected.type == EditorSelectedType_Entity ) {
+		handle = editor.inspector.selected.handle;
 	}
 	return handle;
 }

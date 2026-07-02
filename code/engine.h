@@ -248,12 +248,11 @@ struct TileGrid
 	Handle entities[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite entity per cell, InvalidHandle if empty
 };
 
-
 struct Layer
 {
+	bool initialized;
 	const char *name;
 	TileGrid tileGrid;
-	float2 parallaxFactor; // 1 = scrolls with the camera; <1 = background; >1 = foreground
 	i32 order; // draw order within the room, lower values drawn first (further back)
 	bool visible;
 };

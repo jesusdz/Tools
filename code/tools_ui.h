@@ -1540,8 +1540,10 @@ void UI_Label(UI &ui, const char *format, ...)
 
 	UI_AddText(ui, UI_GetCursorPos(ui), text);
 
-	const float textHeight = UI_TextHeight(ui);
-	UI_MoveCursorDown(ui, textHeight + UiSpacing);
+	const f32 textWidth = UI_TextWidth(ui, text);
+	const f32 textHeight = UI_TextHeight(ui);
+	const float2 size = { textWidth + UiSpacing, textHeight };
+	UI_CursorAdvance(ui, size);
 }
 
 bool UI_Button(UI &ui, const char *text)
