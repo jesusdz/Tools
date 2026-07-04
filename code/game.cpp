@@ -56,7 +56,7 @@ void GameUpdate(Game &game)
 	constexpr float gravity = -15.8f;
 
 	const Room &room = *game.room;
-	DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
+	DrawBoxOutline(Float2(room.pos), LayerSize(room.layers[0]), ColorOrange);
 
 	{
 		float2 &pos = game.box1.pos;
@@ -124,10 +124,10 @@ void GameUpdate(Game &game)
 		}
 
 		// Player bounds
-		const f32 screenLeft = room.boundingBox.pos.x;
-		const f32 screenRight = room.boundingBox.pos.x + room.boundingBox.size.x;
-		const f32 screenBottom = room.boundingBox.pos.y;
-		const f32 screenTop = room.boundingBox.pos.y + room.boundingBox.size.y;
+		const f32 screenLeft = room.pos.x;
+		const f32 screenRight = room.pos.x + RoomSize(room).x;
+		const f32 screenBottom = room.pos.y;
+		const f32 screenTop = room.pos.y + RoomSize(room).y;
 		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight);
 		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop);
 

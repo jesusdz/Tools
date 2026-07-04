@@ -245,7 +245,6 @@ static void EditorUpdateUI_ToolBar(Engine &engine)
 
 static void EditorSelectScene(Editor &editor, Scene &scene)
 {
-	editor.inspector.nextSelected.scene = &scene;
 	editor.inspector.nextSelected.type = EditorSelectedType_Scene;
 }
 
@@ -253,7 +252,6 @@ static void EditorSelectRoom(Editor &editor, Room &room)
 {
 	editor.context.room = &room;
 	editor.context.layer = nullptr;
-	editor.inspector.nextSelected.room = &room;
 	editor.inspector.nextSelected.type = EditorSelectedType_Room;
 }
 
@@ -261,7 +259,6 @@ static void EditorSelectLayer(Editor &editor, Room &room, Layer &layer)
 {
 	editor.context.room = &room;
 	editor.context.layer = &layer;
-	editor.inspector.nextSelected.layer = &layer;
 	editor.inspector.nextSelected.type = EditorSelectedType_Layer;
 }
 
@@ -588,7 +585,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 				if (removeRoom)
 				{
 					RemoveRoom(engine, *it);
-					if ( editor.inspector.selected.room == &room ) {
+					if ( editor.inspector.selected.type == EditorSelectedType_Room && editor.context.room == &room ) {
 						EditorUnselectAll(editor);
 					}
 					break;
@@ -794,11 +791,59 @@ static void EditorUpdateUI_Assets(Engine &engine)
 	UI_EndWindow(ui);
 }
 
+static void EditorUpdateUI_InspectorScene(Engine &engine, Scene &scene)
+{
+	UI &ui = engine.ui;
+	UI_Label(ui, "Rooms: %u", scene.roomHandles.handleCount);
+	UI_Label(ui, "Entities: %u", scene.entityHandles.handleCount);
+	UI_Label(ui, "Sprites: %u", scene.spriteHandles.handleCount);
+}
+
+static void EditorUpdateUI_InspectorRoom(Engine &engine, Room &room)
+{
+	UI &ui = engine.ui;
+
+	UI_SeparatorLabel(ui, "Room");
+
+	static char name[64];
+	StrCopy(name, room.name);
+	UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+	room.name = InternString(name);
+
+	if ( UI_InputInt2(ui, "Pos", &room.pos) )
+	{
+		UpdateRoom(engine, room);
+	}
+
+	//int2 size = { (i32)room.boundingBox.size.x, (i32)room.boundingBox.size.y };
+	//UI_InputInt2(ui, "Size", &size);
+	//room.boundingBox.size = { (u32)Max(1, size.x), (u32)Max(1, size.y) };
+
+	UI_Label(ui, "Layers: %u", room.layerCount);
+}
+
+static void EditorUpdateUI_InspectorLayer(Engine &engine, Layer &layer)
+{
+	UI &ui = engine.ui;
+	EditorInspector &inspector = engine.editor.inspector;
+
+	UI_SeparatorLabel(ui, "Layer");
+
+	static char name[64];
+	StrCopy(name, layer.name);
+	UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
+	layer.name = InternString(name);
+
+	UI_InputInt(ui, "Order", &layer.order);
+	UI_Checkbox(ui, "Visible", &layer.visible);
+}
+
 static void EditorUpdateUI_Inspector(Engine &engine)
 {
 	UI &ui = engine.ui;
 	Editor &editor = engine.editor;
 	EditorInspector &inspector = editor.inspector;
+	EditorContext &context = editor.context;
 
 	constexpr uint2 size = {200, 500};
 	constexpr float2 displacement = {-10, 50};
@@ -910,49 +955,18 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	{
 		if (inspector.selected.type == EditorSelectedType_Scene)
 		{
-			if (inspector.selected.scene)
-			{
-				Scene &sceneRef = *inspector.selected.scene;
-
-				UI_Label(ui, "Rooms: %u", sceneRef.roomHandles.handleCount);
-				UI_Label(ui, "Entities: %u", sceneRef.entityHandles.handleCount);
-				UI_Label(ui, "Sprites: %u", sceneRef.spriteHandles.handleCount);
-			}
+			EditorUpdateUI_InspectorScene(engine, engine.scene);
 		}
 		else if (inspector.selected.type == EditorSelectedType_Room)
 		{
-			if (inspector.selected.room)
-			{
-				Room &room = *inspector.selected.room;
-
-				static char name[64];
-				StrCopy(name, room.name);
-				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
-				room.name = InternString(name);
-
-				UI_InputInt2(ui, "Pos", &room.boundingBox.pos);
-
-				int2 size = { (i32)room.boundingBox.size.x, (i32)room.boundingBox.size.y };
-				UI_InputInt2(ui, "Size", &size);
-				room.boundingBox.size = { (u32)Max(1, size.x), (u32)Max(1, size.y) };
-
-				UI_Label(ui, "Layers: %u", room.layerCount);
-			}
+			EditorUpdateUI_InspectorScene(engine, engine.scene);
+			EditorUpdateUI_InspectorRoom(engine, *context.room);
 		}
 		else if (inspector.selected.type == EditorSelectedType_Layer)
 		{
-			if (inspector.selected.layer)
-			{
-				Layer &layer = *inspector.selected.layer;
-
-				static char name[64];
-				StrCopy(name, layer.name);
-				UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
-				layer.name = InternString(name);
-
-				UI_InputInt(ui, "Order", &layer.order);
-				UI_Checkbox(ui, "Visible", &layer.visible);
-			}
+			EditorUpdateUI_InspectorScene(engine, engine.scene);
+			EditorUpdateUI_InspectorRoom(engine, *context.room);
+			EditorUpdateUI_InspectorLayer(engine, *context.layer);
 		}
 		else if(inspector.selected.type == EditorSelectedType_Entity)
 		{
@@ -1638,8 +1652,8 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 			if (editor.context.layer)
 			{
-				TileGrid &tileGrid = editor.context.layer->tileGrid;
-				SetGridTileAtCoord(engine, tileGrid, spriteH, gridCoord);
+				TileGrid &grid = editor.context.layer->grid;
+				SetGridTileAtCoord(engine, grid, spriteH, gridCoord);
 			}
 		}
 	}
@@ -1647,10 +1661,16 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 void EditorDebugDraw(Engine &engine)
 {
-	for (HandleIter it = BeginIter(engine.scene.roomHandles); it; it++)
+	if (engine.editor.context.layer != nullptr)
 	{
-		const Room &room = GetRoom(engine.scene, *it);
-		DrawBoxOutline(Float2(room.boundingBox.pos), Float2(room.boundingBox.size), ColorOrange);
+		Room &room = *engine.editor.context.room;
+		Layer &layer = *engine.editor.context.layer;
+		const float2 pos = Float2(room.pos);
+		const float2 size = LayerSize(layer);
+		DrawBoxOutline(pos, size, ColorOrange);
+	}
+	else if (engine.editor.context.room != nullptr)
+	{
 	}
 }
 

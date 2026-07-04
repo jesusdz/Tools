@@ -246,13 +246,14 @@ struct Graphics
 struct TileGrid
 {
 	Handle entities[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite entity per cell, InvalidHandle if empty
+	uint2 size;
 };
 
 struct Layer
 {
 	bool initialized;
 	const char *name;
-	TileGrid tileGrid;
+	TileGrid grid;
 	i32 order; // draw order within the room, lower values drawn first (further back)
 	bool visible;
 };
@@ -262,7 +263,7 @@ struct Layer
 struct Room
 {
 	const char *name;
-	rect boundingBox; // position and size in world units, so rooms can differ in size
+	int2 pos;
 	Layer layers[MAX_LAYERS];
 	u32 layerCount;
 };

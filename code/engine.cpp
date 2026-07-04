@@ -1422,6 +1422,22 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 	}
 }
 
+void UpdateGridPosition(Engine &engine, TileGrid &tileGrid, float2 pos)
+{
+	for ( u32 i = 0; i < tileGrid.size.y; ++i )
+	{
+		for ( u32 j = 0; j < tileGrid.size.x; ++j )
+		{
+			Handle &entityH = tileGrid.entities[j][i];
+			if ( IsValidHandle(engine.scene.entityHandles, entityH) )
+			{
+				Entity &entity = GetEntity(engine.scene, entityH);
+				entity.position.xy = pos + float2{(f32)j, (f32)i};
+			}
+		}
+	}
+}
+
 
 ////////////////////////////////////////////////////////////////////////
 // Debug draw
@@ -2426,18 +2442,31 @@ void RemoveLayer(Room &room, u32 index)
 	}
 }
 
+float2 LayerSize(const Layer &layer)
+{
+	const float2 res = Float2(layer.grid.size);
+	return res;
+}
+
+float2 RoomSize(const Room &room)
+{
+	const float2 res = LayerSize(room.layers[0]);
+	return res;
+}
+
 Handle CreateRoom(Engine &engine)
 {
 	Handle roomH = NewHandle(engine.scene.roomHandles);
 	Room &room = engine.scene.rooms[roomH.idx];
 
 	room.name = InternString("Room");
-	room.boundingBox = rect{0, 0, TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y};
+	room.pos = {};
 
 	room.layerCount = 1;
 	Layer &layer = room.layers[0];
 	layer = {};
 	layer.name = InternString("Layer");
+	layer.grid.size = { TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y };
 	layer.visible = true;
 
 	return roomH;
@@ -2469,6 +2498,14 @@ void CleanScene(Engine &engine)
 	engine.gfx.shouldUpdateMaterialBindGroups = true;
 
 	CreateRoom(engine);
+}
+
+void UpdateRoom(Engine &engine, Room &room)
+{
+	for (u32 i = 0; i < room.layerCount; ++i)
+	{
+		UpdateGridPosition(engine, room.layers[i].grid, Float2(room.pos));
+	}
 }
 
 #if USE_DATA_BUILD

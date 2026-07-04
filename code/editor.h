@@ -47,8 +47,8 @@ enum EditorSelectedType
 static const char *EditorSelectedTypeName[] = {
 	"None",
 	"Scene",
-	"Room",
-	"Layer",
+	"Scene", // Room
+	"Scene", // Layer
 	"Entity",
 	"Material",
 	"Texture",
@@ -97,9 +97,6 @@ struct EditorSelection
 	EditorSelectedType type;
 	union
 	{
-		Scene *scene;
-		Room *room;
-		Layer *layer;
 		Handle handle;
 		FileNode *file;
 		u64 value;

@@ -1848,15 +1848,14 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	const float containerWidth = UI_GetContainerSize(window).x;
 
 	const float2 cornerPos = UI_GetCursorPos(ui);
-	const float2 size = { containerWidth, 1.0 };
+	const float2 size = { containerWidth, UI_TextHeight(ui) };
 
-	UI_BeginLayout(ui, UiLayoutHorizontal);
-
-	const float middle = UI_TextHeight(ui) * 0.5;
+	const float controlHeight = UI_ControlHeight(ui);
+	const float middle = controlHeight * 0.5f;
 	const float padding = 4.0f;
 	const float2 line1Pos = cornerPos + float2{0.0f, middle};
 	const float2 line1Size = { 8.0f, 1.0 };
-	const float2 textPos = cornerPos + float2{line1Size.x + padding, 0.0};
+	const float2 textPos = UI_AdjustTextVertically(ui, cornerPos + float2{line1Size.x + padding, 0.0f}, controlHeight);
 	const float2 textSize = UI_TextSize(ui, text);
 	const float2 line2Pos = cornerPos + float2{line1Size.x + textSize.x + 2.0f*padding, middle};
 	const float2 line2Size = float2{Max(0.0f, size.x - line1Size.x - textSize.x), line1Size.y};
@@ -1870,8 +1869,6 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, line2Pos, line2Size);
 	UI_PopColor(ui);
-
-	UI_EndLayout(ui);
 
 	UI_CursorAdvance(ui, size);
 }
@@ -2037,8 +2034,11 @@ i32 UI_TextCursorIndexAtPos(const UI &ui, const char *text, f32 relativeX)
 	return cursorIndex;
 }
 
-void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
+bool UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 {
+	char bufferBeforeEdit[128];
+	StrCopy(bufferBeforeEdit, buffer);
+
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
@@ -2128,10 +2128,14 @@ void UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	UI_AddText(ui, text2Pos, label);
 
 	UI_CursorAdvance(ui, widgetSize);
+
+	return !StrEq(buffer, bufferBeforeEdit);
 }
 
-void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing)
+bool UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing)
 {
+	const i32 numberBeforeEdit = *number;
+
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
@@ -2267,10 +2271,14 @@ void UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 	UI_AddText(ui, labelPos, label);
 
 	UI_CursorAdvance(ui, widgetSize, spacing);
+
+	return *number != numberBeforeEdit;
 }
 
-void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 spacing = UiSpacing)
+bool UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 spacing = UiSpacing)
 {
+	const f32 numberBeforeEdit = *number;
+
 	const UIWindow &window = UI_GetCurrentWindow(ui);
 	const f32 containerWidth = UI_GetContainerSize(window).x;
 
@@ -2406,9 +2414,11 @@ void UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 	UI_AddText(ui, labelPos, label);
 
 	UI_CursorAdvance(ui, widgetSize, spacing);
+
+	return *number != numberBeforeEdit;
 }
 
-void UI_InputInt2(UI &ui, const char *label, int2 *value)
+bool UI_InputInt2(UI &ui, const char *label, int2 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
@@ -2416,18 +2426,21 @@ void UI_InputInt2(UI &ui, const char *label, int2 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputInt(ui, subLabel, &value->y);
+	modified |= UI_InputInt(ui, subLabel, &value->y);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
-void UI_InputInt3(UI &ui, const char *label, int3 *value)
+bool UI_InputInt3(UI &ui, const char *label, int3 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
@@ -2435,20 +2448,23 @@ void UI_InputInt3(UI &ui, const char *label, int3 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
 	SPrintf(subLabel, "Z");
-	UI_InputInt(ui, subLabel, &value->z);
+	modified |= UI_InputInt(ui, subLabel, &value->z);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
-void UI_InputInt4(UI &ui, const char *label, int4 *value)
+bool UI_InputInt4(UI &ui, const char *label, int4 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 2.0f});
@@ -2456,22 +2472,25 @@ void UI_InputInt4(UI &ui, const char *label, int4 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->x, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->y, UiSpacingTight);
 	SPrintf(subLabel, "Z");
-	UI_InputInt(ui, subLabel, &value->z, UiSpacingTight);
+	modified |= UI_InputInt(ui, subLabel, &value->z, UiSpacingTight);
 	SPrintf(subLabel, "W");
-	UI_InputInt(ui, subLabel, &value->w);
+	modified |= UI_InputInt(ui, subLabel, &value->w);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
-void UI_InputFloat2(UI &ui, const char *label, float2 *value)
+bool UI_InputFloat2(UI &ui, const char *label, float2 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
@@ -2479,18 +2498,21 @@ void UI_InputFloat2(UI &ui, const char *label, float2 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputFloat(ui, subLabel, &value->y);
+	modified |= UI_InputFloat(ui, subLabel, &value->y);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
-void UI_InputFloat3(UI &ui, const char *label, float3 *value)
+bool UI_InputFloat3(UI &ui, const char *label, float3 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
@@ -2498,20 +2520,23 @@ void UI_InputFloat3(UI &ui, const char *label, float3 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Z");
-	UI_InputFloat(ui, subLabel, &value->z);
+	modified |= UI_InputFloat(ui, subLabel, &value->z);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
-void UI_InputFloat4(UI &ui, const char *label, float4 *value)
+bool UI_InputFloat4(UI &ui, const char *label, float4 *value)
 {
 	const float2 padding = UI_GetPadding(ui);
 	UI_PushPadding(ui, float2{padding.x, 1.0f});
@@ -2519,19 +2544,22 @@ void UI_InputFloat4(UI &ui, const char *label, float4 *value)
 	const i32 id = UI_MakeID(ui, label);
 	UI_PushID(ui, id);
 
+	bool modified = false;
 	char subLabel[128];
 	SPrintf(subLabel, "X %s", label);
-	UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->x, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Y");
-	UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->y, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "Z");
-	UI_InputFloat(ui, subLabel, &value->z, 0.1f, UiSpacingTight);
+	modified |= UI_InputFloat(ui, subLabel, &value->z, 0.1f, UiSpacingTight);
 	SPrintf(subLabel, "W");
-	UI_InputFloat(ui, subLabel, &value->w);
+	modified |= UI_InputFloat(ui, subLabel, &value->w);
 
 	UI_PopID(ui);
 
 	UI_PopPadding(ui);
+
+	return modified;
 }
 
 void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
