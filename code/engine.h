@@ -119,6 +119,7 @@ struct TimeSamples
 
 #define MAX_TEXTURES 4092
 #define MAX_MATERIALS 4092
+#define MAX_DYNAMIC_BIND_GROUPS 4092
 
 struct Graphics
 {
@@ -194,6 +195,10 @@ struct Graphics
 	// Updated once at the beginning for each material
 	BindGroup materialBindGroups[MAX_MATERIALS];
 	bool shouldUpdateMaterialBindGroups;
+
+	BindGroupDesc dynamicBindGroupDescs[MAX_DYNAMIC_BIND_GROUPS];
+	BindGroup dynamicBindGroups[MAX_DYNAMIC_BIND_GROUPS];
+	u32 dynamicBindGroupCount;
 
 	TimestampPool timestampPools[MAX_FRAMES_IN_FLIGHT];
 

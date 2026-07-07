@@ -1709,6 +1709,10 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 	computeHandles[pipelineIndex] = pipelineH;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// Builtin handles
+
 void LinkHandles(Graphics &gfx)
 {
 	// Textures
@@ -1756,6 +1760,30 @@ static void RecompilePipelines(Engine &engine, Arena scratch)
 	{
 		CompileComputePipeline(engine, scratch, i);
 	}
+}
+
+static void ResetDynamicBindGroups( Graphics &gfx )
+{
+	ResetBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[gfx.device.frameIndex] );
+	MemSet(gfx.dynamicBindGroupDescs, gfx.dynamicBindGroupCount * sizeof(BindGroupDesc), 0);
+	gfx.dynamicBindGroupCount = 0;
+}
+
+static const BindGroup &GetOrCreateDynamicBindGroup(Graphics &gfx, const BindGroupDesc &bindGroupDesc)
+{
+	for (u32 i = 0; i < gfx.dynamicBindGroupCount; ++i)
+	{
+		if ( MemCompare( &gfx.dynamicBindGroupDescs[i], &bindGroupDesc, sizeof(BindGroupDesc) ) == 0 )
+		{
+			return gfx.dynamicBindGroups[i];
+		}
+	}
+
+	ASSERT( gfx.dynamicBindGroupCount < ARRAY_COUNT(gfx.dynamicBindGroups) );
+	const BindGroup bindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[gfx.device.frameIndex]);
+	gfx.dynamicBindGroupDescs[gfx.dynamicBindGroupCount] = bindGroupDesc;
+	gfx.dynamicBindGroups[gfx.dynamicBindGroupCount] = bindGroup;
+	return gfx.dynamicBindGroups[gfx.dynamicBindGroupCount++];
 }
 
 bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
@@ -3013,7 +3041,7 @@ bool RenderGraphics(Engine &engine)
 	}
 
 	// Reset per-frame bind group allocators
-	ResetBindGroupAllocator( gfx.device, gfx.dynamicBindGroupAllocator[frameIndex] );
+	ResetDynamicBindGroups( gfx );
 
 	// Record commands
 	CommandList commandList = BeginCommandList(gfx.device);
@@ -3169,7 +3197,7 @@ bool RenderGraphics(Engine &engine)
 					{ .index = 0, .image = imageH },
 				},
 			};
-			const BindGroup textureBindGroup = CreateFullBindGroup(gfx.device, textureBindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+			const BindGroup textureBindGroup = GetOrCreateDynamicBindGroup(gfx, textureBindGroupDesc);
 
 			BeginDebugGroup(commandList, entity.name ? entity.name : "sprite", ColorBlack);
 			SetBindGroup(commandList, 2, textureBindGroup);
@@ -3351,14 +3379,14 @@ bool RenderGraphics(Engine &engine)
 				const UIDrawList &drawList = UI_GetDrawListAt(ui, i);
 				SetScissor(commandList, drawList.scissorRect);
 
-				const BindGroupDesc bindGroupDesc = {
+				const BindGroupDesc textureBindGroupDesc = {
 					.layout = bindGroupLayout,
 					.bindings = {
 						{ .index = 0, .sampler = gfx.pointSamplerH },
 						{ .index = 1, .image = drawList.imageHandle },
 					},
 				};
-				const BindGroup textureBindGroup = CreateFullBindGroup(gfx.device, bindGroupDesc, gfx.dynamicBindGroupAllocator[frameIndex]);
+				const BindGroup textureBindGroup = GetOrCreateDynamicBindGroup(gfx, textureBindGroupDesc);
 				SetBindGroup(commandList, 3, textureBindGroup);
 
 				for (u32 i = 0; i < drawList.vertexRangeCount; ++i)
