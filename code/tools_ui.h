@@ -100,6 +100,7 @@ struct UIWindow
 	bool dragging;
 	bool resizing;
 	bool scrolling;
+	bool wasMenuOpen;
 	int2 sizeBeforeResize;
 	bool disableWidgets;
 	bool clippedContents;
@@ -401,6 +402,12 @@ bool UI_IsMouseClickWithAnyButton(const UI &ui)
 bool UI_IsMouseClick(const UI &ui)
 {
 	const bool click = ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_PRESS;
+	return click;
+}
+
+bool UI_IsMouseClick(const UI &ui, MouseButton button)
+{
+	const bool click = ui.input.mouse.buttons[button] == BUTTON_STATE_PRESS;
 	return click;
 }
 
@@ -2679,52 +2686,66 @@ void UI_EndToolBar(UI &ui)
 	UI_EndWindow(ui);
 }
 
-bool UI_BeginMenu(UI &ui, const char *name)
+bool UI_BeginMenu(UI &ui, const char *name, bool *isOpen = nullptr)
 {
-	constexpr float2 margin = {8.0f, 3.0f};
-
-	const float2 textSize = UI_TextSize(ui, name);
-	const float2 itemSize = textSize + 2.0f * margin;
-
-	const float2 itemPos = UI_GetCursorPos(ui);
-	const float2 textPos = itemPos + margin;
-
-	UI_BeginWidget(ui, itemPos, itemSize);
-	const bool clicked = UI_WidgetClicked(ui);
-	const bool hovered = UI_WidgetHovered(ui);
-	UI_PushColor(ui, hovered ? UiColorMenuHover : UiColorMenu);
-	UI_AddRectangle(ui, itemPos, itemSize);
-	UI_PopColor(ui);
-	UI_AddText(ui, textPos, name);
-	UI_EndWidget(ui);
-
-	UI_CursorAdvance(ui, itemSize, 0.0f);
-
 	const u32 windowId = UI_MakeID(ui, name);
 	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, name);
 
-	// Show on click
-	if (clicked) {
-		if ( ui.activeMenu == &window ) {
-			ui.activeMenu = nullptr;
-		} else {
-			ui.activeMenu = &window;
-		}
-	}
+	if ( ui.menuBarBegan )
+	{
+		constexpr float2 margin = {8.0f, 3.0f};
 
-	// Show on hovering another menu
-	if (hovered) {
-		if (ui.activeMenu != nullptr) {
+		const float2 textSize = UI_TextSize(ui, name);
+		const float2 itemSize = textSize + 2.0f * margin;
+
+		const float2 itemPos = UI_GetCursorPos(ui);
+		const float2 textPos = itemPos + margin;
+
+		UI_BeginWidget(ui, itemPos, itemSize);
+		const bool clicked = UI_WidgetClicked(ui);
+		const bool hovered = UI_WidgetHovered(ui);
+		UI_PushColor(ui, hovered ? UiColorMenuHover : UiColorMenu);
+		UI_AddRectangle(ui, itemPos, itemSize);
+		UI_PopColor(ui);
+		UI_AddText(ui, textPos, name);
+		UI_EndWidget(ui);
+
+		UI_CursorAdvance(ui, itemSize, 0.0f);
+
+		// Show on click
+		if (clicked) {
+			if ( ui.activeMenu == &window ) {
+				ui.activeMenu = nullptr;
+			} else {
+				ui.activeMenu = &window;
+			}
+		}
+
+		// Show on hovering another menu
+		if (hovered) {
+			if (ui.activeMenu != nullptr) {
+				ui.activeMenu = &window;
+			}
+		}
+
+		const float2 menuPos = itemPos + dY(itemSize);
+		UI_PositionWindow(window, menuPos);
+	}
+	else
+	{
+		// Only open on the frame the caller first requests it (isOpen going false->true).
+		// Once open, ui.activeMenu is the source of truth so that outside clicks / moving
+		// the mouse away (handled in UI_BeginFrame) can actually close the menu instead of
+		// being immediately overridden here by a stale *isOpen that was never reset.
+		if ( isOpen && *isOpen && !window.wasMenuOpen ) {
 			ui.activeMenu = &window;
 		}
 	}
 
 	const bool showMenu = ui.activeMenu == &window;
+	window.wasMenuOpen = showMenu;
 	if ( showMenu )
 	{
-		const float2 menuPos = itemPos + dY(itemSize);
-		UI_PositionWindow(window, menuPos);
-
 		UI_BeginWindow(ui, windowId, UIWindowFlag_None);
 		UI_RaiseWindow(ui, window);
 
@@ -2732,6 +2753,10 @@ bool UI_BeginMenu(UI &ui, const char *name)
 		ui.activeMenuVertexPtr = ui.vertexPtr;
 		const float2 tempSize = {0, 0};
 		UI_AddRectangle(ui, window.pos, tempSize );
+	}
+
+	if ( isOpen ) {
+		*isOpen = showMenu;
 	}
 
 	return showMenu;
@@ -3080,7 +3105,7 @@ void UI_BeginFrame(UI &ui)
 	ui.drawListCount = 0;
 	ui.drawListStackSize = 0;
 
-	if (UI_IsMouseClick(ui))
+	if (UI_IsMouseClickWithAnyButton(ui))
 	{
 		ui.input.lastMouseClickPos = UI_MousePos(ui);
 	}

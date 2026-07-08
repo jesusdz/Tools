@@ -1179,6 +1179,24 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 	}
 }
 
+static void EditorUpdateUI_ContextMenu(Engine &engine)
+{
+	UI &ui = engine.ui;
+
+	const float2 pos = Float2(ui.input.lastMouseClickPos);
+	UI_SetNextWindowDisplacement(ui, pos);
+	if ( UI_BeginMenu(ui, "Context", &engine.editor.showContextMenu) )
+	{
+		UI_MenuItem(ui, "Caca");
+		UI_MenuItem(ui, "Caca 2");
+		UI_MenuItem(ui, "Caca 3");
+		UI_MenuItem(ui, "Caca 4");
+		UI_MenuItem(ui, "Caca 5");
+		UI_MenuItem(ui, "Caca 6");
+		UI_EndMenu(ui);
+	}
+}
+
 enum EditorFileDialogMode
 {
 	EditorFileDialog_LoadFile,
@@ -1331,6 +1349,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showAbout )
 	{
 		EditorUpdateUI_About(engine);
+	}
+
+	if ( editor.showContextMenu )
+	{
+		EditorUpdateUI_ContextMenu(engine);
 	}
 
 	EditorUpdateUI_DragAndDropLost(engine);
@@ -1870,6 +1893,14 @@ void EditorUpdate(Engine &engine)
 	EditorUpdateUI(engine);
 
 	const bool handleInput = !engine.ui.wantsInput;
+
+	if ( handleInput )
+	{
+		if ( UI_IsMouseClick(engine.ui, MOUSE_BUTTON_RIGHT) )
+		{
+			engine.editor.showContextMenu = true;
+		}
+	}
 
 	if (EditorMode3D(engine.editor))
 	{
