@@ -810,10 +810,7 @@ static void EditorUpdateUI_InspectorRoom(Engine &engine, Room &room)
 	UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
 	room.name = InternString(name);
 
-	if ( UI_InputInt2(ui, "Pos", &room.pos) )
-	{
-		UpdateRoom(engine, room);
-	}
+	UI_InputInt2(ui, "Pos", &room.pos);
 
 	//int2 size = { (i32)room.boundingBox.size.x, (i32)room.boundingBox.size.y };
 	//UI_InputInt2(ui, "Size", &size);
@@ -980,6 +977,19 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			UI_InputFloat3(ui, "Pos", &entity.position);
 			UI_InputFloat(ui, "Scale", &entity.scale);
 			UI_Checkbox(ui, "Visible", &entity.visible);
+
+			if (IsValidHandle(engine.scene.spriteHandles, entity.spriteH))
+			{
+				UI_SeparatorLabel(ui, "Sprite");
+
+				const Sprite &sprite = GetSprite(engine.scene, entity.spriteH);
+				UI_Label(ui, "Name: %s", sprite.name);
+
+				if (UI_Button(ui, "Select Sprite"))
+				{
+					EditorSelectSprite(editor, entity.spriteH);
+				}
+			}
 		}
 		else if (inspector.selected.type == EditorSelectedType_Material)
 		{
@@ -1060,9 +1070,6 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	}
 
 	UI_EndWindow(ui);
-
-	inspector.nextSelected.type = inspector.selected.type;
-	inspector.nextSelected.value = inspector.selected.value;
 }
 
 static void EditorUpdateUI_About(Engine &engine)
