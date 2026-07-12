@@ -27,19 +27,38 @@ uint EntityId(uint entityHandle)
 	return entityHandle>>16;
 }
 
-VertexOutput VSMain(VertexInput IN, uint entityHandle : SV_InstanceID)
+VertexOutput VSMain(VertexInput IN, uint instanceID : SV_InstanceID)
 {
 	VertexOutput OUT;
-	uint entityIndex = EntityId(entityHandle);
+
+#if USE_TILE_RENDERING
+
+	uint tileIndex = instanceID;
+	STileData tile = tileData.Load<STileData>(tileIndex * sizeof(STileData));
+	SSpriteData sprite = spriteData.Load<SSpriteData>(tile.spriteIndex * sizeof(SSpriteData));
+	float3 posOs = float3(IN.position.xy * sprite.worldSize, IN.position.z);
+	float3 disp = float3(tile.pos, 0.0);
+	float4 posWs = float4(posOs + disp, 1.0);
+
+#elif USE_ENTITY_RENDERING
+
+	uint entityIndex = EntityId(instanceID);
 	SEntity entityData = entities.Load<SEntity>(entityIndex * sizeof(SEntity));
 	SSpriteData sprite = spriteData.Load<SSpriteData>(entityData.spriteIndex * sizeof(SSpriteData));
 	float3 posOs = float3(IN.position.xy * sprite.worldSize, IN.position.z);
 	float4 posWs = mul(entityData.world, float4(posOs, 1.0));
+
+#if USE_ENTITY_SELECTION
+	OUT.isSelected = instanceID == globals.selectedEntity;
+#endif
+
+#else
+#error "Need to specify the type of geometry being rendered"
+#endif
+
 	OUT.position = mul(globals.cameraProj, mul(globals.cameraView, posWs));
 	OUT.texCoord = sprite.uvOffset + IN.texCoord * sprite.uvSize;
-#if USE_ENTITY_SELECTION
-	OUT.isSelected = entityHandle == globals.selectedEntity;
-#endif
+
 	return OUT;
 }
 

@@ -24,6 +24,7 @@ struct ShaderSourceDesc
 	const char *filename;
 	const char *entryPoint;
 	const char *name;
+	const char *defines;
 };
 
 struct TextureDesc

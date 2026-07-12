@@ -159,6 +159,7 @@ struct Graphics
 	u32 debugDrawVertexCount;
 
 	BufferH spriteDataBuffer[MAX_FRAMES_IN_FLIGHT];
+	BufferH tileDataBuffer[MAX_FRAMES_IN_FLIGHT];
 
 	SamplerH pointSamplerH;
 	SamplerH linearSamplerH;
@@ -213,6 +214,7 @@ struct Graphics
 	PipelineH shadowmapPipelineH;
 	PipelineH skyPipelineH;
 	PipelineH spritePipelineH;
+	PipelineH tilePipelineH;
 	PipelineH blitPipelineH;
 	PipelineH guiPipelineH;
 #if USE_EDITOR
@@ -274,6 +276,7 @@ struct Room
 #define MAX_ENTITIES 4092
 #define MAX_SPRITES 4092
 #define MAX_ROOMS 256
+#define MAX_TILES 16 * 16 * 8 * MAX_ROOMS
 
 constexpr u32 SCENE_WIDTH = 320;
 constexpr u32 SCENE_HEIGHT = 180;

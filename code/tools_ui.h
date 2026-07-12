@@ -1675,18 +1675,18 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 
 bool UI_Radio(UI &ui, const char *text, bool active)
 {
-	const float2 ballPos = UI_GetCursorPos(ui);
+	const float2 widgetPos = UI_GetCursorPos(ui);
 	const float controlHeight = UI_ControlHeight(ui);
-	const float2 ballSize = {controlHeight, controlHeight};
-	const float2 textPos = ballPos + float2{ballSize.x + UiSpacing * 0.5f, 0.0};
-	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, ballSize.y);
+	const float2 textPos = widgetPos + float2{controlHeight + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, controlHeight);
 	const float  textWidth = UI_TextWidth(ui, text);
 
-	const float2 widgetPos = ballPos;
-	const float2 widgetSize = ballSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
+	const float2 widgetSize = float2{controlHeight, controlHeight} + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
 	UI_PushColor(ui, UIElementToggle);
+	const float2 ballPos = widgetPos + float2{3, 3};
+	const float2 ballSize = {controlHeight - 6, controlHeight - 6};
 	UI_AddCircle(ui, ballPos, ballSize.y/2.0);
 	UI_PopColor(ui);
 	if (active)

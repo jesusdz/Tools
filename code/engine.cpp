@@ -198,10 +198,12 @@ static const Index screenTriangleIndices[] = {
 };
 
 static ShaderSourceDesc shaderSourceDescs[] = {
-	{ .type = ShaderTypeVertex,   .filename = "shading.hlsl",        .entryPoint = "VSMain",      .name = "vs_shading" },
-	{ .type = ShaderTypeFragment, .filename = "shading.hlsl",        .entryPoint = "PSMain",      .name = "fs_shading" },
-	{ .type = ShaderTypeVertex,   .filename = "shading_2d.hlsl",     .entryPoint = "VSMain",      .name = "vs_shading_2d" },
-	{ .type = ShaderTypeFragment, .filename = "shading_2d.hlsl",     .entryPoint = "PSMain",      .name = "fs_shading_2d" },
+	{ .type = ShaderTypeVertex,   .filename = "shading_3d.hlsl",     .entryPoint = "VSMain",      .name = "vs_shading_3d" },
+	{ .type = ShaderTypeFragment, .filename = "shading_3d.hlsl",     .entryPoint = "PSMain",      .name = "fs_shading_3d" },
+	{ .type = ShaderTypeVertex,   .filename = "shading_2d.hlsl",     .entryPoint = "VSMain",      .name = "vs_shading_2d", .defines = "-D USE_ENTITY_RENDERING 1" },
+	{ .type = ShaderTypeFragment, .filename = "shading_2d.hlsl",     .entryPoint = "PSMain",      .name = "fs_shading_2d", .defines = "-D USE_ENTITY_RENDERING 1" },
+	{ .type = ShaderTypeVertex,   .filename = "shading_2d.hlsl",     .entryPoint = "VSMain",      .name = "vs_shading_2d_tile", .defines = "-D USE_TILE_RENDERING 1" },
+	{ .type = ShaderTypeFragment, .filename = "shading_2d.hlsl",     .entryPoint = "PSMain",      .name = "fs_shading_2d_tile", .defines = "-D USE_TILE_RENDERING 1" },
 	{ .type = ShaderTypeVertex,   .filename = "sky.hlsl",            .entryPoint = "VSMain",      .name = "vs_sky" },
 	{ .type = ShaderTypeFragment, .filename = "sky.hlsl",            .entryPoint = "PSMain",      .name = "fs_sky" },
 	{ .type = ShaderTypeVertex,   .filename = "shadowmap.hlsl",      .entryPoint = "VSMain",      .name = "vs_shadowmap" },
@@ -228,8 +230,8 @@ static ShaderSourceDesc shaderSourceDescs[] = {
 static const ShaderAndPipelineDesc pipelineDescs[] =
 {
 	{
-		.vsName = "vs_shading",
-		.fsName = "fs_shading",
+		.vsName = "vs_shading_3d",
+		.fsName = "fs_shading_3d",
 		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_shading",
@@ -254,6 +256,28 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 		.renderPass = "scene_renderpass",
 		.desc = {
 			.name = "pipeline_shading_2d",
+			.vsFunction = "VSMain",
+			.fsFunction = "PSMain",
+			.vertexBufferCount = 1,
+			.vertexBuffers = { { .stride = 32 }, },
+			.vertexAttributeCount = 3,
+			.vertexAttributes = {
+				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 1, .offset = 12, .format = FormatFloat3, },
+				{ .bufferIndex = 0, .location = 2, .offset = 24, .format = FormatFloat2, },
+			},
+			.depthTest = true,
+			.depthWrite = true,
+			.depthCompareOp = CompareOpGreaterOrEqual,
+			.blending = true,
+		}
+	},
+	{
+		.vsName = "vs_shading_2d_tile",
+		.fsName = "fs_shading_2d_tile",
+		.renderPass = "scene_renderpass",
+		.desc = {
+			.name = "pipeline_shading_2d_tile",
 			.vsFunction = "VSMain",
 			.fsFunction = "PSMain",
 			.vertexBufferCount = 1,
@@ -1385,6 +1409,23 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 
 
 ////////////////////////////////////////////////////////////////////////
+// Immediate draw
+
+void DrawSprite(Handle spriteH, float2 worldPos)
+{
+//	ASSERT( engine->gfx.spriteVertexCount + 6 < MAX_SPRITE_VERTICES );
+//	DebugDrawVertex *v = engine->gfx.debugDrawVerticesCPU + engine->gfx.debugDrawVertexCount;
+//	v[0] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
+//	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
+//	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, Rgba(color) };
+//	v[3] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
+//	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, Rgba(color) };
+//	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
+//	engine->gfx.debugDrawVertexCount += 6;
+}
+
+
+////////////////////////////////////////////////////////////////////////
 // Debug draw
 
 void DrawBox(float2 pos, float2 size, float4 color)
@@ -1666,6 +1707,7 @@ void LinkHandles(Graphics &gfx)
 	gfx.shadowmapPipelineH = FindPipelineHandle(gfx, "pipeline_shadowmap");
 	gfx.skyPipelineH = FindPipelineHandle(gfx, "pipeline_sky");
 	gfx.spritePipelineH = FindPipelineHandle(gfx, "pipeline_shading_2d");
+	gfx.tilePipelineH = FindPipelineHandle(gfx, "pipeline_shading_2d_tile");
 	gfx.blitPipelineH = FindPipelineHandle(gfx, "pipeline_blit");
 	gfx.guiPipelineH = FindPipelineHandle(gfx, "pipeline_ui");
 #if USE_EDITOR
@@ -1868,6 +1910,18 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 			HeapType_Dynamic);
 	}
 
+	// Create tile data buffer
+	for (u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+	{
+		const u32 tileDataBufferSize = (MAX_TILES) * sizeof(STileData);
+		gfx.tileDataBuffer[i] = CreateBuffer(
+			gfx.device,
+			tileDataBufferSize,
+			BufferUsageStorageBuffer,
+			HeapType_Dynamic);
+	}
+
+
 	// Create material buffer
 	const u32 materialBufferSize = MAX_MATERIALS * AlignUp( sizeof(SMaterial), gfx.device.alignment.uniformBufferOffset );
 	gfx.materialBuffer = CreateBuffer(gfx.device, materialBufferSize, BufferUsageUniformBuffer | BufferUsageTransferDst, HeapType_General);
@@ -1929,6 +1983,7 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 		{ .set = 0, .binding = BINDING_SHADOWMAP, .type = SpvTypeImage, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_SHADOWMAP_SAMPLER, .type = SpvTypeSampler, .stageFlags = SpvStageFlagsFragmentBit },
 		{ .set = 0, .binding = BINDING_SPRITE_DATA, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
+		{ .set = 0, .binding = BINDING_TILE_DATA, .type = SpvTypeStorageBuffer, .stageFlags = SpvStageFlagsVertexBit },
 	};
 	gfx.globalBindGroupLayout = CreateBindGroupLayout(gfx.device, globalShaderBindings, ARRAY_COUNT(globalShaderBindings));
 
@@ -2047,6 +2102,7 @@ BindGroupDesc GlobalBindGroupDesc(const Graphics &gfx, u32 frameIndex)
 			{ .index = BINDING_SHADOWMAP, .image = gfx.renderTargets.shadowmapImage },
 			{ .index = BINDING_SHADOWMAP_SAMPLER, .sampler = gfx.shadowmapSamplerH },
 			{ .index = BINDING_SPRITE_DATA, .buffer = gfx.spriteDataBuffer[frameIndex] },
+			{ .index = BINDING_TILE_DATA, .buffer = gfx.tileDataBuffer[frameIndex] },
 		},
 	};
 	return bindGroupDesc;
@@ -2391,6 +2447,9 @@ u32 CreateLayer(Room &room)
 			{
 				room.layerCount++;
 				layer.initialized = true;
+				layer.name = InternString("Layer");
+				layer.visible = true;
+				layer.grid.size = { TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y };
 				index = i;
 				break;
 			}
@@ -2433,12 +2492,7 @@ Handle CreateRoom(Engine &engine)
 	room.name = InternString("Room");
 	room.pos = {};
 
-	room.layerCount = 1;
-	Layer &layer = room.layers[0];
-	layer = {};
-	layer.name = InternString("Layer");
-	layer.grid.size = { TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y };
-	layer.visible = true;
+	CreateLayer(room);
 
 	return roomH;
 }
@@ -2941,6 +2995,36 @@ bool RenderGraphics(Engine &engine)
 		}
 	}
 
+	// TileGrid: Update tile data buffer
+	STileData *tileDataPtr = (STileData*)GetBufferPtr(gfx.device, gfx.tileDataBuffer[frameIndex]);
+	u32 tileCount = 0;
+	for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
+	{
+		const Room &room = GetRoom(scene, *it);
+
+		for (u32 i = 0; i < ARRAY_COUNT(room.layers); ++i)
+		{
+			const Layer &layer = room.layers[i];
+
+			if (layer.initialized && layer.visible)
+			{
+				for (i32 y = 0; y < layer.grid.size.y; ++y)
+				{
+					for (i32 x = 0; x < layer.grid.size.x; ++x)
+					{
+						const Handle spriteH = layer.grid.cells[x][y];
+						if (IsValidHandle(scene.spriteHandles, spriteH) && tileCount < MAX_TILES)
+						{
+							tileDataPtr[tileCount].pos = room.pos + int2{x, y};
+							tileDataPtr[tileCount].spriteIndex = spriteH.idx;
+							tileCount++;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
 	for (u32 i = 0; i < scene.entityHandles.handleCount; ++i)
@@ -3097,6 +3181,60 @@ bool RenderGraphics(Engine &engine)
 			const uint32_t firstIndex = entity.indices.offset/sizeof(Index);
 			const int32_t firstVertex = entity.vertices.offset/sizeof(Vertex); // assuming all vertices in the buffer are the same
 			DrawIndexed(commandList, indexCount, firstIndex, firstVertex, handle.num);
+
+			EndDebugGroup(commandList);
+		}
+
+		// TileGrid
+		{
+			BeginDebugGroup(commandList, "Tiles", ColorBlack);
+
+			const Pipeline &tilePipeline = GetPipeline(gfx.device, gfx.tilePipelineH);
+			const uint32_t tileIndexCount = gfx.spriteIndices.size / sizeof(Index);
+			const uint32_t tileFirstIndex = gfx.spriteIndices.offset / sizeof(Index);
+			const int32_t tileFirstVertex = gfx.spriteVertices.offset / sizeof(Vertex);
+
+			SetPipeline(commandList, gfx.tilePipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
+
+			u32 tileIndex = 0;
+			for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
+			{
+				const Room &room = GetRoom(scene, *it);
+
+				for (u32 i = 0; i < ARRAY_COUNT(room.layers); ++i)
+				{
+					const Layer &layer = room.layers[i];
+
+					if (!layer.initialized || !layer.visible) continue;
+
+					for (u32 y = 0; y < layer.grid.size.y; ++y)
+					{
+						for (u32 x = 0; x < layer.grid.size.x; ++x)
+						{
+							const Handle spriteH = layer.grid.cells[x][y];
+							if (!IsValidHandle(scene.spriteHandles, spriteH)) continue;
+
+							const Sprite &sprite = GetSprite(scene, spriteH);
+							const ImageH imageH = GetTextureImage(gfx, sprite.textureH, gfx.pinkImageH);
+							const BindGroupDesc textureBindGroupDesc = {
+								.layout = tilePipeline.layout.bindGroupLayouts[2],
+								.bindings = {
+									{ .index = 0, .image = imageH },
+								},
+							};
+							const BindGroup textureBindGroup = GetOrCreateDynamicBindGroup(gfx, textureBindGroupDesc);
+
+							SetBindGroup(commandList, 2, textureBindGroup);
+							DrawIndexed(commandList, tileIndexCount, tileFirstIndex, tileFirstVertex, tileIndex);
+
+							tileIndex++;
+						}
+					}
+				}
+			}
 
 			EndDebugGroup(commandList);
 		}

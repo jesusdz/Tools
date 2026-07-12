@@ -10,6 +10,7 @@
 #define BINDING_SHADOWMAP         4
 #define BINDING_SHADOWMAP_SAMPLER 5
 #define BINDING_SPRITE_DATA       6
+#define BINDING_TILE_DATA         7
 
 #define BINDING_MATERIAL 0
 #define BINDING_ALBEDO   1

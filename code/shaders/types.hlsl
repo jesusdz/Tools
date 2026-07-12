@@ -36,6 +36,12 @@ struct SSpriteData
 	float2 worldSize;
 };
 
+struct STileData
+{
+	int2 pos;
+	uint spriteIndex;
+};
+
 struct SMaterial
 {
 	float uvScale;

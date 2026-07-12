@@ -217,6 +217,8 @@ static void EditorUpdateUI_ToolBar(Engine &engine)
 
 		UI_Separator(ui);
 
+		UI_Label(ui, "Camera");
+
 		if ( UI_Radio(ui, "2D", EditorMode2D(engine.editor)) ) {
 			EditorSetMode2D(engine.editor);
 		}
@@ -891,7 +893,9 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	{
 		const bool createFromFile = refresh;
 
-		UI_Label(ui, "%s", inspector.selected.file->filename);
+		const char *filename = inspector.selected.file->filename;
+
+		UI_Label(ui, "%s", filename);
 
 		if (inspector.selected.type == EditorSelectedType_FileImage)
 		{
@@ -899,7 +903,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			{
 				const TextureDesc desc = {
 					.name = InternString("inspected_image"),
-					.filename = inspector.selected.file->filename,
+					.filename = filename,
 					.mipmap = true,
 					.flags = AssetFlag_Builtin,
 				};
@@ -908,6 +912,29 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 
 			const ImageH imageH = GetTextureImage(engine.gfx, inspector.tmpHandle, engine.gfx.grayImageH);
 			UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
+
+			if ( UI_Button(ui, "Make sprite") )
+			{
+				const char *basename = NameFromFilename(filename);
+				const char *texname = MakeName("tex_%s", basename);
+				const char *matname = MakeName("mat_%s", basename);
+				const char *spriteName = MakeName("spr_%s", basename);
+
+				const TextureDesc textureDesc = {
+					.name = texname,
+					.filename = filename,
+					.mipmap = true,
+				};
+				TextureH textureH = GetOrCreateTexture(engine.gfx, textureDesc);
+
+				const SpriteDesc spriteDesc = {
+					.name = spriteName,
+					.textureName = texname,
+				};
+				SpriteH spriteH = GetOrCreateSprite(engine, spriteDesc);
+
+				EditorSelectSprite(editor, spriteH);
+			}
 		}
 		else if (inspector.selected.type == EditorSelectedType_FileAudio)
 		{
@@ -915,7 +942,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			{
 				const AudioClipDesc desc = {
 					.name = InternString("inspected_audio_clip"),
-					.filename = inspector.selected.file->filename,
+					.filename = filename,
 					.flags = AssetFlag_Builtin,
 				};
 				inspector.tmpHandle = CreateAudioClip(engine, desc);
@@ -938,7 +965,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			{
 				const MusicFileDesc desc = {
 					.name = InternString("inspected_music_file"),
-					.filename = inspector.selected.file->filename,
+					.filename = filename,
 					//.flags = AssetFlag_Builtin,
 				};
 				inspector.tmpHandle = CreateMusicFile(engine, desc);
@@ -992,7 +1019,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				const Sprite &sprite = GetSprite(engine.scene, entity.spriteH);
 				UI_Text(ui, "Name", sprite.name);
 
-				if (UI_Button(ui, "Select Sprite"))
+				if (UI_Button(ui, "Go to sprite"))
 				{
 					EditorSelectSprite(editor, entity.spriteH);
 				}
@@ -1767,14 +1794,14 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 		if (tileEditMode && MouseButtonPressed(mouse, MOUSE_BUTTON_LEFT))
 		{
-			const Camera &camera = editor.camera[ProjectionOrthographic];
-			const int2 mousePos = { mouse.x, mouse.y };
-			const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos);
-			const SpriteH spriteH = editor.context.tool == EditorTool_Draw
-				? editor.context.spriteH : InvalidHandle;
-
 			if (editor.context.layer)
 			{
+				const Camera &camera = editor.camera[ProjectionOrthographic];
+				const int2 mousePos = { mouse.x, mouse.y };
+				const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos) - editor.context.room->pos;
+				const SpriteH spriteH = editor.context.tool == EditorTool_Draw
+					? editor.context.spriteH : InvalidHandle;
+
 				TileGrid &grid = editor.context.layer->grid;
 				SetGridTileAtCoord(engine, grid, spriteH, gridCoord);
 			}
@@ -1784,15 +1811,29 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 void EditorDebugDraw(Engine &engine)
 {
-	if (engine.editor.context.layer != nullptr)
+	Editor &editor = engine.editor;
+
+	if (editor.context.layer != nullptr)
 	{
-		Room &room = *engine.editor.context.room;
-		Layer &layer = *engine.editor.context.layer;
+		Room &room = *editor.context.room;
+		Layer &layer = *editor.context.layer;
 		const float2 pos = Float2(room.pos);
 		const float2 size = LayerSize(layer);
 		DrawBoxOutline(pos, size, ColorOrange);
+
+		if (EditorMode2D(editor))
+		{
+			Handle spriteH = editor.context.spriteH;
+			if ( spriteH != InvalidHandle )
+			{
+				const Mouse &mouse = sPlatform->window->mouse;
+				const int2 mousePos = { mouse.x, mouse.y };
+				const float2 worldPos = Floor(GetWorld2DCoord(engine, editor.camera[ProjectionOrthographic], mousePos));
+				DrawSprite(spriteH, worldPos);
+			}
+		}
 	}
-	else if (engine.editor.context.room != nullptr)
+	else if (editor.context.room != nullptr)
 	{
 	}
 }

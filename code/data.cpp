@@ -48,6 +48,7 @@ void CompileShader(u32 index)
 		desc.type == ShaderTypeCompute ? "cs_6_7" :
 		"unknown";
 	const char *entry = desc.entryPoint;
+	const char *defines = desc.defines ? desc.defines : "";
 
 	const FilePath filepathSpirv = GetShaderSpirvFilePath(index);
 	const FilePath filepathDisasm = GetShaderDisasmFilePath(index);
@@ -57,10 +58,12 @@ void CompileShader(u32 index)
 	SPrintf(commandline,
 			"%s/%s "
 			"%s -T %s -E %s "
+			"%s "
 			"-Fo %s -Fc %s "
 			"%s",
 			ProjectDir, dxc,
 			flags, target, entry,
+			defines,
 			filepathSpirv.str, filepathDisasm.str,
 			filepathHlsl.str);
 	LOG(Info, "%s\n", commandline);
