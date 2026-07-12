@@ -21,22 +21,6 @@
 	va_end(vaList); \
 	const char *text = ui.tempString;
 
-// Colors
-//
-// Widget colors are grouped by role, not just by widget function, so that
-// different kinds of controls are visually distinguishable at a glance:
-//   - Action  (Button, Section header, Combo trigger, Menu items): the
-//     saturated accent color. These surfaces trigger something on click.
-//   - Toggle  (Checkbox, Radio): a muted neutral. These hold a persistent
-//     on/off state rather than firing an action, so they shouldn't compete
-//     with Action surfaces for attention.
-//   - Box     (InputText, InputInt/Float, Combo value area): a recessed,
-//     near-black "well" with a border, read as a container you type into
-//     rather than something you press.
-//   - Caption (window titlebars): passive chrome, kept visually apart from
-//     all of the above so it doesn't read as clickable.
-// A future read-only text field should reuse the Box idle color but skip
-// the hover color entirely (no hover feedback on a non-interactive field).
 constexpr f32 CR = 0.05;
 constexpr f32 CG = 0.15;
 constexpr f32 CB = 0.3;
@@ -47,9 +31,6 @@ constexpr float4 UiColorBorder = { 0.1, 0.1, 0.1, 0.9 };
 constexpr float4 UiColorCaption = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.05, 0.05, 0.05, 1.0 };
 constexpr float4 UiColorBackground = { 0.02, 0.02, 0.02, 0.97 };
-
-constexpr float4 UiColorWidget = { CR, CG, CB, 1.0 };
-constexpr float4 UiColorWidgetHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 
 constexpr float4 UiColorSection = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorSectionHover = { 2*CR, 2*CG, 2*CB, 1.0 };
@@ -201,11 +182,6 @@ struct UIDrawList
 struct UICombo
 {
 	u32 id;
-//	const char *text;
-//	const char **items;
-//	u32 itemCount;
-//	u32 selectedIndex;
-//	bool selectedIndexChanged;
 	float2 pos;
 	float2 size;
 };
@@ -227,15 +203,31 @@ struct UIDragAndDrop
 	ImageH imageH;
 };
 
-struct UIColorStack
+struct UIElementColor
 {
-	float4 stack[8];
+	float4 base;
+	float4 hovered;
+	float4 active;
+	float4 inactive;
+};
+
+struct UIElementColorStack
+{
+	UIElementColor stack[8];
 	uint stackSize;
 };
 
 enum UIElement
 {
 	UIElementBackground,
+	UIElementSection,
+	UIElementButton,
+	UIElementToggle,
+	UIElementInput,
+	UIElementBox,
+	UIElementScrollbar,
+	UIElementMenu,
+	UIElementCaption,
 	UIElementCount,
 };
 
@@ -268,7 +260,7 @@ struct UI
 	float4 colors[16];
 	u32 colorCount;
 
-	UIColorStack colorElems[UIElementCount];
+	UIElementColorStack colorElems[UIElementCount];
 
 	float2 cursorStack[16];
 	u32 cursorStackSize;
@@ -297,8 +289,6 @@ struct UI
 	UIWindow *activeWindow;
 	UIWindow *hoveredWindow;
 
-//	float2 defaultWindowAnchor;
-//	float2 defaultWindowPivot;
 	float2 defaultWindowDisplacement;
 	float2 defaultWindowSize;
 
@@ -377,8 +367,6 @@ static void UI_SetNextWindowAnchor(UI &ui, float2 anchor)
 static void UI_ResetWindowDefaults(UI &ui)
 {
 	ui.defaultWindowSize = {200, 300};
-//	ui.defaultWindowAnchor = {0, 0};
-//	ui.defaultWindowPivot = {0, 0};
 	ui.defaultWindowDisplacement = {0, 0};
 }
 
@@ -893,48 +881,6 @@ bool UI_WidgetClicked(const UI &ui)
 	return clicked;
 }
 
-float4 UI_WidgetColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorWidgetHover : UiColorWidget;
-	return res;
-}
-
-float4 UI_SectionColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorSectionHover : UiColorSection;
-	return res;
-}
-
-float4 UI_ButtonColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorButtonHover : UiColorButton;
-	return res;
-}
-
-float4 UI_InputColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorInputHover : UiColorInput;
-	return res;
-}
-
-float4 UI_ToggleColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorToggleHover : UiColorToggle;
-	return res;
-}
-
-float4 UI_ScrollbarColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorScrollbarHover : UiColorScrollbar;
-	return res;
-}
-
-float4 UI_BoxColor(const UI &ui)
-{
-	const float4 res = UI_WidgetHovered(ui) ? UiColorBoxHover : UiColorBox;
-	return res;
-}
-
 void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction = true)
 {
 	ASSERT(ui.widgetStackSize < ARRAY_COUNT(ui.widgetStack));
@@ -1008,7 +954,7 @@ float4 UI_GetColor(const UI &ui)
 	return color;
 }
 
-void UI_PushElemColor(UI &ui, UIElement elem, float4 color)
+void UI_PushElemColor(UI &ui, UIElement elem, UIElementColor color)
 {
 	ASSERT(ui.colorElems[elem].stackSize < ARRAY_COUNT(ui.colorElems[0].stack));
 	ui.colorElems[elem].stack[ui.colorElems[elem].stackSize++] = color;
@@ -1020,15 +966,15 @@ void UI_PopElemColor(UI &ui, UIElement elem)
 	ui.colorElems[elem].stackSize--;
 }
 
-float4 UI_GetElemColor(UI &ui, UIElement elem)
+const UIElementColor &UI_GetElemColor(UI &ui, UIElement elem)
 {
-	const float4 color = ui.colorElems[elem].stack[ui.colorElems[elem].stackSize-1];
-	return color;
+	return ui.colorElems[elem].stack[ui.colorElems[elem].stackSize-1];
 }
 
 void UI_PushColor(UI &ui, UIElement elem)
 {
-	const float4 color = UI_GetElemColor(ui, elem);
+	const UIElementColor &elemColor = UI_GetElemColor(ui, elem);
+	const float4 color = UI_WidgetHovered(ui) ? elemColor.hovered : elemColor.base;
 	UI_PushColor(ui, color);
 }
 
@@ -1255,8 +1201,6 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	StrCopy(window.caption, caption);
 	window.layer = windowIndex;
 
-//	window.anchor = ui.defaultWindowAnchor;
-//	window.pivot = ui.defaultWindowPivot;
 	window.displacement = ui.defaultWindowDisplacement;
 	window.size = ui.defaultWindowSize;
 	UI_ResetWindowDefaults(ui);
@@ -1346,7 +1290,8 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 		const float2 titlebarPos = panelPos;
 		const float2 titlebarSize = float2{panelSize.x, 18.0f};
 
-		UI_PushColor(ui, activeWindow ? UiColorCaption : UiColorCaptionInactive);
+		const UIElementColor &captionColor = UI_GetElemColor(ui, UIElementCaption);
+		UI_PushColor(ui, activeWindow ? captionColor.base : captionColor.inactive);
 		UI_AddRectangle(ui, titlebarPos, titlebarSize);
 		UI_PopColor(ui);
 
@@ -1363,7 +1308,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 			UI_BeginWidget(ui, closePos, closeSize, false);
 
 			// Surface
-			UI_PushColor(ui, UI_WidgetColor(ui));
+			UI_PushColor(ui, UIElementButton);
 			UI_AddRectangle(ui, closePos, closeSize);
 			UI_PopColor(ui);
 
@@ -1410,8 +1355,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 		const float2 cornerBL = cornerBR + float2{-cornerSize, 0.0};
 		const float2 cornerTL = cornerBR + float2{-cornerSize, -cornerSize};
 		UI_BeginWidget(ui, cornerTL, float2{cornerSize, cornerSize}, false);
-		const bool cornerHovered = UI_WidgetHovered(ui);
-		UI_PushColor(ui, cornerHovered ? UiColorWidgetHover : UiColorWidget);
+		UI_PushColor(ui, UIElementButton);
 		UI_AddTriangle(ui, cornerBL, cornerBR, cornerTR);
 		UI_PopColor(ui);
 		if (UI_WidgetClicked(ui))
@@ -1478,7 +1422,7 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 			const f32 scrollbarPosY = scrollbarMinY + (scrollbarMaxY - scrollbarMinY) * scrollbarPosYNorm;
 			const float2 scrollbarPos = { (f32)containerPos.x + (f32)containerSize.x + UiWindowPadding.x * 0.5f, scrollbarPosY };
 			UI_BeginWidget(ui, scrollbarPos, scrollbarSize);
-			UI_PushColor(ui, UI_ScrollbarColor(ui));
+			UI_PushColor(ui, UIElementScrollbar);
 			UI_AddRectangle(ui, scrollbarPos, scrollbarSize);
 			UI_PopColor(ui);
 			if (UI_WidgetClicked(ui)) {
@@ -1605,7 +1549,7 @@ bool UI_Section(UI &ui, const char *caption)
 
 	UI_BeginWidget(ui, pos, size);
 
-	UI_PushColor(ui, UI_SectionColor(ui));
+	UI_PushColor(ui, UIElementSection);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
 
@@ -1657,7 +1601,7 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_BeginWidget(ui, pos, size);
 
-	UI_PushColor(ui, UI_ButtonColor(ui));
+	UI_PushColor(ui, UIElementButton);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
 
@@ -1686,7 +1630,7 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_ButtonColor(ui));
+	UI_PushColor(ui, UIElementButton);
 	UI_AddRectangle(ui, widgetPos, widgetSize);
 	UI_PopColor(ui);
 
@@ -1714,7 +1658,7 @@ bool UI_Radio(UI &ui, const char *text, bool active)
 	const float2 widgetSize = ballSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_ToggleColor(ui));
+	UI_PushColor(ui, UIElementToggle);
 	UI_AddCircle(ui, ballPos, ballSize.y/2.0);
 	UI_PopColor(ui);
 	if (active)
@@ -1752,7 +1696,7 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	const float2 widgetSize = boxSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_ToggleColor(ui));
+	UI_PushColor(ui, UIElementToggle);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	if (*checked)
@@ -1798,7 +1742,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = float2{widgetSize.x - side, side};
 
-	UI_PushColor(ui, UI_InputColor(ui));
+	UI_PushColor(ui, UIElementInput);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	//UI_PushColor(ui, UiColorBorder);
@@ -1811,7 +1755,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 butPos = widgetPos + float2{boxSize.x, 0.0f};
 	const float2 butSize = {side, side};
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UIElementButton);
 	UI_AddRectangle(ui, butPos, butSize);
 	UI_PopColor(ui);
 
@@ -2003,7 +1947,7 @@ void UI_Text(UI &ui, const char *label, const char *format, ...)
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = widgetSize;
 
-	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_PushColor(ui, UIElementBox);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 
@@ -2155,7 +2099,7 @@ bool UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = widgetSize;
 
-	UI_PushColor(ui, UI_InputColor(ui));
+	UI_PushColor(ui, UIElementInput);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	//UI_PushColor(ui, UiColorBorder);
@@ -2265,7 +2209,7 @@ bool UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 	static i32 numberBeforeDrag;
 
 	UI_BeginWidget(ui, boxPos, boxSize);
-	UI_PushColor(ui, UI_InputColor(ui));
+	UI_PushColor(ui, UIElementInput);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	//UI_PushColor(ui, UiColorBorder);
@@ -2411,7 +2355,7 @@ bool UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 	static f32 numberBeforeDrag;
 
 	UI_BeginWidget(ui, boxPos, boxSize);
-	UI_PushColor(ui, UI_InputColor(ui));
+	UI_PushColor(ui, UIElementInput);
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	//UI_PushColor(ui, UiColorBorder);
@@ -2719,7 +2663,7 @@ bool UI_BeginMenuBar(UI &ui)
 	const float2 pos = window.pos;
 	const float2 size = window.size;
 
-	UI_PushColor(ui, UiColorMenu);
+	UI_PushColor(ui, UIElementMenu);
 	UI_AddRectangle(ui, pos, size);
 
 	const float2 borderPos = pos + float2{0.0f, size.y};
@@ -2764,7 +2708,7 @@ bool UI_BeginToolBar(UI &ui)
 	const float2 pos = window.pos;
 	const float2 size = window.size;
 
-	UI_PushColor(ui, UiColorMenu);
+	UI_PushColor(ui, UIElementMenu);
 	UI_AddRectangle(ui, pos, size);
 
 	const float2 borderPos = pos + float2{0.0f, size.y};
@@ -2807,7 +2751,7 @@ bool UI_BeginMenu(UI &ui, const char *name, bool *isOpen = nullptr)
 		UI_BeginWidget(ui, itemPos, itemSize);
 		const bool clicked = UI_WidgetClicked(ui);
 		const bool hovered = UI_WidgetHovered(ui);
-		UI_PushColor(ui, hovered ? UiColorMenuHover : UiColorMenu);
+		UI_PushColor(ui, UIElementMenu);
 		UI_AddRectangle(ui, itemPos, itemSize);
 		UI_PopColor(ui);
 		UI_AddText(ui, textPos, name);
@@ -2899,7 +2843,7 @@ bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 	const bool hovered = UI_WidgetHovered(ui, widgetPos, extWidgetSize);
 	if ( hovered )
 	{
-		UI_PushColor(ui, UiColorMenuHover);
+		UI_PushColor(ui, UI_GetElemColor(ui, UIElementMenu).hovered);
 		UI_AddRectangle(ui, widgetPos, extWidgetSize);
 		UI_PopColor(ui);
 	}
@@ -3028,7 +2972,16 @@ void UI_InitializeColors(UI &ui)
 	for (u32 i = 0; i < UIElementCount; ++i) {
 		ui.colorElems[i].stackSize = 0;
 	}
-	UI_PushElemColor(ui, UIElementBackground, UiColorBackground);
+
+	UI_PushElemColor(ui, UIElementBackground, { UiColorBackground, UiColorBackground,     UiColorBackground,     UiColorBackground });
+	UI_PushElemColor(ui, UIElementSection,    { UiColorSection,    UiColorSectionHover,   UiColorSectionHover,   UiColorSection });
+	UI_PushElemColor(ui, UIElementButton,     { UiColorButton,     UiColorButtonHover,    UiColorButtonHover,    UiColorButton });
+	UI_PushElemColor(ui, UIElementToggle,     { UiColorToggle,     UiColorToggleHover,    UiColorToggleHover,    UiColorToggle });
+	UI_PushElemColor(ui, UIElementInput,      { UiColorInput,      UiColorInputHover,     UiColorInputHover,     UiColorInput });
+	UI_PushElemColor(ui, UIElementBox,        { UiColorBox,        UiColorBoxHover,       UiColorBoxHover,       UiColorBox });
+	UI_PushElemColor(ui, UIElementScrollbar,  { UiColorScrollbar,  UiColorScrollbarHover, UiColorScrollbarHover, UiColorScrollbar });
+	UI_PushElemColor(ui, UIElementMenu,       { UiColorMenu,       UiColorMenuHover,      UiColorMenuHover,      UiColorMenu });
+	UI_PushElemColor(ui, UIElementCaption,    { UiColorCaption,    UiColorCaption,        UiColorCaption,        UiColorCaptionInactive });
 }
 
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalArena, UIIcon *icons, u32 iconCount)
@@ -3050,7 +3003,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 		ui.backendVertices[i] = (UIVertex*)GetBufferPtr(gfxDev, ui.vertexBuffer[i]);
 	}
 
-	UI_PushColor(ui, UiColorWidget);
+	UI_PushColor(ui, UiColorButton);
 	UI_PushPadding(ui, UiDefaultInputPadding);
 
 	UI_InitializeColors(ui);
@@ -3357,7 +3310,8 @@ void UI_EndFrame(UI &ui)
 		const char *idString = "$modalbg";
 		const u32 windowId = UI_MakeID(ui, idString);
 
-		UI_PushElemColor(ui, UIElementBackground, float4{0.0, 0.0, 0.0, 0.8});
+		constexpr float4 modalOverlayColor = {0.0, 0.0, 0.0, 0.8};
+		UI_PushElemColor(ui, UIElementBackground, { modalOverlayColor, modalOverlayColor, modalOverlayColor, modalOverlayColor });
 		UI_SetNextWindowSize(ui, ui.viewportSize);
 		UI_SetNextWindowAnchorAndPivot(ui, float2{0, 0}, float2{0, 0});
 		UI_BeginWindow(ui, idString, nullptr, UIWindowFlag_Background | UIWindowFlag_NoRaise );
