@@ -84,21 +84,6 @@
 #endif
 
 
-#include <stdio.h>  // printf
-//#include <stdarg.h>
-#include <math.h>
-
-//float sinf(float);
-//float cosf(float);
-//float tanf(float);
-//float sqrtf(float);
-//float floorf(float);
-//float log2f(float);
-// TODO: Remove C runtime library includes. But first...
-// TODO: Remove calls to printf.
-
-
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Useful defines
 
@@ -131,7 +116,7 @@ static const int __android_log_channel[] = {
 };
 #define LOG(channel, fmt, ...) if ( channel <= LOG_VERBOSITY ) { ((void)__android_log_print(__android_log_channel[channel], "tools", fmt, ##__VA_ARGS__)); }
 #else
-#define LOG(channel, fmt, ...) if ( channel <= LOG_VERBOSITY ) { printf(fmt, ##__VA_ARGS__); }
+#define LOG(channel, fmt, ...) if ( channel <= LOG_VERBOSITY ) { Printf(fmt, ##__VA_ARGS__); }
 #endif
 
 #if PLATFORM_ANDROID
@@ -209,6 +194,104 @@ typedef volatile i32 volatile_i32;
 typedef volatile u32 volatile_u32;
 typedef volatile i64 volatile_i64;
 #endif
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Forward-declared instead of including <math.h>
+
+extern "C"
+{
+	float sinf(float value);
+	float cosf(float value);
+	float tanf(float value);
+	float sqrtf(float value);
+	float floorf(float value);
+	float log2f(float value);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// IO: printf, vprintf, sprintf, vsprintf, etc
+
+#if PLATFORM_WINDOWS
+
+// Forward-declared instead of including <stdio.h>
+#ifndef _FILE_DEFINED
+#define _FILE_DEFINED
+struct _iobuf;
+typedef struct _iobuf FILE;
+#endif // _FILE_DEFINED
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+
+extern "C"
+{
+	FILE *fopen(const char *filename, const char *mode);
+	int fclose(FILE *stream);
+	size_t fread(void *buffer, size_t size, size_t count, FILE *stream);
+	size_t fwrite(const void *buffer, size_t size, size_t count, FILE *stream);
+	int fseek(FILE *stream, long offset, int origin);
+	int feof(FILE *stream);
+}
+
+// Real (non-CRT) implementation, so that printing text never links printf/vprintf.
+#define STB_SPRINTF_IMPLEMENTATION
+#include "stb/stb_sprintf.h"
+
+static char *Win32PrintCallback(const char *buffer, void *user, int len)
+{
+	HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+	DWORD bytesWritten;
+	WriteFile(handle, buffer, (DWORD)len, &bytesWritten, NULL);
+	return (char *)buffer;
+}
+
+int VPrintf(const char *format, va_list vaList)
+{
+	char buffer[STB_SPRINTF_MIN];
+	const int res = stbsp_vsprintfcb(Win32PrintCallback, NULL, buffer, format, vaList);
+	return res;
+}
+
+int Printf(const char *format, ...)
+{
+	va_list vaList;
+	va_start(vaList, format);
+	const int res = VPrintf(format, vaList);
+	va_end(vaList);
+	return res;
+}
+
+#else
+
+#include <stdio.h>
+#define Printf printf
+#define VPrintf vprintf
+
+#endif
+
+i32 VSPrintf(char *buffer, const char *format, va_list vaList)
+{
+	const i32 res = stbsp_vsprintf(buffer, format, vaList);
+	return res;
+}
+
+i32 VSNPrintf(char *buffer, u32 size, const char *format, va_list vaList)
+{
+	const i32 res = stbsp_vsnprintf(buffer, size, format, vaList);
+	return res;
+}
+
+i32 SPrintf(char *buffer, const char *format, ...)
+{
+	va_list vaList;
+	va_start(vaList, format);
+	const i32 res = VSPrintf(buffer, format, vaList);
+	va_end(vaList);
+	return res;
+}
 
 
 
@@ -722,27 +805,6 @@ bool StrIsFloat(const char *str)
 		str++;
 	}
 	return hasDigit;
-}
-
-i32 VSPrintf(char *buffer, const char *format, va_list vaList)
-{
-	const i32 res = vsprintf(buffer, format, vaList);
-	return res;
-}
-
-i32 VSNPrintf(char *buffer, u32 size, const char *format, va_list vaList)
-{
-	const i32 res = vsnprintf(buffer, size, format, vaList);
-	return res;
-}
-
-i32 SPrintf(char *buffer, const char *format, ...)
-{
-	va_list vaList;
-	va_start(vaList, format);
-	const i32 res = VSPrintf(buffer, format, vaList);
-	va_end(vaList);
-	return res;
 }
 
 

@@ -508,9 +508,9 @@ static void DScanner_SetError(DScanner &scanner, const char *format, ...)
 {
 	va_list vaList;
 	va_start(vaList, format);
-	printf("ERROR: %d:%d: ", scanner.line, scanner.currentInLine);
-	vprintf(format, vaList);
-	printf("\n");
+	Printf("ERROR: %d:%d: ", scanner.line, scanner.currentInLine);
+	VPrintf(format, vaList);
+	Printf("\n");
 	va_end(vaList);
 	scanner.hasErrors = true;
 }

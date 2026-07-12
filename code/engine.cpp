@@ -20,8 +20,9 @@
 #include "stb/stb_truetype.h"
 
 #define STBI_NO_STDIO
+#define STBI_NO_LINEAR // Only stbi_load_from_memory (LDR) is used, never stbi_loadf (HDR) - this also drops stb_image.h's own <math.h> include, only needed by the linear/HDR path.
+#define STBI_NO_HDR
 #include "stb/stb_image.h"
-
 
 #endif // #if USE_UI
 
