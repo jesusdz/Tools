@@ -3609,7 +3609,7 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	DestroyShaderModule(device, fragmentShaderModule);
 
 	const Pipeline pipeline = {
-		.name = desc.name,
+		.name = InternStringGfx(desc.name),
 		.handle = vkPipelineHandle,
 		.layout = {
 			.handle = pipelineLayout,
@@ -3679,7 +3679,7 @@ Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, con
 	DestroyShaderModule(device, shaderModule);
 
 	const Pipeline pipeline = {
-		.name = desc.name,
+		.name = InternStringGfx(desc.name),
 		.handle = computePipeline,
 		.layout = {
 			.handle = pipelineLayout,

@@ -21,7 +21,6 @@ struct Texture
 	const char *name;
 	ImageH image;
 	uint2 size;
-	TextureDesc desc;
 	u64 ts;
 };
 
@@ -35,7 +34,6 @@ struct Material
 	TextureH albedoTexture;
 	f32 uvScale;
 	u32 bufferOffset;
-	//MaterialDesc desc;
 };
 
 typedef Handle MaterialH;

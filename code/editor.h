@@ -130,6 +130,7 @@ struct Editor
 	bool showGrid;
 	bool showAbout;
 	bool showContextMenu;
+	bool showQuit;
 
 	bool selectEntity;
 

@@ -150,7 +150,7 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 
 			if ( UI_MenuItem(ui, "Quit") )
 			{
-				PlatformQuit();
+				editor.showQuit = true;
 			}
 			UI_EndMenu(ui);
 		}
@@ -894,7 +894,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			if (createFromFile)
 			{
 				const TextureDesc desc = {
-					.name = "inspected_image",
+					.name = InternString("inspected_image"),
 					.filename = inspector.selected.file->filename,
 					.mipmap = true,
 					.flags = AssetFlag_Builtin,
@@ -910,7 +910,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			if (createFromFile)
 			{
 				const AudioClipDesc desc = {
-					.name = "inspected_audio_clip",
+					.name = InternString("inspected_audio_clip"),
 					.filename = inspector.selected.file->filename,
 					.flags = AssetFlag_Builtin,
 				};
@@ -933,7 +933,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			if (createFromFile)
 			{
 				const MusicFileDesc desc = {
-					.name = "inspected_music_file",
+					.name = InternString("inspected_music_file"),
 					.filename = inspector.selected.file->filename,
 					//.flags = AssetFlag_Builtin,
 				};
@@ -1135,7 +1135,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				constexpr float pixelsPerGridTile = 32;
 
 				const EntityDesc entityDesc = {
-					.name = "entity",
+					.name = InternString("entity"),
 					.spriteName = spriteName,
 					.pos = Float3(worldPos, 0.0),
 					.scale = 1.0f,
@@ -1354,6 +1354,19 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showContextMenu )
 	{
 		EditorUpdateUI_ContextMenu(engine);
+	}
+
+	if ( editor.showQuit )
+	{
+		u32 result = 0;
+		const char *buttons[] = { "Yes", "No", nullptr };
+		if ( UI_MessageBox(ui, "Quit", "Do you really want to quit?", buttons, &result) )
+		{
+			if ( result == 0 ) {
+				PlatformQuit();
+			}
+			editor.showQuit = false;
+		}
 	}
 
 	EditorUpdateUI_DragAndDropLost(engine);

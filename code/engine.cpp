@@ -868,7 +868,6 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc, ImageH imageH)
 	Texture &texture = GetTexture(gfx, textureHandle);
 	texture.name = desc.name;
 	texture.image = imageH;
-	texture.desc = desc;
 
 	const Image &image = GetImageConst(gfx.device, imageH);
 	texture.size = { image.width, image.height };
@@ -997,7 +996,7 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 	Graphics &gfx = engine.gfx;
 
 	Texture &texture = GetTexture(gfx, handle);
-	const TextureDesc &desc = texture.desc;
+	const TextureDesc &desc = GetTextureDesc(gfx, handle);
 
 	// TODO(jesus): Textures loaded from bin data file do not have descriptor...
 	if ( StrEq(desc.filename, "") ) { return; };
@@ -1413,7 +1412,7 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 		const f32 cellWorldSize = TILE_SIZE_PIXELS / PIXELS_PER_METER;
 
 		const EntityDesc entityDesc = {
-			.name = "tile",
+			.name = InternString("tile"),
 			.spriteName = sprite.name,
 			.pos = Float3((f32)coord.x * cellWorldSize, (f32)coord.y * cellWorldSize, 0.0f),
 			.scale = 1.0f,
@@ -2008,8 +2007,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 
 	// Builtin texture
 	const TextureDesc textureDesc = {
-		.name = "tex_default",
-		.filename = "",
+		.name = InternString("tex_default"),
+		.filename = InternString(""),
 		.mipmap = 0,
 		.flags = AssetFlag_Builtin,
 	};
@@ -2017,9 +2016,9 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 
 	// Builtin material
 	const MaterialDesc materialDesc = {
-		.name = "mat_default",
-		.textureName = "tex_default",
-		.pipelineName = "pipeline_shading",
+		.name = InternString("mat_default"),
+		.textureName = InternString("tex_default"),
+		.pipelineName = InternString("pipeline_shading"),
 		.uvScale = 1.0,
 		.flags = AssetFlag_Builtin,
 	};
