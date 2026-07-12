@@ -37,10 +37,16 @@ struct PixelOutput
 SamplerState widgetSampler : REGISTER_S(3, 0);
 Texture2D<float4> widgetTexture : REGISTER_T(3, 1);
 
+//float3 SrgbToLinear(float3 srgb)
+//{
+//	return pow(max(srgb, 0.0), 2.2);
+//}
+
 PixelOutput PSMain(PixelInput IN) : SV_Target
 {
 	PixelOutput OUT = (PixelOutput)0;
-	OUT.color = IN.color * widgetTexture.Sample(widgetSampler, IN.texCoord);
+	const float4 color = IN.color; //float4(SrgbToLinear(IN.color.rgb), IN.color.a);
+	OUT.color = color * widgetTexture.Sample(widgetSampler, IN.texCoord);
 	return OUT;
 }
 

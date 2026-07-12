@@ -454,8 +454,6 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 	},
 };
 
-static PipelineH pipelineHandles[ARRAY_COUNT(pipelineDescs)] = {};
-
 static const ShaderAndComputeDesc computeDescs[] =
 {
 	//{ .name = "compute_clear", .filename = "shaders/compute_clear.spv", .function = "main_clear" },
@@ -468,8 +466,6 @@ static const ShaderAndComputeDesc computeDescs[] =
 		},
 	},
 };
-
-static PipelineH computeHandles[ARRAY_COUNT(computeDescs)] = {};
 
 static const char * InternString(const char *str)
 {
@@ -596,7 +592,6 @@ const u32 FindShaderSourceDescIndex(const char *name)
 
 RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 {
-	//if (!name) return InvalidHandle;
 	for (u32 i = 0; i < gfx.device.renderPassCount; ++i) {
 		if ( StrEq(gfx.device.renderPasses[i].name, name) ) {
 			return { .index = i };
@@ -609,20 +604,13 @@ RenderPassH FindRenderPassHandle(const Graphics &gfx, const char *name)
 
 PipelineH FindPipelineHandle(const Graphics &gfx, const char *name)
 {
-	//if (!name) return InvalidHandle;
-	for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i) {
-		if ( StrEq(pipelineDescs[i].desc.name, name) ) {
-			return pipelineHandles[i];
+	for (u32 i = 0; i < ARRAY_COUNT(gfx.device.pipelines); ++i) {
+		if ( StrEq(gfx.device.pipelines[i].name, name) ) {
+			return { .index = i };
 		}
 	}
-	for (u32 i = 0; i < ARRAY_COUNT(computeDescs); ++i) {
-		if ( StrEq(computeDescs[i].desc.name, name) ) {
-			return computeHandles[i];
-		}
-	}
-	LOG(Warning, "Could not find pipeline <%s> handle.\n", name);
-	INVALID_CODE_PATH();
-	return { .index = (u32)INVALID_HANDLE };
+
+	return { .index = 0 }; // For pipelines, 0 is invalid
 }
 
 
@@ -1631,13 +1619,12 @@ static void CompileGraphicsPipeline(Engine &engine, Arena scratch, u32 pipelineI
 	}
 
 	LOG(Info, "Creating Graphics Pipeline: %s\n", desc.name);
-	PipelineH pipelineH = pipelineHandles[pipelineIndex];
+	PipelineH pipelineH = FindPipelineHandle(gfx, desc.name);
 	if ( IsValid(pipelineH) ) {
 		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateGraphicsPipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
 	SetObjectNamePipeline(gfx.device, pipelineH, desc.name);
-	pipelineHandles[pipelineIndex] = pipelineH;
 }
 
 static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIndex)
@@ -1656,13 +1643,12 @@ static void CompileComputePipeline(Engine &engine, Arena scratch, u32 pipelineIn
 	}
 
 	LOG(Info, "Creating Compute Pipeline: %s\n", desc.name);
-	PipelineH pipelineH = computeHandles[pipelineIndex];
+	PipelineH pipelineH = FindPipelineHandle(gfx, desc.name);
 	if ( IsValid(pipelineH) ) {
 		DestroyPipelineH( gfx.device, pipelineH );
 	}
 	pipelineH = CreateComputePipeline(gfx.device, scratch, desc, gfx.globalBindGroupLayout);
 	SetObjectNamePipeline(gfx.device, pipelineH, desc.name);
-	computeHandles[pipelineIndex] = pipelineH;
 }
 
 

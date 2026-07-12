@@ -95,6 +95,12 @@ enum UIWindowFlags
 	UIWindowFlag_NoRaise = 1 << 7,
 };
 
+enum UIModalFlags
+{
+	UIModalFlags_Default = 0,
+	UIModalFlags_NoBackground = 1 << 0,
+};
+
 struct UIWindow
 {
 	u32 id;
@@ -119,6 +125,7 @@ struct UIWindow
 	bool clippedContents;
 	u32 layer;
 	u32 flags;
+	u32 modalFlags;
 
 	UISection sections[16];
 	u32 sectionCount;
@@ -186,6 +193,11 @@ struct UICombo
 	float2 size;
 };
 
+struct UIColorPicker
+{
+	u32 id;
+};
+
 struct UIIcon
 {
 	ImagePixels image;
@@ -230,6 +242,21 @@ enum UIElement
 	UIElementCaption,
 	UIElementCount,
 };
+
+constexpr const char *UIElementName[] =
+{
+	"Background",
+	"Section",
+	"Button",
+	"Toggle",
+	"Input",
+	"Box",
+	"Scrollbar",
+	"Menu",
+	"Caption",
+};
+
+CT_ASSERT(ARRAY_COUNT(UIElementName) == UIElementCount);
 
 struct UI
 {
@@ -293,6 +320,8 @@ struct UI
 	float2 defaultWindowSize;
 
 	bool nextWindowModal;
+	u32 nextWindowModalFlags;
+
 	bool nextWindowForceSize;
 	bool nextWindowForceAnchorAndPivot;
 	bool nextWindowForceDisplacement;
@@ -313,6 +342,7 @@ struct UI
 	u32 layoutGroupCount;
 
 	UICombo comboBox;
+	UIColorPicker colorPicker;
 
 	bool avoidWindowInteraction;
 	bool wantsInput;
@@ -545,10 +575,25 @@ UILayoutGroup &UI_GetLayoutGroup(UI &ui)
 	return group;
 }
 
+void UI_GrowLayoutGroup(UI &ui, float2 pos, float2 size)
+{
+	UILayoutGroup &group = UI_GetLayoutGroup(ui);
+	const float2 maxPoint = pos + size;
+	const float2 maxLayoutPoint = group.pos + group.size;
+	if (maxPoint.x > maxLayoutPoint.x) {
+		group.size.x = maxPoint.x - group.pos.x;
+	}
+	if (maxPoint.y > maxLayoutPoint.y) {
+		group.size.y = maxPoint.y - group.pos.y;
+	}
+}
+
 const UIDrawList &UI_GetDrawList(const UI &ui);
 
 void UI_CursorAdvance(UI &ui, float2 prevWidgetSize, float spacing = UiSpacing)
 {
+	UI_GrowLayoutGroup(ui, UI_GetCursorPos(ui), prevWidgetSize);
+
 	const UILayout layout = UI_GetLayout(ui);
 	const UILayoutGroup group = UI_GetLayoutGroup(ui);
 
@@ -589,28 +634,17 @@ void UI_BeginLayout(UI &ui, UILayout layout)
 	group.size = {};
 }
 
-void UI_EndLayout(UI &ui)
+void UI_EndLayout(UI &ui, bool growParent = true)
 {
 	ASSERT(ui.layoutGroupCount > 0);
 
 	ui.layoutGroupCount--;
 
-	if ( ui.layoutGroupCount )
+	if ( ui.layoutGroupCount && growParent )
 	{
 		const UILayoutGroup &endedGroup = ui.layoutGroups[ui.layoutGroupCount];
 		UI_SetCursorPos(ui, endedGroup.pos);
 		UI_CursorAdvance(ui, endedGroup.size);
-
-		// Grow the current layout group
-		UILayoutGroup &group = UI_GetLayoutGroup(ui);
-		const float2 maxLayoutPoint = group.pos + group.size;
-		const float2 maxPrevLayoutPoint = endedGroup.pos + endedGroup.size;
-		if (maxPrevLayoutPoint.x > maxLayoutPoint.x) {
-			group.size.x = maxPrevLayoutPoint.x - group.pos.x;
-		}
-		if (maxPrevLayoutPoint.y > maxLayoutPoint.y) {
-			group.size.y = maxPrevLayoutPoint.y - group.pos.y;
-		}
 	}
 }
 
@@ -890,16 +924,7 @@ void UI_BeginWidget(UI &ui, float2 pos, float2 size, bool avoidWindowInteraction
 	};
 	ui.widgetStack[ui.widgetStackSize++] = widget;
 
-	// Grow the current layout group
-	UILayoutGroup &group = UI_GetLayoutGroup(ui);
-	const float2 maxWidgetPoint = pos + size;
-	const float2 maxLayoutPoint = group.pos + group.size;
-	if (maxWidgetPoint.x > maxLayoutPoint.x) {
-		group.size.x = maxWidgetPoint.x - group.pos.x;
-	}
-	if (maxWidgetPoint.y > maxLayoutPoint.y) {
-		group.size.y = maxWidgetPoint.y - group.pos.y;
-	}
+	UI_GrowLayoutGroup(ui, pos, size);
 
 	// Disable window interaction in case the widget was clicked
 	const UIWindow &currentWindow = UI_GetCurrentWindow(ui);
@@ -1211,10 +1236,11 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	return window;
 }
 
-void UI_SetNextWindowModal(UI &ui)
+void UI_SetNextWindowModal(UI &ui, UIModalFlags flags = UIModalFlags_Default)
 {
 	ASSERT(ui.modalWindowStackSize < ARRAY_COUNT(ui.modalWindowStack));
 	ui.nextWindowModal = true;
+	ui.nextWindowModalFlags = flags;
 }
 
 void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
@@ -1257,9 +1283,11 @@ void UI_BeginWindow(UI &ui, u32 windowId, u32 flags, bool *isOpen = nullptr)
 
 	if (ui.nextWindowModal)
 	{
+		window.modalFlags = ui.nextWindowModalFlags;
 		ASSERT(ui.modalWindowStackSize < ARRAY_COUNT(ui.modalWindowStack));
 		ui.modalWindowStack[ui.modalWindowStackSize++] = &window;
 		ui.nextWindowModal = false;
+		ui.nextWindowModalFlags = 0;
 	}
 
 	UI_PushCursorPos(ui, window.pos);
@@ -1504,7 +1532,7 @@ void UI_EndWindow(UI &ui)
 	{
 		UI_PopDrawList(ui);
 	}
-	UI_EndLayout(ui); // Panel layout
+	UI_EndLayout(ui, false); // Panel layout
 	UI_PopDrawList(ui);
 	UI_PopCursorPos(ui);
 
@@ -2616,6 +2644,303 @@ bool UI_InputFloat4(UI &ui, const char *label, float4 *value)
 	return modified;
 }
 
+
+////////////////////////////////////////////////////////////////////////
+// Color picker
+
+static f32 AbsF(f32 value)
+{
+	return value < 0.0f ? -value : value;
+}
+
+static float3 RgbToHsv(float3 rgb)
+{
+	const f32 maxc = Max(Max(rgb.r, rgb.g), rgb.b);
+	const f32 minc = Min(Min(rgb.r, rgb.g), rgb.b);
+	const f32 delta = maxc - minc;
+
+	f32 h = 0.0f;
+	if (delta > 0.00001f)
+	{
+		if (maxc == rgb.r) {
+			h = (rgb.g - rgb.b) / delta;
+			if (h < 0.0f) h += 6.0f;
+		} else if (maxc == rgb.g) {
+			h = (rgb.b - rgb.r) / delta + 2.0f;
+		} else {
+			h = (rgb.r - rgb.g) / delta + 4.0f;
+		}
+		h /= 6.0f;
+	}
+	const f32 s = maxc <= 0.0f ? 0.0f : delta / maxc;
+	const f32 v = maxc;
+	return float3{ h, s, v };
+}
+
+static float3 HsvToRgb(float3 hsv)
+{
+	const f32 h = Clamp(hsv.x, 0.0f, 1.0f) * 6.0f;
+	const f32 s = Clamp(hsv.y, 0.0f, 1.0f);
+	const f32 v = Clamp(hsv.z, 0.0f, 1.0f);
+
+	const i32 i = Floor(h) % 6;
+	const f32 f = h - (f32)Floor(h);
+	const f32 p = v * (1.0f - s);
+	const f32 q = v * (1.0f - f * s);
+	const f32 t = v * (1.0f - (1.0f - f) * s);
+
+	switch (i)
+	{
+		case 0:  return float3{ v, t, p };
+		case 1:  return float3{ q, v, p };
+		case 2:  return float3{ p, v, t };
+		case 3:  return float3{ p, q, v };
+		case 4:  return float3{ t, p, v };
+		default: return float3{ v, p, q };
+	}
+}
+
+// Draws a quad with a distinct color per corner, linearly interpolated across it (e.g. hue/SV gradients).
+static void UI_AddGradientQuad(UI &ui, float2 pos, float2 size, float4 colorTL, float4 colorTR, float4 colorBL, float4 colorBR)
+{
+	const float2 uv = ui.whitePixelUv;
+	const rgba cTL = Rgba(colorTL);
+	const rgba cTR = Rgba(colorTR);
+	const rgba cBL = Rgba(colorBL);
+	const rgba cBR = Rgba(colorBR);
+
+	const float2 v0 = pos;
+	const float2 v1 = pos + float2{0.0f, size.y};
+	const float2 v2 = pos + size;
+	const float2 v3 = pos + float2{size.x, 0.0f};
+
+	UI_AddTriangle(ui, UIVertex{v0, uv, cTL}, UIVertex{v1, uv, cBL}, UIVertex{v2, uv, cBR});
+	UI_AddTriangle(ui, UIVertex{v0, uv, cTL}, UIVertex{v2, uv, cBR}, UIVertex{v3, uv, cTR});
+}
+
+// Small filled circle with a dark outline, used to mark a position on the SV box / strips
+// regardless of the color underneath it.
+static void UI_AddPickerMarker(UI &ui, float2 center, f32 radius)
+{
+	UI_PushColor(ui, float4{0.0f, 0.0f, 0.0f, 1.0f});
+	UI_AddCircle(ui, center - float2{radius, radius}, radius);
+	UI_PopColor(ui);
+
+	const f32 innerRadius = radius - 1.5f;
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddCircle(ui, center - float2{innerRadius, innerRadius}, innerRadius);
+	UI_PopColor(ui);
+}
+
+// Thin horizontal handle marking a position within a vertical strip (hue / alpha).
+static void UI_AddStripMarker(UI &ui, float2 stripPos, float2 stripSize, f32 normalizedY)
+{
+	constexpr f32 markerHeight = 3.0f;
+	const float2 markerPos = stripPos + float2{-2.0f, Clamp(normalizedY * stripSize.y, 0.0f, stripSize.y) - markerHeight * 0.5f};
+	const float2 markerSize = {stripSize.x + 4.0f, markerHeight};
+
+	UI_PushColor(ui, float4{0.0f, 0.0f, 0.0f, 1.0f});
+	UI_AddRectangle(ui, markerPos - float2{1.0f, 1.0f}, markerSize + float2{2.0f, 2.0f});
+	UI_PopColor(ui);
+	UI_PushColor(ui, UiColorWhite);
+	UI_AddRectangle(ui, markerPos, markerSize);
+	UI_PopColor(ui);
+}
+
+void UI_ColorPicker(UI &ui, float4 *color, bool *isOpen)
+{
+	constexpr float2 svSize = {160.0f, 160.0f};
+	constexpr f32 stripWidth = 20.0f;
+	constexpr f32 gap = 8.0f;
+
+	const float2 padding = UI_GetPadding(ui);
+	const f32 side = UI_ControlHeight(ui);
+
+	static float3 activeHsv;
+	static const float4 *activeColorPtr = nullptr;
+
+	// True when the caller has just redirected the picker to a different color this frame (e.g.
+	// clicking a different swatch button while the picker was already open editing another one).
+	// That click necessarily lands outside the picker's own window, but it shouldn't be treated
+	// as a dismiss-the-picker click below - it should keep the picker open, now showing the color
+	// it was just switched to.
+	const bool colorChangedThisFrame = (activeColorPtr != color);
+
+	if (colorChangedThisFrame)
+	{
+		activeColorPtr = color;
+		activeHsv = RgbToHsv(float3{color->r, color->g, color->b});
+	}
+	else
+	{
+		// If RGB changed by some other means than this widget's own HSV controls
+		// (e.g. the numeric fields below, or code elsewhere), resync from RGB.
+		const float3 expectedRgb = HsvToRgb(activeHsv);
+		constexpr f32 epsilon = 1.0f / 512.0f;
+		const bool changedExternally =
+			AbsF(expectedRgb.r - color->r) > epsilon ||
+			AbsF(expectedRgb.g - color->g) > epsilon ||
+			AbsF(expectedRgb.b - color->b) > epsilon;
+		if (changedExternally)
+		{
+			activeHsv = RgbToHsv(float3{color->r, color->g, color->b});
+		}
+	}
+
+	const u32 colorPickerId = UI_MakeID(ui, "$colorpicker");
+	const UIWindow &window = UI_FindOrCreateWindow(ui, colorPickerId, "Color picker");
+
+	if ( isOpen != nullptr )
+	{
+		static bool wasOpen = false;
+
+		const bool escape = ui.input.keyboard.keys[K_ESCAPE] == KEY_STATE_PRESS;
+		const bool clickOutside = wasOpen && UI_IsMouseClick(ui) && !UI_MouseInArea(ui, window.pos, window.size);
+		const bool enter = ui.input.keyboard.keys[K_RETURN] == KEY_STATE_PRESS;
+		wasOpen = *isOpen;
+
+		if ( !colorChangedThisFrame && wasOpen && ( escape || clickOutside || enter ) )
+		{
+			// TODO: Revert changes (escape/clickOutside case)
+			*isOpen = false;
+			wasOpen = *isOpen;
+
+			return;
+		}
+	}
+
+	UI_SetNextWindowModal(ui, UIModalFlags_NoBackground);
+	UI_SetNextWindowAnchor(ui, {0.5f, 0.5f});
+	UI_SetNextWindowSize(ui, {234, 317});
+	UI_BeginWindow(ui, colorPickerId, UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_Draggable | UIWindowFlag_Titlebar | UIWindowFlag_CloseButton | UIWindowFlag_ClipContents, isOpen);
+
+	UI_MoveCursorRight(ui, padding.x);
+	UI_MoveCursorDown(ui, padding.y);
+
+	UI_BeginLayout(ui, UiLayoutHorizontal);
+
+	// Saturation/Value box (for the current hue)
+	{
+		const float2 svPos = UI_GetCursorPos(ui);
+		UI_BeginWidget(ui, svPos, svSize);
+
+		const float3 hueRgb = HsvToRgb(float3{activeHsv.x, 1.0f, 1.0f});
+		const float4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+		const float4 hueColor = {hueRgb.r, hueRgb.g, hueRgb.b, 1.0f};
+		const float4 transparentBlack = {0.0f, 0.0f, 0.0f, 0.0f};
+		const float4 opaqueBlack = {0.0f, 0.0f, 0.0f, 1.0f};
+		UI_AddGradientQuad(ui, svPos, svSize, white, hueColor, white, hueColor);
+		UI_AddGradientQuad(ui, svPos, svSize, transparentBlack, transparentBlack, opaqueBlack, opaqueBlack);
+
+		static bool draggingSv = false;
+		if (UI_WidgetClicked(ui)) {
+			draggingSv = true;
+		}
+		if (draggingSv)
+		{
+			const float2 local = Float2(UI_MousePos(ui)) - svPos;
+			activeHsv.y = Clamp(local.x / svSize.x, 0.0f, 1.0f);
+			activeHsv.z = Clamp(1.0f - local.y / svSize.y, 0.0f, 1.0f);
+			if (ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_RELEASE) {
+				draggingSv = false;
+			}
+		}
+
+		const float2 markerPos = svPos + float2{ activeHsv.y * svSize.x, (1.0f - activeHsv.z) * svSize.y };
+		UI_AddPickerMarker(ui, markerPos, 5.0f);
+
+		UI_EndWidget(ui);
+		UI_CursorAdvance(ui, svSize, gap);
+	}
+
+	// Hue strip
+	{
+		const float2 huePos = UI_GetCursorPos(ui);
+		const float2 hueSize = {stripWidth, svSize.y};
+		UI_BeginWidget(ui, huePos, hueSize);
+
+		constexpr u32 hueStops = 6;
+		for (u32 i = 0; i < hueStops; ++i)
+		{
+			const f32 t0 = (f32)i / hueStops;
+			const f32 t1 = (f32)(i + 1) / hueStops;
+			const float3 c0 = HsvToRgb(float3{t0, 1.0f, 1.0f});
+			const float3 c1 = HsvToRgb(float3{t1, 1.0f, 1.0f});
+			const float2 segPos = huePos + float2{0.0f, t0 * hueSize.y};
+			const float2 segSize = {hueSize.x, hueSize.y / hueStops};
+			const float4 col0 = {c0.r, c0.g, c0.b, 1.0f};
+			const float4 col1 = {c1.r, c1.g, c1.b, 1.0f};
+			UI_AddGradientQuad(ui, segPos, segSize, col0, col0, col1, col1);
+		}
+
+		static bool draggingHue = false;
+		if (UI_WidgetClicked(ui)) {
+			draggingHue = true;
+		}
+		if (draggingHue)
+		{
+			const float2 local = Float2(UI_MousePos(ui)) - huePos;
+			activeHsv.x = Clamp(local.y / hueSize.y, 0.0f, 1.0f);
+			if (ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_RELEASE) {
+				draggingHue = false;
+			}
+		}
+
+		UI_AddStripMarker(ui, huePos, hueSize, activeHsv.x);
+
+		UI_EndWidget(ui);
+		UI_CursorAdvance(ui, hueSize, gap);
+	}
+
+	// Alpha strip (top = opaque, bottom = transparent)
+	{
+		const float2 alphaPos = UI_GetCursorPos(ui);
+		const float2 alphaSize = {stripWidth, svSize.y};
+		UI_BeginWidget(ui, alphaPos, alphaSize);
+
+		const float3 rgb = HsvToRgb(activeHsv);
+		const float4 opaque = {rgb.r, rgb.g, rgb.b, 1.0f};
+		const float4 transparent = {rgb.r, rgb.g, rgb.b, 0.0f};
+		UI_AddGradientQuad(ui, alphaPos, alphaSize, opaque, opaque, transparent, transparent);
+
+		static bool draggingAlpha = false;
+		if (UI_WidgetClicked(ui)) {
+			draggingAlpha = true;
+		}
+		if (draggingAlpha)
+		{
+			const float2 local = Float2(UI_MousePos(ui)) - alphaPos;
+			color->a = Clamp(1.0f - local.y / alphaSize.y, 0.0f, 1.0f);
+			if (ui.input.mouse.buttons[MOUSE_BUTTON_LEFT] == BUTTON_STATE_RELEASE) {
+				draggingAlpha = false;
+			}
+		}
+
+		UI_AddStripMarker(ui, alphaPos, alphaSize, 1.0f - color->a);
+
+		UI_EndWidget(ui);
+		UI_CursorAdvance(ui, alphaSize, 0.0f);
+	}
+
+	UI_EndLayout(ui);
+
+	// HSV is the source of truth for RGB while this panel is open (alpha is edited directly above).
+	{
+		const float3 rgb = HsvToRgb(activeHsv);
+		color->r = rgb.r;
+		color->g = rgb.g;
+		color->b = rgb.b;
+	}
+
+	UI_InputFloat(ui, "R", &color->r, 0.01f);
+	UI_InputFloat(ui, "G", &color->g, 0.01f);
+	UI_InputFloat(ui, "B", &color->b, 0.01f);
+	UI_InputFloat(ui, "A", &color->a, 0.01f);
+
+	UI_EndWindow(ui);
+}
+
+
 void UI_Histogram(UI &ui, const float *values, u32 valueCount, f32 maxValue = 1000.0f/120.0f)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
@@ -3307,23 +3632,36 @@ void UI_EndFrame(UI &ui)
 	// Modal window
 	if ( ui.modalWindowStackSize )
 	{
+		bool backgroundNeeded = true;
+		for (u32 i = 0; i < ui.modalWindowStackSize; ++i)
+		{
+			if ( ui.modalWindowStack[i]->modalFlags & UIModalFlags_NoBackground )
+			{
+				backgroundNeeded = false;
+				break;
+			}
+		}
+
 		const char *idString = "$modalbg";
-		const u32 windowId = UI_MakeID(ui, idString);
+		const u32 bgWindowId = UI_MakeID(ui, idString);
 
-		constexpr float4 modalOverlayColor = {0.0, 0.0, 0.0, 0.8};
-		UI_PushElemColor(ui, UIElementBackground, { modalOverlayColor, modalOverlayColor, modalOverlayColor, modalOverlayColor });
-		UI_SetNextWindowSize(ui, ui.viewportSize);
-		UI_SetNextWindowAnchorAndPivot(ui, float2{0, 0}, float2{0, 0});
-		UI_BeginWindow(ui, idString, nullptr, UIWindowFlag_Background | UIWindowFlag_NoRaise );
-		UI_EndWindow(ui);
-		UI_PopElemColor(ui, UIElementBackground);
-
-		UIWindow &bgWindow = UI_FindWindow(ui, windowId);
+		if  ( backgroundNeeded )
+		{
+			constexpr float4 modalOverlayColor = {0.0, 0.0, 0.0, 0.8};
+			UI_PushElemColor(ui, UIElementBackground, { modalOverlayColor, modalOverlayColor, modalOverlayColor, modalOverlayColor });
+			UI_SetNextWindowSize(ui, ui.viewportSize);
+			UI_SetNextWindowAnchorAndPivot(ui, float2{0, 0}, float2{0, 0});
+			UI_BeginWindow(ui, idString, nullptr, UIWindowFlag_Background | UIWindowFlag_NoRaise );
+			UI_EndWindow(ui);
+			UI_PopElemColor(ui, UIElementBackground);
+		}
 
 		for (u32 i = 0; i < ui.modalWindowStackSize; ++i)
 		{
 			// Put background right below the topmost modal window
-			if (i == ui.modalWindowStackSize-1) {
+			if ( backgroundNeeded && i == ui.modalWindowStackSize-1 )
+			{
+				UIWindow &bgWindow = UI_FindWindow(ui, bgWindowId);
 				UI_RaiseWindow(ui, bgWindow);
 			}
 			UI_RaiseWindow(ui, *ui.modalWindowStack[i]);

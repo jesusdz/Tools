@@ -180,6 +180,13 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 				editor.showGrid = !editor.showGrid;
 			}
 
+			UI_Separator(ui);
+
+			if ( UI_MenuItem(ui, "Settings", editor.showSettings) )
+			{
+				editor.showSettings = !editor.showSettings;
+			}
+
 			UI_EndMenu(ui);
 		}
 		if (UI_BeginMenu(ui, "Help"))
@@ -1204,6 +1211,74 @@ static void EditorUpdateUI_ContextMenu(Engine &engine)
 	}
 }
 
+static void EditorUpdateUI_Settings(Engine &engine)
+{
+	UI &ui = engine.ui;
+	Editor &editor = engine.editor;
+
+	constexpr uint2 size = {300, 400};
+	UI_SetNextWindowDefaultSize(ui, size);
+	UI_SetNextWindowAnchor(ui, {0.5, 0.5});
+
+	UI_BeginWindow(ui, "Settings", &editor.showSettings);
+
+	if ( UI_Section(ui, "UI Colors") )
+	{
+		static float4 *colorToEdit = nullptr;
+
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		UI_Label(ui, "Base    ");
+		UI_Label(ui, "Hover");
+		UI_EndLayout(ui);
+
+		for ( u32 i = 0; i < UIElementCount; ++i )
+		{
+			float4 &base = ui.colorElems[i].stack[0].base;
+			float4 &hover = ui.colorElems[i].stack[0].hovered;
+			//const float4 active = ui.colorElems[i].stack[0].active;
+			//const float4 inactive = ui.colorElems[i].stack[0].inactive;
+
+			const float4 hbase = Lerp(base, UiColorWhite, 0.2);
+			const float4 hhover = Lerp(hover, UiColorWhite, 0.2);
+
+			UI_BeginLayout(ui, UiLayoutHorizontal);
+
+			UI_PushElemColor(ui, UIElementButton, {base, hbase});
+			if ( UI_Button(ui, "        ") )
+			{
+				colorToEdit = &base;
+			}
+			UI_PopElemColor(ui, UIElementButton);
+
+			UI_PushElemColor(ui, UIElementButton, {hover, hhover});
+			if ( UI_Button(ui, "        ") )
+			{
+				colorToEdit = &hover;
+			}
+			UI_PopElemColor(ui, UIElementButton);
+
+			UI_Label(ui, UIElementName[i]);
+			UI_EndLayout(ui);
+		}
+
+		if ( colorToEdit )
+		{
+			bool isOpen = true;
+			UI_ColorPicker(ui, colorToEdit, &isOpen);
+			if ( !isOpen )
+			{
+				colorToEdit = nullptr;
+			}
+		}
+
+		if ( UI_Button(ui, "Reset") ) {
+			UI_InitializeColors(ui);
+		}
+	}
+
+	UI_EndWindow(ui);
+}
+
 enum EditorFileDialogMode
 {
 	EditorFileDialog_LoadFile,
@@ -1361,6 +1436,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showContextMenu )
 	{
 		EditorUpdateUI_ContextMenu(engine);
+	}
+
+	if ( editor.showSettings )
+	{
+		EditorUpdateUI_Settings(engine);
 	}
 
 	if ( editor.showQuit )
@@ -1830,6 +1910,8 @@ void EditorInitialize(Engine &engine)
 	editor.showDebugUI = false;
 	editor.showGrid = true;
 	editor.showAbout = false;
+	editor.showSettings = false;
+	editor.showQuit = false;
 
 	editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
 	editor.camera[ProjectionPerspective].position = {0, 1, 2};
@@ -2041,3 +2123,11 @@ void EditorPostRender(Engine &engine)
 	EditorProcessCommands(engine, FrameArena);
 }
 
+#if 0
+		const float4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+		const float4 hueColor = {hueRgb.r, hueRgb.g, hueRgb.b, 1.0f};
+		const float4 transparentBlack = {0.0f, 0.0f, 0.0f, 0.0f};
+		const float4 opaqueBlack = {0.0f, 0.0f, 0.0f, 1.0f};
+		UI_AddGradientQuad(ui, svPos, svSize, white, hueColor, white, hueColor);
+		UI_AddGradientQuad(ui, svPos, svSize, transparentBlack, transparentBlack, opaqueBlack, opaqueBlack);
+#endif

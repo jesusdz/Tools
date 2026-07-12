@@ -2454,6 +2454,33 @@ f32 Lerp(f32 a, f32 b, f32 t)
 	const f32 res = (1.0f - t) * a + t * b;
 	return res;
 }
+float2 Lerp(float2 a, float2 b, f32 t)
+{
+	const float2 res = {
+		Lerp(a.x, b.x, t),
+		Lerp(a.y, b.y, t)
+	};
+	return res;
+}
+float3 Lerp(float3 a, float3 b, f32 t)
+{
+	const float3 res = {
+		Lerp(a.x, b.x, t),
+		Lerp(a.y, b.y, t),
+		Lerp(a.z, b.z, t)
+	};
+	return res;
+}
+float4 Lerp(float4 a, float4 b, f32 t)
+{
+	const float4 res = {
+		Lerp(a.x, b.x, t),
+		Lerp(a.y, b.y, t),
+		Lerp(a.z, b.z, t),
+		Lerp(a.w, b.w, t)
+	};
+	return res;
+}
 
 
 
