@@ -1386,54 +1386,11 @@ int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoor
 
 void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int2 coord)
 {
-	Scene &scene = engine.scene;
-
 	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
 			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
-	if (!coordValid) return;
-
-	Handle &cellEntity = tileGrid.entities[coord.x][coord.y];
-
-	const bool cellHasEntity = IsValidHandle(scene.entityHandles, cellEntity);
-	const SpriteH currentSpriteH = cellHasEntity ? GetEntity(scene, cellEntity).spriteH : InvalidHandle;
-
-	if (currentSpriteH == spriteH)
-		return; // Nothing changed
-
-	if (cellHasEntity)
+	if (coordValid)
 	{
-		RemoveEntity(engine, cellEntity);
-		cellEntity = InvalidHandle;
-	}
-
-	if (IsValidHandle(scene.spriteHandles, spriteH))
-	{
-		const Sprite &sprite = GetSprite(scene, spriteH);
-		const f32 cellWorldSize = TILE_SIZE_PIXELS / PIXELS_PER_METER;
-
-		const EntityDesc entityDesc = {
-			.name = InternString("tile"),
-			.spriteName = sprite.name,
-			.pos = Float3((f32)coord.x * cellWorldSize, (f32)coord.y * cellWorldSize, 0.0f),
-			.scale = 1.0f,
-		};
-		cellEntity = CreateEntity(engine, entityDesc);
-	}
-}
-
-void UpdateGridPosition(Engine &engine, TileGrid &tileGrid, float2 pos)
-{
-	for ( u32 i = 0; i < tileGrid.size.y; ++i )
-	{
-		for ( u32 j = 0; j < tileGrid.size.x; ++j )
-		{
-			Handle &entityH = tileGrid.entities[j][i];
-			if ( IsValidHandle(engine.scene.entityHandles, entityH) )
-			{
-				Entity &entity = GetEntity(engine.scene, entityH);
-				entity.position.xy = pos + float2{(f32)j, (f32)i};
-			}
-		}
+		tileGrid.cells[coord.x][coord.y] = spriteH;
 	}
 }
 
@@ -2527,14 +2484,6 @@ void CleanScene(Engine &engine)
 	CreateRoom(engine);
 }
 
-void UpdateRoom(Engine &engine, Room &room)
-{
-	for (u32 i = 0; i < room.layerCount; ++i)
-	{
-		UpdateGridPosition(engine, room.layers[i].grid, Float2(room.pos));
-	}
-}
-
 #if USE_DATA_BUILD
 void BuildShaders(Engine &engine, const char *outBinFilepath)
 {
@@ -3506,6 +3455,10 @@ ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 		.mouse = &platform.window->mouse,
 	};
 	GameSetInput(input);
+
+	if ( platform.engine ) {
+		UI_InitializeColors(platform.engine->ui);
+	}
 }
 
 ENGINE_API bool OnPlatformPreInit(Plat &platform)

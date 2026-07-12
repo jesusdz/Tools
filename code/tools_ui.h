@@ -22,21 +22,53 @@
 	const char *text = ui.tempString;
 
 // Colors
+//
+// Widget colors are grouped by role, not just by widget function, so that
+// different kinds of controls are visually distinguishable at a glance:
+//   - Action  (Button, Section header, Combo trigger, Menu items): the
+//     saturated accent color. These surfaces trigger something on click.
+//   - Toggle  (Checkbox, Radio): a muted neutral. These hold a persistent
+//     on/off state rather than firing an action, so they shouldn't compete
+//     with Action surfaces for attention.
+//   - Box     (InputText, InputInt/Float, Combo value area): a recessed,
+//     near-black "well" with a border, read as a container you type into
+//     rather than something you press.
+//   - Caption (window titlebars): passive chrome, kept visually apart from
+//     all of the above so it doesn't read as clickable.
+// A future read-only text field should reuse the Box idle color but skip
+// the hover color entirely (no hover feedback on a non-interactive field).
 constexpr f32 CR = 0.05;
 constexpr f32 CG = 0.15;
 constexpr f32 CB = 0.3;
+
 constexpr float4 UiColorWhite = { 1.0, 1.0, 1.0, 1.0 };
 constexpr float4 UiColorOrange = { 1.0, 0.6, 0.0, 1.0 };
 constexpr float4 UiColorBorder = { 0.1, 0.1, 0.1, 0.9 };
 constexpr float4 UiColorCaption = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorCaptionInactive = { 0.05, 0.05, 0.05, 1.0 };
 constexpr float4 UiColorBackground = { 0.02, 0.02, 0.02, 0.97 };
+
 constexpr float4 UiColorWidget = { CR, CG, CB, 1.0 };
 constexpr float4 UiColorWidgetHover = { 2*CR, 2*CG, 2*CB, 1.0 };
-constexpr float4 UiColorBox = { CR, CG, CB, 1.0 };
-constexpr float4 UiColorBoxHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+
+constexpr float4 UiColorSection = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorSectionHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+
+constexpr float4 UiColorButton = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorButtonHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+
+constexpr float4 UiColorToggle = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorToggleHover = { 2*CR, 2*CG, 2*CB, 1.0 };
+
+constexpr float4 UiColorInput = { CR, CG, CB, 1.0 };
+constexpr float4 UiColorInputHover = { 2 * CR, 2 * CG, 2 * CB, 1.0 };
+
+constexpr float4 UiColorBox = { 0.06, 0.06, 0.06, 1.0 };
+constexpr float4 UiColorBoxHover = { 0.08, 0.08, 0.08, 1.0 };
+
 constexpr float4 UiColorScrollbar = { 0.1, 0.1, 0.1, 1.0 };
 constexpr float4 UiColorScrollbarHover = { 0.2, 0.2, 0.2, 1.0 };
+
 constexpr float4 UiColorMenu = { 0.02, 0.02, 0.02, 1.0 };
 constexpr float4 UiColorMenuHover = { 2*CR, 2*CG, 2*CB, 1.0 };
 
@@ -867,15 +899,39 @@ float4 UI_WidgetColor(const UI &ui)
 	return res;
 }
 
-float4 UI_BoxColor(const UI &ui)
+float4 UI_SectionColor(const UI &ui)
 {
-	const float4 res = UI_WidgetHovered(ui) ? UiColorBoxHover : UiColorBox;
+	const float4 res = UI_WidgetHovered(ui) ? UiColorSectionHover : UiColorSection;
+	return res;
+}
+
+float4 UI_ButtonColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorButtonHover : UiColorButton;
+	return res;
+}
+
+float4 UI_InputColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorInputHover : UiColorInput;
+	return res;
+}
+
+float4 UI_ToggleColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorToggleHover : UiColorToggle;
 	return res;
 }
 
 float4 UI_ScrollbarColor(const UI &ui)
 {
 	const float4 res = UI_WidgetHovered(ui) ? UiColorScrollbarHover : UiColorScrollbar;
+	return res;
+}
+
+float4 UI_BoxColor(const UI &ui)
+{
+	const float4 res = UI_WidgetHovered(ui) ? UiColorBoxHover : UiColorBox;
 	return res;
 }
 
@@ -1549,7 +1605,7 @@ bool UI_Section(UI &ui, const char *caption)
 
 	UI_BeginWidget(ui, pos, size);
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UI_SectionColor(ui));
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
 
@@ -1601,7 +1657,7 @@ bool UI_Button(UI &ui, const char *text)
 
 	UI_BeginWidget(ui, pos, size);
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UI_ButtonColor(ui));
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
 
@@ -1630,7 +1686,7 @@ bool UI_ButtonIcon(UI &ui, u32 iconIndex)
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UI_ButtonColor(ui));
 	UI_AddRectangle(ui, widgetPos, widgetSize);
 	UI_PopColor(ui);
 
@@ -1658,7 +1714,7 @@ bool UI_Radio(UI &ui, const char *text, bool active)
 	const float2 widgetSize = ballSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UI_ToggleColor(ui));
 	UI_AddCircle(ui, ballPos, ballSize.y/2.0);
 	UI_PopColor(ui);
 	if (active)
@@ -1696,7 +1752,7 @@ bool UI_Checkbox(UI &ui, const char *text, bool *checked)
 	const float2 widgetSize = boxSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
-	UI_PushColor(ui, UI_WidgetColor(ui));
+	UI_PushColor(ui, UI_ToggleColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
 	if (*checked)
@@ -1742,9 +1798,12 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = float2{widgetSize.x - side, side};
 
-	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_PushColor(ui, UI_InputColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
+	//UI_PushColor(ui, UiColorBorder);
+	//UI_AddBorder(ui, boxPos, boxSize, 1);
+	//UI_PopColor(ui);
 
 	const float2 textPos = widgetPos + padding;
 	UI_AddText(ui, textPos, items[index]);
@@ -1805,7 +1864,7 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 			const f32 textWidth = Max( widgetSize.x, UI_TextWidth(ui, items[i]) );
 			UI_BeginWidget(ui, itemPos, itemSize);
 			const bool itemHovered = UI_WidgetHovered(ui);
-			UI_PushColor(ui, itemHovered ? UiColorBoxHover : UiColorBackground);
+			UI_PushColor(ui, itemHovered ? UiColorInputHover : UiColorBackground);
 			UI_AddRectangle(ui, itemPos, itemSize);
 			UI_PopColor(ui);
 			const float2 textPos = itemPos + padding;
@@ -1923,6 +1982,41 @@ bool UI_Image(UI &ui, ImageH image, float2 proposedImageSize = float2{32, 32}, U
 	}
 
 	return clicked;
+}
+
+void UI_Text(UI &ui, const char *label, const char *format, ...)
+{
+	UI_VSPRINTF(format, text);
+
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 containerWidth = UI_GetContainerSize(window).x;
+
+	const float2 padding = UI_GetPadding(ui);
+	const f32 textHeight = UI_TextHeight(ui);
+	const f32 side = UI_ControlHeight(ui);
+
+	const float2 widgetPos = UI_GetCursorPos(ui);
+	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+
+	UI_BeginWidget(ui, widgetPos, widgetSize);
+
+	const float2 boxPos = widgetPos;
+	const float2 boxSize = widgetSize;
+
+	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+
+	const float2 textPos = boxPos + padding;
+
+	UI_AddText(ui, textPos, text);
+
+	UI_EndWidget(ui);
+
+	const float2 labelPos = widgetPos + float2{widgetSize.x + UiSpacing, padding.y};
+	UI_AddText(ui, labelPos, label);
+
+	UI_CursorAdvance(ui, widgetSize);
 }
 
 void UI_SetActiveWidget(UI &ui, u32 widgetId)
@@ -2061,9 +2155,12 @@ bool UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = widgetSize;
 
-	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_PushColor(ui, UI_InputColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
+	//UI_PushColor(ui, UiColorBorder);
+	//UI_AddBorder(ui, boxPos, boxSize, 1);
+	//UI_PopColor(ui);
 
 	const float2 textPos = boxPos + padding;
 
@@ -2168,9 +2265,12 @@ bool UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 	static i32 numberBeforeDrag;
 
 	UI_BeginWidget(ui, boxPos, boxSize);
-	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_PushColor(ui, UI_InputColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
+	//UI_PushColor(ui, UiColorBorder);
+	//UI_AddBorder(ui, boxPos, boxSize, 1);
+	//UI_PopColor(ui);
 
 	const bool boxClicked = UI_WidgetClicked(ui);
 	const bool active = UI_IsActiveWidget(ui, id);
@@ -2311,9 +2411,12 @@ bool UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 	static f32 numberBeforeDrag;
 
 	UI_BeginWidget(ui, boxPos, boxSize);
-	UI_PushColor(ui, UI_BoxColor(ui));
+	UI_PushColor(ui, UI_InputColor(ui));
 	UI_AddRectangle(ui, boxPos, boxSize);
 	UI_PopColor(ui);
+	//UI_PushColor(ui, UiColorBorder);
+	//UI_AddBorder(ui, boxPos, boxSize, 1);
+	//UI_PopColor(ui);
 
 	const bool boxClicked = UI_WidgetClicked(ui);
 	const bool active = UI_IsActiveWidget(ui, id);
@@ -2920,6 +3023,14 @@ void * UI_DragAndDropPayload(UI &ui)
 struct Graphics;
 ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
+void UI_InitializeColors(UI &ui)
+{
+	for (u32 i = 0; i < UIElementCount; ++i) {
+		ui.colorElems[i].stackSize = 0;
+	}
+	UI_PushElemColor(ui, UIElementBackground, UiColorBackground);
+}
+
 void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalArena, UIIcon *icons, u32 iconCount)
 {
 	ui.tempString = PushArray(globalArena, char, UI_TEMP_STRING_SIZE);
@@ -2942,7 +3053,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	UI_PushColor(ui, UiColorWidget);
 	UI_PushPadding(ui, UiDefaultInputPadding);
 
-	UI_PushElemColor(ui, UIElementBackground, UiColorBackground);
+	UI_InitializeColors(ui);
 
 	struct SizedFont
 	{

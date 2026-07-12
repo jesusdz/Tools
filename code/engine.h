@@ -248,7 +248,7 @@ struct Graphics
 
 struct TileGrid
 {
-	Handle entities[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite entity per cell, InvalidHandle if empty
+	Handle cells[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite per cell, InvalidHandle if empty
 	uint2 size;
 };
 

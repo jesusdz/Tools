@@ -794,9 +794,9 @@ static void EditorUpdateUI_Assets(Engine &engine)
 static void EditorUpdateUI_InspectorScene(Engine &engine, Scene &scene)
 {
 	UI &ui = engine.ui;
-	UI_Label(ui, "Rooms: %u", scene.roomHandles.handleCount);
-	UI_Label(ui, "Entities: %u", scene.entityHandles.handleCount);
-	UI_Label(ui, "Sprites: %u", scene.spriteHandles.handleCount);
+	UI_Text(ui, "Rooms", "%u", scene.roomHandles.handleCount);
+	UI_Text(ui, "Entities", "%u", scene.entityHandles.handleCount);
+	UI_Text(ui, "Sprites", "%u", scene.spriteHandles.handleCount);
 }
 
 static void EditorUpdateUI_InspectorRoom(Engine &engine, Room &room)
@@ -816,7 +816,7 @@ static void EditorUpdateUI_InspectorRoom(Engine &engine, Room &room)
 	//UI_InputInt2(ui, "Size", &size);
 	//room.boundingBox.size = { (u32)Max(1, size.x), (u32)Max(1, size.y) };
 
-	UI_Label(ui, "Layers: %u", room.layerCount);
+	UI_Text(ui, "Layers", "%u", room.layerCount);
 }
 
 static void EditorUpdateUI_InspectorLayer(Engine &engine, Layer &layer)
@@ -983,7 +983,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				UI_SeparatorLabel(ui, "Sprite");
 
 				const Sprite &sprite = GetSprite(engine.scene, entity.spriteH);
-				UI_Label(ui, "Name: %s", sprite.name);
+				UI_Text(ui, "Name", sprite.name);
 
 				if (UI_Button(ui, "Select Sprite"))
 				{
@@ -1041,7 +1041,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 				if (IsValidHandle(engine.gfx.textureHandles, sprite.textureH))
 				{
 					const Texture &texture = GetTexture(engine.gfx, sprite.textureH);
-					UI_Label(ui, "Texture: %s", texture.name);
+					UI_Text(ui, "Texture", texture.name);
 					UI_Image(ui, texture.image, float2{0, 0}, UIWidgetFlag_Expand);
 				}
 
