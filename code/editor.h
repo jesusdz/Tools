@@ -39,9 +39,10 @@ enum EditorSelectedType
 	EditorSelectedType_FileImage,
 	EditorSelectedType_FileAudio,
 	EditorSelectedType_FileMusic,
+	EditorSelectedType_FileUnknown,
 	EditorSelectedType_Count,
 	EditorSelectedType_FileBegin = EditorSelectedType_FileImage,
-	EditorSelectedType_FileEnd = EditorSelectedType_FileMusic,
+	EditorSelectedType_FileEnd = EditorSelectedType_FileUnknown,
 };
 
 static const char *EditorSelectedTypeName[] = {
@@ -58,6 +59,7 @@ static const char *EditorSelectedTypeName[] = {
 	"Image file",
 	"Audio file",
 	"Music file",
+	"Unknown file type",
 };
 CT_ASSERT(ARRAY_COUNT(EditorSelectedTypeName) == EditorSelectedType_Count);
 

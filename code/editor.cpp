@@ -329,6 +329,13 @@ static void EditorSelectFileMusic(Editor &editor, FileNode *node)
 	editor.inspector.nextSelected.type = EditorSelectedType_FileMusic;
 }
 
+static void EditorSelectFileUnknown(Editor &editor, FileNode *node)
+{
+	editor.context.selectedFile = node;
+	editor.inspector.nextSelected.file = node;
+	editor.inspector.nextSelected.type = EditorSelectedType_FileUnknown;
+}
+
 static void EditorUnselectAll(Editor &editor)
 {
 	editor.context.selectedFile = nullptr;
@@ -786,7 +793,7 @@ static void EditorUpdateUI_Assets(Engine &engine)
 			}
 			else
 			{
-				EditorUnselectAll(editor);
+				EditorSelectFileUnknown(editor, node);
 			}
 		}
 
@@ -894,11 +901,18 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 		const bool createFromFile = refresh;
 
 		const char *filename = inspector.selected.file->filename;
+		FilePath filepath = MakePath(AssetDir, filename);
 
-		UI_Label(ui, "%s", filename);
+		u64 fileSize = 0;
+		GetFileSize(filepath.str, fileSize, false);
+
+		UI_Text(ui, "File", "%s", filename);
+		UI_Text(ui, "Size", "%llu KB", fileSize / 1024);
 
 		if (inspector.selected.type == EditorSelectedType_FileImage)
 		{
+			UI_SeparatorLabel(ui, "Image");
+
 			if (createFromFile)
 			{
 				const TextureDesc desc = {
@@ -938,6 +952,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 		}
 		else if (inspector.selected.type == EditorSelectedType_FileAudio)
 		{
+			UI_SeparatorLabel(ui, "Audio");
+
 			if (createFromFile)
 			{
 				const AudioClipDesc desc = {
@@ -961,6 +977,8 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 		}
 		else if (inspector.selected.type == EditorSelectedType_FileMusic)
 		{
+			UI_SeparatorLabel(ui, "Music");
+
 			if (createFromFile)
 			{
 				const MusicFileDesc desc = {
@@ -980,6 +998,10 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 					MusicStop(engine);
 				}
 			}
+		}
+		else if (inspector.selected.type == EditorSelectedType_FileUnknown)
+		{
+			// Nothing to do
 		}
 	}
 	else
@@ -1032,6 +1054,10 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 		{
 			if (inspector.selected.handle != InvalidHandle)
 			{
+				const Texture &texture = GetTexture(engine.gfx, inspector.selected.handle);
+				UI_Text(ui, "Name", "%s", texture.name);
+				UI_Text(ui, "Size", "%u x %u", texture.size.x, texture.size.y);
+
 				const ImageH imageH = GetTextureImage(engine.gfx, inspector.selected.handle, engine.gfx.grayImageH);
 				UI_Image(ui, imageH, float2{0,0}, UIWidgetFlag_Expand);
 			}
