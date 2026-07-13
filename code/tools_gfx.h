@@ -708,8 +708,8 @@ typedef void FN_DestroyImageH(GraphicsDevice &device, ImageH imageH);
 typedef SamplerH FN_CreateSampler(GraphicsDevice &device, const SamplerDesc &desc);
 typedef const Sampler& FN_GetSampler(const GraphicsDevice &device, SamplerH handle);
 typedef void FN_DestroySampler(const GraphicsDevice &device, const Sampler &sampler);
-typedef PipelineH FN_CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout);
-typedef PipelineH FN_CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+typedef PipelineH FN_CreateGraphicsPipeline(GraphicsDevice &device, Arena scratch, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout);
+typedef PipelineH FN_CreateComputePipeline(GraphicsDevice &device, Arena scratch, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout);
 typedef const Pipeline& FN_GetPipeline(const GraphicsDevice &device, PipelineH handle);
 typedef bool FN_IsSamePipeline(PipelineH a, PipelineH b);
 typedef void FN_DestroyPipeline(const GraphicsDevice &device, const Pipeline &pipeline); // TODO(jesus): Remove?
@@ -3424,10 +3424,8 @@ void DestroySampler(const GraphicsDevice &device, const Sampler &sampler)
 //////////////////////////////
 
 // TODO: Avoid having to pass renderPass as a parameter instead of within the PipelineDesc
-Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
+Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena scratch, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
-	Arena scratch = MakeSubArena(arena, "Scratch - CreateGraphicsPipelineInternal");
-
 	// Create pipeline
 	const ShaderSource vertexShaderSource = desc.vertexShaderSource;
 	const ShaderSource fragmentShaderSource = desc.fragmentShaderSource;
@@ -3626,10 +3624,8 @@ Pipeline CreateGraphicsPipelineInternal(GraphicsDevice &device, Arena &arena, co
 	return pipeline;
 }
 
-Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
+Pipeline CreateComputePipelineInternal(GraphicsDevice &device, Arena scratch, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
-	Arena scratch = arena;
-
 	const ShaderSource shaderSource = desc.computeShaderSource;
 	const ShaderModule shaderModule = CreateShaderModule(device, shaderSource);
 	const ShaderBindings shaderBindings = ReflectShaderBindings(scratch, shaderSource);
@@ -3711,19 +3707,19 @@ static PipelineH GetFreePipelineHandle(GraphicsDevice &device)
 	return {};
 }
 
-PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena &arena, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
+PipelineH CreateGraphicsPipeline(GraphicsDevice &device, Arena scratch, const PipelineDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
-	pipeline = CreateGraphicsPipelineInternal(device, arena, desc, globalBindGroupLayout);
+	pipeline = CreateGraphicsPipelineInternal(device, scratch, desc, globalBindGroupLayout);
 	return pipelineHandle;
 }
 
-PipelineH CreateComputePipeline(GraphicsDevice &device, Arena &arena, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
+PipelineH CreateComputePipeline(GraphicsDevice &device, Arena scratch, const ComputeDesc &desc, const BindGroupLayout &globalBindGroupLayout)
 {
 	const PipelineH pipelineHandle = GetFreePipelineHandle(device);
 	Pipeline &pipeline = device.pipelines[pipelineHandle.index];
-	pipeline = CreateComputePipelineInternal(device, arena, desc, globalBindGroupLayout);
+	pipeline = CreateComputePipelineInternal(device, scratch, desc, globalBindGroupLayout);
 	return pipelineHandle;
 }
 

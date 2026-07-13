@@ -1868,14 +1868,18 @@ void UI_Separator(UI &ui)
 
 	const UILayout layout = UI_GetLayout(ui);
 
-	const float2 pos = UI_GetCursorPos(ui);
+	const f32 spacing = (f32)Floor(0.3f * UI_ControlHeight(ui));
+	const f32 hspacing = (f32)Floor(0.5f * spacing);
+
+	const float2 pos = UI_GetCursorPos(ui) + float2{0.0f, hspacing};
 	const float2 size = layout == UiLayoutVertical ?
 		float2{ containerWidth, 1.0 } : float2{ 1.0, containerHeight };
 
 	UI_PushColor(ui, UiColorBorder);
 	UI_AddRectangle(ui, pos, size);
 	UI_PopColor(ui);
-	UI_CursorAdvance(ui, size);
+
+	UI_CursorAdvance(ui, size + float2{0.0f, spacing}, 0.0f);
 }
 
 void UI_SeparatorLabel(UI &ui, const char *format, ...)
@@ -1908,7 +1912,7 @@ void UI_SeparatorLabel(UI &ui, const char *format, ...)
 	UI_AddRectangle(ui, line2Pos, line2Size);
 	UI_PopColor(ui);
 
-	UI_CursorAdvance(ui, size);
+	UI_CursorAdvance(ui, size, 12);
 }
 
 bool UI_Image(UI &ui, ImageH image, float2 proposedImageSize = float2{32, 32}, UIWidgetFlags flags = UIWidgetFlag_None)
@@ -3345,8 +3349,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 		{ "editor/fonts/refixedsys/refixedsys-mono.ttf", 15 },
 	};
 
-	Arena scratch = globalArena;
-	#define globalArena invalidArena // NOTE: Cannot use globalArena after scratching it
+	Scratch scratch;
 
 	// Load TTF font texture
 	SizedFont sizedFont = {};
@@ -3357,7 +3360,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 		const u32 fontIndex = ARRAY_COUNT(fonts) - i - 1;
 		sizedFont = fonts[fontIndex];
 		fontPath = MakePath(ProjectDir, sizedFont.filename);
-		chunk = PushFile( scratch, fontPath.str );
+		chunk = PushFile( scratch.arena, fontPath.str );
 		if (chunk) {
 			break;
 		}
@@ -3372,7 +3375,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 
 	const u32 fontAtlasWidth = 128;
 	const u32 fontAtlasHeight = 128;
-	byte *fontAtlasBitmap = PushArray(scratch, byte, fontAtlasWidth * fontAtlasHeight);
+	byte *fontAtlasBitmap = PushArray(scratch.arena, byte, fontAtlasWidth * fontAtlasHeight);
 
 	stbtt_fontinfo font;
 	const int fontIndex = 0;
@@ -3446,7 +3449,7 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	stbtt_PackEnd(&packContext);
 
 	// One channel to RGBA
-	rgba *fontAtlasBitmapRGBA = PushArray(scratch, rgba, fontAtlasWidth * fontAtlasHeight);
+	rgba *fontAtlasBitmapRGBA = PushArray(scratch.arena, rgba, fontAtlasWidth * fontAtlasHeight);
 
 	byte *srcPtr = fontAtlasBitmap;
 	rgba *dstPtr = fontAtlasBitmapRGBA;
@@ -3480,8 +3483,6 @@ void UI_Initialize(UI &ui, Graphics &gfx, GraphicsDevice &gfxDev, Arena &globalA
 	// Create texture
 	ui.fontAtlasH = EngineCreateImage(gfx, "texture_font", fontAtlasWidth, fontAtlasHeight, 4, false, (byte*)fontAtlasBitmapRGBA);
 	ui.fontAtlasSize = {fontAtlasWidth, fontAtlasHeight};
-
-	#undef globalArena
 
 	UI_ResetWindowDefaults(ui);
 }

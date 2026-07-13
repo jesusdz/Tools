@@ -62,8 +62,8 @@ static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *n
 {
 	const FilePath path = MakePath(ProjectDir, filename);
 	ImagePixels imagePixels;
-	Arena scratch = MakeSubArena(FrameArena, "Scratch - EditorLoadIcon");
-	ReadImagePixels(scratch, path.str, imagePixels);
+	Scratch scratch;
+	ReadImagePixels(scratch.arena, path.str, imagePixels);
 	const ImageH handle = EngineCreateImage(engine.gfx, imagePixels, name, false);
 	return handle;
 }
@@ -71,9 +71,9 @@ static ImageH EditorLoadIcon(Engine &engine, const char *filename, const char *n
 static ImageH EditorLoadSnapshot(Engine &engine, const char *filepath, const char *name)
 {
 	ImagePixels imagePixels;
-	Arena scratch = MakeSubArena(FrameArena, "Scratch - EditorLoadSnapshot");
-	ReadImagePixels(scratch, filepath, imagePixels);
-	imagePixels = ResizeImagePixels(scratch, imagePixels, 32, 32);
+	Scratch scratch;
+	ReadImagePixels(scratch.arena, filepath, imagePixels);
+	imagePixels = ResizeImagePixels(scratch.arena, imagePixels, 32, 32);
 	const ImageH handle = EngineCreateImage(engine.gfx, imagePixels, name, false);
 	return handle;
 }
@@ -2198,7 +2198,8 @@ void EditorRender(Engine &engine, CommandList &commandList)
 
 void EditorPostRender(Engine &engine)
 {
-	EditorProcessCommands(engine, FrameArena);
+	Scratch scratch;
+	EditorProcessCommands(engine, scratch.arena);
 }
 
 #if 0

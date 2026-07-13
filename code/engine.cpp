@@ -892,10 +892,10 @@ TextureH CreateTexture(Graphics &gfx, const TextureDesc &desc)
 {
 	Handle textureHandle = InvalidHandle;
 
-	Arena scratch = MakeSubArena(FrameArena, "Scratch - CreateTexture");
+	Scratch scratch;
 	const FilePath imagePath = MakePath(AssetDir, desc.filename);
 	ImagePixels img;
-	if ( ReadImagePixels(scratch, imagePath.str, img) )
+	if ( ReadImagePixels(scratch.arena, imagePath.str, img) )
 	{
 		const ImageH imageHandle = EngineCreateImage(gfx, img, desc.name, desc.mipmap);
 
@@ -1022,9 +1022,9 @@ static void RecreateTextureIfModifed(Handle handle, void* data)
 	if ( ts > texture.ts )
 	{
 		ImagePixels img;
-		Arena scratch = MakeSubArena(FrameArena, "Scratch - RecreateTextureIfModifed");
+		Scratch scratch;
 
-		if ( ReadImagePixels(scratch, imagePath.str, img) )
+		if ( ReadImagePixels(scratch.arena, imagePath.str, img) )
 		{
 			WaitDeviceIdle(gfx.device);
 
@@ -1771,11 +1771,12 @@ static const BindGroup &GetOrCreateDynamicBindGroup(Graphics &gfx, const BindGro
 	return gfx.dynamicBindGroups[gfx.dynamicBindGroupCount++];
 }
 
-bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
+bool InitializeGraphics(Engine &engine, Arena &globalArena)
 {
+	Scratch scratch;
 	Graphics &gfx = engine.gfx;
 
-	if ( !InitializeGraphicsDevice( gfx.device, scratch ) ) {
+	if ( !InitializeGraphicsDevice( gfx.device, scratch.arena ) ) {
 		return false;
 	}
 
@@ -1992,7 +1993,8 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	Initialize(gfx.materialHandles, globalArena, MAX_MATERIALS);
 
 	// Graphics pipelines
-	RecompilePipelines(engine, scratch);
+	ResetArena(scratch.arena);
+	RecompilePipelines(engine, scratch.arena);
 
 	// Builtin images
 	const byte whiteImagePixels[] = { 255, 255, 255, 255 };
@@ -2073,13 +2075,13 @@ bool InitializeGraphics(Engine &engine, Arena &globalArena, Arena scratch)
 	UIIcon *icons = nullptr;
 	u32 iconCount = 0;
 #if USE_EDITOR
+	ResetArena(scratch.arena);
 	const char *iconFilenames[] = { "editor/play_16.png", "editor/open.png", "editor/save.png", "editor/reload.png" };
 	iconCount = ARRAY_COUNT(iconFilenames);
 	icons = PushArray(globalArena, UIIcon, iconCount);
 	for (u32 i = 0; i < iconCount; ++i) {
 		FilePath filepath = MakePath(ProjectDir, iconFilenames[i]);
-		Arena scratch = MakeSubArena(FrameArena, "Scratch - InitializeGraphics");
-		ReadImagePixels(scratch, filepath.str, icons[i].image);
+		ReadImagePixels(scratch.arena, filepath.str, icons[i].image);
 	}
 #endif
 	UI_Initialize(engine.ui, gfx, gfx.device, globalArena, icons, iconCount);
@@ -3667,7 +3669,7 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 			LoadShadersFromBin(engine);
 		}
 
-		if ( !InitializeGraphics(engine, GlobalArena, FrameArena) )
+		if ( !InitializeGraphics(engine, GlobalArena) )
 		{
 			// TODO: Actually we could throw a system error and exit...
 			LOG(Error, "InitializeGraphics failed!\n");
@@ -3733,7 +3735,8 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 		{
 			// NOTE(jesus): Recompiling all pipelines here even if likely only a shader was recompiled :-S
 			WaitDeviceIdle(gfx.device);
-			RecompilePipelines(engine, FrameArena);
+			Scratch scratch;
+			RecompilePipelines(engine, scratch.arena);
 		}
 
 		RecreateModifiedTextures(engine);
