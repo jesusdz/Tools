@@ -68,7 +68,10 @@ struct Camera
 	ProjectionType projectionType;
 	float3 position;
 	float2 orientation; // yaw and pitch
-	f32 height; // orthographic only
+	f32 znear;
+	f32 zfar;
+	f32 height; // orthographic only: half the vertical size of the view volume
+	f32 fovy;   // perspective only: vertical field of view, in degrees
 };
 
 struct Sprite
@@ -239,7 +242,7 @@ struct Graphics
 
 	f32 deltaSeconds;
 
-	const Camera *activeCamera;
+	Camera camera;
 };
 
 //#define TILE_GRID_SIZE_X 20

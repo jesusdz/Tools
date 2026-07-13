@@ -1809,7 +1809,6 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 			if (entityHandle != InvalidHandle)
 			{
-				editor.isTranslating = true;
 				EditorSelectEntity(editor, entityHandle);
 			}
 			else
@@ -1980,17 +1979,26 @@ void EditorInitialize(Engine &engine)
 	editor.showSettings = false;
 	editor.showQuit = false;
 
-	editor.camera[ProjectionPerspective].projectionType = ProjectionPerspective;
+	// projectionType is derived from the array index so it can never drift out of sync with it
+	for (u32 i = 0; i < ProjectionTypeCount; ++i)
+	{
+		editor.camera[i].projectionType = (ProjectionType)i;
+	}
+
 	editor.camera[ProjectionPerspective].position = {0, 1, 2};
 	editor.camera[ProjectionPerspective].orientation = {0, -0.45f};
+	editor.camera[ProjectionPerspective].fovy = 60.0f;
+	editor.camera[ProjectionPerspective].znear = 0.1f;
+	editor.camera[ProjectionPerspective].zfar = 1000.0f;
 
-	editor.camera[ProjectionOrthographic].projectionType = ProjectionOrthographic;
 	editor.camera[ProjectionOrthographic].position = {0, 0, -5};
 	editor.camera[ProjectionOrthographic].orientation = {};
 	editor.camera[ProjectionOrthographic].height = 8.0;
+	editor.camera[ProjectionOrthographic].znear = -10.0f;
+	editor.camera[ProjectionOrthographic].zfar = 10.0f;
 
 	editor.cameraType = ProjectionOrthographic;
-	engine.gfx.activeCamera = &editor.camera[ProjectionOrthographic];
+	SetCamera(editor.camera[ProjectionOrthographic]);
 
 	editor.iconAsset = EditorLoadIcon(engine, "editor/file_32x32.png", "file_32x32");
 	editor.iconWav = EditorLoadIcon(engine, "editor/wav_32x32.png", "wav_32x32");
@@ -2081,10 +2089,13 @@ void EditorUpdate(Engine &engine)
 		{
 			EditorUpdateCamera3D(*platform.window, engine.editor.camera[ProjectionPerspective], gfx.deltaSeconds, handleInput);
 		}
+
+		SetCamera(engine.editor.camera[ProjectionPerspective]);
 	}
 	else
 	{
 		EditorUpdateInteraction2D(engine, *platform.window, *platform.gamepad, engine.editor.camera[ProjectionOrthographic], gfx.deltaSeconds, handleInput);
+		SetCamera(engine.editor.camera[ProjectionOrthographic]);
 	}
 
 	EditorBeginSceneEditing(engine, platform.window->mouse, handleInput);

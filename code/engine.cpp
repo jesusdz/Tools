@@ -2746,6 +2746,23 @@ static bool EntityIsInFrustum3D(Scene &scene, const Entity &entity, const Frustu
 	return entityIsInFrustum;
 }
 
+static float4 GetOrthographicCameraMinMaxRect(const Camera &camera, f32 ar)
+{
+	const f32 height = camera.height;
+	const float2 halfExtent = { height*ar, height };
+	const float2 rectMin = { camera.position.x - halfExtent.x, camera.position.y - halfExtent.y };
+	const float2 rectMax = { camera.position.x + halfExtent.x, camera.position.y + halfExtent.y };
+	const float4 minMaxRect = { .xy = rectMin, .zw =  rectMax };
+	return minMaxRect;
+}
+
+static bool Intersects(float2 aMin, float2 aMax, float2 bMin, float2 bMax)
+{
+	const bool outsideX = aMax.x < bMin.x || aMin.x > bMax.x;
+	const bool outsideY = aMax.y < bMin.y || aMin.y > bMax.y;
+	return !(outsideX || outsideY);
+}
+
 static bool EntityIsInFrustum2D(Scene &scene, const Entity &entity, float2 rectMin, float2 rectMax)
 {
 	float2 halfSize = { 0.5f * entity.scale, 0.5f * entity.scale };
@@ -2759,11 +2776,19 @@ static bool EntityIsInFrustum2D(Scene &scene, const Entity &entity, float2 rectM
 	const float2 entityMin = entity.position.xy;// { entity.position.x - halfSize.x, entity.position.y - halfSize.y };
 	const float2 entityMax = entity.position.xy + 2.0f * halfSize;//{ entity.position.x + halfSize.x, entity.position.y + halfSize.y };
 
-	const bool outsideX = entityMax.x < rectMin.x || entityMin.x > rectMax.x;
-	const bool outsideY = entityMax.y < rectMin.y || entityMin.y > rectMax.y;
-	return !(outsideX || outsideY);
+	return Intersects(entityMin, entityMax, rectMin, rectMax);
 }
 
+
+static f32 GetSceneAspectRatio(const Graphics &gfx)
+{
+	const uint2 sceneSize = gfx.renderTargets.sceneSize;
+	const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
+	ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
+	const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
+	const f32 ar = isLandscapeRotation ? (f32) sceneSize.x / sceneSize.y : (f32) sceneSize.y / sceneSize.x;
+	return ar;
+}
 
 bool RenderGraphics(Engine &engine)
 {
@@ -2796,10 +2821,6 @@ bool RenderGraphics(Engine &engine)
 	UI_UploadVerticesToGPU(engine.ui);
 #endif
 
-	// Scene size
-	const i32 sceneWidth = gfx.renderTargets.sceneSize.x;
-	const i32 sceneHeight = gfx.renderTargets.sceneSize.y;
-
 	// Display size
 	const i32 displayWidth = gfx.device.swapchain.extent.width;
 	const i32 displayHeight = gfx.device.swapchain.extent.height;
@@ -2811,48 +2832,21 @@ bool RenderGraphics(Engine &engine)
 	float4x4 projectionMatrix = Eye();
 	float4 frustumTopLeft = {};
 	float4 frustumBottomRight = {};
-	float3 cameraPosition = {};
 
-	Camera camera = {};
+	const Camera camera = engine.gfx.camera;
 
-	if (engine.gfx.activeCamera) {
-		camera = *engine.gfx.activeCamera;
-	} else {
-		// There should always have to be an active camera...
-		// but this is a fallback camera to render something
-		camera = {
-			.projectionType = ProjectionOrthographic,
-			.position = {0, 0, 0},
-			.orientation = {0, 0},
-		};
-	}
-
-//	if (engine.mode == EngineModeGame3D) {
-//		camera = {
-//			.projectionType = ProjectionPerspective,
-//			.position = {0, 1, 2},
-//			.orientation = {0, -0.45f},
-//		};
-//	} else if (engine.mode == EngineModeGame2D) {
-//		camera = {
-//			.projectionType = ProjectionOrthographic,
-//			.position = {0, 0, 0},
-//			.orientation = {0, 0},
-//		};
-//	}
+	const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
+	const f32 ar = GetSceneAspectRatio(gfx);
+	const float4 cameraMinMaxRect = GetOrthographicCameraMinMaxRect(camera, ar);
 
 	if (camera.projectionType == ProjectionPerspective)
 	{
 		// Calculate camera matrices
-		const float preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
-		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
-		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-		const f32 ar = isLandscapeRotation ?  (f32) sceneWidth / sceneHeight : (f32) sceneHeight / sceneWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
 		inverseViewMatrix = Float4x4(Transpose(Float3x3(viewMatrix)));
-		const float fovy = 60.0f;
-		const float znear = 0.1f;
-		const float zfar = 1000.0f;
+		const float fovy = camera.fovy;
+		const float znear = camera.znear;
+		const float zfar = camera.zfar;
 		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
 		//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
 		const float4x4 perspectiveMatrix = Perspective(fovy, ar, znear, zfar);
@@ -2867,12 +2861,10 @@ bool RenderGraphics(Engine &engine)
 		frustumTopLeft = Float4( Float3(left, top, -znear), 0.0f );
 		frustumBottomRight = Float4( Float3(right, bottom, -znear), 0.0f );
 
-		cameraPosition = camera.position;
 
 		// CPU Frustum culling
-		const float3 cameraPosition = camera.position;
 		const float3 cameraForward = ForwardDirectionFromAngles(camera.orientation);
-		const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(cameraPosition, cameraForward, znear, zfar, fovy, ar);
+		const FrustumPlanes frustumPlanes = FrustumPlanesFromCamera(camera.position, cameraForward, znear, zfar, fovy, ar);
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
 			Entity &entity = GetEntity(scene, *it);
@@ -2883,31 +2875,22 @@ bool RenderGraphics(Engine &engine)
 	{
 		const f32 height = camera.height;
 		// Calculate camera matrices
-		const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
-		ASSERT(preRotationDegrees == 0 || preRotationDegrees == 90 || preRotationDegrees == 180 || preRotationDegrees == 270);
-		const bool isLandscapeRotation = preRotationDegrees == 0 || preRotationDegrees == 180;
-		const f32 ar = isLandscapeRotation ?  (f32) sceneWidth / sceneHeight : (f32) sceneHeight / sceneWidth;
 		viewMatrix = ViewMatrixFromCamera(camera);
 		//inverseViewMatrix = Inverse2D(viewMatrix);
 		viewportRotationMatrix = Rotate(float3{0.0, 0.0, 1.0}, preRotationDegrees);
 		//const float4x4 preTransformMatrixInv = Float4x4(Transpose(Float3x3(viewportRotationMatrix)));
-		const float4x4 orthographicMatrix = Orthogonal(-height*ar, height*ar, -height, height, -10.0, 10.0);
+		const float4x4 orthographicMatrix = Orthogonal(-height*ar, height*ar, -height, height, camera.znear, camera.zfar);
 		projectionMatrix = Mul(viewportRotationMatrix, orthographicMatrix);
 
 		// Frustum vectors
 		frustumTopLeft = Float4( Float3(-height*ar, height, 0), 0.0f );
 		frustumBottomRight = Float4( Float3(height*ar, -height, 0), 0.0f );
 
-		cameraPosition = camera.position;
-
 		// CPU Frustum culling
-		const float2 rectHalfExtent = { height*ar, height };
-		const float2 rectMin = { cameraPosition.x - rectHalfExtent.x, cameraPosition.y - rectHalfExtent.y };
-		const float2 rectMax = { cameraPosition.x + rectHalfExtent.x, cameraPosition.y + rectHalfExtent.y };
 		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
 			Entity &entity = GetEntity(scene, *it);
-			entity.culled = !EntityIsInFrustum2D(scene, entity, rectMin, rectMax);
+			entity.culled = !EntityIsInFrustum2D(scene, entity, cameraMinMaxRect.xy, cameraMinMaxRect.zw);
 		}
 	}
 
@@ -2947,7 +2930,7 @@ bool RenderGraphics(Engine &engine)
 		.sunView = sunViewMatrix,
 		.sunProj = sunProjMatrix,
 		.sunDir = Float4(sunDir, 0.0f),
-		.eyePosition = Float4(cameraPosition, 1.0f),
+		.eyePosition = Float4(camera.position, 1.0f),
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
 		.mousePosition = int2{window.mouse.x, window.mouse.y},
@@ -3001,6 +2984,8 @@ bool RenderGraphics(Engine &engine)
 	for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
 	{
 		const Room &room = GetRoom(scene, *it);
+
+		// TODO: Skip room if not in camera
 
 		for (u32 i = 0; i < ARRAY_COUNT(room.layers); ++i)
 		{
@@ -3689,6 +3674,13 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 			return false;
 		}
 
+		gfx.camera = {
+			.projectionType = ProjectionOrthographic,
+			.znear = -10.0f,
+			.zfar = 10.0f,
+			.height = 8.0f,
+		};
+
 		Initialize(engine.scene.roomHandles, GlobalArena, MAX_ROOMS);
 		Initialize(engine.scene.entityHandles, GlobalArena, MAX_ENTITIES);
 		Initialize(engine.scene.spriteHandles, GlobalArena, MAX_SPRITES);
@@ -3850,7 +3842,7 @@ ENGINE_API void OnPlatformCleanup(Plat &platform)
 
 void SetCamera(const Camera &camera)
 {
-	engine->gfx.activeCamera = &camera;
+	engine->gfx.camera = camera;
 }
 
 Room *GetRoom(const char *name)

@@ -1895,6 +1895,11 @@ struct float4
 			union { float z, b; };
 			union { float w, a; };
 		};
+		struct
+		{
+			float2 xy;
+			float2 zw;
+		};
 		float3 xyz;
 	};
 };
