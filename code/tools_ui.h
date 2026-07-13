@@ -402,7 +402,7 @@ static void UI_ResetWindowDefaults(UI &ui)
 
 static float2 UI_GetAnchorPos(uint2 viewportSize, float2 anchor)
 {
-	const float2 anchorPos = anchor * float2{(f32)viewportSize.x, (f32)viewportSize.y};
+	const float2 anchorPos = Floor(anchor * float2{(f32)viewportSize.x, (f32)viewportSize.y});
 	return anchorPos;
 }
 

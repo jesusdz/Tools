@@ -2821,23 +2821,43 @@ static void PlatformQuit()
 	exit(0);
 }
 
-static u32 AcquireScratchArena(Arena &outArena)
+static void ReleaseScratchArena(u32 index)
 {
+	u32 oldValue, newValue;
+	do
+	{
+		oldValue = platform.scratchArenaLockMask;
+		newValue = oldValue & ~(1<<index);
+	}
+	while (!AtomicSwap(&platform.scratchArenaLockMask, oldValue, newValue));
+}
+
+static u32 AcquireScratchArena(Arena &outArena, u32 minSize)
+{
+	u32 rejectedMask = 0; // Slots already found too small in this call; skip them on retry.
 	for (u32 i = 0; i < MAX_SCRATCH_ARENAS; ++i)
 	{
 		const u32 oldValue = platform.scratchArenaLockMask;
-		const u32 index = FBZ(oldValue);
+		const u32 index = FBZ(oldValue | rejectedMask);
 		ASSERT(index < MAX_SCRATCH_ARENAS);
 
 		const u32 newValue = oldValue | (1<<index);
 		if (AtomicSwap(&platform.scratchArenaLockMask, oldValue, newValue))
 		{
 			Arena &arena = platform.scratchArenas[index];
+
+			if (arena.base && arena.size < minSize)
+			{
+				// Too small; release it and keep looking rather than growing (and leaking) it.
+				ReleaseScratchArena(index);
+				rejectedMask |= (1<<index);
+				continue;
+			}
+
 			if (!arena.base)
 			{
-				const u32 size = MB(1);
-				arena.base = (byte*)AllocateVirtualMemory(size);
-				arena.size = size;
+				arena.base = (byte*)AllocateVirtualMemory(minSize);
+				arena.size = minSize;
 			}
 			outArena = arena;
 			outArena.used = 0;
@@ -2846,14 +2866,6 @@ static u32 AcquireScratchArena(Arena &outArena)
 	}
 	INVALID_CODE_PATH();
 	return U32_MAX;
-}
-
-static void ReleaseScratchArena(u32 index)
-{
-	const u32 oldValue = platform.scratchArenaLockMask;
-	const u32 newValue = oldValue & ~(1<<index);
-	const bool swapped = AtomicSwap(&platform.scratchArenaLockMask, oldValue, newValue);
-	ASSERT(swapped);
 }
 
 static FilePath sEngineLibPath = {};

@@ -2999,6 +2999,8 @@ bool RenderGraphics(Engine &engine)
 				{
 					for (i32 x = 0; x < layer.grid.size.x; ++x)
 					{
+						// TODO: Skip cell if not in camera
+
 						const Handle spriteH = layer.grid.cells[x][y];
 						if (IsValidHandle(scene.spriteHandles, spriteH) && tileCount < MAX_TILES)
 						{

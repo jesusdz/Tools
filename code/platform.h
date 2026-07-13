@@ -242,7 +242,7 @@ struct SoundBuffer
 
 
 typedef void (*PFN_PlatformQuit)();
-typedef u32  (*PFN_AcquireScratchArena)(Arena &outArena);
+typedef u32  (*PFN_AcquireScratchArena)(Arena &outArena, u32 minSize);
 typedef void (*PFN_ReleaseScratchArena)(u32 index);
 
 struct PlatformAPI
@@ -326,7 +326,7 @@ struct Scratch
 	Arena arena;
 	u32 lockedBit;
 
-	Scratch() { lockedBit = AcquireScratchArena(arena); }
+	Scratch(u32 size = MB(1)) { lockedBit = AcquireScratchArena(arena, size); }
 	~Scratch() { ReleaseScratchArena(lockedBit); }
 };
 
