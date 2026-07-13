@@ -849,6 +849,7 @@ static void EditorUpdateUI_InspectorLayer(Engine &engine, Layer &layer)
 
 	UI_InputInt(ui, "Order", &layer.order);
 	UI_Checkbox(ui, "Visible", &layer.visible);
+	UI_Checkbox(ui, "Collider", &layer.isCollider);
 }
 
 static void EditorUpdateUI_Inspector(Engine &engine)
@@ -1824,11 +1825,20 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 				const Camera &camera = editor.camera[ProjectionOrthographic];
 				const int2 mousePos = { mouse.x, mouse.y };
 				const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos) - editor.context.room->pos;
-				const SpriteH spriteH = editor.context.tool == EditorTool_Draw
-					? editor.context.spriteH : InvalidHandle;
 
 				TileGrid &grid = editor.context.layer->grid;
-				SetGridTileAtCoord(engine, grid, spriteH, gridCoord);
+
+				if ( editor.context.layer->isCollider )
+				{
+					const bool collider = editor.context.tool == EditorTool_Draw;
+					SetGridTileAtCoord(engine, grid, collider, gridCoord);
+				}
+				else
+				{
+					const SpriteH spriteH = editor.context.tool == EditorTool_Draw
+						? editor.context.spriteH : InvalidHandle;
+					SetGridTileAtCoord(engine, grid, spriteH, gridCoord);
+				}
 			}
 		}
 	}
@@ -1848,13 +1858,36 @@ void EditorDebugDraw(Engine &engine)
 
 		if (EditorMode2D(editor))
 		{
-			Handle spriteH = editor.context.spriteH;
-			if ( spriteH != InvalidHandle )
+			const Mouse &mouse = sPlatform->window->mouse;
+			const int2 mousePos = { mouse.x, mouse.y };
+			const float2 worldPos = Floor(GetWorld2DCoord(engine, editor.camera[ProjectionOrthographic], mousePos));
+
+			if ( layer.isCollider )
 			{
-				const Mouse &mouse = sPlatform->window->mouse;
-				const int2 mousePos = { mouse.x, mouse.y };
-				const float2 worldPos = Floor(GetWorld2DCoord(engine, editor.camera[ProjectionOrthographic], mousePos));
-				DrawSprite(spriteH, worldPos);
+				const float4 color = {1.0, 0.0, 0.0, 0.3};
+
+				for (u32 y = 0; y < layer.grid.size.y; ++y)
+				{
+					for (u32 x = 0; x < layer.grid.size.x; ++x)
+					{
+						if ( layer.grid.cells[x][y] != InvalidHandle )
+						{
+							const float2 cellWorldPos = {(f32)x, (f32)y};
+							DrawBox(cellWorldPos, float2{1, 1}, color);
+						}
+					}
+				}
+
+				DrawBox(worldPos, float2{1, 1}, color);
+			}
+			else
+			{
+				Handle spriteH = editor.context.spriteH;
+				if ( spriteH != InvalidHandle )
+				{
+					const float4 color = {1, 1, 1, 0.3};
+					DrawSprite(spriteH, worldPos, color);
+				}
 			}
 		}
 	}

@@ -206,6 +206,7 @@ extern "C"
 	float cosf(float value);
 	float tanf(float value);
 	float sqrtf(float value);
+	float ceilf(float value);
 	float floorf(float value);
 	float log2f(float value);
 }
@@ -2490,6 +2491,12 @@ float4x4 Transpose(const float4x4 &m)
 		m.m03, m.m13, m.m23, m.m33,
 	};
 	return res;
+}
+
+i32 Ceil(f32 value)
+{
+	const f32 res = ::ceilf(value);
+	return static_cast<i32>(res);
 }
 
 i32 Floor(f32 value)

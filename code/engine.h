@@ -13,7 +13,15 @@ struct Vertex
 struct DebugDrawVertex
 {
 	float2 pos;
+	float2 texCoord;
 	rgba color;
+};
+
+struct DebugDrawBatch
+{
+	ImageH imageH;
+	u32 vertexIndex;
+	u32 vertexCount;
 };
 
 struct Texture
@@ -121,6 +129,7 @@ struct TimeSamples
 #define MAX_TEXTURES 4092
 #define MAX_MATERIALS 4092
 #define MAX_DYNAMIC_BIND_GROUPS 4092
+#define MAX_DEBUG_DRAW_BATCHES 64
 
 struct Graphics
 {
@@ -160,6 +169,8 @@ struct Graphics
 	DebugDrawVertex *debugDrawVertices[MAX_FRAMES_IN_FLIGHT];
 	DebugDrawVertex *debugDrawVerticesCPU;
 	u32 debugDrawVertexCount;
+	DebugDrawBatch debugDrawBatches[MAX_DEBUG_DRAW_BATCHES];
+	u32 debugDrawBatchCount;
 
 	BufferH spriteDataBuffer[MAX_FRAMES_IN_FLIGHT];
 	BufferH tileDataBuffer[MAX_FRAMES_IN_FLIGHT];
@@ -264,6 +275,7 @@ struct Layer
 	TileGrid grid;
 	i32 order; // draw order within the room, lower values drawn first (further back)
 	bool visible;
+	bool isCollider;
 };
 
 #define MAX_LAYERS 4

@@ -54,11 +54,11 @@ void GameUpdate(Game &game)
 	}
 
 
-	constexpr float deltaSeconds = 1.0f / 60.0f;
-	constexpr float gravity = -15.8f;
+	const f32 deltaSeconds = game.deltaSeconds;
+	constexpr f32 gravity = -15.8f;
 
 	const Room &room = *game.room;
-	DrawBoxOutline(Float2(room.pos), LayerSize(room.layers[0]), ColorOrange);
+	//DrawBoxOutline(Float2(room.pos), LayerSize(room.layers[0]), ColorOrange);
 
 	{
 		float2 &pos = game.box1.pos;
@@ -78,6 +78,7 @@ void GameUpdate(Game &game)
 
 	{
 		float2 &playerPos = game.ent->position.xy;
+		const float2 playerSize = { game.ent->scale, game.ent->scale };
 
 		i32 direction = 0;
 
@@ -103,18 +104,32 @@ void GameUpdate(Game &game)
 
 		game.speed2.x = Clamp(game.speed2.x, -15.0f, 15.0f);
 
+		const f32 prevX = playerPos.x;
 		playerPos.x += game.speed2.x * deltaSeconds;
+		if (IsColliderInBox(playerPos, playerSize)) {
+			playerPos.x = prevX;
+			game.speed2.x = 0.0f;
+		}
 
 		// Y ///////////////////////////////////////////////////////////
 
 		if (KeyPress(*input.keyboard, K_SPACE)) {
 			if (game.speed2.y == 0) {
-				game.speed2.y = 10;
+				game.speed2.y = 12;
 				PlayAudioClip(game.sndJump);
 			}
 		}
 		game.speed2.y = game.speed2.y + gravity * deltaSeconds;
+
+		const f32 prevY = playerPos.y;
 		playerPos.y += game.speed2.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
+		if (IsColliderInBox(playerPos, playerSize)) {
+			if (prevY < playerPos.y)
+				playerPos.y = Ceil(prevY);
+			else
+				playerPos.y = Floor(prevY);
+			game.speed2.y = 0.0f;
+		}
 
 		if (playerPos.y < 0) {
 			playerPos.y = 0;
@@ -130,8 +145,8 @@ void GameUpdate(Game &game)
 		const f32 screenRight = room.pos.x + RoomSize(room).x;
 		const f32 screenBottom = room.pos.y;
 		const f32 screenTop = room.pos.y + RoomSize(room).y;
-		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight);
-		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop);
+		playerPos.x = Clamp(playerPos.x, screenLeft, screenRight - playerSize.x);
+		playerPos.y = Clamp(playerPos.y, screenBottom, screenTop - playerSize.y);
 
 		// Camera bounds
 		const float2 halfSceneSize = 0.5f * float2{SCENE_WIDTH, SCENE_HEIGHT} / PIXELS_PER_METER;

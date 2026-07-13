@@ -38,6 +38,8 @@ struct Game
 {
 	GameState state;
 
+	f32 deltaSeconds;
+
 	Box box1;
 	float2 speed;
 
@@ -72,5 +74,7 @@ void GameStop(Game &game);
 
 Entity *GetEntity(const char *name);
 void DrawBox(float2 pos, float2 size, float4 color);
+bool IsColliderAtWorldPos(float2 worldPos);
+bool IsColliderInBox(float2 pos, float2 size);
 
 #endif // GAME_H

@@ -89,6 +89,7 @@ static constexpr bool sLoadShadersFromText = true;
 static constexpr bool sLoadShadersFromText = false;
 #endif
 
+static constexpr float4 ColorWhite = { 1.0f, 1.0f, 1.0f, 1.0f };
 static constexpr float4 ColorBlack = { 0.0f, 0.0f, 0.0f, 0.0f };
 static constexpr float4 ColorRed = { 1.0f, 0.0f, 0.0f, 1.0f };
 static constexpr float4 ColorGreen = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -467,11 +468,12 @@ static const ShaderAndPipelineDesc pipelineDescs[] =
 			.vsFunction = "VSMain",
 			.fsFunction = "PSMain",
 			.vertexBufferCount = 1,
-			.vertexBuffers = { { .stride = 12 }, },
-			.vertexAttributeCount = 2,
+			.vertexBuffers = { { .stride = 20 }, },
+			.vertexAttributeCount = 3,
 			.vertexAttributes = {
-				{ .bufferIndex = 0, .location = 0, .offset = 0, .format = FormatFloat2, },
-				{ .bufferIndex = 0, .location = 1, .offset = 8, .format = FormatRGBA8, },
+				{ .bufferIndex = 0, .location = 0, .offset = 0,  .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 1, .offset = 8,  .format = FormatFloat2, },
+				{ .bufferIndex = 0, .location = 2, .offset = 16, .format = FormatRGBA8, },
 			},
 			.depthTest = false,
 			.blending = true,
@@ -1397,6 +1399,17 @@ int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoor
 	return res;
 }
 
+void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, bool collides, int2 coord)
+{
+	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
+			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
+	if (coordValid)
+	{
+		const Handle collider = collides ? Handle{ 1 } : Handle{ 0 };
+		tileGrid.cells[coord.x][coord.y] = collider;
+	}
+}
+
 void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int2 coord)
 {
 	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
@@ -1407,21 +1420,109 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 	}
 }
 
+static int2 WorldPosToGridCoord(float2 worldPos)
+{
+	const f32 cellWorldSize = TILE_SIZE_PIXELS / PIXELS_PER_METER;
+	return int2{ (i32)Floor(worldPos.x / cellWorldSize), (i32)Floor(worldPos.y / cellWorldSize) };
+}
+
+static bool IsColliderAtGridCoord(Scene &scene, int2 coord)
+{
+	for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
+	{
+		const Room &room = GetRoom(scene, *it);
+		const int2 localCoord = coord - room.pos;
+
+		const bool coordValid = localCoord.x >= 0 && localCoord.x < TILE_GRID_SIZE_X &&
+				localCoord.y >= 0 && localCoord.y < TILE_GRID_SIZE_Y;
+		if (!coordValid) continue;
+
+		for (u32 i = 0; i < ARRAY_COUNT(room.layers); ++i)
+		{
+			const Layer &layer = room.layers[i];
+			if (!layer.initialized || !layer.isCollider) continue;
+
+			if (layer.grid.cells[localCoord.x][localCoord.y] != InvalidHandle)
+				return true;
+		}
+	}
+	return false;
+}
+
+bool IsColliderAtWorldPos(float2 worldPos)
+{
+	return IsColliderAtGridCoord(engine->scene, WorldPosToGridCoord(worldPos));
+}
+
+// pos is the box's bottom-left corner, size its width/height (same convention as DrawBox).
+// Tiles the box only touches at an edge count as colliding.
+bool IsColliderInBox(float2 pos, float2 size)
+{
+	const int2 minCoord = WorldPosToGridCoord(pos);
+	const int2 maxCoord = WorldPosToGridCoord(pos + size);
+
+	for (i32 y = minCoord.y; y <= maxCoord.y; ++y)
+	{
+		for (i32 x = minCoord.x; x <= maxCoord.x; ++x)
+		{
+			if (IsColliderAtGridCoord(engine->scene, int2{x, y}))
+				return true;
+		}
+	}
+	return false;
+}
+
 
 ////////////////////////////////////////////////////////////////////////
 // Immediate draw
 
-void DrawSprite(Handle spriteH, float2 worldPos)
+// Appends a new debug-draw batch for imageH, or extends the last one if it
+// already targets the same image, so consecutive same-texture draws are
+// submitted as a single draw call.
+static void DebugDrawAppendBatch(Graphics &gfx, ImageH imageH, u32 vertexCount)
 {
-//	ASSERT( engine->gfx.spriteVertexCount + 6 < MAX_SPRITE_VERTICES );
-//	DebugDrawVertex *v = engine->gfx.debugDrawVerticesCPU + engine->gfx.debugDrawVertexCount;
-//	v[0] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
-//	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
-//	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, Rgba(color) };
-//	v[3] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
-//	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, Rgba(color) };
-//	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
-//	engine->gfx.debugDrawVertexCount += 6;
+	if ( gfx.debugDrawBatchCount > 0 )
+	{
+		DebugDrawBatch &lastBatch = gfx.debugDrawBatches[gfx.debugDrawBatchCount - 1];
+		if ( lastBatch.imageH.index == imageH.index )
+		{
+			lastBatch.vertexCount += vertexCount;
+			return;
+		}
+	}
+
+	ASSERT( gfx.debugDrawBatchCount < MAX_DEBUG_DRAW_BATCHES );
+	DebugDrawBatch &batch = gfx.debugDrawBatches[gfx.debugDrawBatchCount++];
+	batch.imageH = imageH;
+	batch.vertexIndex = gfx.debugDrawVertexCount - vertexCount;
+	batch.vertexCount = vertexCount;
+}
+
+void DrawSprite(Handle spriteH, float2 worldPos, float4 pcolor)
+{
+	Graphics &gfx = engine->gfx;
+
+	ASSERT( gfx.debugDrawVertexCount + 6 <= MAX_DEBUG_DRAW_VERTICES );
+
+	const Sprite &sprite = GetSprite(engine->scene, spriteH);
+	const Texture &texture = GetTexture(gfx, sprite.textureH);
+
+	const float2 uvPos  = { (f32)sprite.pos.x / texture.size.x, (f32)sprite.pos.y / texture.size.y };
+	const float2 uvSize = { (f32)sprite.size.x / texture.size.x, (f32)sprite.size.y / texture.size.y };
+	const float2 worldSize = float2{ (f32)sprite.size.x, (f32)sprite.size.y } / PIXELS_PER_METER;
+	const rgba color = Rgba(pcolor);
+
+	DebugDrawVertex *v = gfx.debugDrawVerticesCPU + gfx.debugDrawVertexCount;
+	v[0] = DebugDrawVertex{ worldPos + float2{0, 0},                     uvPos + float2{0, uvSize.y}, color };
+	v[1] = DebugDrawVertex{ worldPos + float2{worldSize.x, worldSize.y}, uvPos + float2{uvSize.x, 0}, color };
+	v[2] = DebugDrawVertex{ worldPos + float2{0, worldSize.y},           uvPos,                       color };
+	v[3] = DebugDrawVertex{ worldPos + float2{0, 0},                     uvPos + float2{0, uvSize.y}, color };
+	v[4] = DebugDrawVertex{ worldPos + float2{worldSize.x, 0},           uvPos + uvSize,               color };
+	v[5] = DebugDrawVertex{ worldPos + float2{worldSize.x, worldSize.y}, uvPos + float2{uvSize.x, 0}, color };
+	gfx.debugDrawVertexCount += 6;
+
+	const ImageH imageH = GetTextureImage(gfx, sprite.textureH, gfx.pinkImageH);
+	DebugDrawAppendBatch(gfx, imageH, 6);
 }
 
 
@@ -1430,15 +1531,21 @@ void DrawSprite(Handle spriteH, float2 worldPos)
 
 void DrawBox(float2 pos, float2 size, float4 color)
 {
-	ASSERT( engine->gfx.debugDrawVertexCount + 6 <= MAX_DEBUG_DRAW_VERTICES );
-	DebugDrawVertex *v = engine->gfx.debugDrawVerticesCPU + engine->gfx.debugDrawVertexCount;
-	v[0] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
-	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
-	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, Rgba(color) };
-	v[3] = DebugDrawVertex{ pos + float2{0, 0}, Rgba(color) };
-	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, Rgba(color) };
-	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, Rgba(color) };
-	engine->gfx.debugDrawVertexCount += 6;
+	Graphics &gfx = engine->gfx;
+
+	ASSERT( gfx.debugDrawVertexCount + 6 <= MAX_DEBUG_DRAW_VERTICES );
+	const rgba c = Rgba(color);
+	const float2 uv = {}; // Any UV works here, gfx.whiteImageH is a single white pixel.
+	DebugDrawVertex *v = gfx.debugDrawVerticesCPU + gfx.debugDrawVertexCount;
+	v[0] = DebugDrawVertex{ pos + float2{0, 0}, uv, c };
+	v[1] = DebugDrawVertex{ pos + float2{size.x, size.y}, uv, c };
+	v[2] = DebugDrawVertex{ pos + float2{0, size.y}, uv, c };
+	v[3] = DebugDrawVertex{ pos + float2{0, 0}, uv, c };
+	v[4] = DebugDrawVertex{ pos + float2{size.x, 0}, uv, c };
+	v[5] = DebugDrawVertex{ pos + float2{size.x, size.y}, uv, c };
+	gfx.debugDrawVertexCount += 6;
+
+	DebugDrawAppendBatch(gfx, gfx.whiteImageH, 6);
 }
 
 void DrawBoxOutline(float2 pos, float2 size, float4 color)
@@ -2436,7 +2543,13 @@ void CleanAudioClip(Handle handle, void* data)
 	RemoveAudioClip(engine, handle);
 }
 
-u32 CreateLayer(Room &room)
+struct LayerDesc
+{
+	const char *name;
+	bool isCollider;
+};
+
+u32 CreateLayer(Room &room, const LayerDesc &desc)
 {
 	u32 index = U32_MAX;
 
@@ -2449,8 +2562,9 @@ u32 CreateLayer(Room &room)
 			{
 				room.layerCount++;
 				layer.initialized = true;
-				layer.name = InternString("Layer");
+				layer.name = desc.name;
 				layer.visible = true;
+				layer.isCollider = desc.isCollider;
 				layer.grid.size = { TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y };
 				index = i;
 				break;
@@ -2494,7 +2608,10 @@ Handle CreateRoom(Engine &engine)
 	room.name = InternString("Room");
 	room.pos = {};
 
-	CreateLayer(room);
+	const LayerDesc desc1 = { .name = "Layer", .isCollider = false };
+	CreateLayer(room, desc1);
+	const LayerDesc desc2 = { .name = "Colliders", .isCollider = true };
+	CreateLayer(room, desc2);
 
 	return roomH;
 }
@@ -2981,7 +3098,11 @@ bool RenderGraphics(Engine &engine)
 	}
 
 	// TileGrid: Update tile data buffer
-	STileData *tileDataPtr = (STileData*)GetBufferPtr(gfx.device, gfx.tileDataBuffer[frameIndex]);
+	const u32 tileScratchSize = MAX_TILES * sizeof(STileData);
+	Scratch tileScratch(tileScratchSize);
+	//STileData *tileDataPtr = (STileData*)GetBufferPtr(gfx.device, gfx.tileDataBuffer[frameIndex]);
+	STileData *tileDataPtr = PushArray(tileScratch.arena, STileData, MAX_TILES);
+
 	u32 tileCount = 0;
 	for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
 	{
@@ -2993,7 +3114,7 @@ bool RenderGraphics(Engine &engine)
 		{
 			const Layer &layer = room.layers[i];
 
-			if (layer.initialized && layer.visible)
+			if (layer.initialized && layer.visible && !layer.isCollider)
 			{
 				for (i32 y = 0; y < layer.grid.size.y; ++y)
 				{
@@ -3013,6 +3134,9 @@ bool RenderGraphics(Engine &engine)
 			}
 		}
 	}
+
+	STileData *gpuTileDataPtr = (STileData*)GetBufferPtr(gfx.device, gfx.tileDataBuffer[frameIndex]);
+	MemCopy(gpuTileDataPtr, tileDataPtr, tileCount * sizeof(STileData));
 
 	// Update entity data
 	SEntity *entities = (SEntity*)GetBufferPtr(gfx.device, gfx.entityBuffer[frameIndex]);
@@ -3197,7 +3321,7 @@ bool RenderGraphics(Engine &engine)
 				{
 					const Layer &layer = room.layers[i];
 
-					if (!layer.initialized || !layer.visible) continue;
+					if (!layer.initialized || !layer.visible || layer.isCollider) continue;
 
 					for (u32 y = 0; y < layer.grid.size.y; ++y)
 					{
@@ -3345,16 +3469,34 @@ bool RenderGraphics(Engine &engine)
 		{ // Debug draw
 			MemCopy(gfx.debugDrawVertices[frameIndex], gfx.debugDrawVerticesCPU, gfx.debugDrawVertexCount * sizeof(DebugDrawVertex));
 
-			const UI &ui = engine.ui;
-
 			BeginDebugGroup(commandList, "DebugDraw", ColorBlack);
+
+			const Pipeline &debugDrawPipeline = GetPipeline(gfx.device, gfx.debugDrawPipelineH);
+			const BindGroupLayout &bindGroupLayout = debugDrawPipeline.layout.bindGroupLayouts[3];
 
 			SetPipeline(commandList, gfx.debugDrawPipelineH);
 			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
 			SetVertexBuffer(commandList, gfx.debugDrawVertexBuffer[frameIndex]);
 
-			Draw(commandList, gfx.debugDrawVertexCount, 0);
+			for (u32 i = 0; i < gfx.debugDrawBatchCount; ++i)
+			{
+				const DebugDrawBatch &batch = gfx.debugDrawBatches[i];
+
+				const BindGroupDesc bindGroupDesc = {
+					.layout = bindGroupLayout,
+					.bindings = {
+						{ .index = 0, .sampler = gfx.pointSamplerH },
+						{ .index = 1, .image = batch.imageH },
+					},
+				};
+				const BindGroup bindGroup = GetOrCreateDynamicBindGroup(gfx, bindGroupDesc);
+				SetBindGroup(commandList, 3, bindGroup);
+
+				Draw(commandList, batch.vertexCount, batch.vertexIndex);
+			}
+
 			gfx.debugDrawVertexCount = 0;
+			gfx.debugDrawBatchCount = 0;
 
 			EndDebugGroup(commandList);
 		}
@@ -3530,6 +3672,7 @@ void GameUpdate(Engine &engine)
 
 	if (game.state == GameStateRunning)
 	{
+		game.deltaSeconds = engine.gfx.deltaSeconds;
 		GameUpdate(game);
 	}
 
