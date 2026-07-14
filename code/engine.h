@@ -116,6 +116,9 @@ struct Entity
 	// Sprite entity
 	SpriteH spriteH;
 	i32 layer;
+
+	Entity *next; // Pointer to sibling in the hierarchy
+	Entity *child; // Pointer to children in the hierarchy
 };
 
 #define MAX_TIME_SAMPLES 32

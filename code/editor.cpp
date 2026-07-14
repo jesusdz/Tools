@@ -569,10 +569,9 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 
 	if ( UI_Section(ui, "Scene") )
 	{
-		static bool sceneIsOpen = false;
 		UI_BeginLayout(ui, UiLayoutHorizontal);
-		UI_Checkbox(ui, "", &sceneIsOpen);
-		if (UI_Button(ui, "Scene"))
+		bool sceneIsOpen;
+		if (UI_TreeNode(ui, "Scene", &scene, &sceneIsOpen))
 		{
 			EditorSelectScene(editor, scene);
 		}
@@ -581,17 +580,18 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 			CreateRoom(engine);
 		}
 		UI_EndLayout(ui);
+
 		if (sceneIsOpen)
 		{
-			static bool roomIsOpen[ARRAY_COUNT(scene.rooms)] = {};
-
 			UI_Indent(ui);
+
 			for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
 			{
 				Room &room = GetRoom(scene, *it);
+
 				UI_BeginLayout(ui, UiLayoutHorizontal);
-				UI_Checkbox(ui, "", &roomIsOpen[(*it).idx]);
-				if (UI_Button(ui, room.name))
+				bool roomIsOpen;
+				if (UI_TreeNode(ui, room.name, &room, &roomIsOpen))
 				{
 					EditorSelectRoom(editor, room);
 				}
@@ -607,17 +607,34 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 					break;
 				}
 
-				if (roomIsOpen[(*it).idx])
+				if (roomIsOpen)
 				{
 					UI_Indent(ui);
+
 					for (u32 layerIndex = 0; layerIndex < room.layerCount; ++layerIndex)
 					{
+						UI_BeginLayout(ui, UiLayoutHorizontal);
+
 						Layer &layer = room.layers[layerIndex];
-						if (UI_Button(ui, layer.name))
+						bool layerIsOpen;
+						if  (UI_TreeNode(ui, layer.name, &layer, &layerIsOpen))
 						{
 							EditorSelectLayer(editor, room, layer);
 						}
+						if (UI_Button(ui, "v")) // Down
+						{
+						}
+						if (UI_Button(ui, "^")) // Up
+						{
+						}
+						if (UI_Button(ui, "x")) // Remove
+						{
+							RemoveLayer(room, layerIndex);
+						}
+
+						UI_EndLayout(ui);
 					}
+
 					UI_Unindent(ui);
 				}
 			}
@@ -1031,7 +1048,10 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 			UI_InputText(ui, "Name", name, ARRAY_COUNT(name));
 			entity.name = InternString(name);
 
-			UI_InputFloat3(ui, "Pos", &entity.position);
+			float3 entityPos = entity.position;
+			if (UI_InputFloat3(ui, "Pos", &entityPos)) {
+				EntitySetPosition(entity, entityPos);
+			}
 			UI_InputFloat(ui, "Scale", &entity.scale);
 			UI_Checkbox(ui, "Visible", &entity.visible);
 
@@ -1656,13 +1676,13 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 				initialWorldPos = float2{entity.position.x, entity.position.y};
 				initialWorldOffset = Floor(initialWorldPos) - Floor(mouseWorldPos);
 			} else if (MouseButtonPress(window.mouse, MOUSE_BUTTON_RIGHT) || KeyPress(window.keyboard, K_ESCAPE)) {
-				entity.position = Float3(initialWorldPos, entity.position.z);
+				EntitySetPosition(entity, Float3(initialWorldPos, entity.position.z));
 				editor.isTranslating = false;
 			} else if (MouseButtonRelease(window.mouse, MOUSE_BUTTON_LEFT) || MouseButtonPress(window.mouse, MOUSE_BUTTON_LEFT)) {
 				editor.isTranslating = false;
 			} else {
 				const float2 finalPos = Floor(mouseWorldPos) + initialWorldOffset;
-				entity.position = Float3(finalPos, entity.position.z);
+				EntitySetPosition(entity, Float3(finalPos, entity.position.z));
 			}
 		}
 

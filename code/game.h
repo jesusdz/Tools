@@ -73,6 +73,7 @@ void GameStop(Game &game);
 ////////////////////////////////////////////////////////////////////////
 
 Entity *GetEntity(const char *name);
+void EntitySetPosition(Entity &entity, float3 position);
 void DrawBox(float2 pos, float2 size, float4 color);
 bool IsColliderAtWorldPos(float2 worldPos);
 bool IsColliderInBox(float2 pos, float2 size);

@@ -56,14 +56,12 @@ struct ImagePixels
 struct Engine
 {
 	Graphics gfx;
+	Audio audio;
+	Scene scene;
 	Game game;
 #if USE_UI
 	UI ui;
 #endif
-
-	Scene scene;
-	Audio audio;
-
 #if USE_EDITOR
 	Editor editor;
 #endif
@@ -1302,6 +1300,11 @@ Entity &GetEntity(Scene &scene, Handle handle)
 	return entity;
 }
 
+void EntitySetPosition(Entity &entity, float3 position)
+{
+	entity.position = position;
+}
+
 EntityDesc GetEntityDesc(Scene &scene, Handle handle)
 {
 	ASSERT( IsValidHandle(scene.entityHandles, handle) );
@@ -1333,7 +1336,7 @@ Handle CreateEntity(Engine &engine, const EntityDesc &desc)
 	Entity &entity = GetEntity(scene, handle);
 	entity.name = desc.name;
 	entity.visible = true;
-	entity.position = desc.pos;
+	EntitySetPosition(entity, desc.pos);
 	entity.scale = desc.scale;
 	entity.layer = desc.layer;
 	entity.geometryType = desc.geometryType;

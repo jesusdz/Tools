@@ -243,6 +243,12 @@ enum UIElement
 	UIElementCount,
 };
 
+struct UIInfo
+{
+	i32 id;
+	bool isOpen;
+};
+
 constexpr const char *UIElementName[] =
 {
 	"Background",
@@ -358,6 +364,9 @@ struct UI
 	UIVertex *activeMenuVertexPtr;
 
 	UIDragAndDrop dragAndDrop;
+
+	UIInfo info[1024];
+	u32 infoCount;
 };
 
 static void UI_SetNextWindowDefaultSize(UI &ui, uint2 size)
@@ -1236,6 +1245,23 @@ UIWindow &UI_FindOrCreateWindow(UI &ui, u32 windowId, const char *caption)
 	return window;
 }
 
+UIInfo &UI_FindOrCreateInfo(UI &ui, i32 infoId)
+{
+	for (u32 i = 0; i < ui.infoCount; ++i)
+	{
+		UIInfo &info = ui.info[i];
+		if ( info.id == infoId )
+		{
+			return info;
+		}
+	}
+
+	ASSERT( ui.infoCount < ARRAY_COUNT(ui.info) );
+	UIInfo &info = ui.info[ui.infoCount++];
+	info.id = infoId;
+	return info;
+}
+
 void UI_SetNextWindowModal(UI &ui, UIModalFlags flags = UIModalFlags_Default)
 {
 	ASSERT(ui.modalWindowStackSize < ARRAY_COUNT(ui.modalWindowStack));
@@ -1492,13 +1518,12 @@ void UI_PopID(UI &ui)
 	ui.idStackSize--;
 }
 
-i32 UI_MakeID(const UI &ui, const char *text)
+i32 UI_MakeID(const UI &ui, const char *text, u32 parentId = 1)
 {
-	u32 parentId = 0;
 	if ( ui.windowStackSize > 0 )
 	{
 		const UIWindow &window = UI_GetCurrentWindow(ui);
-		parentId = window.id;
+		parentId *= window.id;
 	}
 
 	if (ui.idStackSize > 0)
@@ -1509,6 +1534,12 @@ i32 UI_MakeID(const UI &ui, const char *text)
 	const u32 id = HashStringFNV(text, parentId);
 	ASSERT(id != 0);
 	return id;
+}
+
+i32 UI_MakeID(const UI &ui, const char *text, const void *parentPtr)
+{
+	const i32 res = UI_MakeID(ui, text, (u32)(uintptr_t)(parentPtr));
+	return res;
 }
 
 constexpr u32 UIWindowFlags_Default = UIWindowFlag_Draggable | UIWindowFlag_Resizable | UIWindowFlag_Titlebar | UIWindowFlag_CloseButton | UIWindowFlag_Border | UIWindowFlag_Background | UIWindowFlag_ClipContents;
@@ -1858,6 +1889,64 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 
 	UI_SetCursorPos(ui, widgetPos);
 	UI_CursorAdvance(ui, widgetSize);
+}
+
+bool UI_TreeNode(UI &ui, const char *text, const void *ptr, bool *isOpen)
+{
+	i32 id = UI_MakeID(ui, text, ptr);
+	UIInfo &info = UI_FindOrCreateInfo(ui, id);
+
+	const float2 boxPos = UI_GetCursorPos(ui);
+	const float controlHeight = UI_ControlHeight(ui);
+	const float2 boxSize = {controlHeight, controlHeight};
+
+	UI_BeginWidget(ui, boxPos, boxSize);
+
+	UI_PushColor(ui, UIElementButton);
+	UI_AddRectangle(ui, boxPos, boxSize);
+	UI_PopColor(ui);
+
+	const float2 margin = {6.0, 6.0};
+	const float2 innerSize = boxSize - 2.0 * margin;
+	const float2 p1 = boxPos + margin;
+
+	if (info.isOpen)
+	{
+		const float2 p2 = p1 + float2{0.5f*innerSize.x, innerSize.y};
+		const float2 p3 = p1 + dX(innerSize);
+		UI_AddTriangle(ui, p1, p2, p3, UiColorWhite);
+	}
+	else
+	{
+		const float2 p2 = p1 + dY(innerSize);
+		const float2 p3 = p1 + float2{innerSize.x, 0.5f*innerSize.y};
+		UI_AddTriangle(ui, p1, p2, p3, UiColorWhite);
+	}
+
+	const bool nodeClicked = UI_WidgetClicked(ui);
+	if (nodeClicked)
+	{
+		info.isOpen = !info.isOpen;
+	}
+
+	UI_EndWidget(ui);
+
+	const float2 widgetPos = boxPos;
+
+	const float2 textPos = boxPos + float2{boxSize.x + UiSpacing * 0.5f, 0.0};
+	const float2 adjustedPos = UI_AdjustTextVertically(ui, textPos, boxSize.y);
+	const float  textWidth = UI_TextWidth(ui, text);
+
+	UI_BeginWidget(ui, textPos, float2{textWidth, controlHeight});
+	UI_AddText(ui, adjustedPos, text);
+	const bool textClicked = UI_WidgetClicked(ui);
+	UI_EndWidget(ui);
+
+	const float2 widgetSize = boxSize + float2{UiSpacing, 0.0f} + float2{textWidth, 0.0f};
+	UI_CursorAdvance(ui, widgetSize);
+
+	*isOpen = info.isOpen;
+	return textClicked;
 }
 
 void UI_Separator(UI &ui)

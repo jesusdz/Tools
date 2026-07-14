@@ -77,7 +77,7 @@ void GameUpdate(Game &game)
 	}
 
 	{
-		float2 &playerPos = game.ent->position.xy;
+		float2 playerPos = game.ent->position.xy;
 		const float2 playerSize = { game.ent->scale, game.ent->scale };
 
 		i32 direction = 0;
@@ -158,6 +158,8 @@ void GameUpdate(Game &game)
 		const f32 cameraY = Lerp(game.camera.position.y, playerPos.y, 0.2f);
 		game.camera.position.x = Clamp(cameraX, cameraLeft, cameraRight);
 		game.camera.position.y = Clamp(cameraY, cameraBottom, cameraTop);
+
+		EntitySetPosition(*game.ent, Float3(playerPos, game.ent->position.z));
 	}
 }
 
