@@ -4533,7 +4533,7 @@ bool Present(GraphicsDevice &device, SubmitResult submitResult)
 // Frame
 //////////////////////////////
 
-bool BeginFrame(GraphicsDevice &device)
+void WaitFrameFences(GraphicsDevice &device)
 {
 	// Catch-up frame fences
 	VkFence fences[MAX_FENCES] = {};
@@ -4563,6 +4563,12 @@ bool BeginFrame(GraphicsDevice &device)
 	// Make this frame fences point to the head of the global fence ring buffer
 	frameData.firstFenceIndex = ( device.firstFenceIndex + device.usedFenceCount ) % MAX_FENCES;
 	frameData.usedFenceCount = 0;
+}
+
+bool BeginFrame(GraphicsDevice &device)
+{
+	// No-op if this frame slot fences were already waited after the previous present
+	WaitFrameFences(device);
 
 	// Acquire swapchain image for this frame
 	u32 imageIndex;
@@ -4593,6 +4599,11 @@ void EndFrame(GraphicsDevice &device)
 {
 	device.frameIndex = ( device.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
 	device.presentationIndex = ( device.presentationIndex + 1 ) % MAX_SWAPCHAIN_IMAGE_COUNT;
+
+	// Throttle here, after present, instead of at BeginFrame. This way the CPU
+	// blocks before the platform samples input for the next frame, not after,
+	// which reduces input latency when frames are produced faster than vsync.
+	WaitFrameFences(device);
 }
 
 
