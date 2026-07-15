@@ -3083,7 +3083,19 @@ bool RenderGraphics(Engine &engine)
 	float4 frustumTopLeft = {};
 	float4 frustumBottomRight = {};
 
-	const Camera camera = engine.gfx.camera;
+	// In game mode the scene renders to a low-res target; snap the camera and
+	// entity positions to the pixel grid so sprites don't shimmer at sub-pixel
+	// offsets. The game keeps its own unsnapped camera, so smooth movements
+	// (e.g. lerps) are not affected by this.
+	const bool snapToPixelGrid = engine.game.state == GameStateRunning;
+	constexpr f32 pixelSize = 1.0f / PIXELS_PER_METER;
+
+	Camera camera = engine.gfx.camera;
+	if (snapToPixelGrid && camera.projectionType == ProjectionOrthographic)
+	{
+		camera.position.x = Round(camera.position.x / pixelSize) * pixelSize;
+		camera.position.y = Round(camera.position.y / pixelSize) * pixelSize;
+	}
 
 	const f32 preRotationDegrees = gfx.device.swapchain.preRotationDegrees;
 	const f32 ar = GetSceneAspectRatio(gfx);
@@ -3276,7 +3288,13 @@ bool RenderGraphics(Engine &engine)
 		const Handle handle = GetHandleAt(scene.entityHandles, i);
 		const Entity &entity = GetEntity(scene, handle);
 		float3 entityScale = Float3(entity.scale);
-		const float4x4 worldMatrix = Mul(Translate(entity.position), Scale(entityScale)); // TODO: Apply also rotation
+		float3 entityPosition = entity.position;
+		if (snapToPixelGrid)
+		{
+			entityPosition.x = Round(entityPosition.x / pixelSize) * pixelSize;
+			entityPosition.y = Round(entityPosition.y / pixelSize) * pixelSize;
+		}
+		const float4x4 worldMatrix = Mul(Translate(entityPosition), Scale(entityScale)); // TODO: Apply also rotation
 		entities[handle.idx].world = worldMatrix;
 
 		const u32 spriteIndex = IsValidHandle(scene.spriteHandles, entity.spriteH) ? entity.spriteH.idx : 0;
