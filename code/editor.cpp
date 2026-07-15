@@ -117,6 +117,12 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 	{
 		if (UI_BeginMenu(ui, "File"))
 		{
+			if ( UI_MenuItem(ui, "New scene") )
+			{
+				const EditorCommand command = { .type = EditorCommandNew };
+				AddEditorCommand(editor, command);
+			}
+
 			if ( UI_MenuItem(ui, "Load scene") )
 			{
 				editor.showLoadScene = true;
@@ -124,12 +130,6 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			if ( UI_MenuItem(ui, "Save scene") )
 			{
 				editor.showSaveScene = true;
-			}
-
-			if ( UI_MenuItem(ui, "Clear scene") )
-			{
-				const EditorCommand command = { .type = EditorCommandClean };
-				AddEditorCommand(editor, command);
 			}
 
 			UI_Separator(ui);
@@ -446,11 +446,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 			AddEditorCommand(editor, command);
 		}
 		UI_EndLayout(ui);
-		if ( UI_Button(ui, "Clean") )
-		{
-			const EditorCommand command = { .type = EditorCommandClean };
-			AddEditorCommand(editor, command);
-		}
 	}
 
 	if ( UI_Section(ui, "Camera") )
@@ -1947,8 +1942,16 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 					RemoveTexture(engine.gfx, command.textureH);
 					break;
 				}
+				case EditorCommandNew:
+				{
+					EditorUnselectAll(engine.editor);
+					CleanScene(engine);
+					CreateScene(engine);
+					break;
+				}
 				case EditorCommandLoadTxt:
 				{
+					CleanScene(engine);
 					LoadSceneFromTxt(engine, command.filepath);
 					break;
 				}
@@ -1959,6 +1962,7 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 				}
 				case EditorCommandLoadBin:
 				{
+					CleanScene(engine);
 					LoadSceneFromBin(engine);
 					break;
 				}
@@ -1967,12 +1971,6 @@ static void EditorProcessCommands(Engine &engine, Arena scratch)
 					const FilePath assetsFilepath = MakePath(DataDir, "assets.dat");
 					const FilePath descriptorsFilepath = MakePath(AssetDir, "assets.txt");
 					BuildAssetsFromTxt(engine, descriptorsFilepath.str, assetsFilepath.str);
-					break;
-				}
-				case EditorCommandClean:
-				{
-					EditorUnselectAll(engine.editor);
-					CleanScene(engine);
 					break;
 				}
 

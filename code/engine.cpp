@@ -1417,6 +1417,7 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 {
 	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
 			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
+	LOG(Info, "%d %d\n", coord.x, coord.y);
 	if (coordValid)
 	{
 		tileGrid.cells[coord.x][coord.y] = spriteH;
@@ -2322,7 +2323,7 @@ void CleanupGraphics(Graphics &gfx)
 	ZeroStruct( &gfx ); // deviceInitialized = false;
 }
 
-AssetDescriptors GetAssetDescriptors(Engine &engine)
+AssetDescriptors GetAssetDescriptors(Engine &engine, Arena &arena)
 {
 	static TextureDesc textureDescs[MAX_TEXTURES];
 	u32 textureCount = 0;
@@ -2334,9 +2335,12 @@ AssetDescriptors GetAssetDescriptors(Engine &engine)
 	}
 
 	static SpriteDesc spriteDescs[MAX_SPRITES];
+	static u16 spriteIndexByHandleIdx[MAX_SPRITES];
 	u32 spriteCount = 0;
 	for (HandleIter it = BeginIter(engine.scene.spriteHandles); it; it++) {
-		spriteDescs[spriteCount++] = GetSpriteDesc(engine.scene, *it);
+		const SpriteH handle = *it;
+		spriteIndexByHandleIdx[handle.idx] = (u16)spriteCount;
+		spriteDescs[spriteCount++] = GetSpriteDesc(engine.scene, handle);
 	}
 
 	static MaterialDesc materialDescs[MAX_MATERIALS];
@@ -2352,6 +2356,41 @@ AssetDescriptors GetAssetDescriptors(Engine &engine)
 	u32 entityCount = 0;
 	for (HandleIter it = BeginIter(engine.scene.entityHandles); it; it++) {
 		entityDescs[entityCount++] = GetEntityDesc(engine.scene, *it);
+	}
+
+	static RoomDesc roomDescs[MAX_ROOMS];
+	u32 roomCount = 0;
+	for (HandleIter it = BeginIter(engine.scene.roomHandles); it; it++) {
+		const Room &room = GetRoom(engine.scene, *it);
+		RoomDesc &desc = roomDescs[roomCount++];
+		desc = {};
+		desc.name = room.name;
+		desc.pos = room.pos;
+		for (u32 l = 0; l < ARRAY_COUNT(room.layers); ++l) {
+			const Layer &layer = room.layers[l];
+			if (!layer.initialized) {
+				continue;
+			}
+			LayerDesc &layerDesc = desc.layers[desc.layerCount++];
+			layerDesc.name = layer.name;
+			layerDesc.order = layer.order;
+			layerDesc.visible = layer.visible;
+			layerDesc.isCollider = layer.isCollider;
+			layerDesc.tiles = (TileDesc*)(arena.base + arena.used);
+			layerDesc.tileCount = 0;
+			for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
+				for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
+					const SpriteH spriteH = layer.grid.cells[x][y];
+					if (spriteH == InvalidHandle) continue;
+					if (!IsValidHandle(engine.scene.spriteHandles, spriteH)) continue;
+					TileDesc &tile = *PushStruct(arena, TileDesc);
+					tile.x = (u16)x;
+					tile.y = (u16)y;
+					tile.spriteIndex = spriteIndexByHandleIdx[spriteH.idx];
+					layerDesc.tileCount++;
+				}
+			}
+		}
 	}
 
 	static AudioClipDesc audioClipDescs[MAX_AUDIO_CLIPS];
@@ -2371,6 +2410,8 @@ AssetDescriptors GetAssetDescriptors(Engine &engine)
 		.materialDescCount = materialCount,
 		.entityDescs = entityDescs,
 		.entityDescCount = entityCount,
+		.roomDescs = roomDescs,
+		.roomDescCount = roomCount,
 		.audioClipDescs = audioClipDescs,
 		.audioClipDescCount = audioClipCount,
 	};
@@ -2398,6 +2439,17 @@ static bool PopDataArenaState(Engine &engine)
 	return ok;
 }
 
+// Defined later in this file (room management)
+Handle CreateRoom(Engine &engine, const RoomDesc &desc, const SpriteH *spriteHandles, u32 spriteHandleCount);
+Handle CreateRoom(Engine &engine, const BinRoom &binRoom, const SpriteH *spriteHandles, u32 spriteHandleCount);
+void RemoveRoom(Engine &engine, Handle handle);
+
+static void CleanRoom(Handle handle, void *data)
+{
+	Engine &engine = *(Engine*)data;
+	RemoveRoom(engine, handle);
+}
+
 #if USE_DATA_BUILD
 void LoadSceneFromTxt(Engine &engine, const char *filepath)
 {
@@ -2418,16 +2470,26 @@ void LoadSceneFromTxt(Engine &engine, const char *filepath)
 			CreateMaterial(engine.gfx, assetDescriptors.materialDescs[i]);
 		}
 
-		// Sprites (must be before entities)
+		// Sprites (must be before entities and rooms)
+		static SpriteH spriteHandles[MAX_SPRITES];
 		for (u32 i = 0; i < assetDescriptors.spriteDescCount; ++i)
 		{
-			CreateSprite(engine, assetDescriptors.spriteDescs[i]);
+			spriteHandles[i] = CreateSprite(engine, assetDescriptors.spriteDescs[i]);
 		}
 
 		// Entities
 		for (u32 i = 0; i < assetDescriptors.entityDescCount; ++i)
 		{
 			CreateEntity(engine, assetDescriptors.entityDescs[i]);
+		}
+
+		// Rooms (grid cells reference sprites by index into the sprite list)
+		if (assetDescriptors.roomDescCount > 0)
+		{
+			for (u32 i = 0; i < assetDescriptors.roomDescCount; ++i)
+			{
+				CreateRoom(engine, assetDescriptors.roomDescs[i], spriteHandles, assetDescriptors.spriteDescCount);
+			}
 		}
 
 		// Audio clips
@@ -2449,7 +2511,8 @@ void LoadSceneFromTxt(Engine &engine, const char *filepath)
 
 void SaveSceneToTxt(Engine &engine, const char *filepath)
 {
-	const AssetDescriptors assetDescs = GetAssetDescriptors(engine);
+	Scratch scratch(MB(16)); // holds the tile lists of all rooms
+	const AssetDescriptors assetDescs = GetAssetDescriptors(engine, scratch.arena);
 
 	SaveAssetDescriptors(filepath, assetDescs);
 }
@@ -2480,16 +2543,26 @@ void LoadSceneFromBin(Engine &engine)
 			CreateMaterial(engine.gfx, *engine.assets.materials[i].desc);
 		}
 
-		// Sprites (must be before entities)
+		// Sprites (must be before entities and rooms)
+		static SpriteH spriteHandles[MAX_SPRITES];
 		for (u32 i = 0; i < engine.assets.header.spriteCount; ++i)
 		{
-			CreateSprite(engine, *engine.assets.sprites[i].desc);
+			spriteHandles[i] = CreateSprite(engine, *engine.assets.sprites[i].desc);
 		}
 
 		// Entities
 		for (u32 i = 0; i < engine.assets.header.entityCount; ++i)
 		{
 			CreateEntity(engine, *engine.assets.entities[i].desc);
+		}
+
+		// Rooms (grid cells reference sprites by index into the sprite list)
+		if (engine.assets.header.roomCount > 0)
+		{
+			for (u32 i = 0; i < engine.assets.header.roomCount; ++i)
+			{
+				CreateRoom(engine, engine.assets.rooms[i], spriteHandles, engine.assets.header.spriteCount);
+			}
 		}
 
 		// Audio clips
@@ -2546,12 +2619,6 @@ void CleanAudioClip(Handle handle, void* data)
 	RemoveAudioClip(engine, handle);
 }
 
-struct LayerDesc
-{
-	const char *name;
-	bool isCollider;
-};
-
 u32 CreateLayer(Room &room, const LayerDesc &desc)
 {
 	u32 index = U32_MAX;
@@ -2566,7 +2633,8 @@ u32 CreateLayer(Room &room, const LayerDesc &desc)
 				room.layerCount++;
 				layer.initialized = true;
 				layer.name = desc.name;
-				layer.visible = true;
+				layer.order = desc.order;
+				layer.visible = desc.visible;
 				layer.isCollider = desc.isCollider;
 				layer.grid.size = { TILE_GRID_SIZE_X, TILE_GRID_SIZE_Y };
 				index = i;
@@ -2611,12 +2679,69 @@ Handle CreateRoom(Engine &engine)
 	room.name = InternString("Room");
 	room.pos = {};
 
-	const LayerDesc desc1 = { .name = "Layer", .isCollider = false };
+	const LayerDesc desc1 = { .name = "Layer", .visible = true, .isCollider = false };
 	CreateLayer(room, desc1);
-	const LayerDesc desc2 = { .name = "Colliders", .isCollider = true };
+	const LayerDesc desc2 = { .name = "Colliders", .visible = true, .isCollider = true };
 	CreateLayer(room, desc2);
 
 	return roomH;
+}
+
+Handle CreateRoom(Engine &engine, const RoomDesc &desc, const SpriteH *spriteHandles, u32 spriteHandleCount)
+{
+	Handle roomH = NewHandle(engine.scene.roomHandles);
+	Room &room = engine.scene.rooms[roomH.idx];
+	room = {};
+
+	room.name = InternString(desc.name);
+	room.pos = desc.pos;
+
+	for (u32 l = 0; l < desc.layerCount; ++l)
+	{
+		LayerDesc layerDesc = desc.layers[l];
+		layerDesc.name = InternString(layerDesc.name);
+
+		const u32 index = CreateLayer(room, layerDesc);
+		if (index == U32_MAX) {
+			continue;
+		}
+
+		Layer &layer = room.layers[index];
+		for (u32 t = 0; t < layerDesc.tileCount; ++t)
+		{
+			const TileDesc &tile = layerDesc.tiles[t];
+			if (tile.x < TILE_GRID_SIZE_X && tile.y < TILE_GRID_SIZE_Y && tile.spriteIndex < spriteHandleCount)
+			{
+				layer.grid.cells[tile.x][tile.y] = spriteHandles[tile.spriteIndex];
+			}
+		}
+	}
+
+	return roomH;
+}
+
+Handle CreateRoom(Engine &engine, const BinRoom &binRoom, const SpriteH *spriteHandles, u32 spriteHandleCount)
+{
+	const BinRoomDesc &bin = *binRoom.desc;
+
+	RoomDesc desc = {};
+	desc.name = bin.name;
+	desc.pos = bin.pos;
+
+	for (u32 l = 0; l < bin.layerCount && l < ARRAY_COUNT(desc.layers); ++l)
+	{
+		const BinLayerDesc &ld = bin.layers[l];
+		desc.layers[desc.layerCount++] = {
+			.name = ld.name,
+			.order = ld.order,
+			.visible = ld.visible != 0,
+			.isCollider = ld.isCollider != 0,
+			.tiles = binRoom.tiles[l],
+			.tileCount = ld.tileCount,
+		};
+	}
+
+	return CreateRoom(engine, desc, spriteHandles, spriteHandleCount);
 }
 
 void RemoveRoom(Engine &engine, Handle handle)
@@ -2624,6 +2749,11 @@ void RemoveRoom(Engine &engine, Handle handle)
 	Room &room = GetRoom(engine.scene, handle);
 	room = {};
 	FreeHandle(engine.scene.roomHandles, handle);
+}
+
+void CreateScene(Engine &engine)
+{
+	CreateRoom(engine);
 }
 
 void CleanScene(Engine &engine)
@@ -2636,6 +2766,7 @@ void CleanScene(Engine &engine)
 
 	ForAllHandles(engine.gfx.textureHandles, CleanTexture, &engine);
 	ForAllHandles(engine.gfx.materialHandles, CleanMaterial, &engine);
+	ForAllHandles(engine.scene.roomHandles, CleanRoom, &engine);
 	ForAllHandles(engine.scene.entityHandles, CleanEntity, &engine);
 	ForAllHandles(engine.scene.spriteHandles, CleanSprite, &engine);
 	ForAllHandles(engine.audio.clipHandles, CleanAudioClip, &engine);
@@ -2643,8 +2774,6 @@ void CleanScene(Engine &engine)
 
 	engine.gfx.shouldUpdateMaterials = true;
 	engine.gfx.shouldUpdateMaterialBindGroups = true;
-
-	CreateRoom(engine);
 }
 
 #if USE_DATA_BUILD

@@ -227,7 +227,7 @@ static GeometryType StrToGeometryType(String str)
 
 void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 {
-	Scratch scratch;
+	Scratch scratch(MB(16)); // room tile lists can make the text large
 	WriteContext ctx = {
 		.arena = scratch.arena,
 	};
@@ -317,6 +317,66 @@ void SaveAssetDescriptors(const char *path, const AssetDescriptors &assets)
 		if (desc.spriteName) {
 			WriteLine(ctx, ".layer = %d,", desc.layer);
 		}
+		PopIndent(ctx);
+
+		WriteLine(ctx, "};");
+		NewLine(ctx);
+	}
+
+	WriteSectionLine(ctx, "Rooms");
+
+	for (u32 i = 0; i < assets.roomDescCount; ++i)
+	{
+		const RoomDesc &desc = assets.roomDescs[i];
+
+		WriteLine(ctx, "Room %s = {", desc.name);
+
+		PushIndent(ctx);
+		WriteLine(ctx, ".pos = {%d, %d},", desc.pos.x, desc.pos.y);
+		WriteLine(ctx, ".layers = {");
+		PushIndent(ctx);
+
+		for (u32 l = 0; l < desc.layerCount; ++l)
+		{
+			const LayerDesc &layer = desc.layers[l];
+
+			WriteLine(ctx, "{");
+			PushIndent(ctx);
+			WriteLine(ctx, ".name = \"%s\",", layer.name);
+			WriteLine(ctx, ".order = %d,", layer.order);
+			WriteLine(ctx, ".visible = %d,", layer.visible);
+			WriteLine(ctx, ".isCollider = %d,", layer.isCollider);
+
+			if (layer.tileCount > 0)
+			{
+				WriteLine(ctx, ".tiles = {");
+				PushIndent(ctx);
+
+				char tileLine[MAX_PATH_LENGTH];
+				i32 tileLineLen = 0;
+				u32 tilesInLine = 0;
+				for (u32 t = 0; t < layer.tileCount; ++t)
+				{
+					const TileDesc &tile = layer.tiles[t];
+					tileLineLen += SPrintf(tileLine + tileLineLen, "{%u, %u, %u}, ", tile.x, tile.y, tile.spriteIndex);
+					if (++tilesInLine == 8 || t + 1 == layer.tileCount)
+					{
+						WriteLine(ctx, "%s", tileLine);
+						tileLineLen = 0;
+						tilesInLine = 0;
+					}
+				}
+
+				PopIndent(ctx);
+				WriteLine(ctx, "},");
+			}
+
+			PopIndent(ctx);
+			WriteLine(ctx, "},");
+		}
+
+		PopIndent(ctx);
+		WriteLine(ctx, "},");
 		PopIndent(ctx);
 
 		WriteLine(ctx, "};");
@@ -839,6 +899,91 @@ static float3 DParser_ConsumeFloat3( DParser &parser )
 	return res;
 }
 
+static int2 DParser_ConsumeInt2( DParser &parser )
+{
+	int2 res = {};
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+	res.x = DParser_ConsumeI32(parser);
+	DParser_TryConsume(parser, TOKEN_COMMA);
+	res.y = DParser_ConsumeI32(parser);
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+	return res;
+}
+
+static void DParser_ConsumeTiles( DParser &parser, LayerDesc &layer )
+{
+	Arena &arena = *parser.arena;
+
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+
+	// Tiles are pushed contiguously (nothing else allocates from the arena in this loop)
+	layer.tiles = (TileDesc*)(arena.base + arena.used);
+	layer.tileCount = 0;
+
+	while ( DParser_TryConsume(parser, TOKEN_LEFT_BRACE) && !DParser_HasFinished(parser) )
+	{
+		TileDesc &tile = *PushStruct(arena, TileDesc);
+		tile.x = I32ToU16(DParser_ConsumeI32(parser));
+		DParser_TryConsume(parser, TOKEN_COMMA);
+		tile.y = I32ToU16(DParser_ConsumeI32(parser));
+		DParser_TryConsume(parser, TOKEN_COMMA);
+		tile.spriteIndex = I32ToU16(DParser_ConsumeI32(parser));
+		DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+		DParser_TryConsume(parser, TOKEN_COMMA);
+		layer.tileCount++;
+	}
+
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+}
+
+static void DParser_ConsumeRoomLayers( DParser &parser, RoomDesc &room )
+{
+	DParser_TryConsume(parser, TOKEN_LEFT_BRACE);
+
+	while ( DParser_TryConsume(parser, TOKEN_LEFT_BRACE) && !DParser_HasFinished(parser) )
+	{
+		LayerDesc layerDesc = {};
+
+		while ( !DParser_IsNextToken(parser, TOKEN_RIGHT_BRACE) && !DParser_HasFinished(parser) )
+		{
+			DParser_TryConsume(parser, TOKEN_DOT);
+
+			const String field = DParser_ConsumeLexeme(parser);
+
+			DParser_TryConsume(parser, TOKEN_EQUAL);
+
+			static const String sName = MakeString("name");
+			static const String sOrder = MakeString("order");
+			static const String sVisible = MakeString("visible");
+			static const String sIsCollider = MakeString("isCollider");
+			static const String sTiles = MakeString("tiles");
+
+			if ( StrEq( field, sName ) ) {
+				layerDesc.name = PushString(*parser.arena, DParser_ConsumeString(parser));
+			} else if ( StrEq( field, sOrder ) ) {
+				layerDesc.order = DParser_ConsumeI32(parser);
+			} else if ( StrEq( field, sVisible ) ) {
+				layerDesc.visible = DParser_ConsumeU8(parser) != 0;
+			} else if ( StrEq( field, sIsCollider ) ) {
+				layerDesc.isCollider = DParser_ConsumeU8(parser) != 0;
+			} else if ( StrEq( field, sTiles ) ) {
+				DParser_ConsumeTiles(parser, layerDesc);
+			}
+
+			DParser_TryConsume(parser, TOKEN_COMMA);
+		}
+
+		DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+		DParser_TryConsume(parser, TOKEN_COMMA);
+
+		if ( room.layerCount < ARRAY_COUNT(room.layers) ) {
+			room.layers[room.layerCount++] = layerDesc;
+		}
+	}
+
+	DParser_TryConsume(parser, TOKEN_RIGHT_BRACE);
+}
+
 static void DParser_ConsumeUntil( DParser &parser, DTokenId tokenId )
 {
 	while ( !DParser_IsNextToken( parser, tokenId ) && !DParser_HasFinished( parser ) )
@@ -854,6 +999,7 @@ static const String sMaterialStr = MakeString("Material");
 static const String sTextureStr = MakeString("Texture");
 static const String sSpriteStr = MakeString("Sprite");
 static const String sEntityStr = MakeString("Entity");
+static const String sRoomStr = MakeString("Room");
 static const String sAudioClipStr = MakeString("AudioClip");
 static const String sMusicFileStr = MakeString("MusicFile");
 
@@ -1017,6 +1163,37 @@ static void DParseDescriptors(DParser &parser, bool countOnly)
 					DParser_ConsumeUntil( parser, TOKEN_COMMA );
 				}
 
+			// Room
+			} else if ( StrEq(type, sRoomStr) ) {
+
+				const uint index = descriptors.roomDescCount++;
+				if ( countOnly ) goto parse_descriptors_continue;
+
+				RoomDesc &desc = descriptors.roomDescs[index];
+				const String name = DParser_ConsumeLexeme( parser );
+				desc.name = PushString(*parser.arena, name);
+				DParser_TryConsume( parser, TOKEN_EQUAL );
+				DParser_TryConsume( parser, TOKEN_LEFT_BRACE );
+				while ( !DParser_IsNextToken( parser, TOKEN_RIGHT_BRACE ) && !DParser_HasFinished( parser ) )
+				{
+					DParser_TryConsume( parser, TOKEN_DOT );
+
+					const String field = DParser_ConsumeLexeme( parser );
+
+					DParser_TryConsume( parser, TOKEN_EQUAL );
+
+					static const String sPos = MakeString("pos");
+					static const String sLayers = MakeString("layers");
+
+					if ( StrEq( field, sPos ) ) {
+						desc.pos = DParser_ConsumeInt2(parser);
+					} else if ( StrEq( field, sLayers ) ) {
+						DParser_ConsumeRoomLayers(parser, desc);
+					}
+
+					DParser_TryConsume( parser, TOKEN_COMMA );
+				}
+
 			// AudioClip
 			} else if ( StrEq(type, sAudioClipStr) ) {
 
@@ -1111,6 +1288,8 @@ AssetDescriptors ParseDescriptors(const char *filepath, Arena &arena)
 				descriptors.materialDescCount = 0;
 				descriptors.entityDescs = PushArray(arena, EntityDesc, descriptors.entityDescCount);
 				descriptors.entityDescCount = 0;
+				descriptors.roomDescs = PushZeroArray(arena, RoomDesc, descriptors.roomDescCount);
+				descriptors.roomDescCount = 0;
 				descriptors.audioClipDescs = PushArray(arena, AudioClipDesc, descriptors.audioClipDescCount);
 				descriptors.audioClipDescCount = 0;
 				descriptors.musicFileDescs = PushArray(arena, MusicFileDesc, descriptors.musicFileDescCount);
@@ -1226,6 +1405,10 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		const u32 entitiesSize = entityCount * sizeof(BinEntityDesc);
 		const u32 entitiesOffset = PostIncrement(&offset, entitiesSize);
 
+		const u32 roomCount = descriptors.roomDescCount;
+		const u32 roomsSize = roomCount * sizeof(BinRoomDesc);
+		const u32 roomsOffset = PostIncrement(&offset, roomsSize);
+
 		const u32 maxStringPoolSize = KB(128);
 		char *stringPoolBase = PushArray(tempArena, char, maxStringPoolSize);
 		DataStringPool stringPool = { stringPoolBase, 1 }; // offset 0 is reserved for nullptr
@@ -1238,6 +1421,7 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		BinMaterialDesc *binMaterialDescs = PushArray(tempArena, BinMaterialDesc, materialCount);
 		BinSpriteDesc *binSpriteDescs = PushArray(tempArena, BinSpriteDesc, spriteCount);
 		BinEntityDesc *binEntityDescs = PushArray(tempArena, BinEntityDesc, entityCount);
+		BinRoomDesc *binRoomDescs = PushArray(tempArena, BinRoomDesc, roomCount);
 
 		// Prepare asset descs and write asset payloads
 
@@ -1409,6 +1593,37 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			d.geometryType = desc.geometryType;
 		}
 
+		// Rooms (tile payloads continue after the last written payload)
+		for (u32 i = 0; i < roomCount; ++i)
+		{
+			const RoomDesc &desc = descriptors.roomDescs[i];
+
+			BinRoomDesc &d = binRoomDescs[i];
+			d = {};
+			d.name       = DataInternString(stringPool, desc.name);
+			d.pos        = desc.pos;
+			d.layerCount = desc.layerCount;
+
+			for (u32 l = 0; l < desc.layerCount; ++l)
+			{
+				const LayerDesc &layer = desc.layers[l];
+				const u64 payloadSize = layer.tileCount * sizeof(TileDesc);
+
+				BinLayerDesc &ld = d.layers[l];
+				ld.name         = DataInternString(stringPool, layer.name);
+				ld.order        = layer.order;
+				ld.visible      = layer.visible ? 1 : 0;
+				ld.isCollider   = layer.isCollider ? 1 : 0;
+				ld.tileCount    = layer.tileCount;
+				ld.tiles.offset = PostIncrement(&offset, payloadSize);
+				ld.tiles.size   = U64ToU32(payloadSize);
+
+				if ( payloadSize > 0 ) {
+					fwrite(layer.tiles, payloadSize, 1, file);
+				}
+			}
+		}
+
 		// Write string pool after payloads
 		const u32 stringPoolOffset = offset;
 		const u32 stringPoolSize   = stringPool.size;
@@ -1423,10 +1638,12 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 		fwrite(binMaterialDescs,  sizeof(binMaterialDescs[0]),  materialCount,  file);
 		if (spriteCount) fwrite(binSpriteDescs, sizeof(binSpriteDescs[0]), spriteCount, file);
 		fwrite(binEntityDescs, sizeof(binEntityDescs[0]), entityCount, file);
+		if (roomCount) fwrite(binRoomDescs, sizeof(binRoomDescs[0]), roomCount, file);
 
 		// Write file header last (string pool offset is now known)
 		const BinAssetsHeader fileHeader = {
 			.magicNumber      = U32FromChars('I', 'R', 'I', 'S'),
+			.version          = BinAssetsVersion,
 			.shadersOffset    = shadersOffset,
 			.shaderCount      = shaderCount,
 			.imagesOffset     = imagesOffset,
@@ -1441,6 +1658,8 @@ void BuildAssets(const AssetDescriptors &descriptors, const char *filepath, Aren
 			.spriteCount      = spriteCount,
 			.entitiesOffset   = entitiesOffset,
 			.entityCount      = entityCount,
+			.roomsOffset      = roomsOffset,
+			.roomCount        = roomCount,
 			.stringPoolOffset = stringPoolOffset,
 			.stringPoolSize   = stringPoolSize,
 		};
@@ -1487,6 +1706,12 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 		QUIT_ABNORMALLY();
 	}
 
+	if (assets.header.version != BinAssetsVersion)
+	{
+		LOG( Error, "Wrong version (%u, expected %u) in file %s. Rebuild the data files.\n", assets.header.version, BinAssetsVersion, filepath );
+		QUIT_ABNORMALLY();
+	}
+
 	assets.shaders = PushArray(dataArena, BinShader, assets.header.shaderCount);
 	assets.images = PushArray(dataArena, BinImage, assets.header.imageCount);
 	assets.audioClips = PushArray(dataArena, BinAudioClip, assets.header.audioClipCount);
@@ -1494,6 +1719,7 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 	assets.materials = PushArray(dataArena, BinMaterial, assets.header.materialCount);
 	assets.sprites = PushArray(dataArena, BinSprite, assets.header.spriteCount + 1);
 	assets.entities = PushArray(dataArena, BinEntity, assets.header.entityCount);
+	assets.rooms = PushZeroArray(dataArena, BinRoom, assets.header.roomCount);
 
 	const char *stringPool = (const char*)PushDataFromFile(
 		dataArena, file, assets.header.stringPoolOffset, assets.header.stringPoolSize);
@@ -1575,6 +1801,29 @@ BinAssets OpenAssets(Arena &dataArena, const char *filepath)
 		d.materialName = DataGetString(stringPool, d.materialName);
 		d.spriteName   = DataGetString(stringPool, d.spriteName);
 		assets.entities[i].desc = &d;
+	}
+
+	// Rooms
+	if (assets.header.roomCount > 0)
+	{
+		BinRoomDesc *roomDescs = (BinRoomDesc*)PushDataFromFile(
+			dataArena, file, assets.header.roomsOffset, assets.header.roomCount * sizeof(BinRoomDesc));
+		for (u32 i = 0; i < assets.header.roomCount; ++i)
+		{
+			BinRoomDesc &d = roomDescs[i];
+			d.name = DataGetString(stringPool, d.name);
+			assets.rooms[i].desc = &d;
+			for (u32 l = 0; l < d.layerCount && l < ARRAY_COUNT(d.layers); ++l)
+			{
+				BinLayerDesc &ld = d.layers[l];
+				ld.name = DataGetString(stringPool, ld.name);
+				if (ld.tiles.size > 0)
+				{
+					assets.rooms[i].tiles[l] = (TileDesc*)PushDataFromFile(
+						dataArena, file, ld.tiles.offset, ld.tiles.size);
+				}
+			}
+		}
 	}
 
 	assets.file = file;

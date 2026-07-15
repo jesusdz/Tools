@@ -281,7 +281,7 @@ struct Layer
 	bool isCollider;
 };
 
-#define MAX_LAYERS 4
+// MAX_LAYERS is defined in data.h (RoomDesc needs it)
 
 struct Room
 {

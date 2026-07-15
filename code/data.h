@@ -78,6 +78,33 @@ struct EntityDesc
 	float scale;
 };
 
+#define MAX_LAYERS 4
+
+struct TileDesc
+{
+	u16 x;
+	u16 y;
+	u16 spriteIndex; // index into AssetDescriptors::spriteDescs
+};
+
+struct LayerDesc
+{
+	const char *name;
+	i32 order;
+	bool visible;
+	bool isCollider;
+	TileDesc *tiles; // non-empty grid cells only
+	u32 tileCount;
+};
+
+struct RoomDesc
+{
+	const char *name;
+	int2 pos;
+	LayerDesc layers[MAX_LAYERS];
+	u32 layerCount;
+};
+
 struct AudioClipDesc
 {
 	const char *name;
@@ -108,6 +135,9 @@ struct AssetDescriptors
 
 	EntityDesc *entityDescs;
 	u32 entityDescCount;
+
+	RoomDesc *roomDescs;
+	u32 roomDescCount;
 
 	AudioClipDesc *audioClipDescs;
 	u32 audioClipDescCount;
@@ -205,9 +235,30 @@ struct BinEntityDesc
 	GeometryType geometryType;
 };
 
+struct BinLayerDesc
+{
+	const char *name;
+	i32 order;
+	u8 visible;
+	u8 isCollider;
+	u32 tileCount;
+	BinLocation tiles; // payload with tileCount TileDesc entries
+};
+
+struct BinRoomDesc
+{
+	const char *name;
+	int2 pos;
+	u32 layerCount;
+	BinLayerDesc layers[MAX_LAYERS];
+};
+
+constexpr u32 BinAssetsVersion = 1;
+
 struct BinAssetsHeader
 {
 	u32 magicNumber;
+	u32 version;
 	u32 shadersOffset;
 	u32 shaderCount;
 	u32 imagesOffset;
@@ -222,6 +273,8 @@ struct BinAssetsHeader
 	u32 spriteCount;
 	u32 entitiesOffset;
 	u32 entityCount;
+	u32 roomsOffset;
+	u32 roomCount;
 	u32 stringPoolOffset;
 	u32 stringPoolSize;
 };
@@ -263,6 +316,12 @@ struct BinEntity
 	BinEntityDesc *desc;
 };
 
+struct BinRoom
+{
+	BinRoomDesc *desc;
+	TileDesc *tiles[MAX_LAYERS];
+};
+
 #pragma pack(pop)
 
 
@@ -279,6 +338,7 @@ struct BinAssets
 	BinMaterial *materials;
 	BinSprite *sprites;
 	BinEntity *entities;
+	BinRoom *rooms;
 };
 
 // Functions
