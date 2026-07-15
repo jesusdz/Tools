@@ -188,6 +188,7 @@ struct Platform
 	bool paused;
 	bool keepRunning;
 	bool windowInitialized;
+	volatile_u32 inSizeMove; // Main thread is inside a modal size/move loop
 
 	Semaphore updateThreadFinishSemaphore;
 	Mutex renderLock;
@@ -860,6 +861,9 @@ static void ToggleFullscreen(HWND hWnd)
 
 static void UpdateAndRender(Platform &platform);
 
+// Timer used to keep rendering while the window is being moved or resized
+#define SIZEMOVE_TIMER_ID 1
+
 static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if !USE_UPDATE_THREAD
@@ -1095,7 +1099,13 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 
 		case WM_PAINT:
 #if USE_UPDATE_THREAD
-			if ( platform.windowInitialized )
+			// Only render from here while the update thread is parked during a
+			// modal size/move loop; outside of it the update thread presents
+			// continuously and this paint would be redundant. It would also
+			// deadlock at startup: ShowWindow is called from the update thread
+			// with the render lock held, and blocks until this thread processes
+			// the sync-paint it sends, which would wait on that same lock.
+			if ( platform.inSizeMove && platform.windowInitialized )
 			{
 				UpdateAndRender(platform);
 			}
@@ -1110,9 +1120,9 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				const u16 width = LOWORD(lParam);
 				const u16 height = HIWORD(lParam);
 #if USE_UPDATE_THREAD
-				platform.window.width = Max(width, 0);
-				platform.window.height = Max(height, 0);
-				platform.window.flags |= WindowFlags_WasResized;
+				// The window size is applied by ProcessPlatformEvents on whichever
+				// thread renders next. Writing it directly here would race with the
+				// update thread clearing window flags and could lose resizes.
 				const PlatformEvent event = {
 					.type = PlatformEventTypeWindowResize,
 					.windowResize = { .width = width, .height = height },
@@ -1129,6 +1139,29 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 #endif
 				break;
 			}
+
+#if USE_UPDATE_THREAD
+		case WM_ENTERSIZEMOVE:
+			// While the modal size/move loop blocks this thread's message pump,
+			// the update thread pauses and rendering is driven from here instead:
+			// WM_PAINT fires after each size change, and the timer keeps frames
+			// coming while the window is only being moved (moves generate no paints).
+			platform.inSizeMove = 1;
+			SetTimer(hWnd, SIZEMOVE_TIMER_ID, 10, NULL);
+			break;
+
+		case WM_EXITSIZEMOVE:
+			KillTimer(hWnd, SIZEMOVE_TIMER_ID);
+			platform.inSizeMove = 0;
+			break;
+
+		case WM_TIMER:
+			if ( wParam == SIZEMOVE_TIMER_ID && platform.inSizeMove && platform.windowInitialized )
+			{
+				UpdateAndRender(platform);
+			}
+			break;
+#endif
 
 		case WM_SYSCOMMAND:
 			{
@@ -2713,11 +2746,27 @@ static void ProcessPlatformEvents(Platform &platform)
 
 static void CheckEngineHotReload(Platform &platform);
 
+// Runs a whole frame iteration: event processing, update and render. It is
+// called by the update thread normally, and by the main thread while it is
+// blocked in a modal size/move loop. The render lock makes both exclusive,
+// including their access to the event queue, window state and frame arena.
 static void UpdateAndRender(Platform &platform)
 {
 	MutexScope renderScope(platform.renderLock);
-	platform.UpdateCallback(platform.pub);
-	platform.RenderGraphicsCallback(platform.pub);
+
+	ResetArena(platform.frameArena);
+
+	ProcessPlatformEvents(platform);
+
+	UpdateGamepad(platform);
+
+	if ( platform.windowInitialized )
+	{
+		platform.UpdateCallback(platform.pub);
+		platform.RenderGraphicsCallback(platform.pub);
+
+		platform.window.flags = 0;
+	}
 }
 
 static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
@@ -2728,23 +2777,17 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 
 	while ( platform.keepRunning )
 	{
-		ResetArena(platform.frameArena);
-
-		ProcessPlatformEvents(platform);
-
-		if ( platform.windowInitialized )
+		if ( platform.inSizeMove )
 		{
-			UpdateGamepad(platform);
-
-			UpdateAndRender(platform);
-			platform.window.flags = 0;
+			// The main thread drives update and render during modal size/move loops
+			Yield();
 		}
 		else
 		{
-			Yield();
-		}
+			UpdateAndRender(platform);
 
-		CheckEngineHotReload(platform);
+			CheckEngineHotReload(platform);
+		}
 	}
 
 	SignalSemaphore(platform.updateThreadFinishSemaphore);
