@@ -22,9 +22,9 @@ enum GameState
 
 struct Input
 {
-	Gamepad *gamepad;
-	Keyboard *keyboard;
-	Mouse *mouse;
+	Gamepad gamepad;
+	Keyboard keyboard;
+	Mouse mouse;
 };
 
 struct Box
@@ -39,6 +39,9 @@ struct Game
 	GameState state;
 
 	f32 deltaSeconds;
+	f32 accumulatedSeconds;
+
+	Input input;
 
 	Box box1;
 	float2 speed;
@@ -65,6 +68,7 @@ struct Game
 
 void GameSetInput(Input input);
 void GameStart(Game &game);
+void GameSimulate(Game &game);
 void GameUpdate(Game &game);
 void GameStop(Game &game);
 

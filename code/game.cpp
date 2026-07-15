@@ -1,11 +1,4 @@
 
-static Input input = {};
-
-void GameSetInput(Input pInput)
-{
-	input = pInput;
-}
-
 void GameStart(Game &game)
 {
 	LOG(Info, "- GameStart!\n");
@@ -42,11 +35,9 @@ void GameStart(Game &game)
 	game.room = GetRoom("Room");
 }
 
-void GameUpdate(Game &game)
+void GameSimulate(Game &game)
 {
 	LOG(Debug, "- GameUpdate!\n");
-
-	SetCamera(game.camera);
 
 	if (!game.playingMusic)
 	{
@@ -58,7 +49,6 @@ void GameUpdate(Game &game)
 	constexpr f32 gravity = -15.8f;
 
 	const Room &room = *game.room;
-	//DrawBoxOutline(Float2(room.pos), LayerSize(room.layers[0]), ColorOrange);
 
 	{
 		float2 &pos = game.box1.pos;
@@ -73,7 +63,6 @@ void GameUpdate(Game &game)
 			pos.y = 0.0f;
 			game.speed.y = 10.0f;
 		}
-		DrawBox(game.box1.pos, game.box1.size, game.box1.color);
 	}
 
 	{
@@ -84,10 +73,10 @@ void GameUpdate(Game &game)
 
 		// X ///////////////////////////////////////////////////////////
 
-		if (KeyPressed(*input.keyboard, K_D)) {
+		if (KeyPressed(game.input.keyboard, K_D)) {
 			direction++;
 		}
-		if (KeyPressed(*input.keyboard, K_A)) {
+		if (KeyPressed(game.input.keyboard, K_A)) {
 			direction--;
 		}
 
@@ -113,16 +102,15 @@ void GameUpdate(Game &game)
 
 		// Y ///////////////////////////////////////////////////////////
 
-		if (KeyPress(*input.keyboard, K_SPACE)) {
+		if (KeyPress(game.input.keyboard, K_SPACE)) {
 			if (game.speed2.y == 0) {
 				game.speed2.y = 12;
 				PlayAudioClip(game.sndJump);
 			}
 		}
-		game.speed2.y = game.speed2.y + gravity * deltaSeconds;
-
 		const f32 prevY = playerPos.y;
 		playerPos.y += game.speed2.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
+		game.speed2.y = game.speed2.y + gravity * deltaSeconds;
 		if (IsColliderInBox(playerPos, playerSize)) {
 			if (prevY < playerPos.y)
 				playerPos.y = Ceil(prevY);
@@ -161,6 +149,14 @@ void GameUpdate(Game &game)
 
 		EntitySetPosition(*game.ent, Float3(playerPos, game.ent->position.z));
 	}
+}
+
+void GameUpdate(Game &game)
+{
+	SetCamera(game.camera);
+
+	//DrawBoxOutline(Float2(game.room->pos), LayerSize(game.room->layers[0]), ColorOrange);
+	DrawBox(game.box1.pos, game.box1.size, game.box1.color);
 }
 
 void GameStop(Game &game)

@@ -1417,7 +1417,6 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 {
 	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
 			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
-	LOG(Info, "%d %d\n", coord.x, coord.y);
 	if (coordValid)
 	{
 		tileGrid.cells[coord.x][coord.y] = spriteH;
@@ -3787,24 +3786,92 @@ void UIEndFrameRecording(Engine &engine)
 
 #endif
 
-void GameUpdate(Engine &engine)
+static bool sKeyPendingRelease[K_COUNT];
+
+static void GameInputAccumulate(Input &input, const Input &newInput)
+{
+	for (u32 i = 0; i < K_COUNT; ++i)
+	{
+		const KeyState newState = newInput.keyboard.keys[i];
+		KeyState &state = input.keyboard.keys[i];
+
+		if (newState == KEY_STATE_PRESS)
+		{
+			// Latch the edge until a fixed step consumes it
+			state = KEY_STATE_PRESS;
+			sKeyPendingRelease[i] = false;
+		}
+		else if (newState == KEY_STATE_RELEASE)
+		{
+			if (state == KEY_STATE_PRESS) {
+				// The press was not consumed yet: keep it and release right after
+				sKeyPendingRelease[i] = true;
+			} else {
+				state = KEY_STATE_RELEASE;
+			}
+		}
+	}
+}
+
+static void GameInputConsume(Input &input)
+{
+	for (u32 i = 0; i < K_COUNT; ++i)
+	{
+		KeyState &state = input.keyboard.keys[i];
+
+		if (state == KEY_STATE_PRESS)
+		{
+			state = sKeyPendingRelease[i] ? KEY_STATE_RELEASE : KEY_STATE_PRESSED;
+			sKeyPendingRelease[i] = false;
+		}
+		else if (state == KEY_STATE_RELEASE)
+		{
+			state = KEY_STATE_IDLE;
+		}
+	}
+}
+
+void GameUpdate(Engine &engine, const Plat &platform)
 {
 	Game &game = engine.game;
 
 	if (game.state == GameStateStarting)
 	{
-		GameStart(game);
-
 		EngineWaitDeviceIdle(engine.gfx);
 		DestroyRenderTargets(engine.gfx, engine.gfx.renderTargets);
 		CreateRenderTargets(engine.gfx, SCENE_WIDTH, SCENE_HEIGHT);
 
+		game.input = {};
+		game.accumulatedSeconds = 0.0f;
+		MemSet(sKeyPendingRelease, sizeof(sKeyPendingRelease), 0);
+
+		GameStart(game);
 		game.state = GameStateRunning;
 	}
 
 	if (game.state == GameStateRunning)
 	{
-		game.deltaSeconds = engine.gfx.deltaSeconds;
+		constexpr f32 fixedStepSeconds = 1.0f / 60.0f;
+		constexpr f32 maxFrameSeconds = 0.25f; // avoid catch-up bursts after stalls (hot-reload, shader compiles...)
+
+		const Input newInput = {
+			.gamepad = *platform.gamepad,
+			.keyboard = platform.window->keyboard,
+			.mouse = platform.window->mouse,
+		};
+
+		GameInputAccumulate(game.input, newInput);
+
+		game.accumulatedSeconds += Min(engine.gfx.deltaSeconds, maxFrameSeconds);
+
+		while (game.accumulatedSeconds >= fixedStepSeconds)
+		{
+			game.deltaSeconds = fixedStepSeconds;
+			GameSimulate(game);
+			GameInputConsume(game.input);
+			game.accumulatedSeconds -= fixedStepSeconds;
+		}
+
 		GameUpdate(game);
 	}
 
@@ -3838,14 +3905,8 @@ ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 	SetPlatformAPI(platform);
 	SetGraphicsAPI(&platform.graphicsAPI);
 
-	Input input = {
-		.gamepad = platform.gamepad,
-		.keyboard = &platform.window->keyboard,
-		.mouse = &platform.window->mouse,
-	};
-	GameSetInput(input);
-
-	if ( platform.engine ) {
+	if ( platform.engine )
+	{
 		UI_InitializeColors(platform.engine->ui);
 	}
 }
@@ -3913,13 +3974,6 @@ ENGINE_API bool OnPlatformInit(Plat &platform)
 		LOG(Error, "InitializeAudio failed!\n");
 		return false;
 	}
-
-	Input input = {
-		.gamepad = platform.gamepad,
-		.keyboard = &platform.window->keyboard,
-		.mouse = &platform.window->mouse,
-	};
-	GameSetInput(input);
 
 	return true;
 }
@@ -4022,7 +4076,7 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 	EditorUpdate(engine);
 #endif
 
-	GameUpdate(engine);
+	GameUpdate(engine, platform);
 
 #if USE_UI
 	UIEndFrameRecording(engine);
