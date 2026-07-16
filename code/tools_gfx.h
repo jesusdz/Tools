@@ -466,6 +466,7 @@ struct Swapchain
 	Image images[MAX_SWAPCHAIN_IMAGE_COUNT];
 	float preRotationDegrees;
 	u32 currentImageIndex;
+	bool imageAcquired; // Image at currentImageIndex was acquired and not presented yet
 	bool valid;
 };
 
@@ -2075,6 +2076,19 @@ void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char 
 
 void RecreateSwapchain(GraphicsDevice &device, Window &window)
 {
+	// An image acquired at EndFrame that will never be presented leaves its
+	// imageAvailable semaphore with a signal no submit will consume, and
+	// vkAcquireNextImageKHR requires an unsignaled semaphore. Replace it
+	// (callers wait for device idle before recreating the swapchain).
+	if ( device.swapchain.imageAcquired )
+	{
+		device.swapchain.imageAcquired = false;
+		VkSemaphore &semaphore = device.imageAvailableSemaphores[device.presentationIndex];
+		vkDestroySemaphore( device.handle, semaphore, VULKAN_ALLOCATORS );
+		const VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+		VK_CALL( vkCreateSemaphore( device.handle, &semaphoreCreateInfo, VULKAN_ALLOCATORS, &semaphore ) );
+	}
+
 	Swapchain swapchain = {};
 	const SwapchainInfo &swapchainInfo = device.swapchainInfo;
 
@@ -2150,8 +2164,14 @@ void RecreateSwapchain(GraphicsDevice &device, Window &window)
 	LOG(Debug, "- preRotationDegrees: %f\n", swapchain.preRotationDegrees);
 
 
-	// Image count
-	u32 imageCount = surfaceCapabilities.minImageCount + 1;
+	// Image count: request the minimum allowed by the surface. Every extra
+	// image allows one more pending present in the queue, which under FIFO
+	// adds a full vsync period of input latency. MAILBOX instead needs a third
+	// image to keep rendering while one is on screen and another one is pending,
+	// replacing the pending present without ever blocking.
+	u32 imageCount = surfaceCapabilities.minImageCount;
+	if ( swapchainInfo.presentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+		imageCount = Max( imageCount, 3u );
 	if ( surfaceCapabilities.maxImageCount > 0 )
 		imageCount = Min( imageCount, surfaceCapabilities.maxImageCount );
 
@@ -2216,6 +2236,7 @@ void RecreateSwapchain(GraphicsDevice &device, Window &window)
 	vkGetSwapchainImagesKHR( device.handle, swapchain.handle, &swapchain.imageCount, NULL );
 	ASSERT( swapchain.imageCount <= ARRAY_COUNT(swapchainImages) );
 	vkGetSwapchainImagesKHR( device.handle, swapchain.handle, &swapchain.imageCount, swapchainImages );
+	LOG(Debug, "- imageCount %u (min requested %u)\n", swapchain.imageCount, imageCount);
 
 	// Create image views
 	for ( u32 i = 0; i < swapchain.imageCount; ++i )
@@ -4570,12 +4591,8 @@ void WaitFrameFences(GraphicsDevice &device)
 	frameData.usedFenceCount = 0;
 }
 
-bool BeginFrame(GraphicsDevice &device)
+bool AcquireSwapchainImage(GraphicsDevice &device)
 {
-	// No-op if this frame slot fences were already waited after the previous present
-	WaitFrameFences(device);
-
-	// Acquire swapchain image for this frame
 	u32 imageIndex;
 	VkResult acquireResult = vkAcquireNextImageKHR( device.handle, device.swapchain.handle, UINT64_MAX, device.imageAvailableSemaphores[device.presentationIndex], VK_NULL_HANDLE, &imageIndex );
 
@@ -4592,6 +4609,25 @@ bool BeginFrame(GraphicsDevice &device)
 	}
 
 	device.swapchain.currentImageIndex = imageIndex;
+	device.swapchain.imageAcquired = true;
+
+	return true;
+}
+
+bool BeginFrame(GraphicsDevice &device)
+{
+	// No-op if this frame slot fences were already waited after the previous present
+	WaitFrameFences(device);
+
+	// The image is normally acquired at EndFrame already. Acquire here only on
+	// the first frame or right after a swapchain recreation.
+	if ( !device.swapchain.imageAcquired )
+	{
+		if ( !AcquireSwapchainImage(device) )
+		{
+			return false;
+		}
+	}
 
 	// Reset commands for this frame
 	VkCommandPool commandPool = device.commandPools[device.frameIndex];
@@ -4602,6 +4638,9 @@ bool BeginFrame(GraphicsDevice &device)
 
 void EndFrame(GraphicsDevice &device)
 {
+	// The image acquired for this frame was handed over to Present
+	device.swapchain.imageAcquired = false;
+
 	device.frameIndex = ( device.frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT;
 	device.presentationIndex = ( device.presentationIndex + 1 ) % MAX_SWAPCHAIN_IMAGE_COUNT;
 
@@ -4609,6 +4648,14 @@ void EndFrame(GraphicsDevice &device)
 	// blocks before the platform samples input for the next frame, not after,
 	// which reduces input latency when frames are produced faster than vsync.
 	WaitFrameFences(device);
+
+	// Acquire the next image here too: with FIFO/MAILBOX and a full present
+	// queue this is where the CPU blocks waiting for a free image, so the block
+	// happens before input sampling for the next frame, not after it.
+	if ( device.swapchain.valid )
+	{
+		AcquireSwapchainImage(device);
+	}
 }
 
 
