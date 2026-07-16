@@ -462,7 +462,8 @@ struct Swapchain
 	VkSwapchainKHR handle;
 	VkExtent2D extent;
 	u32 imageCount;
-	ImageH images[MAX_SWAPCHAIN_IMAGE_COUNT];
+	ImageH imageHandles[MAX_SWAPCHAIN_IMAGE_COUNT];
+	Image images[MAX_SWAPCHAIN_IMAGE_COUNT];
 	float preRotationDegrees;
 	u32 currentImageIndex;
 	bool valid;
@@ -630,7 +631,7 @@ struct GraphicsDevice
 	BufferView bufferViews[MAX_BUFFERS];
 	u32 bufferViewCount;
 
-	Image images[MAX_IMAGES + MAX_SWAPCHAIN_IMAGE_COUNT];
+	Image images[MAX_IMAGES];
 	u32 imageCount;
 	u32 freeImages[MAX_IMAGES];
 
@@ -675,7 +676,7 @@ typedef void FN_InsertDebugLabel(const CommandList &cmd, const char *labelName, 
 typedef void FN_SetObjectNamePipeline(const GraphicsDevice &device, PipelineH handle, const char *name);
 typedef void FN_SetObjectNameShader(const GraphicsDevice &device, const ShaderModule &shader, const char *name);
 typedef void FN_SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char *name);
-typedef void FN_CreateSwapchain(GraphicsDevice &device, Window &window);
+typedef void FN_RecreateSwapchain(GraphicsDevice &device, Window &window);
 typedef void FN_DestroySwapchain(GraphicsDevice &device);
 typedef bool FN_IsValidSwapchain(const GraphicsDevice &device);
 typedef bool FN_InitializeGraphicsDriver(GraphicsDevice &device, Arena scratch);
@@ -768,7 +769,7 @@ typedef const char* FN_FormatName(Format format);
 	EXPAND_MACRO(SetObjectNamePipeline) \
 	EXPAND_MACRO(SetObjectNameShader) \
 	EXPAND_MACRO(SetObjectNameImage) \
-	EXPAND_MACRO(CreateSwapchain) \
+	EXPAND_MACRO(RecreateSwapchain) \
 	EXPAND_MACRO(DestroySwapchain) \
 	EXPAND_MACRO(IsValidSwapchain) \
 	EXPAND_MACRO(InitializeGraphicsDriver) \
@@ -2072,7 +2073,7 @@ void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char 
 // Device
 //////////////////////////////
 
-void CreateSwapchain(GraphicsDevice &device, Window &window)
+void RecreateSwapchain(GraphicsDevice &device, Window &window)
 {
 	Swapchain swapchain = {};
 	const SwapchainInfo &swapchainInfo = device.swapchainInfo;
@@ -2204,7 +2205,7 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 		.compositeAlpha = compositeAlpha,
 		.presentMode = swapchainInfo.presentMode,
 		.clipped = VK_TRUE, // Don't care about pixels obscured by other windows
-		.oldSwapchain = VK_NULL_HANDLE,
+		.oldSwapchain = device.swapchain.handle,
 	};
 
 	VK_CALL( vkCreateSwapchainKHR(device.handle, &swapchainCreateInfo, VULKAN_ALLOCATORS, &swapchain.handle) );
@@ -2231,11 +2232,13 @@ void CreateSwapchain(GraphicsDevice &device, Window &window)
 			.mipLevels = 1,
 		};
 		const ImageH imageH = { .index = FIRST_SWAPCHAIN_IMAGE_INDEX + i };
-		device.images[imageH.index] = image;
-		swapchain.images[i] = imageH;
+		swapchain.imageHandles[i] = imageH;
+		swapchain.images[i] = image;
 	}
 
 	swapchain.valid = true;
+
+	DestroySwapchain(device); // Destroy old swapchain
 
 	device.swapchain = swapchain;
 }
@@ -2248,7 +2251,7 @@ void DestroySwapchain(GraphicsDevice &device)
 	{
 		for ( u32 i = 0; i < swapchain.imageCount; ++i )
 		{
-			VkImageView &imageView = device.images[FIRST_SWAPCHAIN_IMAGE_INDEX + i].imageViewHandle;
+			VkImageView &imageView = swapchain.images[i].imageViewHandle;
 			DestroyImageView(device, imageView);
 			imageView = VK_NULL_HANDLE;
 		}
@@ -3311,15 +3314,17 @@ ImageH CreateImage(GraphicsDevice &device, u32 width, u32 height, u32 mipLevels,
 
 Image &GetImage(GraphicsDevice &device, ImageH imageH)
 {
-	ASSERT(imageH.index < ARRAY_COUNT(device.images));
-	Image &image = device.images[imageH.index];
+	ASSERT(imageH.index < ARRAY_COUNT(device.images) + ARRAY_COUNT(device.swapchain.images));
+	Image &image = imageH.index < ARRAY_COUNT(device.images) ? device.images[imageH.index] :
+		device.swapchain.images[imageH.index - FIRST_SWAPCHAIN_IMAGE_INDEX];
 	return image;
 }
 
 const Image &GetImageConst(const GraphicsDevice &device, ImageH imageH)
 {
-	ASSERT(imageH.index < ARRAY_COUNT(device.images));
-	const Image &image = device.images[imageH.index];
+	ASSERT(imageH.index < ARRAY_COUNT(device.images) + ARRAY_COUNT(device.swapchain.images));
+	const Image &image = imageH.index < ARRAY_COUNT(device.images) ? device.images[imageH.index] :
+		device.swapchain.images[imageH.index - FIRST_SWAPCHAIN_IMAGE_INDEX];
 	return image;
 }
 

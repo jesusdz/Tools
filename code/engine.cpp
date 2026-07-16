@@ -1612,14 +1612,10 @@ void CreateRenderTargets(Graphics &gfx, u32 sceneWidth = 0, u32 sceneHeight = 0)
 	// Display framebuffer
 	for ( u32 i = 0; i < gfx.device.swapchain.imageCount; ++i )
 	{
-		char name[16];
-		SPrintf(name, "swapchain_%u", i);
-		SetObjectNameImage(gfx.device, gfx.device.swapchain.images[i], name);
-
 		const FramebufferDesc desc = {
 			.renderPass = gfx.displayRenderPassH,
 			.attachments = {
-				gfx.device.swapchain.images[i],
+				gfx.device.swapchain.imageHandles[i],
 			},
 			.attachmentCount = 1,
 		};
@@ -2836,7 +2832,7 @@ uint2 GetFramebufferSize(const Framebuffer &framebuffer)
 const ImageH GetDisplayImageH(const Graphics &gfx)
 {
 	const u32 imageIndex = gfx.device.swapchain.currentImageIndex;
-	const ImageH displayImageH = gfx.device.swapchain.images[imageIndex];
+	const ImageH displayImageH = gfx.device.swapchain.imageHandles[imageIndex];
 	return displayImageH;
 }
 
@@ -4124,10 +4120,15 @@ ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 	{
 		EngineWaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);
-		DestroySwapchain(gfx.device);
 		if ( platform.window->width != 0 && platform.window->height != 0 )
 		{
-			CreateSwapchain(gfx.device, *platform.window);
+			RecreateSwapchain(gfx.device, *platform.window);
+
+			char debugName[16];
+			for (u32 i = 0; i < ARRAY_COUNT(gfx.device.swapchain.imageHandles); ++i) {
+				SPrintf(debugName, "swapchain_%u", i);
+				SetObjectNameImage(gfx.device, gfx.device.swapchain.imageHandles[i], debugName);
+			}
 
 			u32 sceneWidth = 0;
 			u32 sceneHeight = 0;
