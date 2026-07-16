@@ -4,47 +4,8 @@
 
 #include "platform.h"
 
-#if PLATFORM_WINDOWS
-#include <WindowsX.h>
-#include <xinput.h>
-#include <mmsystem.h> // audio
-#include <dsound.h>   // audio
-#include <direct.h>   // _getcwd
-#endif
-
-#if PLATFORM_LINUX
-#define ALSA_PCM_NEW_HW_PARAMS_API
-#include <alsa/asoundlib.h>
-#endif
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Platform implementation types
-
-struct WindowImpl
-{
-#if USE_XCB
-	xcb_connection_t *connection;
-	xcb_window_t window;
-	xcb_atom_t closeAtom;
-#elif USE_ANDROID
-	ANativeWindow *nativeWindow;
-#elif USE_WINAPI
-	HINSTANCE hInstance;
-	HWND hWnd;
-	WINDOWPLACEMENT windowPlacement = { sizeof(WINDOWPLACEMENT) };
-#endif
-};
-
-struct InputDevice
-{
-#if PLATFORM_WINDOWS
-	DynamicLibrary library;
-#elif PLATFORM_LINUX
-	int fd; // file descriptor
-#endif
-
-	Gamepad gamepad;
-};
+// Platform types
 
 struct AudioDevice
 {
@@ -57,16 +18,6 @@ struct AudioDevice
 	u16 latencySampleCount;
 	u16 safetyBytes;
 	u32 runningSampleIndex;
-
-#if PLATFORM_WINDOWS
-	DynamicLibrary library;
-	LPDIRECTSOUNDBUFFER buffer;
-#elif PLATFORM_LINUX
-	DynamicLibrary library;
-	snd_pcm_t *pcm;
-#elif PLATFORM_ANDROID
-	AAudioStream *stream;
-#endif
 
 	bool initialized;
 	bool isPlaying;
@@ -128,13 +79,6 @@ struct PlatformEvent
 	};
 };
 
-struct PlatformConfig
-{
-#if PLATFORM_ANDROID
-	struct android_app *androidApp;
-#endif // PLATFORM_ANDROID
-};
-
 #define MAX_SCRATCH_ARENAS 8
 
 struct Platform
@@ -157,10 +101,6 @@ struct Platform
 
 	void *userData;
 
-#if PLATFORM_ANDROID
-	struct android_app *androidApp;
-#endif // PLATFORM_ANDROID
-
 	// Platform components
 
 	Arena globalArena;
@@ -175,8 +115,7 @@ struct Platform
 
 	StringInterning stringInterning;
 	Window window;
-	WindowImpl windowImpl;
-	InputDevice input;
+	Gamepad gamepad;
 	AudioDevice audio;
 	f32 deltaSeconds;
 	f32 totalSeconds;
@@ -217,55 +156,31 @@ enum ThreadID
 	THREAD_ID_WORKER_LAST = THREAD_ID_WORKER_0 + WORK_QUEUE_WORKER_COUNT - 1,
 };
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
-#define USE_UPDATE_THREAD 1
-#else
-#define USE_UPDATE_THREAD 0
-#endif
 
-#if PLATFORM_LINUX || PLATFORM_WINDOWS
-#define USE_AUDIO_THREAD 1
-#elif PLATFORM_ANDROID
-#define USE_AUDIO_THREAD 0 // Do not set to 1, Android invokes AAudioFillAudioBuffer from its own audio thread
-#endif
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Per-platform interface
+//
+// These functions are implemented by the platform-specific file included further below
+// (platform_win32.cpp, platform_linux.cpp or platform_android.cpp). Each platform file
+// additionally provides:
+// - The USE_UPDATE_THREAD and USE_AUDIO_THREAD macros
+// - The WindowImpl struct
+// - The engineLibFilename / engineLibTmpFilename constants
+// - The program entry point (main / android_main), which calls Main below
 
+static bool IsAbsolutePath(const char *path);
+static void InitializeDirectories(Platform &platform);
+static bool InitializeWindow(Window &window, u32 width = 640, u32 height = 480, const char *title = "ILU Engine");
+static void CleanupWindow(Window &window);
+static void ShowPlatformWindow(Window &window);
+static void PlatformUpdateEventLoop(Platform &platform);
+static bool InitializeGamepad(Platform &platform);
+static void UpdateGamepad(Platform &platform);
+static bool InitializeAudioDevice(Platform &platform);
+static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin);
 
-
-
-#if USE_XCB
-
-#include <xcb/xcb.h>
-#include <stdlib.h> // free
-
-static void XcbReportError( int xcbErrorCode, const char *context )
-{
-	static const char *xcbErrorMessages[] = {
-		"NO_ERROR",
-		"XCB_CONN_ERROR",                   // 1
-		"XCB_CONN_CLOSED_EXT_NOTSUPPORTED", // 2
-		"XCB_CONN_CLOSED_MEM_INSUFFICIENT", // 3
-		"XCB_CONN_CLOSED_REQ_LEN_EXCEED",   // 4
-		"XCB_CONN_CLOSED_PARSE_ERR",        // 5
-		"XCB_CONN_CLOSED_INVALID_SCREEN",   // 6
-		"XCB_CONN_CLOSED_FDPASSING_FAILED", // 7
-	};
-	LOG(Error, "Xcb error (%s): %s\n", context, xcbErrorMessages[xcbErrorCode]);
-}
-
-static void XcbReportGenericError( xcb_connection_t *conn, xcb_generic_error_t *err, const char *context )
-{
-	// TODO: Find a better way to report XCB generic errors
-	LOG(Error, "Xcb generic error (%s)\n", context);
-}
-#endif
-
-#if PLATFORM_WINDOWS
-typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
-#endif
-
-
-
-
+// Common entry point called by the platform entry points
+static void Main(int argc, char **argv);
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -275,19 +190,6 @@ static const char *BinDir = "";
 static const char *DataDir = "";
 static const char *AssetDir = "";
 static const char *ProjectDir = "";
-
-static bool IsAbsolutePath(const char *path)
-{
-#if PLATFORM_LINUX || PLATFORM_ANDROID
-	const bool res = *path == '/';
-	return res;
-#elif PLATFORM_WINDOWS
-	const bool res = path[1] == ':' && path[0] >= 'A' && path[0] <= 'Z';
-	return res;
-#else
-#error "Missing implementation"
-#endif
-}
 
 static void CanonicalizePath(char *path)
 {
@@ -361,31 +263,22 @@ static void CanonicalizePath(char *path)
 	*ptr = 0;
 }
 
-static void InitializeDirectories(Platform &platform)
+static void PublishDirectories(Platform &platform)
 {
-	char buffer[MAX_PATH_LENGTH];
+	platform.pub.BinDir    = BinDir;
+	platform.pub.DataDir   = DataDir;
+	platform.pub.AssetDir  = AssetDir;
+	platform.pub.ProjectDir = ProjectDir;
 
-#if PLATFORM_ANDROID
+	LOG(Info, "Directories:\n");
+	LOG(Info, "- BinDir: %s\n", BinDir);
+	LOG(Info, "- DataDir: %s\n", DataDir);
+	LOG(Info, "- AssetDir: %s\n", AssetDir);
+	LOG(Info, "- ProjectDir: %s\n", ProjectDir);
+}
 
-	// TODO: Don't hardcode this path here and get it from Android API.
-	DataDir = "/sdcard/Android/data/com.tools.game/files";
-	BinDir = DataDir;
-	ProjectDir = "";
-	platform.BinDir     = BinDir;
-	platform.DataDir    = DataDir;
-	platform.AssetDir   = AssetDir;
-	platform.ProjectDir = ProjectDir;
-
-#else
-
-#if PLATFORM_LINUX
-	char *workingDir = getcwd(buffer, ARRAY_COUNT(buffer));
-#elif PLATFORM_WINDOWS
-	char *workingDir = _getcwd(buffer, ARRAY_COUNT(buffer));
-#else
-#error "Missing implementation"
-#endif
-
+static void InitializeDirectoriesFromWorkingDir(Platform &platform, char *workingDir)
+{
 	StrReplace(workingDir, '\\', '/'); // Make all separators '/'
 
 	char exeDir[MAX_PATH_LENGTH] = {};
@@ -418,20 +311,8 @@ static void InitializeDirectories(Platform &platform)
 	StrCat(directory, "/assets");
 	AssetDir = PushString(platform.stringArena, directory);
 
-#endif
-
-	platform.pub.BinDir    = BinDir;
-	platform.pub.DataDir   = DataDir;
-	platform.pub.AssetDir  = AssetDir;
-	platform.pub.ProjectDir = ProjectDir;
-
-	LOG(Info, "Directories:\n");
-	LOG(Info, "- BinDir: %s\n", BinDir);
-	LOG(Info, "- DataDir: %s\n", DataDir);
-	LOG(Info, "- AssetDir: %s\n", AssetDir);
-	LOG(Info, "- ProjectDir: %s\n", ProjectDir);
+	PublishDirectories(platform);
 }
-
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -452,981 +333,9 @@ static void SendPlatformEvent(Platform &platform, PlatformEvent event)
 	}
 }
 
-static u32 capturedButtons = 0; // bitmask: bit i set means MOUSE_BUTTON_i is currently pressed
-
-static void CaptureButton(MouseButton button, Window &window)
-{
-	if (!capturedButtons) {
-#if PLATFORM_WINDOWS
-		SetCapture(window.impl->hWnd);
-#else
-#error Not implemented
-#endif
-	}
-	capturedButtons |= (1 << button);
-}
-
-static void ReleaseButton(MouseButton button)
-{
-	capturedButtons &= ~(1 << button);
-	if (!capturedButtons) {
-#if PLATFORM_WINDOWS
-		ReleaseCapture();
-#else
-#error Not implemented
-#endif
-	}
-}
-
-static void ReleaseCapturedButtons(Platform &platform, Window &window)
-{
-	for (u32 i = 0; i < MOUSE_BUTTON_COUNT; ++i)
-	{
-		if (capturedButtons & (1 << i))
-		{
-#if USE_UPDATE_THREAD
-			const PlatformEvent event = {
-				.type = PlatformEventTypeMouseClick,
-				.mouseClick = { .button = (MouseButton)i, .state = BUTTON_STATE_RELEASE },
-			};
-			SendPlatformEvent(platform, event);
-#else
-			window.mouse.buttons[i] = BUTTON_STATE_RELEASE;
-#endif
-		}
-	}
-	capturedButtons = 0;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Specific platform events
-
-#if USE_XCB && 0
-static void PrintModifiers(uint32_t mask)
-{
-	const char **mod, *mods[] = {
-		"Shift", "Lock", "Ctrl", "Alt",
-		"Mod2", "Mod3", "Mod4", "Mod5",
-		"Button1", "Button2", "Button3", "Button4", "Button5"
-	};
-	LOG(Info, "Modifier mask: ");
-	for (mod = mods ; mask; mask >>= 1, mod++)
-		if (mask & 1)
-			LOG(Info, *mod);
-	putchar ('\n');
-}
-#endif
-
-
-
-#if USE_XCB
-
-#include "xcb_key_mappings.h"
-
-static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
-{
-	u32 eventType = event->response_type & ~0x80;
-
-	switch ( eventType )
-	{
-		case XCB_KEY_PRESS:
-		case XCB_KEY_RELEASE:
-			{
-				// NOTE: xcb_key_release_event_t is an alias of xcb_key_press_event_t
-				xcb_key_press_event_t *ev = (xcb_key_press_event_t *)event;
-				u32 keyCode = ev->detail;
-				ASSERT( keyCode < ARRAY_COUNT(XcbKeyMappings) );
-				const Key mapping = XcbKeyMappings[ keyCode ];
-				ASSERT( mapping < K_COUNT );
-				const KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeKeyPress,
-					.keyPress = {
-						.code = mapping,
-						.state = state,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				window.keyboard.keys[ mapping ] = state;
-#endif
-				break;
-			}
-
-		case XCB_BUTTON_PRESS:
-		case XCB_BUTTON_RELEASE:
-			{
-				// NOTE: xcb_button_release_event_t is an alias of xcb_button_press_event_t
-				xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
-				const ButtonState state = eventType == XCB_BUTTON_PRESS ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
-				const MouseButton button =
-					ev->detail == 1 ? MOUSE_BUTTON_LEFT :
-					ev->detail == 2 ? MOUSE_BUTTON_MIDDLE :
-					MOUSE_BUTTON_RIGHT;
-				const i16 wheelY = ev->detail == 4 ? -1 : ev->detail == 5 ? 1 : 0;
-				const i16 wheelX = ev->detail == 6 ? -1 : ev->detail == 7 ? 1 : 0;
-				PlatformEvent event = {};
-				switch (ev->detail) {
-					// Left, middle, right buttons
-					case 1:
-					case 2:
-					case 3:
-#if USE_UPDATE_THREAD
-						event.type = PlatformEventTypeMouseClick;
-						event.mouseClick.button = button;
-						event.mouseClick.state = state;
-						SendPlatformEvent(platform, event);
-#else
-						window.mouse.buttons[button] = state;
-#endif
-						break;
-					// Mouse wheel
-					case 4:
-					case 5:
-					case 6:
-					case 7:
-#if USE_UPDATE_THREAD
-						event.type = PlatformEventTypeMouseWheel;
-						event.mouseWheel.dx = wheelX;
-						event.mouseWheel.dy = wheelY;
-						SendPlatformEvent(platform, event);
-#else
-						window.mouse.wx += wheelX;
-						window.mouse.wy += wheelY;
-#endif
-						break;
-					default:;
-				}
-				break;
-			}
-
-		case XCB_MOTION_NOTIFY:
-			{
-				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseMove,
-					.mouseMove = { .x = ev->event_x, .y = ev->event_y }
-				};
-				SendPlatformEvent(platform, event);
-#else
-				window.mouse.dx = static_cast<i32>(ev->event_x) - static_cast<i32>(window.mouse.x);
-				window.mouse.dy = static_cast<i32>(ev->event_y) - static_cast<i32>(window.mouse.y);
-				window.mouse.x = ev->event_x;
-				window.mouse.y = ev->event_y;
-#endif
-				break;
-			}
-
-		case XCB_ENTER_NOTIFY:
-			{
-				xcb_enter_notify_event_t *ev = (xcb_enter_notify_event_t *)event;
-				//LOG(Info, "Mouse entered window %ld, at coordinates (%d,%d)\n",
-				//		ev->event, ev->event_x, ev->event_y);
-				break;
-			}
-
-		case XCB_LEAVE_NOTIFY:
-			{
-				xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
-				//LOG(Info, "Mouse left window %ld, at coordinates (%d,%d)\n",
-				//		ev->event, ev->event_x, ev->event_y);
-				break;
-			}
-
-		case XCB_CONFIGURE_NOTIFY:
-			{
-				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeWindowResize,
-					.windowResize = { .width = ev->width, .height = ev->height },
-				};
-				SendPlatformEvent(platform, event);
-#else
-				if ( window.width != ev->width || window.height != ev->height )
-				{
-					window.width = ev->width;
-					window.height = ev->height;
-					window.flags |= WindowFlags_WasResized;
-				}
-#endif
-				break;
-			}
-
-		case XCB_CLIENT_MESSAGE:
-			{
-				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
-				if ( ev->data.data32[0] == window.impl->closeAtom )
-				{
-#if USE_UPDATE_THREAD
-					// NOTE(jesus): Likely not needed as we destroy the window when exiting the app
-					//const PlatformEvent event1 = { .type = PlatformEventTypeWindowWillDestroy, };
-					//SendPlatformEvent(platform, event1);
-					const PlatformEvent event2 = { .type = PlatformEventTypeQuit, };
-					SendPlatformEvent(platform, event2);
-					platform.keepRunning = false;
-#else
-					window.flags |= WindowFlags_WillDestroy;
-					window.flags |= WindowFlags_Exit;
-#endif
-				}
-				break;
-			}
-
-		case XCB_MAP_NOTIFY:
-			// TODO: Handle this event
-			break;
-
-		case XCB_REPARENT_NOTIFY:
-			// TODO: Handle this event
-			break;
-
-		default:
-			/* Unknown event type, ignore it */
-			LOG(Info, "Unknown window event: %d\n", event->response_type);
-			break;
-	}
-}
-
-#elif USE_ANDROID
-
-/**
- * Process the next main command.
- * enum NativeAppGlueAppCmd {
- *   UNUSED_APP_CMD_INPUT_CHANGED = 0
- *   APP_CMD_INIT_WINDOW = 1
- *   APP_CMD_TERM_WINDOW = 2
- *   APP_CMD_WINDOW_RESIZED = 3
- *   APP_CMD_WINDOW_REDRAW_NEEDED = 4
- *   APP_CMD_CONTENT_RECT_CHANGED = 5
- *   APP_CMD_GAINED_FOCUS = 6
- *   APP_CMD_LOST_FOCUS = 7
- *   APP_CMD_CONFIG_CHANGED = 8
- *   APP_CMD_LOW_MEMORY = 9
- *   APP_CMD_START = 10
- *   APP_CMD_RESUME = 11
- *   APP_CMD_SAVE_STATE = 12
- *   APP_CMD_PAUSE = 13
- *   APP_CMD_STOP = 14
- *   APP_CMD_DESTROY = 15
- *   APP_CMD_WINDOW_INSETS_CHANGED = 16
- * }
- */
-static void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
-{
-	Platform *platform = (Platform*)app->userData;
-
-	switch (cmd)
-	{
-		case APP_CMD_INIT_WINDOW:
-			// The window is being shown, get it ready.
-			ASSERT(app->window != NULL);
-			if (app->window && app->window != platform->window.nativeWindow)
-			{
-				platform->window.nativeWindow = app->window;
-				platform->window.flags |= WindowFlags_WasCreated;
-			}
-			break;
-		case APP_CMD_TERM_WINDOW:
-			// The window is being hidden or closed, clean it up.
-			platform->window =  {};
-			platform->window.flags |= WindowFlags_WillDestroy;
-			break;
-		case APP_CMD_WINDOW_RESIZED:
-			{
-				int32_t newWidth = ANativeWindow_getWidth(app->window);
-				int32_t newHeight = ANativeWindow_getHeight(app->window);
-				if ( newWidth != platform->window.width || newHeight != platform->window.height )
-				{
-					platform->window.width = newWidth;
-					platform->window.height = newHeight;
-					platform->window.flags |= WindowFlags_WasResized;
-				}
-			}
-			break;
-		//case APP_CMD_WINDOW_REDRAW_NEEDED: break;
-		//case APP_CMD_CONTENT_RECT_CHANGED: break;
-		//case APP_CMD_GAINED_FOCUS: break;
-		//case APP_CMD_LOST_FOCUS: break;
-		//case APP_CMD_CONFIG_CHANGED: break;
-		//case APP_CMD_LOW_MEMORY: break;
-		//case APP_CMD_START: break;
-		//case APP_CMD_RESUME: break;
-		//case APP_CMD_SAVE_STATE: break;
-		case APP_CMD_PAUSE:
-			{
-				// Gets activated at APP_CMD_INIT_WINDOW
-			}
-			break;
-		//case APP_CMD_STOP: break;
-		//case APP_CMD_DESTROY: break;
-		//case APP_CMD_WINDOW_INSETS_CHANGED: break;
-		default:
-			//LOG( Info, "UNKNOWN ANDROID COMMAND: %d\n", cmd);
-			break;
-	}
-	//LOG( Info, "ANDROID APP COMMAND: %d\n", cmd);
-}
-
-static int32_t AndroidHandleInputEvent(struct android_app *app, AInputEvent *event)
-{
-	Platform *platform = (Platform*)app->userData;
-
-	if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION)
-	{
-		const int32_t actionAndPointer = AMotionEvent_getAction( event );
-		const uint32_t action = actionAndPointer & AMOTION_EVENT_ACTION_MASK;
-		const uint32_t pointerIndex = (actionAndPointer & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-		const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
-		const uint32_t pointerCount = AMotionEvent_getPointerCount(event);
-		const float x = AMotionEvent_getX(event, pointerIndex);
-		const float y = AMotionEvent_getY(event, pointerIndex);
-
-		if (pointerId < ARRAY_COUNT(platform->window.touches))
-		{
-			Touch *touches = platform->window.touches;
-
-			switch( action )
-			{
-				case AMOTION_EVENT_ACTION_DOWN:
-				case AMOTION_EVENT_ACTION_POINTER_DOWN:
-					{
-						touches[pointerId].state = TOUCH_STATE_PRESS;
-						touches[pointerId].x0 = x;
-						touches[pointerId].y0 = y;
-						touches[pointerId].x = x;
-						touches[pointerId].y = y;
-					}
-					break;
-				case AMOTION_EVENT_ACTION_UP:
-				case AMOTION_EVENT_ACTION_POINTER_UP:
-					{
-						touches[pointerId].state = TOUCH_STATE_RELEASE;
-						touches[pointerId].x = x;
-						touches[pointerId].y = y;
-					}
-					break;
-				case AMOTION_EVENT_ACTION_MOVE:
-					// On move ements, we are meant to handle all pointers in the gesture
-					for (u32 pointerIndex = 0; pointerIndex < pointerCount; ++pointerIndex)
-					{
-						const float x = AMotionEvent_getX(event, pointerIndex);
-						const float y = AMotionEvent_getY(event, pointerIndex);
-						const uint32_t pointerId = AMotionEvent_getPointerId(event, pointerIndex);
-						touches[pointerId].dx = x - touches[pointerId].x;
-						touches[pointerId].dy = y - touches[pointerId].y;
-						touches[pointerId].x = x;
-						touches[pointerId].y = y;
-					}
-					break;
-			}
-		}
-		return 1;
-	}
-	return 0;
-}
-
-#elif USE_WINAPI
-
-#include "win32_key_mappings.h"
-
-static void ToggleFullscreen(HWND hWnd)
-{
-	DWORD style = GetWindowLong(hWnd, GWL_STYLE);
-	if (style & WS_OVERLAPPEDWINDOW)
-	{
-		MONITORINFO mi = { sizeof(mi) };
-		if (GetWindowPlacement(hWnd, &platform.windowImpl.windowPlacement) &&
-			GetMonitorInfo(MonitorFromWindow(hWnd, MONITOR_DEFAULTTOPRIMARY), &mi))
-		{
-			SetWindowLong(hWnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
-			SetWindowPos(hWnd, HWND_TOP,
-				mi.rcMonitor.left, mi.rcMonitor.top,
-				mi.rcMonitor.right - mi.rcMonitor.left,
-				mi.rcMonitor.bottom - mi.rcMonitor.top,
-				SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-		}
-	}
-	else
-	{
-		SetWindowLong(hWnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
-		SetWindowPlacement(hWnd, &platform.windowImpl.windowPlacement);
-		SetWindowPos(hWnd, NULL, 0, 0, 0, 0,
-			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-	}
-}
-
-static void UpdateAndRender(Platform &platform);
-
-// Timer used to keep rendering while the window is being moved or resized
-#define SIZEMOVE_TIMER_ID 1
-
-static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-#if !USE_UPDATE_THREAD
-	Window *window = &platform.window;
-#endif
-
-	bool processMouseEvents = true;
-	bool processKeyboardEvents = true;
-
-	switch (uMsg)
-	{
-		case WM_KEYDOWN:
-		case WM_KEYUP:
-			if ( processKeyboardEvents )
-			{
-				WPARAM keyCode = wParam;
-				ASSERT( keyCode < ARRAY_COUNT(Win32KeyMappings) );
-				const Key mapping = Win32KeyMappings[ keyCode ];
-				ASSERT( mapping < K_COUNT );
-				const KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeKeyPress,
-					.keyPress = {
-						.code = mapping,
-						.state = state,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->keyboard.keys[ mapping ] = state;
-#endif
-			}
-			break;
-
-		case WM_SYSKEYDOWN:
-			if (wParam == VK_RETURN)
-				ToggleFullscreen(hWnd);
-			else
-				return DefWindowProc(hWnd, uMsg, wParam, lParam);
-			break;
-
-		case WM_SYSCHAR:
-			// Handled to suppress the system notification sound on Alt+Enter.
-			break;
-
-		case WM_LBUTTONDOWN:
-			if ( processMouseEvents )
-			{
-				CaptureButton(MOUSE_BUTTON_LEFT, platform.window);
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_LEFT,
-						.state = BUTTON_STATE_PRESS,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				//int xPos = GET_X_LPARAM(lParam);
-				//int yPos = GET_Y_LPARAM(lParam);
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
-#endif
-			}
-			break;
-		case WM_LBUTTONUP:
-			if ( processMouseEvents )
-			{
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_LEFT,
-						.state = BUTTON_STATE_RELEASE,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
-#endif
-				ReleaseButton(MOUSE_BUTTON_LEFT);
-			}
-			break;
-		case WM_RBUTTONDOWN:
-			if ( processMouseEvents )
-			{
-				CaptureButton(MOUSE_BUTTON_RIGHT, platform.window);
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_RIGHT,
-						.state = BUTTON_STATE_PRESS,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
-#endif
-			}
-			break;
-		case WM_RBUTTONUP:
-			if ( processMouseEvents )
-			{
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_RIGHT,
-						.state = BUTTON_STATE_RELEASE,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
-#endif
-				ReleaseButton(MOUSE_BUTTON_RIGHT);
-			}
-			break;
-		case WM_MBUTTONDOWN:
-			if ( processMouseEvents )
-			{
-				CaptureButton(MOUSE_BUTTON_MIDDLE, platform.window);
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_MIDDLE,
-						.state = BUTTON_STATE_PRESS,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
-#endif
-			}
-			break;
-		case WM_MBUTTONUP:
-			if ( processMouseEvents )
-			{
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseClick,
-					.mouseClick = {
-						.button = MOUSE_BUTTON_MIDDLE,
-						.state = BUTTON_STATE_RELEASE,
-					},
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
-#endif
-				ReleaseButton(MOUSE_BUTTON_MIDDLE);
-			}
-			break;
-
-		case WM_MOUSEWHEEL:
-			if ( processMouseEvents )
-			{
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseWheel,
-					.mouseWheel = { .dy = -GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.wy -= GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
-#endif
-			}
-			break;
-
-		case WM_MOUSEHWHEEL:
-			if ( processMouseEvents )
-			{
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseWheel,
-					.mouseWheel = { .dx = GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.wx += GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
-#endif
-			}
-			break;
-
-		case WM_MOUSEMOVE:
-			if ( processMouseEvents )
-			{
-				i16 xPos = Max(0, Min((i32)platform.window.width, GET_X_LPARAM(lParam)));
-				i16 yPos = Max(0, Min((i32)platform.window.height, GET_Y_LPARAM(lParam)));
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = {
-					.type = PlatformEventTypeMouseMove,
-					.mouseMove = { .x = xPos, .y = yPos }
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.dx = xPos - window->mouse.x;
-				window->mouse.dy = yPos - window->mouse.y;
-				window->mouse.x = xPos;
-				window->mouse.y = yPos;
-#endif
-				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
-			}
-			break;
-
-		case WM_CAPTURECHANGED:
-			{
-				ReleaseCapturedButtons(platform, platform.window);
-				break;
-			}
-
-		case WM_MOUSEHOVER:
-		case WM_MOUSELEAVE:
-			{
-				// These events are disabled by default. See documentation if needed:
-				// https://learn.microsoft.com/en-us/windows/win32/learnwin32/other-mouse-operations
-				//LOG( Info, "Mouse %s the window\n", uMsg == WM_MOUSEHOVER ? "entered" : "left" );
-				break;
-			}
-
-		case WM_PAINT:
-#if USE_UPDATE_THREAD
-			// Only render from here while the update thread is parked during a
-			// modal size/move loop; outside of it the update thread presents
-			// continuously and this paint would be redundant. It would also
-			// deadlock at startup: ShowWindow is called from the update thread
-			// with the render lock held, and blocks until this thread processes
-			// the sync-paint it sends, which would wait on that same lock.
-			if ( platform.inSizeMove && platform.windowInitialized )
-			{
-				UpdateAndRender(platform);
-			}
-			ValidateRect(hWnd, NULL);
-			return 0;
-#else
-			break;
-#endif
-
-		case WM_SIZE:
-			{
-				const u16 width = LOWORD(lParam);
-				const u16 height = HIWORD(lParam);
-#if USE_UPDATE_THREAD
-				// The window size is applied by ProcessPlatformEvents on whichever
-				// thread renders next. Writing it directly here would race with the
-				// update thread clearing window flags and could lose resizes.
-				const PlatformEvent event = {
-					.type = PlatformEventTypeWindowResize,
-					.windowResize = { .width = width, .height = height },
-				};
-				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				if ( window->width != width || window->height != height )
-				{
-					window->width = Max(width, 0);
-					window->height = Max(height, 0);
-					window->flags |= WindowFlags_WasResized;
-				}
-#endif
-				break;
-			}
-
-#if USE_UPDATE_THREAD
-		case WM_ENTERSIZEMOVE:
-			// While the modal size/move loop blocks this thread's message pump,
-			// the update thread pauses and rendering is driven from here instead:
-			// WM_PAINT fires after each size change, and the timer keeps frames
-			// coming while the window is only being moved (moves generate no paints).
-			platform.inSizeMove = 1;
-			SetTimer(hWnd, SIZEMOVE_TIMER_ID, 10, NULL);
-			break;
-
-		case WM_EXITSIZEMOVE:
-			KillTimer(hWnd, SIZEMOVE_TIMER_ID);
-			platform.inSizeMove = 0;
-			break;
-
-		case WM_TIMER:
-			if ( wParam == SIZEMOVE_TIMER_ID && platform.inSizeMove && platform.windowInitialized )
-			{
-				UpdateAndRender(platform);
-			}
-			break;
-#endif
-
-		case WM_SYSCOMMAND:
-			{
-				WPARAM param = ( wParam & 0xFFF0 );
-				AudioDevice &audio = platform.audio;
-
-				if (param == SC_MINIMIZE)
-				{
-					if ( audio.initialized && audio.isPlaying ) {
-						platform.audio.buffer->Stop();
-						audio.isPlaying = false;
-					}
-				}
-				else if (param == SC_RESTORE)
-				{
-					if ( audio.initialized && !audio.isPlaying ) {
-						platform.audio.buffer->Play(0, 0, DSBPLAY_LOOPING);
-						audio.isPlaying = true;
-						platform.audio.soundIsValid = false;
-					}
-				}
-
-				return DefWindowProc(hWnd, uMsg, wParam, lParam);
-			};
-
-		case WM_CLOSE:
-			{
-				// If we want to show a dialog to ask the user for confirmation before
-				// closing the window, it should be done here. Zero should be returned
-				// to indicate that we handled this message.
-				// Otherwise, calling DefWindowProc will internally call DestroyWindow
-				// and will internally send the WM_DESTROY message.
-#if USE_UPDATE_THREAD
-				const PlatformEvent event = { .type = PlatformEventTypeWindowWillDestroy, };
-				SendPlatformEvent(platform, event);
-#endif
-				DestroyWindow(hWnd);
-				break;
-			}
-
-		case WM_DESTROY:
-			{
-				// This inserts a WM_QUIT message in the queue, which will in turn cause
-				// GetMessage to return zero. We will exit the main loop when that happens.
-				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				#if USE_UPDATE_THREAD
-				const PlatformEvent event = { .type = PlatformEventTypeQuit, };
-				SendPlatformEvent(platform, event);
-				#else
-				window->flags |= WindowFlags_WillDestroy;
-				#endif
-				PostQuitMessage(0);
-				break;
-			}
-
-		default:
-			return DefWindowProc(hWnd, uMsg, wParam, lParam);
-	}
-
-	return 0;
-}
-
-#endif
-
-
-
-static bool InitializeWindow(
-		Window &window,
-		WindowImpl &windowImpl,
-		u32 width = 640,
-		u32 height = 480,
-		const char *title = "ILU Engine"
-		)
-{
-	ZeroStruct(&window);
-	window.width = width;
-	window.height = height;
-
-	ZeroStruct(&windowImpl);
-	window.impl = &windowImpl;
-
-#if USE_XCB
-
-	// Connect to the X server
-	xcb_connection_t *xcbConnection = xcb_connect(NULL, NULL);
-
-	int xcbConnError = xcb_connection_has_error(xcbConnection);
-	if ( xcbConnError > 0 )
-	{
-		XcbReportError(xcbConnError, "xcb_connect");
-		xcb_disconnect(xcbConnection);
-		return false;
-	}
-
-	// Get the first screen
-	const xcb_setup_t *setup = xcb_get_setup(xcbConnection);
-	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(setup);
-	xcb_screen_t * screen = iter.data;
-
-	// Configure events to capture
-	uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-	uint32_t values[2] = {
-		screen->black_pixel,
-		XCB_EVENT_MASK_KEY_PRESS       | XCB_EVENT_MASK_KEY_RELEASE    |
-		XCB_EVENT_MASK_BUTTON_PRESS    | XCB_EVENT_MASK_BUTTON_RELEASE |
-		XCB_EVENT_MASK_POINTER_MOTION  |
-		XCB_EVENT_MASK_ENTER_WINDOW    | XCB_EVENT_MASK_LEAVE_WINDOW   |
-		XCB_EVENT_MASK_STRUCTURE_NOTIFY
-	};
-
-	// Create a window
-	xcb_window_t xcbWindow = xcb_generate_id(xcbConnection);
-	xcb_void_cookie_t createWindowCookie = xcb_create_window_checked(
-		xcbConnection,                 // xcb connection
-		XCB_COPY_FROM_PARENT,          // depth
-		xcbWindow,                     // window id
-		screen->root,                  // parent window
-		0, 0,                          // x, y
-		width, height,                 // width, height
-		0,                             // bnorder_width
-		XCB_WINDOW_CLASS_INPUT_OUTPUT, // class
-		screen->root_visual,           // visual
-		mask, values);                 // value_mask, value_list
-
-	xcb_generic_error_t *createWindowError = xcb_request_check(xcbConnection, createWindowCookie);
-	if ( createWindowError )
-	{
-		XcbReportGenericError(xcbConnection, createWindowError, "xcb_create_window_checked");
-		xcb_destroy_window(xcbConnection, xcbWindow);
-		xcb_disconnect(xcbConnection);
-		return false;
-	}
-
-	// Handle close event
-	// TODO: Handle xcb_intern_atom errors
-	xcb_intern_atom_cookie_t protocolCookie = // handle error
-		xcb_intern_atom_unchecked( xcbConnection, 1, 12, "WM_PROTOCOLS");
-	xcb_intern_atom_reply_t *protocolReply =
-		xcb_intern_atom_reply( xcbConnection, protocolCookie, 0);
-	xcb_intern_atom_cookie_t closeCookie = // handle error
-		xcb_intern_atom_unchecked( xcbConnection, 0, 16, "WM_DELETE_WINDOW");
-	xcb_intern_atom_reply_t *closeReply =
-		xcb_intern_atom_reply( xcbConnection, closeCookie, 0);
-	u8 dataFormat = 32;
-	u32 dataLength = 1;
-	void *data = &closeReply->atom;
-	xcb_change_property( // handle error
-			xcbConnection,
-			XCB_PROP_MODE_REPLACE,
-			xcbWindow,
-			protocolReply->atom, XCB_ATOM_ATOM,
-			dataFormat, dataLength, data);
-	xcb_atom_t closeAtom = closeReply->atom;
-	free(protocolReply);
-	free(closeReply);
-
-	// Map the window to the screen
-	xcb_void_cookie_t mapWindowCookie = xcb_map_window_checked(xcbConnection, xcbWindow);
-	xcb_generic_error_t *mapWindowError = xcb_request_check(xcbConnection, mapWindowCookie);
-	if ( mapWindowError )
-	{
-		XcbReportGenericError(xcbConnection, mapWindowError, "xcb_map_window_checked");
-		xcb_destroy_window(xcbConnection, xcbWindow);
-		xcb_disconnect(xcbConnection);
-		return false;
-	}
-
-	// Flush the commands before continuing
-	xcb_flush(xcbConnection);
-
-	// Get window info at this point
-	xcb_get_geometry_cookie_t cookie= xcb_get_geometry( xcbConnection, xcbWindow ); // handle error
-	xcb_get_geometry_reply_t *reply = xcb_get_geometry_reply( xcbConnection, cookie, NULL ); // handle error
-
-	window.impl->connection = xcbConnection;
-	window.impl->window = xcbWindow;
-	window.impl->closeAtom = closeAtom;
-	window.width = reply->width;
-	window.height = reply->height;
-
-	window.flags = WindowFlags_WasCreated;
-
-#endif
-
-#if USE_WINAPI
-
-	FilePath iconPath = MakePath(ProjectDir, "editor/ilu.ico");
-
-	// Register the window class.
-	const char CLASS_NAME[]  = "Ilu Class";
-	HINSTANCE hInstance = GetModuleHandle(NULL);
-
-	WNDCLASS wc = {};
-	wc.style         = CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc   = Win32WindowProc;
-	wc.hInstance     = hInstance;
-	wc.lpszClassName = CLASS_NAME;
-	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	wc.hIcon         = (HICON)LoadImage(NULL, iconPath.str, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
-	//wc.hbrBackground = GetSysColorBrush(COLOR_GRAYTEXT); //(HBRUSH)GetStockObject(GRAY_BRUSH); //CreateSolidBrush(RGB(20,20,20));
-	ATOM classAtom = RegisterClassA(&wc);
-
-	if (classAtom == 0)
-	{
-		Win32ReportError("InitializeWindow - RegisterClassA");
-		return false;
-	}
-
-	// Given the desired client window size, get the full size
-	RECT windowRect = { 0, 0, (int)width, (int)height };
-	AdjustWindowRect( &windowRect, WS_OVERLAPPEDWINDOW, FALSE );
-	int fullWidth = windowRect.right - windowRect.left;
-	int fullHeight = windowRect.bottom - windowRect.top;
-
-	// Ignore display scaling
-	SetProcessDPIAware();
-
-	HWND hWnd = CreateWindowExA(
-			0,                              // Optional window styles.
-			CLASS_NAME,                     // Window class
-			title,                          // Window text
-			WS_OVERLAPPEDWINDOW,            // Window style
-			CW_USEDEFAULT, CW_USEDEFAULT,   // Position
-			fullWidth, fullHeight,          // Size
-			NULL,                           // Parent window
-			NULL,                           // Menu
-			hInstance,                      // Instance handle
-			NULL                            // Additional application data
-			);
-
-	if (hWnd == NULL)
-	{
-		Win32ReportError("InitializeWindow - CreateWindowExA");
-		return false;
-	}
-
-	window.impl->hInstance = hInstance;
-	window.impl->hWnd = hWnd;
-
-	window.flags = WindowFlags_WasCreated;
-
-#endif
-
-	platform.pub.window = &platform.window;
-
-	return true;
-}
-
-
-static void CleanupWindow(Window &window)
-{
-#if USE_XCB
-	if ( window.impl->window ) {
-		xcb_destroy_window(window.impl->connection, window.impl->window);
-		window.impl->window = 0;
-	}
-	if (window.impl->connection) {
-		xcb_disconnect(window.impl->connection);
-		window.impl->connection = nullptr;
-	}
-#elif USE_WINAPI
-	DestroyWindow(window.impl->hWnd);
-#endif
-}
-
+// Input state helpers
 
 static void TransitionInputStatesSinceLastFrame(Window &window)
 {
@@ -1467,7 +376,6 @@ static void TransitionInputStatesSinceLastFrame(Window &window)
 	}
 }
 
-
 static void UpdateKeyModifiers(Window &window)
 {
 	// Update key modifiers
@@ -1500,665 +408,26 @@ static void UpdateKeyModifiers(Window &window)
 }
 
 
-static void PlatformUpdateEventLoop(Platform &platform)
-{
-	Window &window = platform.window;
-
-#if !USE_UPDATE_THREAD
-	TransitionInputStatesSinceLastFrame(window);
-#endif
-
-#if USE_XCB
-
-	xcb_generic_event_t *event;
-#if USE_UPDATE_THREAD
-	while ( platform.keepRunning && (event = xcb_wait_for_event(window.impl->connection)) != 0 )
-#else
-	while ( (event = xcb_poll_for_event(window.impl->connection)) != 0 )
-#endif
-	{
-		XcbWindowProc(window, event);
-		free(event);
-	}
-
-#if USE_UPDATE_THREAD
-	platform.keepRunning = false;
-#endif
-
-#elif USE_ANDROID
-
-	// Read all pending events.
-	int ident;
-	int events;
-	struct android_poll_source* source;
-
-	const int kWaitForever = -1;
-	const int kDontWait = 0;
-	while ((ident=ALooper_pollAll(kDontWait, NULL, &events, (void**)&source)) >= 0)
-	{
-		// Process this event.
-		if (source != NULL)
-		{
-			source->process(platform.androidApp, source);
-		}
-
-		// Check if we are exiting.
-		if (platform.androidApp->destroyRequested != 0)
-		{
-			LOG(Info, "androidApp->destroyRequesteds\n");
-			window.flags |= WindowFlags_Exit;
-		}
-	}
-
-#elif USE_WINAPI
-
-	BOOL ret = 1;
-	MSG msg = { };
-#if USE_UPDATE_THREAD
-	while ( (ret = GetMessage( &msg, NULL, 0, 0 )) != 0 ) // ret == 0 means WM_QUIT
-#else
-	while ( PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE ) )
-#endif
-	{
-		if ( ret == -1 )
-		{
-			LOG(Error, "Fatal error returned by GetMessage\n");
-			break;
-		}
-		else if ( LOWORD( msg.message ) == WM_QUIT )
-		{
-			window.flags |= WindowFlags_Exit;
-			break;
-		}
-		else
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
-	}
-
-#if USE_UPDATE_THREAD
-	platform.keepRunning = false;
-#endif
-
-#endif
-
-#if !USE_UPDATE_THREAD
-	UpdateKeyModifiers(window);
-#endif
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Platform-specific implementation
 
 #if PLATFORM_WINDOWS
-
-#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD userIndex, XINPUT_STATE *state)
-#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD userIndex, XINPUT_VIBRATION *vibration)
-
-typedef X_INPUT_GET_STATE(XInputGetState_t);
-typedef X_INPUT_SET_STATE(XInputSetState_t);
-
-static X_INPUT_GET_STATE(XInputGetStateStub)
-{
-	return ERROR_INVALID_FUNCTION;
-}
-
-static X_INPUT_SET_STATE(XInputSetStateStub)
-{
-	return ERROR_INVALID_FUNCTION;
-}
-
-static XInputGetState_t *FP_XInputGetState = XInputGetStateStub;
-static XInputSetState_t *FP_XInputSetState = XInputSetStateStub;
-
-#endif // PLATFORM_WINDOWS
-
-static bool InitializeGamepad(Platform &platform)
-{
-	LOG(Info, "Input system initialization:\n");
-
-	InputDevice &input = platform.input;
-	platform.pub.gamepad = &input.gamepad;
-
-#if PLATFORM_WINDOWS
-
-	bool found = false;
-
-	const char *libraryNames[] = {
-		"xinput1_4.dll",
-		"xinput9_1_0.dll",
-		"xinput1_3.dll",
-	};
-
-	const char *libraryName = nullptr;
-	for (u32 i = 0; i < ARRAY_COUNT(libraryNames); ++i) {
-		libraryName = libraryNames[i];
-		input.library = OpenLibrary(libraryName);
-		if (input.library) {
-			break;
-		}
-	}
-
-	if (input.library)
-	{
-		LOG(Info, "- Loaded %s successfully\n", libraryName);
-
-		XInputGetState_t* getState = (XInputGetState_t*)LoadSymbol(input.library, "XInputGetState");
-		XInputSetState_t* setState = (XInputSetState_t*)LoadSymbol(input.library, "XInputSetState");
-
-		if ( getState != nullptr ) {
-			LOG(Info, "- XInputGetState symbol loaded successfully\n");
-			FP_XInputGetState = getState;
-			found = true;
-		} else {
-			LOG(Warning, "- Error loading XInputGetState symbol\n");
-			FP_XInputGetState = XInputGetStateStub;
-			found = false;
-		}
-		if ( setState != nullptr ) {
-			LOG(Info, "- XInputSetState symbol loaded successfully\n");
-			FP_XInputSetState = setState;
-			found = found && true;
-		} else {
-			LOG(Warning, "- Error loading XInputSetState\n");
-			FP_XInputSetState = XInputSetStateStub;
-			found = false;
-		}
-	}
-
-	return found;
-
+#include "platform_win32.cpp"
 #elif PLATFORM_LINUX
-
-	input.fd = -1;
-
-	char path[MAX_PATH_LENGTH] = {};
-	char name[MAX_PATH_LENGTH] = {};
-	const char *dirName = "/dev/input";
-	bool found = false;
-
-	Dir dir = {};
-
-	if ( OpenDir(dir, dirName) )
-	{
-		DirEntry entry = {};
-
-		while ( !found && ReadDir(dir, entry) )
-		{
-			SPrintf(path, "%s/%s", dirName, entry.name);
-
-			if (StrEqN(entry.name, "event", 5))
-			{
-				int fd = open(path, O_RDONLY | O_NONBLOCK);
-				if (fd < 0) {
-					continue;
-				}
-
-				if ( ioctl(fd, EVIOCGNAME(sizeof(name)), name) != -1 )
-				{
-					LOG(Info, "- Device path: %s\n", path);
-					LOG(Info, "- Device name: %s\n", name);
-					input.fd = fd;
-					found = true;
-				}
-				else
-				{
-					close(fd);
-				}
-			}
-		}
-
-		CloseDir(dir);
-	}
-
-	return found;
-
+#include "platform_linux.cpp"
+#elif PLATFORM_ANDROID
+#include "platform_android.cpp"
 #else
-
-	LOG(Info, "- Missing implementation\n");
-
+#error "Unsupported platform"
 #endif
-
-	return false;
-}
-
-#if PLATFORM_WINDOWS
-
-static ButtonState ButtonStateFromXInput(WORD prevButtonMask, WORD currButtonMask, WORD buttonBit)
-{
-	const u32 wasDown = ( prevButtonMask & buttonBit ) ? 1 : 0;
-	const u32 isDown = ( currButtonMask & buttonBit ) ? 1 : 0;
-	constexpr ButtonState stateMatrix[2][2] = {
-		// isUp,  isDown
-		{ BUTTON_STATE_IDLE , BUTTON_STATE_PRESS }, // wasUp
-		{ BUTTON_STATE_RELEASE ,BUTTON_STATE_PRESSED }, // wasDown
-	};
-	const ButtonState state = stateMatrix[wasDown][isDown];
-	return state;
-}
-
-static f32 TriggerFromXInput(BYTE trigger)
-{
-	const f32 res = (f32)trigger/255.0f;
-	return res;
-}
-
-static f32 AxisFromXInput(SHORT axis, SHORT deadzoneThreshold)
-{
-	f32 normalizedAxis = 0.0f;
-	if (axis < -deadzoneThreshold) {
-		normalizedAxis = (f32)(axis + deadzoneThreshold)/(32768.0f - deadzoneThreshold);
-	} else if (axis > deadzoneThreshold) {
-		normalizedAxis = (f32)(axis - deadzoneThreshold)/(32767.0f - deadzoneThreshold);
-	}
-	return normalizedAxis;
-}
-
-#endif // PLATFORM_WINDOWS
-
-#if PLATFORM_LINUX
-static ButtonState ButtonStateFromEvent(i32 value)
-{
-	const ButtonState res = (value == 1) ? BUTTON_STATE_PRESS : BUTTON_STATE_RELEASE;
-	return res;
-}
-
-#define GAMEPAD_LEFT_THUMB_DEADZONE  7849
-#define GAMEPAD_RIGHT_THUMB_DEADZONE 8689
-
-static f32 AxisFromEvent(i32 axis, i32 deadzoneThreshold)
-{
-	f32 normalizedAxis = 0.0f;
-	if (axis < -deadzoneThreshold) {
-		normalizedAxis = (f32)(axis + deadzoneThreshold)/(32768.0f - deadzoneThreshold);
-	} else if (axis > deadzoneThreshold) {
-		normalizedAxis = (f32)(axis - deadzoneThreshold)/(32767.0f - deadzoneThreshold);
-	}
-	return normalizedAxis;
-}
-
-static f32 TriggerFromEvent(i32 value)
-{
-	//ASSERT(value >= 0 && value < 256);
-	static f32 maxValue = 256.0f;
-	maxValue = Max(maxValue, (f32)value); // TODO(jesus): Query per-device limits with ioctl
-	const f32 res = (f32)value/maxValue;
-	return res;
-}
-
-static ButtonState DPadStateFromEvent(ButtonState prevState, i32 expectedValue, i32 value)
-{
-	ButtonState state = prevState;
-	if (expectedValue == value) {
-		state = BUTTON_STATE_PRESS;
-	} else if (prevState != BUTTON_STATE_IDLE) {
-		state = BUTTON_STATE_RELEASE;
-	}
-	return state;
-}
-#endif // PLATFORM_LINUX
-
-static void UpdateGamepad(Platform &platform)
-{
-	Gamepad &gamepad = platform.input.gamepad;
-
-#if PLATFORM_WINDOWS
-
-	for ( DWORD i = 0; i < XUSER_MAX_COUNT; ++i )
-	{
-		XINPUT_STATE controllerState;
-		if (FP_XInputGetState(i, &controllerState) == ERROR_SUCCESS)
-		{
-			static XINPUT_GAMEPAD prevXPad = {};
-
-			//int packetNumber = controllerState.dwPacketNumber;
-			const XINPUT_GAMEPAD &xpad = controllerState.Gamepad;
-
-			gamepad.start = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_START);
-			gamepad.back = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_BACK);
-			gamepad.up = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_UP);
-			gamepad.down = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_DOWN);
-			gamepad.left = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_LEFT);
-			gamepad.right = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_DPAD_RIGHT);
-			gamepad.a = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_A);
-			gamepad.b = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_B);
-			gamepad.x = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_X);
-			gamepad.y = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_Y);
-			gamepad.leftShoulder = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_LEFT_SHOULDER);
-			gamepad.rightShoulder = ButtonStateFromXInput(prevXPad.wButtons, xpad.wButtons, XINPUT_GAMEPAD_RIGHT_SHOULDER);
-			gamepad.leftTrigger = TriggerFromXInput(xpad.bLeftTrigger);
-			gamepad.rightTrigger = TriggerFromXInput(xpad.bRightTrigger);
-			gamepad.leftAxis.x = AxisFromXInput(xpad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-			gamepad.leftAxis.y = AxisFromXInput(xpad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-			gamepad.rightAxis.x = AxisFromXInput(xpad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-			gamepad.rightAxis.y = AxisFromXInput(xpad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-
-			prevXPad = xpad;
-
-			// Only one gamepad supported
-			break;
-		}
-		else
-		{
-			// Controller not available
-		}
-	}
-
-#elif PLATFORM_LINUX
-
-	if (platform.input.fd != -1)
-	{
-		// Update button states
-		for (u32 i = 0; i < ARRAY_COUNT(gamepad.buttons); ++i) {
-			if (gamepad.buttons[i] == BUTTON_STATE_PRESS) {
-				gamepad.buttons[i] = BUTTON_STATE_PRESSED;
-			} else if (gamepad.buttons[i] == BUTTON_STATE_RELEASE) {
-			}
-		}
-
-		ssize_t size = 0;
-		input_event event;
-
-		while ( (size = read(platform.input.fd, &event, sizeof(event))) != -1 )
-		{
-			const u32 type = event.type;
-			const u32 code = event.code;
-			const i32 value = event.value;
-
-			if (type == EV_KEY) {
-				switch (code) {
-					case BTN_START: gamepad.start = ButtonStateFromEvent(value); break;
-					case BTN_SELECT: gamepad.back = ButtonStateFromEvent(value); break;
-					//case BTN_MODE: codeStr = ButtonStateFromEvent(value); break;
-					case BTN_TL: gamepad.leftShoulder = ButtonStateFromEvent(value); break;
-					case BTN_TR: gamepad.rightShoulder = ButtonStateFromEvent(value); break;
-					case BTN_A: gamepad.a = ButtonStateFromEvent(value); break;
-					case BTN_B: gamepad.b = ButtonStateFromEvent(value); break;
-					case BTN_X: gamepad.x = ButtonStateFromEvent(value); break;
-					case BTN_Y: gamepad.y = ButtonStateFromEvent(value); break;
-					//case BTN_THUMBL: codeStr = ButtonStateFromEvent(gamepad., value); break;
-					//case BTN_THUMBR: codeStr = ButtonStateFromEvent(gamepad., value); break;
-					default:;
-				}
-			} else if (type == EV_ABS) {
-				switch (code) {
-					case ABS_X: gamepad.leftAxis.x = AxisFromEvent(value, GAMEPAD_LEFT_THUMB_DEADZONE); break;
-					case ABS_Y: gamepad.leftAxis.y = AxisFromEvent(-value, GAMEPAD_LEFT_THUMB_DEADZONE); break;
-					case ABS_RX: gamepad.rightAxis.x = AxisFromEvent(value, GAMEPAD_RIGHT_THUMB_DEADZONE); break;
-					case ABS_RY: gamepad.rightAxis.y = AxisFromEvent(-value, GAMEPAD_RIGHT_THUMB_DEADZONE); break;
-					case ABS_Z: gamepad.leftTrigger = TriggerFromEvent(value); break;
-					case ABS_RZ: gamepad.rightTrigger = TriggerFromEvent(value); break;
-					case ABS_HAT0X:
-						gamepad.left = DPadStateFromEvent(gamepad.left, -1, value);
-						gamepad.right = DPadStateFromEvent(gamepad.right, 1, value);
-						break;
-					case ABS_HAT0Y:
-						gamepad.up = DPadStateFromEvent(gamepad.up, -1, value);
-						gamepad.down = DPadStateFromEvent(gamepad.down, 1, value);
-						break;
-				}
-			} else if (type == EV_MSC) {
-				// MSC event (not sure what this is)
-			} else if (type == EV_SYN) {
-				// Synchronization event (not sure what this is)
-			} else {
-				LOG(Warning, "- Unknown event type\n");
-			}
-		}
-
-		if (errno != EAGAIN)
-		{
-			LOG(Warning, "Error reading gamepad input\n");
-		}
-	}
-
-#endif
-}
-
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Audio
 
-#if PLATFORM_WINDOWS
-
-static void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples);
-
-#elif PLATFORM_LINUX
-
-typedef const char * SND_STRERROR (int errnum);
-typedef int SND_PCM_OPEN(snd_pcm_t **pcmp, const char * name, snd_pcm_stream_t stream, int	mode );
-typedef int SND_PCM_HW_PARAMS_MALLOC(snd_pcm_hw_params_t **ptr);
-typedef int SND_PCM_HW_PARAMS_ANY(snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
-typedef int SND_PCM_HW_PARAMS_SET_ACCESS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_access_t _access);
-typedef int SND_PCM_HW_PARAMS_SET_FORMAT(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_format_t val);
-typedef int SND_PCM_HW_PARAMS_SET_CHANNELS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int val);
-typedef int SND_PCM_HW_PARAMS_SET_RATE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val, int *dir);
-typedef int SND_PCM_HW_PARAMS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
-typedef int SND_PCM_HW_PARAMS_GET_CHANNELS(const snd_pcm_hw_params_t *params, unsigned int *channelCount);
-typedef int SND_PCM_HW_PARAMS_GET_RATE(const snd_pcm_hw_params_t *params, unsigned int *sampleRate, int *dir);
-typedef int SND_PCM_HW_PARAMS_GET_FORMAT(const snd_pcm_hw_params_t *params, snd_pcm_format_t *format);
-typedef int SND_PCM_HW_PARAMS_GET_ACCESS(const snd_pcm_hw_params_t *params, snd_pcm_access_t *access);
-typedef int SND_PCM_HW_PARAMS_GET_PERIOD_TIME(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
-typedef int SND_PCM_HW_PARAMS_GET_PERIOD_SIZE(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *frames, int *dir);
-typedef int SND_PCM_AVAIL_DELAY(snd_pcm_t *pcm, snd_pcm_sframes_t *availp, snd_pcm_sframes_t *delayp);
-typedef snd_pcm_sframes_t SND_PCM_WRITEI(snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
-typedef int SND_PCM_RECOVER(snd_pcm_t *pcm, int err, int silent);
-typedef int SND_PCM_PREPARE(snd_pcm_t *pcm);
-typedef int SND_PCM_CLOSE(snd_pcm_t *pcm);
-typedef int SND_PCM_DRAIN(snd_pcm_t *pcm);
-
-static SND_STRERROR* FP_snd_strerror;
-static SND_PCM_OPEN* FP_snd_pcm_open;
-static SND_PCM_HW_PARAMS_MALLOC* FP_snd_pcm_hw_params_malloc;
-static SND_PCM_HW_PARAMS_ANY* FP_snd_pcm_hw_params_any;
-static SND_PCM_HW_PARAMS_SET_ACCESS* FP_snd_pcm_hw_params_set_access;
-static SND_PCM_HW_PARAMS_SET_FORMAT* FP_snd_pcm_hw_params_set_format;
-static SND_PCM_HW_PARAMS_SET_CHANNELS* FP_snd_pcm_hw_params_set_channels;
-static SND_PCM_HW_PARAMS_SET_RATE_NEAR* FP_snd_pcm_hw_params_set_rate_near;
-static SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR* FP_snd_pcm_hw_params_set_period_size_near;
-static SND_PCM_HW_PARAMS* FP_snd_pcm_hw_params;
-static SND_PCM_HW_PARAMS_GET_CHANNELS* FP_snd_pcm_hw_params_get_channels;
-static SND_PCM_HW_PARAMS_GET_RATE* FP_snd_pcm_hw_params_get_rate;
-static SND_PCM_HW_PARAMS_GET_FORMAT* FP_snd_pcm_hw_params_get_format;
-static SND_PCM_HW_PARAMS_GET_ACCESS* FP_snd_pcm_hw_params_get_access;
-static SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
-static SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
-static SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
-static SND_PCM_WRITEI* FP_snd_pcm_writei;
-static SND_PCM_RECOVER* FP_snd_pcm_recover;
-static SND_PCM_PREPARE* FP_snd_pcm_prepare;
-static SND_PCM_CLOSE* FP_snd_pcm_close;
-static SND_PCM_DRAIN* FP_snd_pcm_drain;
-
-#elif PLATFORM_ANDROID
-
-static aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames);
-
-#endif // PLATFORM_LINUX
-
-#if PLATFORM_WINDOWS
-static void Win32FillAudioBuffer(AudioDevice &audio, DWORD writeOffset, DWORD writeSize, const i16 *audioSamples)
-{
-	ASSERT(writeSize <= audio.bufferSize);
-
-	void *region1;
-	DWORD region1Size;
-	void *region2;
-	DWORD region2Size;
-
-	if (audio.buffer->Lock(writeOffset, writeSize, &region1, &region1Size, &region2, &region2Size, 0) == DS_OK)
-	{
-		const i16 *srcSample = audioSamples;
-
-		i16 *dstSample = (i16*)region1;
-		const u32 region1SampleCount = region1Size / (audio.bytesPerSample * audio.channelCount);
-		for (u32 i = 0; i < region1SampleCount; ++i)
-		{
-			*dstSample++ = *srcSample++;
-			*dstSample++ = *srcSample++;
-			audio.runningSampleIndex++;
-		}
-
-		dstSample = (i16*)region2;
-		const u32 region2SampleCount = region2Size / (audio.bytesPerSample * audio.channelCount);
-		for (u32 i = 0; i < region2SampleCount; ++i)
-		{
-			*dstSample++ = *srcSample++;
-			*dstSample++ = *srcSample++;
-			audio.runningSampleIndex++;
-		}
-
-		audio.buffer->Unlock(region1, region1Size, region2, region2Size);
-	}
-	else
-	{
-		LOG(Warning, "Failed to Lock sound buffer.\n");
-		audio.soundIsValid = false;
-	}
-}
-#elif PLATFORM_ANDROID
-static aaudio_data_callback_result_t AAudioFillAudioBuffer(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames)
-{
-	Platform &platform = *(Platform*)userData;
-	AudioDevice &audio = platform.audio;
-
-	SoundBuffer soundBuffer = {};
-	soundBuffer.samplesPerSecond = audio.samplesPerSecond;
-	soundBuffer.sampleCount = numFrames;
-	soundBuffer.samples = (i16*)audioData;
-	platform.RenderAudioCallback(platform, soundBuffer);
-
-	return AAUDIO_CALLBACK_RESULT_CONTINUE;
-}
-#endif // PLATFORM_WINDOWS
-
 static void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
 {
-	AudioDevice &audio = platform.audio;
-
-#if PLATFORM_WINDOWS
-	DWORD playCursor;
-	DWORD writeCursor;
-	if (audio.buffer->GetCurrentPosition(&playCursor, &writeCursor) == DS_OK)
-	{
-		// Audio just started playing
-		if (!audio.soundIsValid) {
-			audio.runningSampleIndex = writeCursor / (audio.bytesPerSample * audio.channelCount);
-			audio.soundIsValid = true;
-		}
-
-		const DWORD byteToLock = (audio.runningSampleIndex * audio.bytesPerSample * audio.channelCount) % audio.bufferSize;
-
-		const u32 gameUpdateHz = 30;
-		const f32 targetSecondsPerFrame = 1.0f / (f32)gameUpdateHz;
-
-		const DWORD expectedBytesPerFrame = (audio.samplesPerSecond * audio.channelCount * audio.bytesPerSample) / gameUpdateHz;
-		const f32 secondsLeftUntilFlip = targetSecondsPerFrame - secondsSinceFrameBegin;
-		const DWORD expectedBytesUntilFlip = (DWORD)((secondsLeftUntilFlip/targetSecondsPerFrame)*(f32)expectedBytesPerFrame);
-		const DWORD expectedFrameBoundaryByte = playCursor + expectedBytesPerFrame;
-
-		DWORD safeWriteCursor = writeCursor;
-		if (safeWriteCursor < playCursor) {
-			safeWriteCursor += audio.bufferSize;
-		}
-		ASSERT(safeWriteCursor >= playCursor);
-
-		const bool audioCardIsLowLatency = safeWriteCursor < expectedFrameBoundaryByte;
-
-		DWORD targetCursor = 0;
-		if (audioCardIsLowLatency) {
-			targetCursor = expectedFrameBoundaryByte + expectedBytesPerFrame;
-		} else {
-			targetCursor = writeCursor + expectedBytesPerFrame + audio.safetyBytes;
-		}
-		targetCursor = targetCursor % audio.bufferSize;
-
-		DWORD bytesToWrite = 0;
-		if (byteToLock > targetCursor) {
-			bytesToWrite = targetCursor + (audio.bufferSize - byteToLock);
-		} else {
-			bytesToWrite = targetCursor - byteToLock;
-		}
-
-		#if 0 // Debug code to print audio latency
-		// Latency calculation
-		DWORD unwrappedWriteCursor = writeCursor;
-		if (writeCursor < playCursor) {
-			unwrappedWriteCursor += audio.bufferSize;
-		}
-		const DWORD latencySize = unwrappedWriteCursor - playCursor;
-		const DWORD latencySamples = latencySize / ( audio.bytesPerSample * audio.channelCount );
-		const f32 latencySeconds = (f32)latencySamples / (f32)audio.samplesPerSecond;
-		LOG(Debug, "latency: %u bytes (%fs)\n", latencySize, latencySeconds);
-		#endif
-
-		SoundBuffer soundBuffer = {};
-		soundBuffer.samplesPerSecond = audio.samplesPerSecond;
-		soundBuffer.sampleCount = bytesToWrite / (audio.bytesPerSample * audio.channelCount);
-		soundBuffer.samples = audio.outputSamples;
-		platform.RenderAudioCallback(platform.pub, soundBuffer);
-
-		Win32FillAudioBuffer(audio, byteToLock, bytesToWrite, soundBuffer.samples);
-	}
-	else
-	{
-		LOG(Warning, "Failed to GetCurrentPosition for sound buffer.\n");
-	}
-#elif PLATFORM_LINUX
-
-	for (u32 i = 0; i < 2; ++i)
-	{
-		snd_pcm_sframes_t availableFrames;
-		snd_pcm_sframes_t delayFrames;
-		int res = FP_snd_pcm_avail_delay(audio.pcm, &availableFrames, &delayFrames);
-		//LOG(Debug, "avail %u / delay %u\n", availableFrames, delayFrames);
-
-		if ( res == 0 )
-		{
-			// TODO(jesus): Underruns seem to be fixed increasing this time window (but we add latency to reproduce new sounds)
-			const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
-			const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
-
-			snd_pcm_uframes_t framesToRender = maxFramesToRender - delayFrames;
-
-			framesToRender = framesToRender < availableFrames ? framesToRender : availableFrames;
-
-			if ( framesToRender > 0 )
-			{
-				SoundBuffer soundBuffer = {};
-				soundBuffer.samplesPerSecond = audio.samplesPerSecond;
-				soundBuffer.sampleCount = framesToRender;
-				soundBuffer.samples = audio.outputSamples;
-				platform.RenderAudioCallback(platform, soundBuffer);
-
-				res = FP_snd_pcm_writei(audio.pcm, soundBuffer.samples, framesToRender);
-
-				if ( res < 0 )
-				{
-					LOG(Error, "Error calling snd_pcm_writei: %s\n", FP_snd_strerror(res));
-				}
-			}
-		}
-		else
-		{
-			LOG(Error, "Error calling snd_pcm_avail_delay: %s\n", FP_snd_strerror(res));
-		}
-
-		// Error recovery
-		if (res == -EPIPE || res == -ESTRPIPE || res == -EINTR) {
-			FP_snd_pcm_recover(audio.pcm, res, 0);
-			continue;
-		}
-
-		// All good or unrecoverable error (no need to try a second time)
-		break;
-	}
-
-#elif PLATFORM_ANDROID
-
-	// NOTE(jesus): AAudio makes an async call to AAudioFillAudioBuffer.
-
-#endif
+	UpdateAudioDevice(platform, secondsSinceFrameBegin);
 
 	if ( platform.PreRenderAudioCallback )
 	{
@@ -2182,7 +451,6 @@ static bool InitializeAudio(Platform &platform)
 	}
 
 	AudioDevice &audio = platform.audio;
-	const Window &window = platform.window;
 
 	const u16 gameUpdateHz = 30;
 
@@ -2198,237 +466,7 @@ static bool InitializeAudio(Platform &platform)
 	// Allocate buffer to output samples from the engine
 	audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
 
-#if PLATFORM_WINDOWS
-
-	audio.library = OpenLibrary("dsound.dll");
-
-	if (audio.library)
-	{
-		LOG(Info, "- Loaded dsound.dll successfully\n");
-
-		FP_DirectSoundCreate* CreateAudioDevice = (FP_DirectSoundCreate*)LoadSymbol(audio.library, "DirectSoundCreate");
-
-		LPDIRECTSOUND directSound;
-		if (CreateAudioDevice && SUCCEEDED(CreateAudioDevice(0, &directSound, 0)))
-		{
-			LOG(Info, "- Audio device created successfully\n");
-
-			if (SUCCEEDED(directSound->SetCooperativeLevel(window.impl->hWnd, DSSCL_PRIORITY)))
-			{
-				// We create a primary buffer just to set the wanted format and avoid the API resample sounds to whatever rate it uses by default
-				DSBUFFERDESC primaryBufferDesc = {};
-				primaryBufferDesc.dwSize = sizeof(primaryBufferDesc);
-				primaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
-				LPDIRECTSOUNDBUFFER primaryBuffer;
-				if (SUCCEEDED(directSound->CreateSoundBuffer(&primaryBufferDesc, &primaryBuffer, 0)))
-				{
-					LOG(Info, "- Primary buffer created successfully\n");
-
-					WAVEFORMATEX waveFormat = {};
-					waveFormat.wFormatTag = WAVE_FORMAT_PCM;
-					waveFormat.nChannels = audio.channelCount;
-					waveFormat.nSamplesPerSec = audio.samplesPerSecond;
-					waveFormat.nBlockAlign = audio.channelCount * audio.bytesPerSample;
-					waveFormat.nAvgBytesPerSec = audio.samplesPerSecond * waveFormat.nBlockAlign;
-					waveFormat.wBitsPerSample = audio.bytesPerSample * 8;
-					waveFormat.cbSize = 0;
-					if (SUCCEEDED(primaryBuffer->SetFormat(&waveFormat)))
-					{
-						LOG(Info, "- Primary buffer format set successfully\n");
-
-						// After setting the primary buffer format, we create the secondary buffer where we will be actually writing to
-						DSBUFFERDESC secondaryBufferDesc = {};
-						secondaryBufferDesc.dwSize = sizeof(secondaryBufferDesc);
-						// TODO(jesus): Set the DSBCAPS_GETCURRENTPOSITION2 flag?
-						// TODO(jesus): Set the DSBCAPS_GLOBALFOCUS flag?
-						secondaryBufferDesc.dwFlags = 0;
-						secondaryBufferDesc.dwBufferBytes = audio.bufferSize;
-						secondaryBufferDesc.lpwfxFormat = &waveFormat;
-						LPDIRECTSOUNDBUFFER secondaryBuffer;
-						if (SUCCEEDED(directSound->CreateSoundBuffer(&secondaryBufferDesc, &secondaryBuffer, 0)))
-						{
-							LOG(Info, "- Secondary buffer created successfully\n");
-
-							audio.buffer = secondaryBuffer;
-
-							MemSet(audio.outputSamples, audio.bufferSize, 0);
-							Win32FillAudioBuffer(platform.audio, 0, platform.audio.bufferSize, audio.outputSamples);
-
-							if (SUCCEEDED(audio.buffer->Play(0, 0, DSBPLAY_LOOPING)))
-							{
-								LOG(Info, "- Secondary buffer is playing...\n");
-								audio.initialized = true;
-								audio.isPlaying = true;
-								audio.soundIsValid = false;
-							}
-							else
-							{
-								LOG(Error, "- Error playing secondaryBuffer.\n");
-							}
-						}
-						else
-						{
-							LOG(Error, "- Error calling CreateSoundBuffer for secondaryBuffer\n");
-						}
-					}
-					else
-					{
-						LOG(Error, "- Error setting primary buffer format\n");
-					}
-				}
-				else
-				{
-					LOG(Error, "- Error calling CreateSoundBuffer for primaryBuffer\n");
-				}
-			}
-			else
-			{
-				LOG(Error, "- Error setting DirectSound priority cooperative level\n");
-			}
-		}
-		else
-		{
-			LOG(Error, "- Error loading DirectSoundCreate symbol\n");
-		}
-	}
-	else
-	{
-		LOG(Error, "- Error loading dsound.dll\n");
-	}
-
-#elif PLATFORM_LINUX
-
-	audio.library = OpenLibrary("libasound.so");
-
-	if (audio.library)
-	{
-		DynamicLibrary alsa = audio.library;
-
-		// Load functions
-		FP_snd_strerror = (SND_STRERROR*) LoadSymbol(alsa, "snd_strerror");
-		FP_snd_pcm_open = (SND_PCM_OPEN*) LoadSymbol(alsa, "snd_pcm_open");
-		FP_snd_pcm_hw_params_malloc = (SND_PCM_HW_PARAMS_MALLOC*) LoadSymbol(alsa, "snd_pcm_hw_params_malloc");
-		FP_snd_pcm_hw_params_any = (SND_PCM_HW_PARAMS_ANY*) LoadSymbol(alsa, "snd_pcm_hw_params_any");
-		FP_snd_pcm_hw_params_set_access = (SND_PCM_HW_PARAMS_SET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_access");
-		FP_snd_pcm_hw_params_set_format = (SND_PCM_HW_PARAMS_SET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_set_format");
-		FP_snd_pcm_hw_params_set_channels = (SND_PCM_HW_PARAMS_SET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_channels");
-		FP_snd_pcm_hw_params_set_rate_near = (SND_PCM_HW_PARAMS_SET_RATE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_rate_near");
-		FP_snd_pcm_hw_params_set_period_size_near = (SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_period_size_near");
-		FP_snd_pcm_hw_params = (SND_PCM_HW_PARAMS*) LoadSymbol(alsa, "snd_pcm_hw_params");
-		FP_snd_pcm_hw_params_get_channels = (SND_PCM_HW_PARAMS_GET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_channels");
-		FP_snd_pcm_hw_params_get_rate = (SND_PCM_HW_PARAMS_GET_RATE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_rate");
-		FP_snd_pcm_hw_params_get_format = (SND_PCM_HW_PARAMS_GET_FORMAT*) LoadSymbol(alsa, "snd_pcm_hw_params_get_format");
-		FP_snd_pcm_hw_params_get_access = (SND_PCM_HW_PARAMS_GET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_access");
-		FP_snd_pcm_hw_params_get_period_time = (SND_PCM_HW_PARAMS_GET_PERIOD_TIME*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_time");
-		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
-		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
-		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
-		FP_snd_pcm_recover = (SND_PCM_RECOVER*) LoadSymbol(alsa, "snd_pcm_recover");
-		FP_snd_pcm_prepare = (SND_PCM_PREPARE*) LoadSymbol(alsa, "snd_pcm_prepare");
-		FP_snd_pcm_close = (SND_PCM_CLOSE*) LoadSymbol(alsa, "snd_pcm_close");
-		FP_snd_pcm_drain = (SND_PCM_DRAIN*) LoadSymbol(alsa, "snd_pcm_drain");
-
-		// Open PCM device
-		int res = FP_snd_pcm_open(&audio.pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
-		if (res == 0)
-		{
-			int dir = 0; // direction of approximate values
-			unsigned int sampleRate = audio.samplesPerSecond; // frames/second (CD quality)
-			unsigned int channelCount = audio.channelCount;
-			unsigned int bytesPerSample = audio.bytesPerSample;
-			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
-
-			// Allocate and configure hardware parameters
-			snd_pcm_hw_params_t *params;
-			FP_snd_pcm_hw_params_malloc(&params);
-			FP_snd_pcm_hw_params_any(audio.pcm, params); // default values
-			FP_snd_pcm_hw_params_set_channels(audio.pcm, params, channelCount);
-			FP_snd_pcm_hw_params_set_rate_near(audio.pcm, params, &sampleRate, &dir);
-			FP_snd_pcm_hw_params_set_format(audio.pcm, params, SND_PCM_FORMAT_S16_LE); // 16 bit little endian
-			FP_snd_pcm_hw_params_set_access(audio.pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-			FP_snd_pcm_hw_params_set_period_size_near(audio.pcm, params, &frames, &dir);
-
-			// Write the parameters to the driver
-			res = FP_snd_pcm_hw_params(audio.pcm, params);
-			if (res == 0)
-			{
-				LOG(Info, "- PCM is playing...\n");
-				audio.initialized = true;
-				audio.isPlaying = true;
-				audio.soundIsValid = false;
-			}
-			else
-			{
-				LOG(Error, "- Error setting PCM HW parameters: %s\n", FP_snd_strerror(res));
-			}
-
-			unsigned int finalSampleRate = 0;
-			FP_snd_pcm_hw_params_get_rate(params, &finalSampleRate, &dir);
-		}
-		else
-		{
-			LOG(Error, "- Error opening PCM device: %s\n", FP_snd_strerror(res));
-		}
-	}
-	else
-	{
-		LOG(Error, "- Error loading libasound.so\n");
-	}
-
-#elif PLATFORM_ANDROID
-
-	AAudioStreamBuilder *builder;
-	aaudio_result_t result = AAudio_createStreamBuilder(&builder);
-	if ( result == AAUDIO_OK )
-	{
-		const int32_t deviceId = 0;
-		AAudioStreamBuilder_setDeviceId(builder, deviceId);
-		AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
-		AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
-		AAudioStreamBuilder_setSampleRate(builder, audio.samplesPerSecond);
-		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
-		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
-		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
-		AAudioStreamBuilder_setDataCallback(builder, AAudioFillAudioBuffer, &platform);
-
-		AAudioStream *stream;
-		result = AAudioStreamBuilder_openStream(builder, &stream);
-		if ( result == AAUDIO_OK )
-		{
-			LOG(Info, "- AAudioStream created successfully!\n");
-
-			// TODO(jesus): Perform checks?
-			// aaudio_format_t dataFormat = AAudioStream_getDataFormat(stream);
-			// if (dataFormat == AAUDIO_FORMAT_PCM_I16) { }
-
-			result = AAudioStream_requestStart(stream);
-			if ( result == AAUDIO_OK )
-			{
-				LOG(Info, "- AAudioStream is playing...\n");
-				audio.stream = stream;
-				audio.initialized = true;
-				audio.isPlaying = true;
-			}
-			else
-			{
-				LOG(Error, "- Error starting AAudioStream\n");
-			}
-		}
-		else
-		{
-			LOG(Error, "- Error creating an AAudioStream\n");
-		}
-
-		AAudioStreamBuilder_delete(builder);
-	}
-	else
-	{
-		LOG(Error, "- Error creating an AAudioStreamBuilder\n");
-	}
-
-#else
-#error "Missing implementation" 
-#endif // PLATFORM_WINDOWS
+	InitializeAudioDevice(platform);
 
 	return audio.initialized;
 }
@@ -2685,9 +723,7 @@ static void ProcessPlatformEvents(Platform &platform)
 			{
 				platform.WindowInitCallback(platform.pub);
 				platform.windowInitialized = true;
-#if PLATFORM_WINDOWS
-				ShowWindow(platform.window.impl->hWnd, SW_SHOW);
-#endif
+				ShowPlatformWindow(platform.window);
 				break;
 			};
 			case PlatformEventTypeWindowWillDestroy:
@@ -2795,9 +831,6 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 	return 0;
 }
 
-#endif // USE_UPDATE_THREAD
-
-#if USE_UPDATE_THREAD
 static bool InitializeUpdateThread(Platform &platform)
 {
 	bool ok = true;
@@ -2822,6 +855,7 @@ static bool InitializeUpdateThread(Platform &platform)
 
 	return ok;
 }
+
 #endif // USE_UPDATE_THREAD
 
 
@@ -2916,16 +950,6 @@ static FilePath sEngineTmpLibPath = {};
 
 static bool LoadEngineDLL(Platform &platform)
 {
-#if PLATFORM_LINUX || PLATFORM_ANDROID
-	const char *engineLibFilename = "engine_lib.so";
-	const char *engineLibTmpFilename = "engine_lib.tmp.so";
-#elif PLATFORM_WINDOWS
-	const char *engineLibFilename = "engine_lib.dll";
-	const char *engineLibTmpFilename = "engine_lib.tmp.dll";
-#else
-#error "Missing implementation"
-#endif
-
 	LOG(Info, "Loading engine DLL:\n");
 
 	sEngineLibPath = MakePath(BinDir, engineLibFilename);
@@ -3014,13 +1038,6 @@ static bool LoadEngineDLL(Platform &platform)
 	platform.pub.api.AcquireScratchArena = AcquireScratchArena;
 	platform.pub.api.ReleaseScratchArena = ReleaseScratchArena;
 
-#if PLATFORM_ANDROID
-	ASSERT( platform.androidApp );
-	platform.androidApp->onAppCmd = AndroidHandleAppCommand;
-	platform.androidApp->onInputEvent = AndroidHandleInputEvent;
-	platform.androidApp->userData = &platform;
-#endif // PLATFORM_ANDROID
-
 	platform.SetupAPICallback(platform.pub);
 
 	return true;
@@ -3088,10 +1105,12 @@ static bool Run(Platform &platform)
 		return false;
 	}
 
-	if ( !InitializeWindow(platform.window, platform.windowImpl) )
+	if ( !InitializeWindow(platform.window) )
 	{
 		return false;
 	}
+
+	platform.pub.window = &platform.window;
 
 	const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
 	SendPlatformEvent(platform, event);
@@ -3113,9 +1132,6 @@ static bool Run(Platform &platform)
 
 	if ( !platform.InitCallback(platform.pub) )
 	{
-#if PLATFORM_ANDROID
-		ANativeActivity_finish(platform.androidApp->activity);
-#endif // PLATFORM_ANDROID
 		return false;
 	}
 
@@ -3156,12 +1172,12 @@ static bool Run(Platform &platform)
 		}
 		if ( platform.window.flags & WindowFlags_WasCreated )
 		{
-			platform.WindowInitCallback(platform);
+			platform.WindowInitCallback(platform.pub);
 			platform.windowInitialized = true;
 		}
 		if ( platform.window.flags & WindowFlags_WillDestroy )
 		{
-			platform.WindowCleanupCallback(platform);
+			platform.WindowCleanupCallback(platform.pub);
 			CleanupWindow(platform.window);
 			platform.windowInitialized = false;
 		}
@@ -3170,10 +1186,10 @@ static bool Run(Platform &platform)
 
 		if ( platform.windowInitialized )
 		{
-			platform.UpdateCallback(platform);
+			platform.UpdateCallback(platform.pub);
 		}
 
-		platform.RenderGraphicsCallback(platform);
+		platform.RenderGraphicsCallback(platform.pub);
 
 		platform.window.flags = 0;
 
@@ -3209,14 +1225,11 @@ static bool Run(Platform &platform)
 }
 
 
-static void Main( int argc, char **argv,  void *userData )
+static void Main( int argc, char **argv )
 {
 	// Input args
 	platform.pub.argc = argc;
 	platform.pub.argv = argv;
-#if PLATFORM_ANDROID
-	platform.androidApp = (android_app*)userData;
-#endif
 
 	InitializeArenas(platform);
 
@@ -3232,21 +1245,6 @@ static void Main( int argc, char **argv,  void *userData )
 }
 
 
-#if PLATFORM_ANDROID
-void android_main(struct android_app* app)
-{
-	Main(0, nullptr, app);
-}
-#else
-int main(int argc, char **argv)
-{
-	Main(argc, argv, NULL);
-	return 0;
-}
-#endif
-
-
 #define TOOLS_GFX_IMPLEMENTATION
 #include "tools_gfx.h"
-
 
