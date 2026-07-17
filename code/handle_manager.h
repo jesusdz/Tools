@@ -36,8 +36,14 @@ struct HandleManager
 
 inline bool operator==(Handle a, Handle b)
 {
-	const bool equal = ( a.idx == b.idx ) && ( a.gen == b.gen );
+	const bool equal = a.num == b.num;
 	return equal;
+}
+
+inline bool operator!=(Handle a, Handle b)
+{
+	const bool nequal = a.num != b.num;
+	return nequal;
 }
 
 void FreeAllHandles(HandleManager &manager)

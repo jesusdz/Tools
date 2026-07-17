@@ -200,6 +200,7 @@ typedef volatile i64 volatile_i64;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Forward-declared instead of including <math.h>
 
+#if PLATFORM_WINDOWS
 extern "C"
 {
 	float sinf(float value);
@@ -210,10 +211,17 @@ extern "C"
 	float floorf(float value);
 	float log2f(float value);
 }
+#else
+#include <math.h>
+#endif
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // IO: printf, vprintf, sprintf, vsprintf, etc
+
+// Real (non-CRT) implementation, so that printing text never links printf/vprintf.
+#define STB_SPRINTF_IMPLEMENTATION
+#include "stb/stb_sprintf.h"
 
 #if PLATFORM_WINDOWS
 
@@ -236,10 +244,6 @@ extern "C"
 	int fseek(FILE *stream, long offset, int origin);
 	int feof(FILE *stream);
 }
-
-// Real (non-CRT) implementation, so that printing text never links printf/vprintf.
-#define STB_SPRINTF_IMPLEMENTATION
-#include "stb/stb_sprintf.h"
 
 static char *Win32PrintCallback(const char *buffer, void *user, int len)
 {
