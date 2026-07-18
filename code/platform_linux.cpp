@@ -458,12 +458,7 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
 				if ( ev->data.data32[0] == window.impl->closeAtom )
 				{
-					// NOTE(jesus): Likely not needed as we destroy the window when exiting the app
-					//const PlatformEvent event1 = { .type = PlatformEventTypeWindowWillDestroy, };
-					//SendPlatformEvent(platform, event1);
-					const PlatformEvent event2 = { .type = PlatformEventTypeQuit, };
-					SendPlatformEvent(platform, event2);
-					platform.keepRunning = false;
+					PlatformQuit();
 				}
 				break;
 			}

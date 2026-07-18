@@ -35,7 +35,6 @@ enum PlatformEventType
 	PlatformEventTypeMouseClick,
 	PlatformEventTypeMouseMove,
 	PlatformEventTypeMouseWheel,
-	PlatformEventTypeQuit,
 	PlatformEventTypeCount,
 };
 
@@ -178,6 +177,7 @@ static bool InitializeGamepad(Platform &platform);
 static void UpdateGamepad(Platform &platform);
 static bool InitializeAudioDevice(Platform &platform);
 static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin);
+static void PlatformQuit();
 
 // Common entry point called by the platform entry points
 static void Main(int argc, char **argv);
@@ -766,11 +766,6 @@ static void ProcessPlatformEvents(Platform &platform)
 				window.mouse.wheel += event.mouseWheel.delta;
 				break;
 			};
-			case PlatformEventTypeQuit:
-			{
-				platform.keepRunning = false;
-				break;
-			};
 		}
 	}
 
@@ -890,7 +885,7 @@ static bool InitializeArenas(Platform &platform)
 
 static void PlatformQuit()
 {
-	exit(0);
+	platform.keepRunning = false;
 }
 
 static void ReleaseScratchArena(u32 index)
@@ -1050,7 +1045,7 @@ static void UnloadEngineDLL(Platform &platform)
 static void PauseThreads(Platform &platform)
 {
 	platform.paused = true;
-	while ( !platform.audioPaused )
+	while ( !platform.audioPaused && platform.keepRunning )
 	{
 		Yield();
 	}
@@ -1183,7 +1178,6 @@ static bool Run(Platform &platform)
 #if USE_AUDIO_THREAD
 	WaitSemaphore(platform.audioThreadFinishSemaphore);
 #endif
-
 
 	if ( platform.windowInitialized )
 	{

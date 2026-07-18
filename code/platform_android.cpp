@@ -229,8 +229,7 @@ static void PlatformUpdateEventLoop(Platform &platform)
 		if (androidApp->destroyRequested != 0)
 		{
 			LOG(Info, "androidApp->destroyRequesteds\n");
-			const PlatformEvent event = { .type = PlatformEventTypeQuit };
-			SendPlatformEvent(platform, event);
+			PlatformQuit();
 		}
 	}
 }

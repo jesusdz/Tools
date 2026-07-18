@@ -510,7 +510,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			{
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseWheel,
-					.mouseWheel = { .dy = -GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
+					.mouseWheel = { .delta = { .x = 0, .y = -GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA } },
 				};
 				SendPlatformEvent(platform, event);
 			}
@@ -521,7 +521,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			{
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseWheel,
-					.mouseWheel = { .dx = GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
+					.mouseWheel = { .delta = { .x = GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA, .y = 0} },
 				};
 				SendPlatformEvent(platform, event);
 			}
@@ -534,7 +534,7 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				i16 yPos = Max(0, Min((i32)platform.window.height, GET_Y_LPARAM(lParam)));
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseMove,
-					.mouseMove = { .x = xPos, .y = yPos }
+					.mouseMove = { .pos = { .x = xPos, .y = yPos } }
 				};
 				SendPlatformEvent(platform, event);
 				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
@@ -655,11 +655,10 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 
 		case WM_DESTROY:
 			{
+				PlatformQuit();
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				const PlatformEvent event = { .type = PlatformEventTypeQuit, };
-				SendPlatformEvent(platform, event);
 				PostQuitMessage(0);
 				break;
 			}
