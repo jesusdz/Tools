@@ -168,6 +168,10 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showInspector = !editor.showInspector;
 			}
+			if ( UI_MenuItem(ui, "Profiler", editor.showProfiler) )
+			{
+				editor.showProfiler = !editor.showProfiler;
+			}
 			if ( UI_MenuItem(ui, "Debug UI", editor.showDebugUI) )
 			{
 				editor.showDebugUI = !editor.showDebugUI;
@@ -1148,6 +1152,31 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	UI_EndWindow(ui);
 }
 
+static void EditorUpdateUI_Profiler(Engine &engine)
+{
+	UI &ui = engine.ui;
+	Editor &editor = engine.editor;
+	EditorInspector &inspector = editor.inspector;
+	EditorContext &context = editor.context;
+
+	constexpr uint2 size = {500, 500};
+	UI_SetNextWindowDefaultSize(ui, size);
+	UI_SetNextWindowAnchor(ui, {0.5, 0.5});
+
+	UI_BeginWindow(ui, "Profiler", &editor.showProfiler);
+
+	ProfileNodes prof = ProfileGetNodes();
+
+	for (u32 i = 0; i < prof.nodeCount; ++i)
+	{
+		const ProfileNode *node = &prof.nodes[i];
+		const float seconds = GetSecondsElapsed(node->begin, node->end);
+		UI_Text(ui, node->name, "%f", seconds*1000);
+	}
+
+	UI_EndWindow(ui);
+}
+
 static void EditorUpdateUI_About(Engine &engine)
 {
 	UI &ui = engine.ui;
@@ -1489,6 +1518,11 @@ static void EditorUpdateUI(Engine &engine)
 	if ( editor.showInspector )
 	{
 		EditorUpdateUI_Inspector(engine);
+	}
+
+	if ( editor.showProfiler )
+	{
+		EditorUpdateUI_Profiler(engine);
 	}
 
 	if ( editor.showDebugUI )
@@ -2022,6 +2056,7 @@ void EditorInitialize(Engine &engine)
 	editor.showOutliner = true;
 	editor.showAssets = true;
 	editor.showInspector = true;
+	editor.showProfiler = false;
 	editor.showDebugUI = false;
 	editor.showGrid = true;
 	editor.showAbout = false;

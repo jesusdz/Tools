@@ -1,8 +1,9 @@
-#define STB_IMAGE_IMPLEMENTATION
 #include "tools.h"
 
 #define TOOLS_GFX_FUNCTION_POINTERS
 #include "tools_gfx.h"
+
+#include "tools_profile.h"
 
 #define PLATFORM_API
 #include "platform.h"
@@ -19,6 +20,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb/stb_truetype.h"
 
+#define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
 #define STBI_NO_LINEAR // Only stbi_load_from_memory (LDR) is used, never stbi_loadf (HDR) - this also drops stb_image.h's own <math.h> include, only needed by the linear/HDR path.
 #define STBI_NO_HDR
@@ -4045,6 +4047,10 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 
 ENGINE_API void OnPlatformUpdate(Plat &platform)
 {
+	ProfileNewFrame();
+
+	PROFILE_BLOCK(OnPlatformUpdate);
+
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
@@ -4103,6 +4109,8 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 
 ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 {
+	PROFILE_BLOCK(OnPlatformRenderGraphics);
+
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
 
@@ -4275,6 +4283,9 @@ void PlayMusic(Handle handle)
 
 #include "data.cpp"
 #include "audio.cpp"
+
+#define TOOLS_PROFILE_IMPLEMENTATION
+#include "tools_profile.h"
 
 #if USE_EDITOR
 #include "editor.cpp"

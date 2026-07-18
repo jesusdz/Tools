@@ -743,6 +743,7 @@ static void CleanupWindow(Window &window)
 static void ShowPlatformWindow(Window &window)
 {
 	ShowWindow(window.impl->hWnd, SW_SHOW);
+	SetForegroundWindow(window.impl->hWnd);
 }
 
 static void PlatformUpdateEventLoop(Platform &platform)
