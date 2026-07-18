@@ -476,6 +476,12 @@ bool UI_IsMouseIdle(const UI &ui)
 	return idle;
 }
 
+bool UI_IsHovered(const UI &ui)
+{
+	const bool res = ui.hoveredWindow != nullptr;
+	return res;
+}
+
 int2 UI_MouseScroll(const UI &ui)
 {
 	const int2 scroll = { .x = ui.input.mouse.wx, .y = ui.input.mouse.wy };

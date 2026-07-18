@@ -1881,6 +1881,11 @@ void EditorDebugDraw(Engine &engine)
 			{
 				const float4 color = {1.0, 0.0, 0.0, 0.3};
 
+				if ( !UI_IsHovered(engine.ui) )
+				{
+					DrawBox(worldPos, float2{1, 1}, color);
+				}
+
 				for (u32 y = 0; y < layer.grid.size.y; ++y)
 				{
 					for (u32 x = 0; x < layer.grid.size.x; ++x)
@@ -1892,8 +1897,6 @@ void EditorDebugDraw(Engine &engine)
 						}
 					}
 				}
-
-				DrawBox(worldPos, float2{1, 1}, color);
 			}
 			else
 			{
