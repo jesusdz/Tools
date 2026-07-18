@@ -880,6 +880,8 @@ inline void GetGraphicsAPI(GraphicsAPI *api)
 	EXPAND_API_TOOLS_GFX(TOOLS_GFX_PROTOTYPE_TO_TABLE);
 }
 
+static void InvalidateSwapchain();
+
 #endif
 
 ////////////////////////////////////////////////////////////////////////
@@ -2074,6 +2076,8 @@ void SetObjectNameImage(const GraphicsDevice &device, ImageH handle, const char 
 // Device
 //////////////////////////////
 
+static bool sExternalSwapchainValid = false;
+
 void RecreateSwapchain(GraphicsDevice &device, Window &window)
 {
 	// An image acquired at EndFrame that will never be presented leaves its
@@ -2103,7 +2107,6 @@ void RecreateSwapchain(GraphicsDevice &device, Window &window)
 		// This is the size of the window. We get it here just in case it was not set by the window manager yet.
 		window.width = swapchain.extent.width;
 		window.height = swapchain.extent.height;
-		window.flags &= ~WindowFlags_WasResized;
 	}
 	else
 	{
@@ -2262,6 +2265,7 @@ void RecreateSwapchain(GraphicsDevice &device, Window &window)
 	DestroySwapchain(device); // Destroy old swapchain
 
 	device.swapchain = swapchain;
+	sExternalSwapchainValid = true;
 }
 
 void DestroySwapchain(GraphicsDevice &device)
@@ -2281,11 +2285,18 @@ void DestroySwapchain(GraphicsDevice &device)
 	}
 
 	swapchain = {};
+	sExternalSwapchainValid = false;
 }
 
 bool IsValidSwapchain(const GraphicsDevice &device)
 {
-	return device.swapchain.valid;
+	return device.swapchain.valid && sExternalSwapchainValid;
+}
+
+// To call only from platform code
+static void InvalidateSwapchain()
+{
+	sExternalSwapchainValid = false;
 }
 
 

@@ -703,8 +703,6 @@ static bool InitializeWorkQueue(Platform &platform)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Update thread
 
-#if USE_UPDATE_THREAD
-
 static void ProcessPlatformEvents(Platform &platform)
 {
 	Window &window = platform.window;
@@ -741,7 +739,7 @@ static void ProcessPlatformEvents(Platform &platform)
 				{
 					window.width = Max(width, 0);
 					window.height = Max(height, 0);
-					window.flags |= WindowFlags_WasResized;
+					InvalidateSwapchain();
 				}
 				break;
 			};
@@ -788,7 +786,9 @@ static void CheckEngineHotReload(Platform &platform);
 // including their access to the event queue, window state and frame arena.
 static void UpdateAndRender(Platform &platform)
 {
+#if USE_UPDATE_THREAD
 	MutexScope renderScope(platform.renderLock);
+#endif
 
 	ResetArena(platform.frameArena);
 
@@ -803,7 +803,11 @@ static void UpdateAndRender(Platform &platform)
 
 		platform.window.flags = 0;
 	}
+
+	CheckEngineHotReload(platform);
 }
+
+#if USE_UPDATE_THREAD
 
 static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 {
@@ -821,8 +825,6 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 		else
 		{
 			UpdateAndRender(platform);
-
-			CheckEngineHotReload(platform);
 		}
 	}
 
@@ -834,11 +836,6 @@ static THREAD_FUNCTION(UpdateThread) // void *WorkQueueThread(void* arguments)
 static bool InitializeUpdateThread(Platform &platform)
 {
 	bool ok = true;
-
-	if ( !CreateMutex( platform.renderLock ) )
-	{
-		return false;
-	}
 
 	if ( !CreateSemaphore( platform.updateThreadFinishSemaphore, 0, 1 ) )
 	{
@@ -894,7 +891,6 @@ static bool InitializeArenas(Platform &platform)
 
 static void PlatformQuit()
 {
-	//platform.window.flags |= WindowFlags_Exit;
 	exit(0);
 }
 
@@ -1100,6 +1096,11 @@ static bool Run(Platform &platform)
 	platform.paused = false;
 	platform.keepRunning = true;
 
+	if ( !CreateMutex( platform.renderLock ) )
+	{
+		return false;
+	}
+
 	if ( !platform.PreInitCallback(platform.pub) )
 	{
 		return false;
@@ -1112,8 +1113,10 @@ static bool Run(Platform &platform)
 
 	platform.pub.window = &platform.window;
 
+#if PLATFORM_LINUX
 	const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
 	SendPlatformEvent(platform, event);
+#endif
 
 	if ( !InitializeGamepad(platform) )
 	{
@@ -1163,37 +1166,7 @@ static bool Run(Platform &platform)
 		PlatformUpdateEventLoop(platform);
 
 #if !USE_UPDATE_THREAD
-		ResetArena(platform.frameArena);
-
-		if ( platform.window.flags & WindowFlags_Exit )
-		{
-			platform.keepRunning = false;
-			continue;
-		}
-		if ( platform.window.flags & WindowFlags_WasCreated )
-		{
-			platform.WindowInitCallback(platform.pub);
-			platform.windowInitialized = true;
-		}
-		if ( platform.window.flags & WindowFlags_WillDestroy )
-		{
-			platform.WindowCleanupCallback(platform.pub);
-			CleanupWindow(platform.window);
-			platform.windowInitialized = false;
-		}
-
-		UpdateGamepad(platform);
-
-		if ( platform.windowInitialized )
-		{
-			platform.UpdateCallback(platform.pub);
-		}
-
-		platform.RenderGraphicsCallback(platform.pub);
-
-		platform.window.flags = 0;
-
-		CheckEngineHotReload(platform);
+		UpdateAndRender(platform);
 #endif // !USE_UPDATE_THREAD
 
 #if !USE_AUDIO_THREAD

@@ -4116,7 +4116,7 @@ ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 		return;
 	}
 
-	if ( !IsValidSwapchain(gfx.device) || platform.window->flags & WindowFlags_WasResized )
+	if ( !IsValidSwapchain(gfx.device) )
 	{
 		EngineWaitDeviceIdle(gfx);
 		DestroyRenderTargets(gfx, gfx.renderTargets);

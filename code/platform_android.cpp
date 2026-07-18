@@ -78,7 +78,8 @@ static void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 			if (app->window && app->window != windowImpl.nativeWindow)
 			{
 				windowImpl.nativeWindow = app->window;
-				platform->window.flags |= WindowFlags_WasCreated;
+				const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
+				SendPlatformEvent(*platform, event);
 			}
 			break;
 		case APP_CMD_TERM_WINDOW:
@@ -86,18 +87,21 @@ static void AndroidHandleAppCommand(struct android_app *app, int32_t cmd)
 			platform->window = {};
 			platform->window.impl = &windowImpl;
 			windowImpl.nativeWindow = NULL;
-			platform->window.flags |= WindowFlags_WillDestroy;
+			{
+				const PlatformEvent event = { .type = PlatformEventTypeWindowWillDestroy };
+				SendPlatformEvent(*platform, event);
+			}
 			break;
 		case APP_CMD_WINDOW_RESIZED:
 			{
-				int32_t newWidth = ANativeWindow_getWidth(app->window);
-				int32_t newHeight = ANativeWindow_getHeight(app->window);
-				if ( newWidth != platform->window.width || newHeight != platform->window.height )
-				{
-					platform->window.width = newWidth;
-					platform->window.height = newHeight;
-					platform->window.flags |= WindowFlags_WasResized;
-				}
+				const PlatformEvent event = {
+					.type = PlatformEventTypeWindowResize,
+					.windowResize = {
+						.width = (u16)ANativeWindow_getWidth(app->window),
+						.height = (u16)ANativeWindow_getHeight(app->window),
+					},
+				};
+				SendPlatformEvent(*platform, event);
 			}
 			break;
 		//case APP_CMD_WINDOW_REDRAW_NEEDED: break;
@@ -206,12 +210,6 @@ static void ShowPlatformWindow(Window &window)
 
 static void PlatformUpdateEventLoop(Platform &platform)
 {
-	Window &window = platform.window;
-
-#if !USE_UPDATE_THREAD
-	TransitionInputStatesSinceLastFrame(window);
-#endif
-
 	// Read all pending events.
 	int ident;
 	int events;
@@ -231,13 +229,10 @@ static void PlatformUpdateEventLoop(Platform &platform)
 		if (androidApp->destroyRequested != 0)
 		{
 			LOG(Info, "androidApp->destroyRequesteds\n");
-			window.flags |= WindowFlags_Exit;
+			const PlatformEvent event = { .type = PlatformEventTypeQuit };
+			SendPlatformEvent(platform, event);
 		}
 	}
-
-#if !USE_UPDATE_THREAD
-	UpdateKeyModifiers(window);
-#endif
 }
 
 

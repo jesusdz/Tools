@@ -369,15 +369,11 @@ static void ReleaseCapturedButtons(Platform &platform, Window &window)
 	{
 		if (capturedButtons & (1 << i))
 		{
-#if USE_UPDATE_THREAD
 			const PlatformEvent event = {
 				.type = PlatformEventTypeMouseClick,
 				.mouseClick = { .button = (MouseButton)i, .state = BUTTON_STATE_RELEASE },
 			};
 			SendPlatformEvent(platform, event);
-#else
-			window.mouse.buttons[i] = BUTTON_STATE_RELEASE;
-#endif
 		}
 	}
 	capturedButtons = 0;
@@ -388,10 +384,6 @@ static void ReleaseCapturedButtons(Platform &platform, Window &window)
 
 static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-#if !USE_UPDATE_THREAD
-	Window *window = &platform.window;
-#endif
-
 	bool processMouseEvents = true;
 	bool processKeyboardEvents = true;
 
@@ -406,7 +398,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				const Key mapping = Win32KeyMappings[ keyCode ];
 				ASSERT( mapping < K_COUNT );
 				const KeyState state = uMsg == WM_KEYDOWN ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeKeyPress,
 					.keyPress = {
@@ -415,10 +406,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->keyboard.keys[ mapping ] = state;
-#endif
 			}
 			break;
 
@@ -437,7 +424,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			if ( processMouseEvents )
 			{
 				CaptureButton(MOUSE_BUTTON_LEFT, platform.window);
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -446,18 +432,11 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				//int xPos = GET_X_LPARAM(lParam);
-				//int yPos = GET_Y_LPARAM(lParam);
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_PRESS;
-#endif
 			}
 			break;
 		case WM_LBUTTONUP:
 			if ( processMouseEvents )
 			{
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -466,10 +445,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_LEFT] = BUTTON_STATE_RELEASE;
-#endif
 				ReleaseButton(MOUSE_BUTTON_LEFT);
 			}
 			break;
@@ -477,7 +452,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			if ( processMouseEvents )
 			{
 				CaptureButton(MOUSE_BUTTON_RIGHT, platform.window);
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -486,16 +460,11 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_PRESS;
-#endif
 			}
 			break;
 		case WM_RBUTTONUP:
 			if ( processMouseEvents )
 			{
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -504,10 +473,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_RIGHT] = BUTTON_STATE_RELEASE;
-#endif
 				ReleaseButton(MOUSE_BUTTON_RIGHT);
 			}
 			break;
@@ -515,7 +480,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			if ( processMouseEvents )
 			{
 				CaptureButton(MOUSE_BUTTON_MIDDLE, platform.window);
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -524,16 +488,11 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_PRESS;
-#endif
 			}
 			break;
 		case WM_MBUTTONUP:
 			if ( processMouseEvents )
 			{
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseClick,
 					.mouseClick = {
@@ -542,10 +501,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.buttons[MOUSE_BUTTON_MIDDLE] = BUTTON_STATE_RELEASE;
-#endif
 				ReleaseButton(MOUSE_BUTTON_MIDDLE);
 			}
 			break;
@@ -553,32 +508,22 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 		case WM_MOUSEWHEEL:
 			if ( processMouseEvents )
 			{
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseWheel,
 					.mouseWheel = { .dy = -GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.wy -= GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
-#endif
 			}
 			break;
 
 		case WM_MOUSEHWHEEL:
 			if ( processMouseEvents )
 			{
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseWheel,
 					.mouseWheel = { .dx = GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA },
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.wx += GET_WHEEL_DELTA_WPARAM(wParam)/WHEEL_DELTA;
-#endif
 			}
 			break;
 
@@ -587,19 +532,11 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			{
 				i16 xPos = Max(0, Min((i32)platform.window.width, GET_X_LPARAM(lParam)));
 				i16 yPos = Max(0, Min((i32)platform.window.height, GET_Y_LPARAM(lParam)));
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseMove,
 					.mouseMove = { .x = xPos, .y = yPos }
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				window->mouse.dx = xPos - window->mouse.x;
-				window->mouse.dy = yPos - window->mouse.y;
-				window->mouse.x = xPos;
-				window->mouse.y = yPos;
-#endif
 				//LOG( Info, "Mouse at position (%d, %d)\n", xPos, yPos );
 			}
 			break;
@@ -620,7 +557,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			}
 
 		case WM_PAINT:
-#if USE_UPDATE_THREAD
 			// Only render from here while the update thread is parked during a
 			// modal size/move loop; outside of it the update thread presents
 			// continuously and this paint would be redundant. It would also
@@ -631,17 +567,16 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 			{
 				UpdateAndRender(platform);
 			}
+			// Must always validate, even when not rendering here: an unvalidated
+			// WM_PAINT is regenerated by Windows on every message check, which
+			// would starve PlatformUpdateEventLoop's PeekMessage loop forever.
 			ValidateRect(hWnd, NULL);
 			return 0;
-#else
-			break;
-#endif
 
 		case WM_SIZE:
 			{
 				const u16 width = LOWORD(lParam);
 				const u16 height = HIWORD(lParam);
-#if USE_UPDATE_THREAD
 				// The window size is applied by ProcessPlatformEvents on whichever
 				// thread renders next. Writing it directly here would race with the
 				// update thread clearing window flags and could lose resizes.
@@ -650,19 +585,9 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 					.windowResize = { .width = width, .height = height },
 				};
 				SendPlatformEvent(platform, event);
-#else
-				ASSERT(window);
-				if ( window->width != width || window->height != height )
-				{
-					window->width = Max(width, 0);
-					window->height = Max(height, 0);
-					window->flags |= WindowFlags_WasResized;
-				}
-#endif
 				break;
 			}
 
-#if USE_UPDATE_THREAD
 		case WM_ENTERSIZEMOVE:
 			// While the modal size/move loop blocks this thread's message pump,
 			// the update thread pauses and rendering is driven from here instead:
@@ -683,7 +608,6 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				UpdateAndRender(platform);
 			}
 			break;
-#endif
 
 		case WM_SYSCOMMAND:
 			{
@@ -709,6 +633,13 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				return DefWindowProc(hWnd, uMsg, wParam, lParam);
 			};
 
+		case WM_CREATE:
+			{
+				const PlatformEvent event = { .type = PlatformEventTypeWindowWasCreated };
+				SendPlatformEvent(platform, event);
+				break;
+			}
+
 		case WM_CLOSE:
 			{
 				// If we want to show a dialog to ask the user for confirmation before
@@ -716,10 +647,8 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				// to indicate that we handled this message.
 				// Otherwise, calling DefWindowProc will internally call DestroyWindow
 				// and will internally send the WM_DESTROY message.
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = { .type = PlatformEventTypeWindowWillDestroy, };
 				SendPlatformEvent(platform, event);
-#endif
 				DestroyWindow(hWnd);
 				break;
 			}
@@ -729,12 +658,8 @@ static LRESULT CALLBACK Win32WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 				// This inserts a WM_QUIT message in the queue, which will in turn cause
 				// GetMessage to return zero. We will exit the main loop when that happens.
 				// On the other hand, PeekMessage has to handle WM_QUIT messages explicitly.
-				#if USE_UPDATE_THREAD
 				const PlatformEvent event = { .type = PlatformEventTypeQuit, };
 				SendPlatformEvent(platform, event);
-				#else
-				window->flags |= WindowFlags_WillDestroy;
-				#endif
 				PostQuitMessage(0);
 				break;
 			}
@@ -808,8 +733,6 @@ static bool InitializeWindow(Window &window, u32 width, u32 height, const char *
 	window.impl->hInstance = hInstance;
 	window.impl->hWnd = hWnd;
 
-	window.flags = WindowFlags_WasCreated;
-
 	return true;
 }
 
@@ -825,12 +748,6 @@ static void ShowPlatformWindow(Window &window)
 
 static void PlatformUpdateEventLoop(Platform &platform)
 {
-	Window &window = platform.window;
-
-#if !USE_UPDATE_THREAD
-	TransitionInputStatesSinceLastFrame(window);
-#endif
-
 	BOOL ret = 1;
 	MSG msg = { };
 #if USE_UPDATE_THREAD
@@ -846,7 +763,7 @@ static void PlatformUpdateEventLoop(Platform &platform)
 		}
 		else if ( LOWORD( msg.message ) == WM_QUIT )
 		{
-			window.flags |= WindowFlags_Exit;
+			// TODO: Send platform event?
 			break;
 		}
 		else
@@ -855,14 +772,6 @@ static void PlatformUpdateEventLoop(Platform &platform)
 			DispatchMessage(&msg);
 		}
 	}
-
-#if USE_UPDATE_THREAD
-	platform.keepRunning = false;
-#endif
-
-#if !USE_UPDATE_THREAD
-	UpdateKeyModifiers(window);
-#endif
 }
 
 

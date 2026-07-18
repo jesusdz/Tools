@@ -184,14 +184,6 @@ inline bool MouseChanged(const Mouse &mouse)
 		|| MouseButtonChanged(mouse, MOUSE_BUTTON_MIDDLE);
 }
 
-enum WindowFlags
-{
-	WindowFlags_WasCreated  = 1 << 0,
-	WindowFlags_WillDestroy = 1 << 1,
-	WindowFlags_WasResized  = 1 << 2,
-	WindowFlags_Exit        = 1 << 3,
-};
-
 struct WindowImpl;
 
 struct Window

@@ -367,7 +367,6 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const Key mapping = XcbKeyMappings[ keyCode ];
 				ASSERT( mapping < K_COUNT );
 				const KeyState state = eventType == XCB_KEY_PRESS ? KEY_STATE_PRESS : KEY_STATE_RELEASE;
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeKeyPress,
 					.keyPress = {
@@ -376,9 +375,6 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 					},
 				};
 				SendPlatformEvent(platform, event);
-#else
-				window.keyboard.keys[ mapping ] = state;
-#endif
 				break;
 			}
 
@@ -400,29 +396,20 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 					case 1:
 					case 2:
 					case 3:
-#if USE_UPDATE_THREAD
 						event.type = PlatformEventTypeMouseClick;
 						event.mouseClick.button = button;
 						event.mouseClick.state = state;
 						SendPlatformEvent(platform, event);
-#else
-						window.mouse.buttons[button] = state;
-#endif
 						break;
 					// Mouse wheel
 					case 4:
 					case 5:
 					case 6:
 					case 7:
-#if USE_UPDATE_THREAD
 						event.type = PlatformEventTypeMouseWheel;
 						event.mouseWheel.dx = wheelX;
 						event.mouseWheel.dy = wheelY;
 						SendPlatformEvent(platform, event);
-#else
-						window.mouse.wx += wheelX;
-						window.mouse.wy += wheelY;
-#endif
 						break;
 					default:;
 				}
@@ -432,18 +419,11 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_MOTION_NOTIFY:
 			{
 				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseMove,
 					.mouseMove = { .x = ev->event_x, .y = ev->event_y }
 				};
 				SendPlatformEvent(platform, event);
-#else
-				window.mouse.dx = static_cast<i32>(ev->event_x) - static_cast<i32>(window.mouse.x);
-				window.mouse.dy = static_cast<i32>(ev->event_y) - static_cast<i32>(window.mouse.y);
-				window.mouse.x = ev->event_x;
-				window.mouse.y = ev->event_y;
-#endif
 				break;
 			}
 
@@ -466,20 +446,11 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 		case XCB_CONFIGURE_NOTIFY:
 			{
 				const xcb_configure_notify_event_t *ev = (const xcb_configure_notify_event_t *)event;
-#if USE_UPDATE_THREAD
 				const PlatformEvent event = {
 					.type = PlatformEventTypeWindowResize,
 					.windowResize = { .width = ev->width, .height = ev->height },
 				};
 				SendPlatformEvent(platform, event);
-#else
-				if ( window.width != ev->width || window.height != ev->height )
-				{
-					window.width = ev->width;
-					window.height = ev->height;
-					window.flags |= WindowFlags_WasResized;
-				}
-#endif
 				break;
 			}
 
@@ -488,17 +459,12 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				const xcb_client_message_event_t *ev = (const xcb_client_message_event_t *)event;
 				if ( ev->data.data32[0] == window.impl->closeAtom )
 				{
-#if USE_UPDATE_THREAD
 					// NOTE(jesus): Likely not needed as we destroy the window when exiting the app
 					//const PlatformEvent event1 = { .type = PlatformEventTypeWindowWillDestroy, };
 					//SendPlatformEvent(platform, event1);
 					const PlatformEvent event2 = { .type = PlatformEventTypeQuit, };
 					SendPlatformEvent(platform, event2);
 					platform.keepRunning = false;
-#else
-					window.flags |= WindowFlags_WillDestroy;
-					window.flags |= WindowFlags_Exit;
-#endif
 				}
 				break;
 			}
@@ -624,8 +590,6 @@ static bool InitializeWindow(Window &window, u32 width, u32 height, const char *
 	window.width = reply->width;
 	window.height = reply->height;
 
-	window.flags = WindowFlags_WasCreated;
-
 	return true;
 }
 
@@ -650,10 +614,6 @@ static void PlatformUpdateEventLoop(Platform &platform)
 {
 	Window &window = platform.window;
 
-#if !USE_UPDATE_THREAD
-	TransitionInputStatesSinceLastFrame(window);
-#endif
-
 	xcb_generic_event_t *event;
 #if USE_UPDATE_THREAD
 	while ( platform.keepRunning && (event = xcb_wait_for_event(window.impl->connection)) != 0 )
@@ -664,14 +624,6 @@ static void PlatformUpdateEventLoop(Platform &platform)
 		XcbWindowProc(window, event);
 		free(event);
 	}
-
-#if USE_UPDATE_THREAD
-	platform.keepRunning = false;
-#endif
-
-#if !USE_UPDATE_THREAD
-	UpdateKeyModifiers(window);
-#endif
 }
 
 
