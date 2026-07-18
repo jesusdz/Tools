@@ -3191,7 +3191,7 @@ bool RenderGraphics(Engine &engine)
 		.eyePosition = Float4(camera.position, 1.0f),
 		.shadowmapDepthBias = 0.005,
 		.time = totalSeconds,
-		.mousePosition = int2{window.mouse.x, window.mouse.y},
+		.mousePosition = window.mouse.pos,
 #if USE_EDITOR
 		.selectedEntity = selectedEntity.num,
 #endif

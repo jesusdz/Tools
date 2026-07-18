@@ -1188,12 +1188,11 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 			LOG(Info, "Image asset dropped: %s\n", node->filename);
 
 			const Mouse &mouse = sPlatform->window->mouse;
-			const int2 mousePos = { mouse.x, mouse.y };
 
 			if (EditorMode2D(engine.editor))
 			{
 				const Camera &camera = engine.editor.camera[ProjectionOrthographic];
-				const float2 worldPos = Floor(GetWorld2DCoord(engine, camera, mousePos));
+				const float2 worldPos = Floor(GetWorld2DCoord(engine, camera, mouse.pos));
 				LOG(Info, "World x: %f, y: %f\n", worldPos.x, worldPos.y);
 
 				const char *basename = NameFromFilename(node->filename);
@@ -1592,8 +1591,8 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 		}
 #else
 		if (MouseButtonPressed(window.mouse, MOUSE_BUTTON_LEFT)) {
-			deltaYaw = - window.mouse.dx * ToRadians * 0.2f;
-			deltaPitch = - window.mouse.dy * ToRadians * 0.2f;
+			deltaYaw = - window.mouse.delta.x * ToRadians * 0.2f;
+			deltaPitch = - window.mouse.delta.y * ToRadians * 0.2f;
 		}
 #endif
 		float2 angles = camera.orientation;
@@ -1652,8 +1651,7 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 	{
 		Entity &entity = GetEntity(engine.scene, selectedEntity);
 
-		const int2 mousePos = {mouse.x, mouse.y};
-		const float2 mouseWorldPos = GetWorld2DCoord(engine, camera, mousePos);
+		const float2 mouseWorldPos = GetWorld2DCoord(engine, camera, mouse.pos);
 
 		static float2 initialWorldOffset = {};
 		static float2 initialWorldPos = {};
@@ -1727,14 +1725,13 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 		static float3 cameraPositionOnClick = camera.position;
 		if (MouseButtonPress(mouse, MOUSE_BUTTON_MIDDLE))
 		{
-			clickPos = {mouse.x, mouse.y};
+			clickPos = mouse.pos;
 			cameraPositionOnClick = camera.position;
 		}
 		if (MouseButtonPressed(mouse, MOUSE_BUTTON_MIDDLE))
 		{
 			const f32 windowHeight = window.height;
-			const int2 mousePos = {mouse.x, mouse.y};
-			const int2 dragPixels = mousePos - clickPos;
+			const int2 dragPixels = mouse.pos - clickPos;
 			const float2 dragNorm = {dragPixels.x/windowHeight, dragPixels.y/windowHeight};
 			const float2 dragScaled = 2.0f * camera.height * dragNorm;
 			camera.position.x = cameraPositionOnClick.x - dragScaled.x;
@@ -1744,15 +1741,15 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 
 	if ( ui.hoveredWindow == nullptr )
 	{
-		if (mouse.wy != 0.0)
+		if (mouse.wheel.y != 0.0)
 		{
 			const float ar = (f32) window.width / window.height;
 			const float heightPrev = camera.height;
-			camera.height = Max(2.0f, camera.height + mouse.wy);
+			camera.height = Max(2.0f, camera.height + mouse.wheel.y);
 			const float heightDiff = heightPrev - camera.height;
 			const float widthDiff = ar * heightDiff;
-			const float xScale = 2.0f * ( (f32) mouse.x / window.width ) - 1.0f;
-			const float yScale = 1.0 - 2.0f * ( (f32) mouse.y / window.height );
+			const float xScale = 2.0f * ( (f32) mouse.pos.x / window.width ) - 1.0f;
+			const float yScale = 1.0 - 2.0f * ( (f32) mouse.pos.y / window.height );
 			camera.position.x += widthDiff * xScale;
 			camera.position.y += heightDiff * yScale;
 		}
@@ -1838,8 +1835,7 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 			if (editor.context.layer)
 			{
 				const Camera &camera = editor.camera[ProjectionOrthographic];
-				const int2 mousePos = { mouse.x, mouse.y };
-				const int2 gridCoord = GetGridTileCoord(engine, camera, mousePos) - editor.context.room->pos;
+				const int2 gridCoord = GetGridTileCoord(engine, camera, mouse.pos) - editor.context.room->pos;
 
 				TileGrid &grid = editor.context.layer->grid;
 
@@ -1874,8 +1870,7 @@ void EditorDebugDraw(Engine &engine)
 		if (EditorMode2D(editor))
 		{
 			const Mouse &mouse = sPlatform->window->mouse;
-			const int2 mousePos = { mouse.x, mouse.y };
-			const float2 worldPos = Floor(GetWorld2DCoord(engine, editor.camera[ProjectionOrthographic], mousePos));
+			const float2 worldPos = Floor(GetWorld2DCoord(engine, editor.camera[ProjectionOrthographic], mouse.pos));
 
 			if ( layer.isCollider )
 			{

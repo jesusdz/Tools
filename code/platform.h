@@ -90,9 +90,11 @@ struct Keyboard
 
 struct Mouse
 {
-	i32 x, y;
-	i32 dx, dy;
-	i32 wx, wy; // wheel x and y
+	int2 pos;
+	int2 delta;
+	int2 wheel;
+	int2 click;
+	int2 drag;
 	ButtonState buttons[MOUSE_BUTTON_COUNT];
 };
 
@@ -150,7 +152,7 @@ inline bool ButtonRelease(ButtonState state)
 
 inline bool MouseMoved(const Mouse &mouse)
 {
-	return mouse.dx != 0 || mouse.dy != 0;
+	return mouse.delta.x != 0 || mouse.delta.y != 0;
 }
 
 inline bool MouseButtonPress(const Mouse &mouse, MouseButton button)

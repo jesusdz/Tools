@@ -1462,7 +1462,7 @@ bool CopyFile(const char *srcPath, const char *dstPath)
 	if ( fd_rd == -1 ) {
 		LinuxReportError("CopyFile open O_RDONLY");
 	} else {
-		int fd_wr = open(dstPath, O_WRONLY | O_CREAT | O_EXCL, 0666);
+		int fd_wr = open(dstPath, O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, 0666);
 		if ( fd_wr == -1 ) {
 			LinuxReportError("CopyFile open O_WRONLY | O_CREAT | O_EXCL");
 		} else {
@@ -1959,6 +1959,12 @@ float3 operator+(float3 a, float3 b)
 {
 	const float3 res = { .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
 	return res;
+}
+
+int2 operator+=(int2& a, int2 b)
+{
+	a = { .x = a.x + b.x, .y = a.y + b.y };
+	return a;
 }
 
 float2 operator+=(float2& a, float2 b)

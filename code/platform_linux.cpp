@@ -407,8 +407,7 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 					case 6:
 					case 7:
 						event.type = PlatformEventTypeMouseWheel;
-						event.mouseWheel.dx = wheelX;
-						event.mouseWheel.dy = wheelY;
+						event.mouseWheel.delta = {wheelX, wheelY};
 						SendPlatformEvent(platform, event);
 						break;
 					default:;
@@ -421,7 +420,7 @@ static void XcbWindowProc(Window &window, xcb_generic_event_t *event)
 				xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
 				const PlatformEvent event = {
 					.type = PlatformEventTypeMouseMove,
-					.mouseMove = { .x = ev->event_x, .y = ev->event_y }
+					.mouseMove = { .pos = { .x = ev->event_x, .y = ev->event_y } }
 				};
 				SendPlatformEvent(platform, event);
 				break;

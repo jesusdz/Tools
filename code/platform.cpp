@@ -58,12 +58,12 @@ struct PlatformEventMouseClick
 
 struct PlatformEventMouseMove
 {
-	i16 x, y;
+	int2 pos;
 };
 
 struct PlatformEventMouseWheel
 {
-	i16 dx, dy;
+	int2 delta;
 };
 
 struct PlatformEvent
@@ -357,10 +357,8 @@ static void TransitionInputStatesSinceLastFrame(Window &window)
 		}
 	}
 
-	window.mouse.dx = 0;
-	window.mouse.dy = 0;
-	window.mouse.wx = 0;
-	window.mouse.wy = 0;
+	window.mouse.delta = {0, 0};
+	window.mouse.wheel = {0, 0};
 
 	window.chars.charCount = 0;
 
@@ -751,20 +749,21 @@ static void ProcessPlatformEvents(Platform &platform)
 			case PlatformEventTypeMouseClick:
 			{
 				window.mouse.buttons[event.mouseClick.button] = event.mouseClick.state;
+				if (event.mouseClick.button == MOUSE_BUTTON_LEFT)
+				{
+					window.mouse.click = window.mouse.pos;
+				}
 				break;
 			};
 			case PlatformEventTypeMouseMove:
 			{
-				window.mouse.dx = event.mouseMove.x - window.mouse.x;
-				window.mouse.dy = event.mouseMove.y - window.mouse.y;
-				window.mouse.x = event.mouseMove.x;
-				window.mouse.y = event.mouseMove.y;
+				window.mouse.delta += event.mouseMove.pos - window.mouse.pos;
+				window.mouse.pos = event.mouseMove.pos;
 				break;
 			};
 			case PlatformEventTypeMouseWheel:
 			{
-				window.mouse.wx += event.mouseWheel.dx;
-				window.mouse.wy += event.mouseWheel.dy;
+				window.mouse.wheel += event.mouseWheel.delta;
 				break;
 			};
 			case PlatformEventTypeQuit:

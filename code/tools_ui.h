@@ -484,14 +484,12 @@ bool UI_IsHovered(const UI &ui)
 
 int2 UI_MouseScroll(const UI &ui)
 {
-	const int2 scroll = { .x = ui.input.mouse.wx, .y = ui.input.mouse.wy };
-	return scroll;
+	return ui.input.mouse.wheel;
 }
 
 int2 UI_MousePos(const UI &ui)
 {
-	const int2 pos = { .x = ui.input.mouse.x, .y = ui.input.mouse.y };
-	return pos;
+	return ui.input.mouse.pos;
 }
 
 int2 UI_LastMouseClickPos(const UI &ui)
@@ -674,8 +672,7 @@ void UI_SetInputState(UI &ui, const Keyboard &keyboard, const Mouse &mouse, cons
 	input.chars = chars;
 
 	// Workaround to avoid missing some dx,dy updates...
-	input.mouse.dx = mouse.x - prevMouse.x;
-	input.mouse.dy = mouse.y - prevMouse.y;
+	input.mouse.delta = mouse.pos - prevMouse.pos;
 }
 
 void UI_SetViewportSize(UI &ui, uint2 size)
@@ -817,10 +814,10 @@ BufferH UI_GetVertexBuffer(const UI& ui)
 bool UI_MouseInArea(const UI &ui, float2 pos, float2 size)
 {
 	const bool inArea =
-			ui.input.mouse.x >= pos.x &&
-			ui.input.mouse.x <  pos.x + size.x &&
-			ui.input.mouse.y >= pos.y &&
-			ui.input.mouse.y <  pos.y + size.y;
+			ui.input.mouse.pos.x >= pos.x &&
+			ui.input.mouse.pos.x <  pos.x + size.x &&
+			ui.input.mouse.pos.y >= pos.y &&
+			ui.input.mouse.pos.y <  pos.y + size.y;
 	return inArea;
 }
 
@@ -3629,7 +3626,7 @@ void UI_BeginFrame(UI &ui)
 			else if ( window.dragging )
 			{
 				const float2 oldPos = window.pos;
-				window.pos += float2{(float)ui.input.mouse.dx, (float)ui.input.mouse.dy};
+				window.pos += Float2(ui.input.mouse.delta);
 				window.displacement += window.pos - oldPos;
 			}
 		}
