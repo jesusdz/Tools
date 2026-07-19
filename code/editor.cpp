@@ -168,10 +168,12 @@ static void EditorUpdateUI_MenuBar(Engine &engine)
 			{
 				editor.showInspector = !editor.showInspector;
 			}
+			#if USE_PROFILE
 			if ( UI_MenuItem(ui, "Profiler", editor.showProfiler) )
 			{
 				editor.showProfiler = !editor.showProfiler;
 			}
+			#endif // USE_PROFILE
 			if ( UI_MenuItem(ui, "Debug UI", editor.showDebugUI) )
 			{
 				editor.showDebugUI = !editor.showDebugUI;
@@ -1152,6 +1154,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 	UI_EndWindow(ui);
 }
 
+#if USE_PROFILE
 static void EditorUpdateUI_Profiler(Engine &engine)
 {
 	UI &ui = engine.ui;
@@ -1180,6 +1183,7 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 
 	UI_EndWindow(ui);
 }
+#endif // USE_PROFILE
 
 static void EditorUpdateUI_About(Engine &engine)
 {
@@ -1524,10 +1528,12 @@ static void EditorUpdateUI(Engine &engine)
 		EditorUpdateUI_Inspector(engine);
 	}
 
+	#if USE_PROFILE
 	if ( editor.showProfiler )
 	{
 		EditorUpdateUI_Profiler(engine);
 	}
+	#endif // USE_PROFILE
 
 	if ( editor.showDebugUI )
 	{

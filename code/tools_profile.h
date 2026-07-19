@@ -1,6 +1,12 @@
 #ifndef TOOLS_PROFILE
 #define TOOLS_PROFILE
 
+#ifndef USE_PROFILE
+#define USE_PROFILE 1
+#endif
+
+#if USE_PROFILE
+
 typedef u64 ProfileTime;
 
 enum ProfileEventType : u16
@@ -81,15 +87,25 @@ struct ProfileBlock
 	~ProfileBlock() { ProfileEndEvent(id); }
 };
 
+#define PROFILE_FRAME() ProfileNewFrame()
+
 #define PROFILE_BLOCK(name) \
 	static const u16 profileNameId_##name = ProfileRegisterName(#name); \
 	ProfileBlock profileBlock_##name(profileNameId_##name)
+
+#else // !USE_PROFILE
+
+#define PROFILE_FRAME()
+#define PROFILE_BLOCK(name)
+
+#endif // USE_PROFILE
 
 #endif // TOOLS_PROFILE
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation
 
+#if USE_PROFILE
 #ifdef TOOLS_PROFILE_IMPLEMENTATION
 
 static Profile sProfile = {};
@@ -138,7 +154,8 @@ u16 ProfileRegisterName(const char *name)
 
 const char *ProfileGetName(u16 nameId)
 {
-	return sProfile.names[nameId];
+	const char *name = nameId < sProfile.nameCount ? sProfile.names[nameId] : "<?>";
+	return name;
 }
 
 void ProfileNewFrame()
@@ -252,4 +269,5 @@ u32 ProfileGetDroppedEventCount()
 }
 
 #endif // TOOLS_PROFILE_IMPLEMENTATION
+#endif // USE_PROFILE
 

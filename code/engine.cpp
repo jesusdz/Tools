@@ -4047,8 +4047,7 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 
 ENGINE_API void OnPlatformUpdate(Plat &platform)
 {
-	ProfileNewFrame();
-
+	PROFILE_FRAME();
 	PROFILE_BLOCK(OnPlatformUpdate);
 
 	Engine &engine = GetEngine(platform);
