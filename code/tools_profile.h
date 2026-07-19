@@ -38,9 +38,9 @@ constexpr u32 MAX_PROFILE_NAME_SLOTS = 512;
 constexpr u32 MAX_PROFILE_STRING_CHARS = KB(8);
 
 // Balanced begin/end pairs produce one node per two events
-//CT_ASSERT(MAX_PROFILE_NODES >= MAX_PROFILE_EVENTS / 2);
-//CT_ASSERT((MAX_PROFILE_NAME_SLOTS & (MAX_PROFILE_NAME_SLOTS - 1) == 0); // Is power of 2
-//CT_ASSERT(MAX_PROFILE_NAME_SLOTS >= 2 * MAX_PROFILE_NAMES);
+CT_ASSERT(MAX_PROFILE_NODES >= MAX_PROFILE_EVENTS / 2);
+CT_ASSERT((MAX_PROFILE_NAME_SLOTS & (MAX_PROFILE_NAME_SLOTS - 1)) == 0); // Is power of 2
+CT_ASSERT(MAX_PROFILE_NAME_SLOTS >= 2 * MAX_PROFILE_NAMES);
 
 struct Profile
 {
@@ -57,6 +57,9 @@ struct Profile
 
 	char stringArena[MAX_PROFILE_STRING_CHARS];
 	u32 stringArenaSize;
+
+	u32 droppedEventCount;     // Events lost in the frame being recorded
+	u32 lastDroppedEventCount; // Events lost in the last built frame
 };
 
 u16 ProfileRegisterName(const char *name);
@@ -65,6 +68,7 @@ void ProfileNewFrame();
 void ProfileBeginEvent(u16 nameId);
 void ProfileEndEvent(u16 nameId);
 ProfileNodes ProfileGetNodes();
+u32 ProfileGetDroppedEventCount();
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -142,6 +146,7 @@ void ProfileNewFrame()
 	// Build tree from previous frame (nodes are emitted at begin events, so they are stored in tree pre-order)
 	u32 stack[MAX_PROFILE_STACKED_EVENTS] = {};
 	u16 stackSize = 0;
+	u32 skippedDepth = 0; // Begin events without node (capacity exceeded), so their end events must be consumed too
 
 	sProfile.nodeCount = 0;
 
@@ -150,8 +155,14 @@ void ProfileNewFrame()
 		ProfileEvent *event = &sProfile.events[i];
 		if (event->type == ProfileEventType_Begin)
 		{
-			ASSERT(stackSize < MAX_PROFILE_STACKED_EVENTS);
-			ASSERT(sProfile.nodeCount < MAX_PROFILE_NODES);
+			if (skippedDepth > 0 ||
+					stackSize >= MAX_PROFILE_STACKED_EVENTS ||
+					sProfile.nodeCount >= MAX_PROFILE_NODES)
+			{
+				skippedDepth++;
+				sProfile.droppedEventCount++;
+				continue;
+			}
 
 			stack[stackSize] = sProfile.nodeCount;
 			sProfile.nodes[sProfile.nodeCount++] = {
@@ -162,14 +173,20 @@ void ProfileNewFrame()
 			};
 			stackSize++;
 		}
+		else if (skippedDepth > 0)
+		{
+			skippedDepth--;
+		}
 		else if (stackSize == 0)
 		{
-			LOG(Warning, "ProfileEndEvent('%s') does not match any begin event\n", ProfileGetName(event->nameId));
+			if (sProfile.droppedEventCount == 0) {
+				LOG(Warning, "ProfileEndEvent('%s') does not match any begin event\n", ProfileGetName(event->nameId));
+			}
 		}
 		else
 		{
 			ProfileNode *node = &sProfile.nodes[stack[--stackSize]];
-			if ( event->nameId != node->nameId )
+			if ( event->nameId != node->nameId && sProfile.droppedEventCount == 0 )
 			{
 				LOG(Warning, "ProfileEndEvent('%s') does not match ProfileBeginEvent('%s')\n",
 						ProfileGetName(event->nameId), ProfileGetName(node->nameId));
@@ -181,16 +198,23 @@ void ProfileNewFrame()
 	while (stackSize > 0)
 	{
 		stackSize--;
-		LOG(Warning, "ProfileBeginEvent('%s') does not match any end event\n", ProfileGetName(sProfile.nodes[stack[stackSize]].nameId));
+		if (sProfile.droppedEventCount == 0) {
+			LOG(Warning, "ProfileBeginEvent('%s') does not match any end event\n", ProfileGetName(sProfile.nodes[stack[stackSize]].nameId));
+		}
 	}
 
 	// Restart event count for the new frame
 	sProfile.eventCount = 0;
+	sProfile.lastDroppedEventCount = sProfile.droppedEventCount;
+	sProfile.droppedEventCount = 0;
 }
 
 void ProfileBeginEvent(u16 nameId)
 {
-	ASSERT(sProfile.eventCount < MAX_PROFILE_EVENTS);
+	if (sProfile.eventCount >= MAX_PROFILE_EVENTS) {
+		sProfile.droppedEventCount++;
+		return;
+	}
 
 	sProfile.events[sProfile.eventCount++] = {
 		.time = GetTicks(),
@@ -201,7 +225,10 @@ void ProfileBeginEvent(u16 nameId)
 
 void ProfileEndEvent(u16 nameId)
 {
-	ASSERT(sProfile.eventCount < MAX_PROFILE_EVENTS);
+	if (sProfile.eventCount >= MAX_PROFILE_EVENTS) {
+		sProfile.droppedEventCount++;
+		return;
+	}
 
 	sProfile.events[sProfile.eventCount++] = {
 		.time = GetTicks(),
@@ -217,6 +244,11 @@ ProfileNodes ProfileGetNodes()
 		.nodeCount = sProfile.nodeCount,
 	};
 	return res;
+}
+
+u32 ProfileGetDroppedEventCount()
+{
+	return sProfile.lastDroppedEventCount;
 }
 
 #endif // TOOLS_PROFILE_IMPLEMENTATION

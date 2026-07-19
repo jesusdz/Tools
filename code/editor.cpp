@@ -1175,6 +1175,9 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 		UI_Text(ui, name, "%.3f ms", millis);
 	}
 
+	const u32 droppedEvents = ProfileGetDroppedEventCount();
+	UI_Text(ui, "Dropped events", "%u", droppedEvents);
+
 	UI_EndWindow(ui);
 }
 
