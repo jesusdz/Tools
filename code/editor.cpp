@@ -1168,14 +1168,16 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 
 	UI_BeginWindow(ui, "Profiler", &editor.showProfiler);
 
-	ProfileNodes prof = ProfileGetNodes();
+	ProfileFrame frame = ProfileGetFrame();
+	const f32 frameMillis = 1000.0f*SecondsFromTicks(frame.end - frame.begin);
 
-	for (u32 i = 0; i < prof.nodeCount; ++i)
+	for (u32 i = 0; i < frame.nodeCount; ++i)
 	{
-		const ProfileNode *node = &prof.nodes[i];
-		const float millis = (float)(1000.0f*SecondsFromTicks(node->end - node->begin));
+		const ProfileNode *node = &frame.nodes[i];
+		const f32 millis = 1000.0f*SecondsFromTicks(node->end - node->begin);
+		const f32 pct = frameMillis > 0.0f ? 100.0f * millis / frameMillis : 0.0f;
 		const char *name = ProfileGetName(node->nameId);
-		UI_Text(ui, name, "%.3f ms", millis);
+		UI_Text(ui, name, "%.3f ms (%.1f%)", millis, pct);
 	}
 
 	const u32 droppedEvents = ProfileGetDroppedEventCount();
@@ -1251,7 +1253,7 @@ static void EditorUpdateUI_DragAndDropLost(Engine &engine)
 				SpriteH spriteH = GetOrCreateSprite(engine, spriteDesc);
 
 				const Texture &texture = GetTexture(engine.gfx, textureH);
-				constexpr float pixelsPerGridTile = 32;
+				constexpr f32 pixelsPerGridTile = 32;
 
 				const EntityDesc entityDesc = {
 					.name = InternString("entity"),
@@ -1603,7 +1605,7 @@ static bool GetMovementTouchId(const Window &window, u32 *touchId)
 }
 #endif
 
-static void EditorUpdateCamera3DOrbit(Camera &camera, float deltaSeconds)
+static void EditorUpdateCamera3DOrbit(Camera &camera, f32 deltaSeconds)
 {
 	static f32 yaw = 0;
 	yaw += 0.25 * Pi * deltaSeconds;
@@ -1617,7 +1619,7 @@ static void EditorUpdateCamera3DOrbit(Camera &camera, float deltaSeconds)
 	camera.orientation = angles;
 }
 
-static void EditorUpdateCamera3D(const Window &window, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateCamera3D(const Window &window, Camera &camera, f32 deltaSeconds, bool handleInput)
 {
 	float3 dir = { 0, 0, 0 };
 
@@ -1651,8 +1653,8 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 		{
 			const float3 forward = ForwardDirectionFromAngles(angles);
 			const float3 right = RightDirectionFromAngles(angles);
-			const float scaleForward = -window.touches[touchId].dy;
-			const float scaleRight = window.touches[touchId].dx;
+			const f32 scaleForward = -window.touches[touchId].dy;
+			const f32 scaleRight = window.touches[touchId].dx;
 			dir = Add(Mul(forward, scaleForward), Mul(right, scaleRight));
 		}
 #else
@@ -1682,7 +1684,7 @@ static void EditorUpdateCamera3D(const Window &window, Camera &camera, float del
 	speed = Mul(speed, 0.9);
 }
 
-static void EditorUpdateInteraction2D(Engine &engine, const Window &window, const Gamepad &gamepad, Camera &camera, float deltaSeconds, bool handleInput)
+static void EditorUpdateInteraction2D(Engine &engine, const Window &window, const Gamepad &gamepad, Camera &camera, f32 deltaSeconds, bool handleInput)
 {
 	Editor &editor = engine.editor;
 	UI &ui = engine.ui;
@@ -1787,13 +1789,13 @@ static void EditorUpdateInteraction2D(Engine &engine, const Window &window, cons
 	{
 		if (mouse.wheel.y != 0.0)
 		{
-			const float ar = (f32) window.width / window.height;
-			const float heightPrev = camera.height;
+			const f32 ar = (f32) window.width / window.height;
+			const f32 heightPrev = camera.height;
 			camera.height = Max(2.0f, camera.height + mouse.wheel.y);
-			const float heightDiff = heightPrev - camera.height;
-			const float widthDiff = ar * heightDiff;
-			const float xScale = 2.0f * ( (f32) mouse.pos.x / window.width ) - 1.0f;
-			const float yScale = 1.0 - 2.0f * ( (f32) mouse.pos.y / window.height );
+			const f32 heightDiff = heightPrev - camera.height;
+			const f32 widthDiff = ar * heightDiff;
+			const f32 xScale = 2.0f * ( (f32) mouse.pos.x / window.width ) - 1.0f;
+			const f32 yScale = 1.0 - 2.0f * ( (f32) mouse.pos.y / window.height );
 			camera.position.x += widthDiff * xScale;
 			camera.position.y += heightDiff * yScale;
 		}

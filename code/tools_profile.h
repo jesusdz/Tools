@@ -30,10 +30,12 @@ struct ProfileNode
 	u16 level;
 };
 
-struct ProfileNodes
+struct ProfileFrame
 {
 	ProfileNode *nodes;
 	u32 nodeCount;
+	ProfileTime begin;
+	ProfileTime end;
 };
 
 constexpr u32 MAX_PROFILE_EVENTS = 1024;
@@ -66,6 +68,12 @@ struct Profile
 
 	u32 droppedEventCount;     // Events lost in the frame being recorded
 	u32 lastDroppedEventCount; // Events lost in the last built frame
+
+	ProfileTime frameBegin;
+	ProfileTime lastFrameBegin;
+	ProfileTime lastFrameEnd;
+
+	u64 frameIndex;
 };
 
 u16 ProfileRegisterName(const char *name);
@@ -73,7 +81,7 @@ const char *ProfileGetName(u16 nameId);
 void ProfileNewFrame();
 void ProfileBeginEvent(u16 nameId);
 void ProfileEndEvent(u16 nameId);
-ProfileNodes ProfileGetNodes();
+ProfileFrame ProfileGetFrame();
 u32 ProfileGetDroppedEventCount();
 
 
@@ -220,10 +228,17 @@ void ProfileNewFrame()
 		}
 	}
 
+	const ProfileTime now = GetTicks();
+	sProfile.lastFrameBegin = sProfile.frameBegin > 0 ? sProfile.frameBegin : now;
+	sProfile.lastFrameEnd = now;
+	sProfile.frameBegin = now;
+
 	// Restart event count for the new frame
 	sProfile.eventCount = 0;
 	sProfile.lastDroppedEventCount = sProfile.droppedEventCount;
 	sProfile.droppedEventCount = 0;
+
+	sProfile.frameIndex++;
 }
 
 void ProfileBeginEvent(u16 nameId)
@@ -254,11 +269,13 @@ void ProfileEndEvent(u16 nameId)
 	};
 }
 
-ProfileNodes ProfileGetNodes()
+ProfileFrame ProfileGetFrame()
 {
-	ProfileNodes res = {
+	ProfileFrame res = {
 		.nodes = sProfile.nodes,
 		.nodeCount = sProfile.nodeCount,
+		.begin = sProfile.lastFrameBegin,
+		.end = sProfile.lastFrameEnd,
 	};
 	return res;
 }
