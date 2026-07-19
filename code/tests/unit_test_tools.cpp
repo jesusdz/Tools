@@ -1320,6 +1320,58 @@ void TestAlignment()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Ticks tests
+
+void TestTicks()
+{
+    TEST_SECTION("Ticks");
+
+    // GetTicksPerSecond
+    {
+        u64 freq = GetTicksPerSecond();
+        TEST("GetTicksPerSecond > 0", freq > 0);
+        TEST("GetTicksPerSecond stable", freq == GetTicksPerSecond());
+    }
+
+    // GetTicks monotonicity
+    {
+        u64 t1 = GetTicks();
+        u64 t2 = GetTicks();
+        TEST("GetTicks monotonic", t1 <= t2);
+    }
+
+    // SecondsFromTicks
+    {
+        TEST("SecondsFromTicks(0) == 0", SecondsFromTicks(0) == 0.0);
+        TEST("SecondsFromTicks(freq) == 1s", SecondsFromTicks(GetTicksPerSecond()) == 1.0);
+        double halfSecond = SecondsFromTicks(GetTicksPerSecond() / 2);
+        TEST("SecondsFromTicks(freq/2) ~= 0.5s", halfSecond > 0.49 && halfSecond < 0.51);
+    }
+
+    // Elapsed ticks over a real wait measure wall-clock time
+    {
+        u64 t1 = GetTicks();
+        SleepMillis(50);
+        u64 t2 = GetTicks();
+        double elapsed = SecondsFromTicks(t2 - t1);
+        // Generous bounds: sleep granularity is coarse (~16ms on Windows) and may overshoot
+        TEST("Elapsed over 50ms sleep >= 40ms", elapsed >= 0.040);
+        TEST("Elapsed over 50ms sleep < 500ms", elapsed < 0.500);
+    }
+
+    // GetClock/GetSecondsElapsed agree with GetTicks/SecondsFromTicks
+    {
+        Clock c1 = GetClock();
+        u64 t1 = GetTicks();
+        SleepMillis(20);
+        f32 clockElapsed = GetSecondsElapsed(c1, GetClock());
+        double tickElapsed = SecondsFromTicks(GetTicks() - t1);
+        double diff = tickElapsed - (double)clockElapsed;
+        TEST("Clock and ticks agree", clockElapsed > 0.0f && diff > -0.010 && diff < 0.010);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Clock tests
 
 void TestClock()
@@ -1409,6 +1461,7 @@ int main()
     TestFilePaths();
     TestMath();
     TestAlignment();
+    TestTicks();
     TestClock();
 
     LOG(Info, "\n" ANSI_BOLD "====================================\n" ANSI_RESET);

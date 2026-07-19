@@ -2589,19 +2589,6 @@ u32 AlignUp(u32 value, u32 alignment)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Time
 
-struct Clock
-{
-#if PLATFORM_WINDOWS
-	LARGE_INTEGER counter;
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	timespec timeSpec;
-#else
-#	error "Missing implementation"
-#endif
-};
-
-#define SECONDS_FROM_NANOSECONDS( ns ) ((float)(ns) / 1000000000.0f)
-
 #if PLATFORM_WINDOWS
 internal LONGLONG Win32GetPerformanceCounterFrequency()
 {
@@ -2610,47 +2597,53 @@ internal LONGLONG Win32GetPerformanceCounterFrequency()
 	ASSERT(res && "QueryPerformanceFrequency() failed!");
 	return PerfCountFrequencyResult.QuadPart;
 }
-
-// TODO: Investigate... is there any problem in computing this at static init time?
-internal LONGLONG gPerformanceCounterFrequency = Win32GetPerformanceCounterFrequency();
 #endif
+
+u64 GetTicks()
+{
+#if PLATFORM_WINDOWS
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	return (u64)counter.QuadPart;
+#elif PLATFORM_LINUX || PLATFORM_ANDROID
+	timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (u64)ts.tv_sec * 1000000000ull + (u64)ts.tv_nsec;
+#endif
+}
+
+u64 GetTicksPerSecond()
+{
+#if PLATFORM_WINDOWS
+	static LONGLONG frequency = Win32GetPerformanceCounterFrequency();
+	return (u64)frequency;
+#else
+	return 1000000000ull;
+#endif
+}
+
+double SecondsFromTicks(u64 ticks)
+{
+	return (double)ticks / (double)GetTicksPerSecond();
+}
+
+struct Clock
+{
+	u64 ticks;
+};
+
+#define SECONDS_FROM_NANOSECONDS( ns ) ((float)(ns) / 1000000000.0f)
 
 Clock GetClock()
 {
-	Clock clock;
-#if PLATFORM_WINDOWS
-	QueryPerformanceCounter(&clock.counter);
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	clock_gettime(CLOCK_MONOTONIC, &clock.timeSpec);
-#endif
+	Clock clock = { .ticks = GetTicks() };
 	return clock;
 }
 
 float GetSecondsElapsed(Clock start, Clock end)
 {
-	f32 elapsedSeconds;
-#if PLATFORM_WINDOWS
-	ASSERT( start.counter.QuadPart <= end.counter.QuadPart );
-	elapsedSeconds = (
-			(float)(end.counter.QuadPart - start.counter.QuadPart) /
-			(float)gPerformanceCounterFrequency );
-	return elapsedSeconds;
-#elif PLATFORM_LINUX || PLATFORM_ANDROID
-	ASSERT( start.timeSpec.tv_sec < end.timeSpec.tv_sec || (
-				start.timeSpec.tv_sec == end.timeSpec.tv_sec &&
-				start.timeSpec.tv_nsec <= end.timeSpec.tv_nsec ) );
-	if ( start.timeSpec.tv_sec == end.timeSpec.tv_sec )
-	{
-		elapsedSeconds = SECONDS_FROM_NANOSECONDS( end.timeSpec.tv_nsec - start.timeSpec.tv_nsec );
-	}
-	else
-	{
-		elapsedSeconds = end.timeSpec.tv_sec - start.timeSpec.tv_sec - 1;
-		elapsedSeconds += 1.0f - SECONDS_FROM_NANOSECONDS( start.timeSpec.tv_nsec );
-		elapsedSeconds += SECONDS_FROM_NANOSECONDS( end.timeSpec.tv_nsec );
-	}
-#endif
-	return elapsedSeconds;
+	ASSERT(start.ticks <= end.ticks);
+	return (float)SecondsFromTicks(end.ticks - start.ticks);
 }
 
 
