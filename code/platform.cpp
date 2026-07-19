@@ -169,7 +169,7 @@ enum ThreadID
 
 static bool IsAbsolutePath(const char *path);
 static void InitializeDirectories(Platform &platform);
-static bool InitializeWindow(Window &window, u32 width = 640, u32 height = 480, const char *title = "ILU Engine");
+static bool InitializeWindow(Window &window, u32 width = 1280, u32 height = 720, const char *title = "ILU Engine");
 static void CleanupWindow(Window &window);
 static void ShowPlatformWindow(Window &window);
 static void PlatformUpdateEventLoop(Platform &platform);

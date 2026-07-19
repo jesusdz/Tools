@@ -1170,8 +1170,8 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 	for (u32 i = 0; i < prof.nodeCount; ++i)
 	{
 		const ProfileNode *node = &prof.nodes[i];
-		const float seconds = GetSecondsElapsed(node->begin, node->end);
-		UI_Text(ui, node->name, "%f", seconds*1000);
+		const float millis = (float)(1000.0f*SecondsFromTicks(node->end - node->begin));
+		UI_Text(ui, node->name, "%.3f ms", millis);
 	}
 
 	UI_EndWindow(ui);

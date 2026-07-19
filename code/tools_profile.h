@@ -1,7 +1,7 @@
 #ifndef TOOLS_PROFILE
 #define TOOLS_PROFILE
 
-typedef Clock ProfileTime;
+typedef u64 Ticks;
 
 enum ProfileEventType
 {
@@ -13,14 +13,14 @@ struct ProfileEvent
 {
 	ProfileEventType type;
 	const char *name;
-	ProfileTime time;
+	Ticks time;
 };
 
 struct ProfileNode
 {
 	const char *name;
-	ProfileTime begin;
-	ProfileTime end;
+	Ticks begin;
+	Ticks end;
 	u32 level;
 };
 
@@ -135,7 +135,7 @@ void ProfileBeginEvent(const char *name)
 	sProfile.events[sProfile.eventCount++] = {
 		.type = ProfileEventType_Begin,
 		.name = name,
-		.time = GetClock(),
+		.time = GetTicks(),
 	};
 }
 
@@ -146,7 +146,7 @@ void ProfileEndEvent(const char *name)
 	sProfile.events[sProfile.eventCount++] = {
 		.type = ProfileEventType_End,
 		.name = name,
-		.time = GetClock(),
+		.time = GetTicks(),
 	};
 }
 
