@@ -1171,7 +1171,8 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 	{
 		const ProfileNode *node = &prof.nodes[i];
 		const float millis = (float)(1000.0f*SecondsFromTicks(node->end - node->begin));
-		UI_Text(ui, node->name, "%.3f ms", millis);
+		const char *name = ProfileGetName(node->nameId);
+		UI_Text(ui, name, "%.3f ms", millis);
 	}
 
 	UI_EndWindow(ui);
