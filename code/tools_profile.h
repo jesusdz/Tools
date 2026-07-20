@@ -219,15 +219,19 @@ void ProfileNewFrame()
 		}
 	}
 
+	const ProfileTime now = GetTicks();
+
+	// Close nodes left open
 	while (stackSize > 0)
 	{
 		stackSize--;
+		ProfileNode &node = frame.nodes[stack[stackSize]];
+		node.end = now;
 		if (sProfile.droppedEventCount == 0) {
 			LOG(Warning, "ProfileBeginEvent('%s') does not match any end event\n", ProfileGetName(frame.nodes[stack[stackSize]].nameId));
 		}
 	}
 
-	const ProfileTime now = GetTicks();
 	frame.begin = sProfile.frameBegin > 0 ? sProfile.frameBegin : now;
 	frame.end = now;
 	frame.index = sProfile.frameIndex;
