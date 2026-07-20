@@ -1168,7 +1168,7 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 
 	UI_BeginWindow(ui, "Profiler", &editor.showProfiler);
 
-	ProfileFrame frame = ProfileGetFrame();
+	const ProfileFrame &frame = ProfileGetFrame(0);
 	const f32 frameMillis = 1000.0f*SecondsFromTicks(frame.end - frame.begin);
 
 	for (u32 i = 0; i < frame.nodeCount; ++i)
@@ -1180,7 +1180,7 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 		UI_Text(ui, name, "%.3f ms (%.1f%)", millis, pct);
 	}
 
-	const u32 droppedEvents = ProfileGetDroppedEventCount();
+	const u32 droppedEvents = frame.droppedEventCount;
 	UI_Text(ui, "Dropped events", "%u", droppedEvents);
 
 	UI_EndWindow(ui);

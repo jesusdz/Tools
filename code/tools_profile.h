@@ -7,6 +7,19 @@
 
 #if USE_PROFILE
 
+constexpr u32 MAX_PROFILE_EVENTS = 1024;
+constexpr u32 MAX_PROFILE_NODES = 512;
+constexpr u32 MAX_PROFILE_STACKED_EVENTS = 16;
+constexpr u32 MAX_PROFILE_NAMES = 256;
+constexpr u32 MAX_PROFILE_NAME_SLOTS = 512;
+constexpr u32 MAX_PROFILE_STRING_CHARS = KB(8);
+constexpr u32 MAX_PROFILE_FRAMES = 64;
+
+// Balanced begin/end pairs produce one node per two events
+CT_ASSERT(MAX_PROFILE_NODES >= MAX_PROFILE_EVENTS / 2);
+CT_ASSERT((MAX_PROFILE_NAME_SLOTS & (MAX_PROFILE_NAME_SLOTS - 1)) == 0); // Is power of 2
+CT_ASSERT(MAX_PROFILE_NAME_SLOTS >= 2 * MAX_PROFILE_NAMES);
+
 typedef u64 ProfileTime;
 
 enum ProfileEventType : u16
@@ -32,48 +45,32 @@ struct ProfileNode
 
 struct ProfileFrame
 {
-	ProfileNode *nodes;
 	u32 nodeCount;
+	u32 droppedEventCount;
+	ProfileNode nodes[MAX_PROFILE_NODES]; // Ring buffer
 	ProfileTime begin;
 	ProfileTime end;
+	u64 index;
 };
-
-constexpr u32 MAX_PROFILE_EVENTS = 1024;
-constexpr u32 MAX_PROFILE_NODES = 512;
-constexpr u32 MAX_PROFILE_STACKED_EVENTS = 16;
-constexpr u32 MAX_PROFILE_NAMES = 256;
-constexpr u32 MAX_PROFILE_NAME_SLOTS = 512;
-constexpr u32 MAX_PROFILE_STRING_CHARS = KB(8);
-
-// Balanced begin/end pairs produce one node per two events
-CT_ASSERT(MAX_PROFILE_NODES >= MAX_PROFILE_EVENTS / 2);
-CT_ASSERT((MAX_PROFILE_NAME_SLOTS & (MAX_PROFILE_NAME_SLOTS - 1)) == 0); // Is power of 2
-CT_ASSERT(MAX_PROFILE_NAME_SLOTS >= 2 * MAX_PROFILE_NAMES);
 
 struct Profile
 {
+	// Scratch for current frame events
 	ProfileEvent events[MAX_PROFILE_EVENTS];
 	u32 eventCount;
+	u32 droppedEventCount;     // Events lost in the frame being recorded
+	ProfileTime frameBegin;
 
-	ProfileNode nodes[MAX_PROFILE_NODES];
-	u32 nodeCount;
+	// History of frame data
+	ProfileFrame frames[MAX_PROFILE_FRAMES];
+	u64 frameIndex;
 
+	// Ad-hoc string interning for names
 	const char *names[MAX_PROFILE_NAMES];
 	u32 nameCount;
-
 	u16 nameSlots[MAX_PROFILE_NAME_SLOTS];
-
 	char stringArena[MAX_PROFILE_STRING_CHARS];
 	u32 stringArenaSize;
-
-	u32 droppedEventCount;     // Events lost in the frame being recorded
-	u32 lastDroppedEventCount; // Events lost in the last built frame
-
-	ProfileTime frameBegin;
-	ProfileTime lastFrameBegin;
-	ProfileTime lastFrameEnd;
-
-	u64 frameIndex;
 };
 
 u16 ProfileRegisterName(const char *name);
@@ -81,8 +78,8 @@ const char *ProfileGetName(u16 nameId);
 void ProfileNewFrame();
 void ProfileBeginEvent(u16 nameId);
 void ProfileEndEvent(u16 nameId);
-ProfileFrame ProfileGetFrame();
-u32 ProfileGetDroppedEventCount();
+u32 ProfileGetFrameCount();
+const ProfileFrame &ProfileGetFrame(u32 age);
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +170,9 @@ void ProfileNewFrame()
 	u16 stackSize = 0;
 	u32 skippedDepth = 0; // Begin events without node (capacity exceeded), so their end events must be consumed too
 
-	sProfile.nodeCount = 0;
+	ProfileFrame &frame = sProfile.frames[sProfile.frameIndex & (MAX_PROFILE_FRAMES - 1)];
+	frame.nodeCount = 0;
+	frame.droppedEventCount = 0;
 
 	for (u32 i = 0; i < sProfile.eventCount; ++i)
 	{
@@ -182,15 +181,15 @@ void ProfileNewFrame()
 		{
 			if (skippedDepth > 0 ||
 					stackSize >= MAX_PROFILE_STACKED_EVENTS ||
-					sProfile.nodeCount >= MAX_PROFILE_NODES)
+					frame.nodeCount >= MAX_PROFILE_NODES)
 			{
 				skippedDepth++;
-				sProfile.droppedEventCount++;
+				frame.droppedEventCount++;
 				continue;
 			}
 
-			stack[stackSize] = sProfile.nodeCount;
-			sProfile.nodes[sProfile.nodeCount++] = {
+			stack[stackSize] = frame.nodeCount;
+			frame.nodes[frame.nodeCount++] = {
 				.begin = event->time,
 				.end = event->time,
 				.nameId = event->nameId,
@@ -210,7 +209,7 @@ void ProfileNewFrame()
 		}
 		else
 		{
-			ProfileNode *node = &sProfile.nodes[stack[--stackSize]];
+			ProfileNode *node = &frame.nodes[stack[--stackSize]];
 			if ( event->nameId != node->nameId && sProfile.droppedEventCount == 0 )
 			{
 				LOG(Warning, "ProfileEndEvent('%s') does not match ProfileBeginEvent('%s')\n",
@@ -224,18 +223,19 @@ void ProfileNewFrame()
 	{
 		stackSize--;
 		if (sProfile.droppedEventCount == 0) {
-			LOG(Warning, "ProfileBeginEvent('%s') does not match any end event\n", ProfileGetName(sProfile.nodes[stack[stackSize]].nameId));
+			LOG(Warning, "ProfileBeginEvent('%s') does not match any end event\n", ProfileGetName(frame.nodes[stack[stackSize]].nameId));
 		}
 	}
 
 	const ProfileTime now = GetTicks();
-	sProfile.lastFrameBegin = sProfile.frameBegin > 0 ? sProfile.frameBegin : now;
-	sProfile.lastFrameEnd = now;
-	sProfile.frameBegin = now;
+	frame.begin = sProfile.frameBegin > 0 ? sProfile.frameBegin : now;
+	frame.end = now;
+	frame.index = sProfile.frameIndex;
+	frame.droppedEventCount = sProfile.droppedEventCount;
 
 	// Restart event count for the new frame
+	sProfile.frameBegin = now;
 	sProfile.eventCount = 0;
-	sProfile.lastDroppedEventCount = sProfile.droppedEventCount;
 	sProfile.droppedEventCount = 0;
 
 	sProfile.frameIndex++;
@@ -269,20 +269,26 @@ void ProfileEndEvent(u16 nameId)
 	};
 }
 
-ProfileFrame ProfileGetFrame()
+u32 ProfileGetFrameCount()
 {
-	ProfileFrame res = {
-		.nodes = sProfile.nodes,
-		.nodeCount = sProfile.nodeCount,
-		.begin = sProfile.lastFrameBegin,
-		.end = sProfile.lastFrameEnd,
-	};
-	return res;
+	const u64 built = sProfile.frameIndex;
+	const u32 frameCount = built < MAX_PROFILE_FRAMES ? (u32)built :  MAX_PROFILE_FRAMES;
+	return frameCount;
 }
 
-u32 ProfileGetDroppedEventCount()
+const ProfileFrame &ProfileGetFrame(u32 age)
 {
-	return sProfile.lastDroppedEventCount;
+	if (age < ProfileGetFrameCount())
+	{
+		const u64 index = sProfile.frameIndex - 1 - age;
+		ProfileFrame &frame = sProfile.frames[index & (MAX_PROFILE_FRAMES - 1)];
+		return frame;
+	}
+	else
+	{
+		static const ProfileFrame emptyFrame = {};
+		return emptyFrame;
+	}
 }
 
 #endif // TOOLS_PROFILE_IMPLEMENTATION
