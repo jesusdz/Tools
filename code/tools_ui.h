@@ -954,6 +954,12 @@ void UI_EndWidget(UI &ui)
 	ui.widgetStackSize--;
 }
 
+const UIWidget &UI_GetCurrentWidget(UI &ui)
+{
+	ASSERT(ui.widgetStackSize > 0);
+	return ui.widgetStack[ui.widgetStackSize-1];
+}
+
 void UI_PushPadding(UI &ui, float2 padding)
 {
 	ASSERT(ui.paddingStackSize < ARRAY_COUNT(ui.paddingStack));
@@ -1677,6 +1683,36 @@ bool UI_Button(UI &ui, const char *text)
 	UI_CursorAdvance(ui, size);
 
 	return clicked;
+}
+
+void UI_BeginCanvas(UI &ui)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const float2 pos = UI_GetCursorPos(ui);
+	const float2 size = { UI_GetContainerSize(window).x, UI_ControlHeight(ui) };
+	UI_BeginWidget(ui, pos, size, false);
+
+	UI_PushColor(ui, UIElementBox);
+	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
+}
+
+void UI_EndCanvas(UI &ui)
+{
+	UI_EndWidget(ui);
+	UI_CursorAdvance(ui, ui.lastWidgetSize);
+}
+
+// a and b are normalized coords within the Canvas widget
+void UI_DrawBox(UI &ui, float2 a, float2 b)
+{
+	const UIWidget &canvas = UI_GetCurrentWidget(ui);
+	const float2 pos = canvas.pos + a * canvas.size;
+	const float2 size = (b - a) * canvas.size;
+
+	UI_PushColor(ui, UiColorOrange);
+	UI_AddRectangle(ui, pos, size);
+	UI_PopColor(ui);
 }
 
 bool UI_ButtonIcon(UI &ui, u32 iconIndex)

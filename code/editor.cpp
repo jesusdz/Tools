@@ -358,196 +358,6 @@ static void EditorUpdateUI_DebugUI(Engine &engine)
 
 	UI_BeginWindow(ui, "Debug UI", &editor.showDebugUI);
 
-	if ( UI_Section(ui, "General") )
-	{
-		if (EditorMode3D(editor))
-		{
-			const char *radioOptions[] = { "3D mode", "2D mode" };
-			const ProjectionType mode[] = { ProjectionPerspective, ProjectionOrthographic };
-
-			for (u32 i = 0; i < ARRAY_COUNT(radioOptions); ++i)
-			{
-				if ( UI_Radio(ui, radioOptions[i], editor.cameraType == mode[i]) )
-				{
-					editor.cameraType = mode[i];
-				}
-			}
-		}
-	}
-
-	if ( UI_Section(ui, "Profiling" ) )
-	{
-		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
-
-		const u32 sceneWidth = gfx.device.swapchain.extent.width;
-		const u32 sceneHeight = gfx.device.swapchain.extent.height;
-		UI_Label(ui, "Resolution: %ux%u px", sceneWidth, sceneHeight);
-
-		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
-		UI_Label(ui, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
-		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
-
-		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
-		UI_Label(ui, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
-		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
-	}
-
-	if ( UI_Section(ui, "Memory") )
-	{
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		const char *unitsStrArray[] = { "B", "KB", "MB" };
-		const u32 unitsSizeArray[] = { 1, KB(1), MB(1) };
-		static u32 units = 0;
-		for (u32 i = 0; i < ARRAY_COUNT(unitsStrArray); ++i) {
-			if ( UI_Radio(ui, unitsStrArray[i], units == i) ) {
-				units = i;
-			}
-		}
-		UI_EndLayout(ui);
-
-		const char *unitsStr = unitsStrArray[units];
-		const u32 unitsSize = unitsSizeArray[units];
-		UI_Label(ui, "- Global Arena: %u / %u %s", GlobalArena.used / unitsSize, GlobalArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- Frame Arena: %u / %u %s", FrameArena.used / unitsSize, FrameArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- String Arena: %u / %u %s", StringArena.used / unitsSize, StringArena.size / unitsSize, unitsStr);
-		UI_Label(ui, "- Data Arena: %u / %u %s", DataArena.used / unitsSize, DataArena.size / unitsSize, unitsStr);
-	}
-
-	if ( UI_Section(ui, "Scene") )
-	{
-		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
-		{
-			Handle handle = *it;
-			Entity &entity = GetEntity(scene, handle);
-			if ( UI_Radio(ui, entity.name, EditorGetSelectedEntity(editor) == handle) )
-			{
-				EditorSelectEntity(editor, handle);
-			}
-		}
-		if (UI_Button(ui, "Unselect"))
-		{
-			EditorUnselectAll(editor);
-		}
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		if ( UI_Button(ui, "Load TXT") )
-		{
-			const EditorCommand command = { .type = EditorCommandLoadTxt };
-			AddEditorCommand(editor, command);
-		}
-		if (UI_Button(ui, "Save TXT"))
-		{
-			const EditorCommand command = { .type = EditorCommandSaveTxt };
-			AddEditorCommand(editor, command);
-		}
-		UI_EndLayout(ui);
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-		if ( UI_Button(ui, "Load BIN") )
-		{
-			const EditorCommand command = { .type = EditorCommandLoadBin };
-			AddEditorCommand(editor, command);
-		}
-		if ( UI_Button(ui, "Build BIN") )
-		{
-			const EditorCommand command = { .type = EditorCommandBuildBin };
-			AddEditorCommand(editor, command);
-		}
-		UI_EndLayout(ui);
-	}
-
-	if ( UI_Section(ui, "Camera") )
-	{
-		if ( editor.cameraType == ProjectionPerspective )
-		{
-			UI_SeparatorLabel(ui, "Perspective options");
-			UI_Checkbox(ui, "Orbit", &editor.cameraOrbit);
-		}
-	}
-
-	if ( UI_Section(ui, "Pipelines") )
-	{
-		if ( UI_Button(ui, "Recompile shaders") )
-		{
-			CompileShaders();
-		}
-
-		for (u32 i = 0; i < ARRAY_COUNT(pipelineDescs); ++i)
-		{
-			const char *pipelineName = pipelineDescs[i].desc.name;
-
-			UI_BeginLayout(ui, UiLayoutHorizontal);
-			if ( UI_Button(ui, "Reload") )
-			{
-				const EditorCommand command = {
-					.type = EditorCommandReloadGraphicsPipeline,
-					.pipelineIndex = i,
-				};
-				AddEditorCommand(editor, command);
-			}
-			UI_Label(ui, pipelineName);
-			UI_EndLayout(ui);
-		}
-	}
-
-	if ( UI_Section( ui, "Textures" ) )
-	{
-		static TextureH selectedHandle = {};
-		constexpr u32 imagesPerRow = 3;
-		UI_BeginLayout(ui, UiLayoutItemBrowser);
-		for (u32 i = 0; i < gfx.textureHandles.handleCount; ++i)
-		{
-			const TextureH handle = GetHandleAt(gfx.textureHandles, i);
-			const Texture &texture = GetTexture(gfx, handle);
-
-			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
-
-			if (UI_Image(ui, texture.image, float2{32, 32}, flags))
-			{
-				selectedHandle = handle;
-			}
-		}
-		UI_EndLayout(ui);
-
-		if (IsValidHandle(gfx.textureHandles, selectedHandle))
-		{
-			if (UI_Button(ui, "Remove"))
-			{
-				const EditorCommand command = {
-					.type = EditorCommandRemoveTexture,
-					.textureH = selectedHandle,
-				};
-				AddEditorCommand(editor, command);
-			}
-		}
-	}
-
-	if ( UI_Section(ui, "Game") )
-	{
-		UI_BeginLayout(ui, UiLayoutHorizontal);
-
-		// Start/Stop button
-		if ( engine.game.state == GameStateStopped )
-		{
-			if ( UI_Button(ui, "Start") )
-			{
-				engine.game.state = GameStateStarting;
-			}
-		}
-		else
-		{
-			if ( UI_Button(ui, "Stop") )
-			{
-				engine.game.state = GameStateStopping;
-			}
-		}
-
-		// State label
-		const char *labels[] = {"Stopped", "Starting", "Running", "Stopping"};
-		CT_ASSERT(ARRAY_COUNT(labels) == GameStateCount);
-		const char *label = labels[engine.game.state];
-		UI_Label(ui, label);
-
-		UI_EndLayout(ui);
-	}
 
 	UI_EndWindow(ui);
 }
@@ -681,13 +491,33 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 
 	if ( UI_Section(ui, "Textures") )
 	{
+		static TextureH selectedHandle = {};
+		constexpr u32 imagesPerRow = 3;
+		UI_BeginLayout(ui, UiLayoutItemBrowser);
 		for (HandleIter it = BeginIter(gfx.textureHandles); it; it++)
 		{
 			Handle handle = *it;
 			const Texture &texture = GetTexture(gfx, handle);
 
-			if ( UI_Button(ui, texture.name) ) {
+			const UIWidgetFlags flags = selectedHandle == handle ? UIWidgetFlag_Outline : UIWidgetFlag_None;
+
+			if (UI_Image(ui, texture.image, float2{32, 32}, flags))
+			{
 				EditorSelectTexture(editor, handle);
+				selectedHandle = handle;
+			}
+		}
+		UI_EndLayout(ui);
+
+		if (IsValidHandle(gfx.textureHandles, selectedHandle))
+		{
+			if (UI_Button(ui, "Remove"))
+			{
+				const EditorCommand command = {
+					.type = EditorCommandRemoveTexture,
+					.textureH = selectedHandle,
+				};
+				AddEditorCommand(editor, command);
 			}
 		}
 	}
@@ -1158,6 +988,7 @@ static void EditorUpdateUI_Inspector(Engine &engine)
 static void EditorUpdateUI_Profiler(Engine &engine)
 {
 	UI &ui = engine.ui;
+	const Graphics &gfx = engine.gfx;
 	Editor &editor = engine.editor;
 	EditorInspector &inspector = editor.inspector;
 	EditorContext &context = editor.context;
@@ -1171,6 +1002,15 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 	const ProfileFrame &frame = ProfileGetFrame(0);
 	const f32 frameMillis = 1000.0f*SecondsFromTicks(frame.end - frame.begin);
 
+	const f32 xcenter = (f32)(frame.index % MAX_PROFILE_FRAMES) / MAX_PROFILE_FRAMES;
+	const f32 xleft = Max(0.0f, xcenter - 0.05f);
+	const f32 xright = Min(1.0f, xcenter + 0.05f);
+	const float2 a = { xleft, 0.0f };
+	const float2 b = { xright, 1.0f };
+	UI_BeginCanvas(ui);
+	UI_DrawBox(ui, a, b);
+	UI_EndCanvas(ui);
+
 	for (u32 i = 0; i < frame.nodeCount; ++i)
 	{
 		const ProfileNode *node = &frame.nodes[i];
@@ -1182,6 +1022,44 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 
 	const u32 droppedEvents = frame.droppedEventCount;
 	UI_Text(ui, "Dropped events", "%u", droppedEvents);
+
+	if ( UI_Section(ui, "Profiling" ) )
+	{
+		constexpr f32 maxExpectedMillis = 1000.0f / 60.0f; // Like expecting to reach 60 fps
+
+		const u32 sceneWidth = gfx.device.swapchain.extent.width;
+		const u32 sceneHeight = gfx.device.swapchain.extent.height;
+		UI_Label(ui, "Resolution: %ux%u px", sceneWidth, sceneHeight);
+
+		const TimeSamples &gpuTimes = gfx.gpuFrameTimes;
+		UI_Label(ui, "GPU %.02f ms / %.00f fps ", gpuTimes.average, 1000.0f / gpuTimes.average);
+		UI_Histogram(ui, gpuTimes.samples, ARRAY_COUNT(gpuTimes.samples), maxExpectedMillis);
+
+		const TimeSamples &cpuTimes = gfx.cpuFrameTimes;
+		UI_Label(ui, "CPU %.02f ms / %.00f fps ", cpuTimes.average, 1000.0f / cpuTimes.average);
+		UI_Histogram(ui, cpuTimes.samples, ARRAY_COUNT(cpuTimes.samples), maxExpectedMillis + 1.0f);
+	}
+
+	if ( UI_Section(ui, "Memory") )
+	{
+		UI_BeginLayout(ui, UiLayoutHorizontal);
+		const char *unitsStrArray[] = { "B", "KB", "MB" };
+		const u32 unitsSizeArray[] = { 1, KB(1), MB(1) };
+		static u32 units = 0;
+		for (u32 i = 0; i < ARRAY_COUNT(unitsStrArray); ++i) {
+			if ( UI_Radio(ui, unitsStrArray[i], units == i) ) {
+				units = i;
+			}
+		}
+		UI_EndLayout(ui);
+
+		const char *unitsStr = unitsStrArray[units];
+		const u32 unitsSize = unitsSizeArray[units];
+		UI_Label(ui, "- Global Arena: %u / %u %s", GlobalArena.used / unitsSize, GlobalArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Frame Arena: %u / %u %s", FrameArena.used / unitsSize, FrameArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- String Arena: %u / %u %s", StringArena.used / unitsSize, StringArena.size / unitsSize, unitsStr);
+		UI_Label(ui, "- Data Arena: %u / %u %s", DataArena.used / unitsSize, DataArena.size / unitsSize, unitsStr);
+	}
 
 	UI_EndWindow(ui);
 }
