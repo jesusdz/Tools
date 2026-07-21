@@ -14,9 +14,11 @@ constexpr u32 MAX_PROFILE_NAMES = 256;
 constexpr u32 MAX_PROFILE_NAME_SLOTS = 512;
 constexpr u32 MAX_PROFILE_STRING_CHARS = KB(8);
 constexpr u32 MAX_PROFILE_FRAMES = 64;
+constexpr u16 PROFILE_NODE_NONE = 0xFFFF;
 
 // Balanced begin/end pairs produce one node per two events
 CT_ASSERT(MAX_PROFILE_NODES >= MAX_PROFILE_EVENTS / 2);
+CT_ASSERT(MAX_PROFILE_NODES < PROFILE_NODE_NONE); // Node indices must fit in ProfileNode::parentIndex
 CT_ASSERT((MAX_PROFILE_NAME_SLOTS & (MAX_PROFILE_NAME_SLOTS - 1)) == 0); // Is power of 2
 CT_ASSERT(MAX_PROFILE_NAME_SLOTS >= 2 * MAX_PROFILE_NAMES);
 
@@ -40,14 +42,14 @@ struct ProfileNode
 	ProfileTime begin;
 	ProfileTime end;
 	u16 nameId;
-	u16 level;
+	u16 parentIndex; // PROFILE_NODE_NONE if root
 };
 
 struct ProfileFrame
 {
 	u32 nodeCount;
 	u32 droppedEventCount;
-	ProfileNode nodes[MAX_PROFILE_NODES]; // Ring buffer
+	ProfileNode nodes[MAX_PROFILE_NODES];
 	ProfileTime begin;
 	ProfileTime end;
 	u64 index;
@@ -62,7 +64,7 @@ struct Profile
 	ProfileTime frameBegin;
 
 	// History of frame data
-	ProfileFrame frames[MAX_PROFILE_FRAMES];
+	ProfileFrame frames[MAX_PROFILE_FRAMES]; // Ring buffer
 	u64 frameIndex;
 
 	// Ad-hoc string interning for names
@@ -172,7 +174,6 @@ void ProfileNewFrame()
 
 	ProfileFrame &frame = sProfile.frames[sProfile.frameIndex & (MAX_PROFILE_FRAMES - 1)];
 	frame.nodeCount = 0;
-	frame.droppedEventCount = 0;
 
 	for (u32 i = 0; i < sProfile.eventCount; ++i)
 	{
@@ -184,16 +185,17 @@ void ProfileNewFrame()
 					frame.nodeCount >= MAX_PROFILE_NODES)
 			{
 				skippedDepth++;
-				frame.droppedEventCount++;
+				sProfile.droppedEventCount++;
 				continue;
 			}
 
+			const u16 parentIndex = stackSize > 0 ? (u16)stack[stackSize - 1] : PROFILE_NODE_NONE;
 			stack[stackSize] = frame.nodeCount;
 			frame.nodes[frame.nodeCount++] = {
 				.begin = event->time,
 				.end = event->time,
 				.nameId = event->nameId,
-				.level = stackSize,
+				.parentIndex = parentIndex,
 			};
 			stackSize++;
 		}
@@ -235,7 +237,7 @@ void ProfileNewFrame()
 	frame.begin = sProfile.frameBegin > 0 ? sProfile.frameBegin : now;
 	frame.end = now;
 	frame.index = sProfile.frameIndex;
-	frame.droppedEventCount = sProfile.droppedEventCount;
+	frame.droppedEventCount = sProfile.droppedEventCount; // build-time drops (loop) + record-time drops
 
 	// Restart event count for the new frame
 	sProfile.frameBegin = now;
