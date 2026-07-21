@@ -3040,6 +3040,8 @@ static f32 GetSceneAspectRatio(const Graphics &gfx)
 
 bool RenderGraphics(Engine &engine)
 {
+	PROFILE_BLOCK(RenderGraphics);
+
 	Scene &scene = engine.scene;
 	Graphics &gfx = engine.gfx;
 	Window &window = *sPlatform->window;
@@ -3052,7 +3054,10 @@ bool RenderGraphics(Engine &engine)
 
 	u32 frameIndex = gfx.device.frameIndex;
 
-	BeginFrame(gfx.device);
+	{
+		PROFILE_BLOCK(BeginFrame);
+		BeginFrame(gfx.device);
+	}
 
 	// We can query for previous (MAX_FRAMES_IN_FLIGHT before) frame fences
 	static u32 frameCount = 0;
@@ -3357,6 +3362,8 @@ bool RenderGraphics(Engine &engine)
 	// Shadow map
 	if (camera.projectionType == ProjectionPerspective)
 	{
+		PROFILE_BLOCK(ShadowMap);
+
 		BeginDebugGroup(commandList, "Shadow map", ColorBlack);
 
 		SetClearDepth(commandList, 0, 0.0f);
@@ -3400,6 +3407,8 @@ bool RenderGraphics(Engine &engine)
 
 	// Scene
 	{
+		PROFILE_BLOCK(Scene);
+
 		BeginDebugGroup(commandList, "Scene", ColorBlack);
 
 		SetClearColorFloat4(commandList, 0, { 0.0f, 0.0f, 0.0f, 0.0f } );
@@ -3447,6 +3456,8 @@ bool RenderGraphics(Engine &engine)
 
 		// TileGrid
 		{
+			PROFILE_BLOCK(TileGrid);
+
 			BeginDebugGroup(commandList, "Tiles", ColorBlack);
 
 			const Pipeline &tilePipeline = GetPipeline(gfx.device, gfx.tilePipelineH);
@@ -3499,48 +3510,53 @@ bool RenderGraphics(Engine &engine)
 			EndDebugGroup(commandList);
 		}
 
-		// Sprite entities
-		const Pipeline &spritePipeline = GetPipeline(gfx.device, gfx.spritePipelineH);
-		const uint32_t spriteIndexCount = gfx.spriteIndices.size / sizeof(Index);
-		const uint32_t spriteFirstIndex = gfx.spriteIndices.offset / sizeof(Index);
-		const int32_t spriteFirstVertex = gfx.spriteVertices.offset / sizeof(Vertex);
-
-		SetPipeline(commandList, gfx.spritePipelineH);
-		SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
-		SetVertexBuffer(commandList, vertexBuffer);
-		SetIndexBuffer(commandList, indexBuffer);
-
-		for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
 		{
-			const Handle handle = *it;
-			const Entity &entity = GetEntity(scene, handle);
+			PROFILE_BLOCK(Sprites);
+			// Sprite entities
+			const Pipeline &spritePipeline = GetPipeline(gfx.device, gfx.spritePipelineH);
+			const uint32_t spriteIndexCount = gfx.spriteIndices.size / sizeof(Index);
+			const uint32_t spriteFirstIndex = gfx.spriteIndices.offset / sizeof(Index);
+			const int32_t spriteFirstVertex = gfx.spriteVertices.offset / sizeof(Vertex);
 
-			if (!entity.visible || entity.culled) continue;
+			SetPipeline(commandList, gfx.spritePipelineH);
+			SetBindGroup(commandList, 0, gfx.globalBindGroups[frameIndex]);
+			SetVertexBuffer(commandList, vertexBuffer);
+			SetIndexBuffer(commandList, indexBuffer);
 
-			TextureH textureH = InvalidHandle;
-			if (IsValidHandle(scene.spriteHandles, entity.spriteH))
-				textureH = GetSprite(scene, entity.spriteH).textureH;
-			else
-				continue;
+			for (HandleIter it = BeginIter(scene.entityHandles); it; it++)
+			{
+				const Handle handle = *it;
+				const Entity &entity = GetEntity(scene, handle);
 
-			const ImageH imageH = GetTextureImage(gfx, textureH, gfx.pinkImageH);
-			const BindGroupDesc textureBindGroupDesc = {
-				.layout = spritePipeline.layout.bindGroupLayouts[2],
-				.bindings = {
-					{ .index = 0, .image = imageH },
-				},
-			};
-			const BindGroup textureBindGroup = GetOrCreateDynamicBindGroup(gfx, textureBindGroupDesc);
+				if (!entity.visible || entity.culled) continue;
 
-			BeginDebugGroup(commandList, entity.name ? entity.name : "sprite", ColorBlack);
-			SetBindGroup(commandList, 2, textureBindGroup);
-			DrawIndexed(commandList, spriteIndexCount, spriteFirstIndex, spriteFirstVertex, handle.num);
-			EndDebugGroup(commandList);
+				TextureH textureH = InvalidHandle;
+				if (IsValidHandle(scene.spriteHandles, entity.spriteH))
+					textureH = GetSprite(scene, entity.spriteH).textureH;
+				else
+					continue;
+
+				const ImageH imageH = GetTextureImage(gfx, textureH, gfx.pinkImageH);
+				const BindGroupDesc textureBindGroupDesc = {
+					.layout = spritePipeline.layout.bindGroupLayouts[2],
+					.bindings = {
+						{ .index = 0, .image = imageH },
+					},
+				};
+				const BindGroup textureBindGroup = GetOrCreateDynamicBindGroup(gfx, textureBindGroupDesc);
+
+				BeginDebugGroup(commandList, entity.name ? entity.name : "sprite", ColorBlack);
+				SetBindGroup(commandList, 2, textureBindGroup);
+				DrawIndexed(commandList, spriteIndexCount, spriteFirstIndex, spriteFirstVertex, handle.num);
+				EndDebugGroup(commandList);
+			}
 		}
 
 		// Sky
 		if (camera.projectionType == ProjectionPerspective)
 		{
+			PROFILE_BLOCK(Sky);
+
 			const ImageH &skyImage = GetTextureImage(gfx, gfx.skyTextureH, gfx.grayImageH);
 			const Pipeline &pipeline = GetPipeline(gfx.device, gfx.skyPipelineH);
 			const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
@@ -3574,6 +3590,8 @@ bool RenderGraphics(Engine &engine)
 		// Editor grid
 		if (editor.showGrid)
 		{
+			PROFILE_BLOCK(EditorGrid);
+
 			if (camera.projectionType == ProjectionPerspective)
 			{
 				const BufferChunk indices = GetIndicesForGeometryType(gfx, GeometryTypeScreen);
@@ -3614,6 +3632,8 @@ bool RenderGraphics(Engine &engine)
 #endif
 
 		{ // Debug draw
+			PROFILE_BLOCK(DebugDraw);
+
 			MemCopy(gfx.debugDrawVertices[frameIndex], gfx.debugDrawVerticesCPU, gfx.debugDrawVertexCount * sizeof(DebugDrawVertex));
 
 			BeginDebugGroup(commandList, "DebugDraw", ColorBlack);
@@ -3655,6 +3675,8 @@ bool RenderGraphics(Engine &engine)
 
 	// Display
 	{
+		PROFILE_BLOCK(Display);
+
 		BeginDebugGroup(commandList, "Display", ColorBlack);
 
 		TransitionImageLayout(commandList, gfx.renderTargets.sceneImage, ImageStateRenderTarget, ImageStateShaderInput, 0, 1);
@@ -3666,6 +3688,8 @@ bool RenderGraphics(Engine &engine)
 		SetViewportAndScissor(commandList, displaySize);
 
 		{ // Scene blit
+			PROFILE_BLOCK(Blit);
+
 			BeginDebugGroup(commandList, "Blit", ColorBlack);
 
 			const uint2 sceneSize = gfx.renderTargets.sceneSize;
@@ -3714,6 +3738,8 @@ bool RenderGraphics(Engine &engine)
 
 #if USE_UI
 		{ // GUI
+			PROFILE_BLOCK(GUI);
+
 			BeginDebugGroup(commandList, "GUI", ColorBlack);
 
 			const UI &ui = engine.ui;
@@ -3767,13 +3793,22 @@ bool RenderGraphics(Engine &engine)
 
 	EndCommandList(commandList);
 
-	SubmitResult submitRes = Submit(gfx.device, commandList);
+	SubmitResult submitRes;
 
-	if ( !Present(gfx.device, submitRes) ) {
-		return false;
+	{
+		PROFILE_BLOCK(Submit);
+		submitRes = Submit(gfx.device, commandList);
+	}
+
+	{
+		PROFILE_BLOCK(Present);
+		if ( !Present(gfx.device, submitRes) ) {
+			return false;
+		}
 	}
 
 	// TODO: Check if this should be executed even if Present failed...
+	PROFILE_BLOCK(EndFrame);
 	EndFrame(gfx.device);
 
 	return true;
@@ -3920,6 +3955,7 @@ ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 {
 	SetPlatformAPI(platform);
 	SetGraphicsAPI(&platform.graphicsAPI);
+	ProfileInit();
 
 	if ( platform.engine )
 	{
@@ -4047,8 +4083,9 @@ ENGINE_API bool OnPlatformWindowInit(Plat &platform)
 
 ENGINE_API void OnPlatformUpdate(Plat &platform)
 {
+	ProfileRegisterThread("UpdateAndRender");
 	PROFILE_FRAME();
-	PROFILE_BLOCK(OnPlatformUpdate);
+	PROFILE_BLOCK(Update);
 
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -4095,7 +4132,10 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 	EditorUpdate(engine);
 #endif
 
-	GameUpdate(engine, platform);
+	{
+		PROFILE_BLOCK(GameUpdate);
+		GameUpdate(engine, platform);
+	}
 
 #if USE_UI
 	UIEndFrameRecording(engine);
@@ -4108,7 +4148,7 @@ ENGINE_API void OnPlatformUpdate(Plat &platform)
 
 ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 {
-	PROFILE_BLOCK(OnPlatformRenderGraphics);
+	PROFILE_BLOCK(RenderGraphics);
 
 	Engine &engine = GetEngine(platform);
 	Graphics &gfx = engine.gfx;
@@ -4159,12 +4199,17 @@ ENGINE_API void OnPlatformRenderGraphics(Plat &platform)
 
 ENGINE_API void OnPlatformPreRenderAudio(Plat &platform)
 {
+	ProfileRegisterThread("Audio");
+	ProfileFlush();
+	PROFILE_BLOCK(PreRenderAudio);
 	Engine &engine = GetEngine(platform);
 	PreRenderAudio(engine);
 }
 
 ENGINE_API void OnPlatformRenderAudio(Plat &platform, SoundBuffer &soundBuffer)
 {
+	ProfileFlush();
+	PROFILE_BLOCK(RenderAudio);
 	Engine &engine = GetEngine(platform);
 	RenderAudio(engine, soundBuffer);
 }

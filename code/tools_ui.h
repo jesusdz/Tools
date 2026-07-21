@@ -1604,6 +1604,17 @@ float2 UI_GetContainerSize(const UIWindow &window)
 	return window.containerSize;
 }
 
+// Width of the left-hand control box of a labelled widget. The label is drawn to
+// the right of this box, so we subtract the current indentation to keep every label
+// aligned to the same column regardless of how deeply the widget is indented.
+f32 UI_GetAlignedWidgetWidth(UI &ui)
+{
+	const UIWindow &window = UI_GetCurrentWindow(ui);
+	const f32 containerWidth = UI_GetContainerSize(window).x;
+	const f32 indent = ui.indentStackSize > 0 ? UI_GetCursorPos(ui).x - ui.indentStack[0] : 0.0f;
+	return Round(containerWidth * 0.6f - indent);
+}
+
 bool UI_Section(UI &ui, const char *caption)
 {
 	UIWindow &window = UI_GetCurrentWindow(ui);
@@ -1826,14 +1837,11 @@ void UI_Combo(UI &ui, const char *text, const char **items, u32 itemCount, u32 *
 	ASSERT(selectedIndex != nullptr);
 	const u32 index = *selectedIndex;
 
-	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 containerWidth = UI_GetContainerSize(window).x;
-
 	const float2 padding = UI_GetPadding(ui);
 	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+	const float2 widgetSize = float2{UI_GetAlignedWidgetWidth(ui), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -2092,15 +2100,12 @@ void UI_Text(UI &ui, const char *label, const char *format, ...)
 {
 	UI_VSPRINTF(format, text);
 
-	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 containerWidth = UI_GetContainerSize(window).x;
-
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+	const float2 widgetSize = float2{UI_GetAlignedWidgetWidth(ui), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -2244,15 +2249,12 @@ bool UI_InputText(UI &ui, const char *label, char *buffer, u32 bufferSize)
 	char bufferBeforeEdit[128];
 	StrCopy(bufferBeforeEdit, buffer);
 
-	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 containerWidth = UI_GetContainerSize(window).x;
-
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+	const float2 widgetSize = float2{UI_GetAlignedWidgetWidth(ui), side};
 
 	UI_BeginWidget(ui, widgetPos, widgetSize);
 
@@ -2344,16 +2346,13 @@ bool UI_InputInt(UI &ui, const char *label, i32 *number, f32 spacing = UiSpacing
 {
 	const i32 numberBeforeEdit = *number;
 
-	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 containerWidth = UI_GetContainerSize(window).x;
-
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
 	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+	const float2 widgetSize = float2{UI_GetAlignedWidgetWidth(ui), side};
 
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = widgetSize;
@@ -2490,16 +2489,13 @@ bool UI_InputFloat(UI &ui, const char *label, f32 *number, f32 step = 0.1f, f32 
 {
 	const f32 numberBeforeEdit = *number;
 
-	const UIWindow &window = UI_GetCurrentWindow(ui);
-	const f32 containerWidth = UI_GetContainerSize(window).x;
-
 	const float2 padding = UI_GetPadding(ui);
 	const f32 textHeight = UI_TextHeight(ui);
 
 	const f32 side = UI_ControlHeight(ui);
 
 	const float2 widgetPos = UI_GetCursorPos(ui);
-	const float2 widgetSize = float2{Round(containerWidth*0.6f), side};
+	const float2 widgetSize = float2{UI_GetAlignedWidgetWidth(ui), side};
 
 	const float2 boxPos = widgetPos;
 	const float2 boxSize = widgetSize;

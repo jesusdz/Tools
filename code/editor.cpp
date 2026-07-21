@@ -999,7 +999,7 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 
 	UI_BeginWindow(ui, "Profiler", &editor.showProfiler);
 
-	const ProfileFrame &frame = ProfileGetFrame(0);
+	const ProfileFrame frame = ProfileGetFrame(0);
 	const f32 frameMillis = 1000.0f*SecondsFromTicks(frame.end - frame.begin);
 
 	const f32 xcenter = (f32)(frame.index % MAX_PROFILE_FRAMES) / MAX_PROFILE_FRAMES;
@@ -1011,17 +1011,37 @@ static void EditorUpdateUI_Profiler(Engine &engine)
 	UI_DrawBox(ui, a, b);
 	UI_EndCanvas(ui);
 
-	for (u32 i = 0; i < frame.nodeCount; ++i)
+	const u32 threadCount = ProfileGetThreadCount();
+	for (u32 t = 0; t < threadCount; ++t)
 	{
-		const ProfileNode *node = &frame.nodes[i];
-		const f32 millis = 1000.0f*SecondsFromTicks(node->end - node->begin);
-		const f32 pct = frameMillis > 0.0f ? 100.0f * millis / frameMillis : 0.0f;
-		const char *name = ProfileGetName(node->nameId);
-		UI_Text(ui, name, "%.3f ms (%.1f%)", millis, pct);
-	}
+		if (ProfileGetThreadFrameCount(t) > 0)
+		{
+			const ProfileFrame frame = ProfileGetThreadFrame(t, 0); // by-value snapshot
+			const f32 frameMillis = 1000.0f * SecondsFromTicks(frame.end - frame.begin);
 
-	const u32 droppedEvents = frame.droppedEventCount;
-	UI_Text(ui, "Dropped events", "%u", droppedEvents);
+			if (UI_Section(ui, ProfileGetThreadName(t)))
+			{
+				UI_Text(ui, "Frame", "%.3f ms", frameMillis);
+				u16 depths[MAX_PROFILE_NODES];
+				u32 indentLevel = 0;
+				for (u32 i = 0; i < frame.nodeCount; ++i)
+				{
+					const ProfileNode *node = &frame.nodes[i];
+					const u16 depth = node->parentIndex == PROFILE_NODE_NONE ? 0 : depths[node->parentIndex] + 1;
+					depths[i] = depth;
+
+					while (indentLevel < depth) { UI_Indent(ui); ++indentLevel; }
+					while (indentLevel > depth) { UI_Unindent(ui); --indentLevel; }
+
+					const f32 millis = 1000.0f * SecondsFromTicks(node->end - node->begin);
+					const f32 pct = frameMillis > 0.0f ? 100.0f * millis / frameMillis : 0.0f;
+					UI_Text(ui, ProfileGetName(node->nameId), "%.3f ms (%.1f %%)", millis, pct);
+				}
+				while (indentLevel > 0) { UI_Unindent(ui); --indentLevel; }
+				UI_Text(ui, "Dropped events", "%u", frame.droppedEventCount);
+			}
+		}
+	}
 
 	if ( UI_Section(ui, "Profiling" ) )
 	{
