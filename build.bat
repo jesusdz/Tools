@@ -37,11 +37,11 @@ REM Target to build
 REM ######################################################
 
 set target=%1
-if [%target%] == [] goto engine
+if [%target%] == [] goto ilu
 if "%target%" == "unit_test_ilu" goto unit_test_ilu
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
-if "%target%" == "engine" goto engine
+if "%target%" == "ilu" goto ilu
 if "%target%" == "dll" goto dll
 if "%target%" == "game" goto game
 if "%target%" == "main_d3d12" goto main_d3d12
@@ -72,9 +72,9 @@ exit /b 0
 
 
 REM ######################################################
-REM engine
+REM ilu
 REM ######################################################
-: engine
+: ilu
 
 call vcenv.bat
 pushd build

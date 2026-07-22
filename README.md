@@ -53,7 +53,7 @@ Lightweight instrumentation/profiling macros for timing code blocks and frames, 
 ```
 # Windows (requires Visual Studio; vcenv.bat auto-detects it)
 build.bat
-.\build\ilu.exe
+build\ilu.exe
 
 # Linux
 make
@@ -70,14 +70,14 @@ To the greatest extent possible, the engine avoids heavy external dependencies. 
 * [IBXM](https://github.com/martincameron/micromod) (player library for ProTracker MOD, Scream Tracker 3 S3M, and FastTracker 2 XM music formats, by Martin Cameron)
 * [offset_allocator](https://github.com/sebbbi/OffsetAllocator) (fast, hard-realtime O(1) offset allocator with minimal fragmentation, by Sebastian Aaltonen)
 * [STB libraries](https://github.com/nothings/stb) (public domain single-header libraries by Sean Barrett)
-	* *stb_image:* Image loader
-	* *stb_truetype:* TrueType font rasterizer
-	* *stb_rect_pack:* Rectangle packer
+	* **stb_image:** Image loader
+	* **stb_truetype:** TrueType font rasterizer
+	* **stb_rect_pack:** Rectangle packer
 
 
 ## Tool dependencies
 
-* *C++ compiler:* any compiler supporting C++20. The codebase is mostly C, with a light layer of C++ on top (operator overloads and RAII objects here and there).
+* **C++ compiler:** any compiler supporting C++20. The codebase is mostly C, with a light layer of C++ on top (operator overloads and RAII objects here and there).
 * [DXC](https://github.com/microsoft/DirectXShaderCompiler) (the DirectX Shader Compiler binary and library, used to compile HLSL shaders to SPIRV) — vendored in this repository for both Windows and Linux, so no external install is needed.
 * [Android SDK](https://developer.android.com/studio) (tools and packages required to build and deploy `.apk` files) — not vendored, install separately; see [android/README.md](android/README.md) for setup.
 
