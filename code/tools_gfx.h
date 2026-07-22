@@ -89,7 +89,7 @@
 //#define SPV_PRINT_FUNCTIONS
 #include "tools_spirv.h"
 
-#include "offset_allocator/offsetAllocator.hpp"
+#include "libs/offset_allocator/offsetAllocator.hpp"
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -4775,7 +4775,7 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 //	VK_CALL( vkFlushMappedMemoryRanges(device.handle, 1, range) );
 //}
 
-#include "offset_allocator/offsetAllocator.cpp"
+#include "libs/offset_allocator/offsetAllocator.cpp"
 
 #define SPV_IMPLEMENTATION
 #define SPV_ASSERT ASSERT

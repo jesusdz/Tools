@@ -15,16 +15,16 @@
 #if USE_UI
 
 #define STB_RECT_PACK_IMPLEMENTATION
-#include "stb/stb_rect_pack.h"
+#include "libs/stb/stb_rect_pack.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
-#include "stb/stb_truetype.h"
+#include "libs/stb/stb_truetype.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
 #define STBI_NO_LINEAR // Only stbi_load_from_memory (LDR) is used, never stbi_loadf (HDR) - this also drops stb_image.h's own <math.h> include, only needed by the linear/HDR path.
 #define STBI_NO_HDR
-#include "stb/stb_image.h"
+#include "libs/stb/stb_image.h"
 
 #endif // #if USE_UI
 
@@ -4335,7 +4335,7 @@ void PlayMusic(Handle handle)
 #include "editor.cpp"
 #endif
 
-#include "ibxm/ibxm.c"
+#include "libs/ibxm/ibxm.c"
 
 #include "game.cpp"
 

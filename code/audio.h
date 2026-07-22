@@ -2,7 +2,7 @@
 #define AUDIO_H
 
 //#include "tools_mod.h"
-#include "ibxm/ibxm.h"
+#include "libs/ibxm/ibxm.h"
 
 
 #define MAX_AUDIO_CLIPS 16

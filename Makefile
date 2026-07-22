@@ -35,29 +35,29 @@ unit_test_tools: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/unit_test_tools code/tests/unit_test_tools.cpp
 
 main_interpreter: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/tests/main_interpreter.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/misc/main_interpreter.cpp
 
 main_spirv: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_spirv code/tests/main_spirv.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_spirv code/misc/main_spirv.cpp
 
 reflex: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/reflex code/tests/reflex.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/reflex code/misc/reflex.cpp
 
 main_reflect_serialize: reflex
 	./build/reflex assets/assets.h > code/assets.reflex.h
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_reflect_serialize code/tests/main_reflect_serialize.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_reflect_serialize code/misc/main_reflect_serialize.cpp
 
 main_clon: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_clon code/tests/main_clon.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_clon code/misc/main_clon.cpp
 
 cast: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/cast code/tests/cast.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/cast code/misc/cast.cpp
 
 main_alsa: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_alsa code/tests/main_alsa.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_alsa code/misc/main_alsa.cpp
 
 main_gamepad: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_gamepad code/tests/main_gamepad.cpp
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_gamepad code/misc/main_gamepad.cpp
 
 directories:
 	mkdir -p build

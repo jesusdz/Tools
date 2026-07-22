@@ -221,7 +221,7 @@ extern "C"
 
 // Real (non-CRT) implementation, so that printing text never links printf/vprintf.
 #define STB_SPRINTF_IMPLEMENTATION
-#include "stb/stb_sprintf.h"
+#include "libs/stb/stb_sprintf.h"
 
 #if PLATFORM_WINDOWS
 
