@@ -746,6 +746,14 @@ static void ShowPlatformWindow(Window &window)
 	SetForegroundWindow(window.impl->hWnd);
 }
 
+static void PlatformWakeMainThread()
+{
+	if ( windowImpl.hWnd )
+	{
+		PostMessageA(windowImpl.hWnd, WM_CLOSE, 0, 0);
+	}
+}
+
 static void PlatformUpdateEventLoop(Platform &platform)
 {
 	BOOL ret = 1;

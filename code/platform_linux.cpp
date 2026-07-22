@@ -604,6 +604,24 @@ static void ShowPlatformWindow(Window &window)
 	// The window is mapped to the screen at creation already
 }
 
+static void PlatformWakeMainThread()
+{
+	if ( !windowImpl.connection )
+	{
+		return;
+	}
+
+	xcb_client_message_event_t event = {};
+	event.response_type = XCB_CLIENT_MESSAGE;
+	event.format = 32;
+	event.window = windowImpl.window;
+	event.type = windowImpl.closeAtom;
+	event.data.data32[0] = windowImpl.closeAtom;
+
+	xcb_send_event(windowImpl.connection, 0, windowImpl.window, XCB_EVENT_MASK_NO_EVENT, (const char *)&event);
+	xcb_flush(windowImpl.connection);
+}
+
 static void PlatformUpdateEventLoop(Platform &platform)
 {
 	Window &window = platform.window;

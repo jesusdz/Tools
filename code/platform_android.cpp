@@ -208,6 +208,12 @@ static void ShowPlatformWindow(Window &window)
 {
 }
 
+static void PlatformWakeMainThread()
+{
+	// No-op: the event loop polls without blocking (ALooper_pollAll with a zero
+	// timeout), so the main loop re-checks keepRunning every iteration on its own.
+}
+
 static void PlatformUpdateEventLoop(Platform &platform)
 {
 	// Read all pending events.

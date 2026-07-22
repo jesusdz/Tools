@@ -178,6 +178,7 @@ static void UpdateGamepad(Platform &platform);
 static bool InitializeAudioDevice(Platform &platform);
 static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin);
 static void PlatformQuit();
+static void PlatformWakeMainThread();
 
 // Common entry point called by the platform entry points
 static void Main(int argc, char **argv);
@@ -886,6 +887,7 @@ static bool InitializeArenas(Platform &platform)
 static void PlatformQuit()
 {
 	platform.keepRunning = false;
+	PlatformWakeMainThread();
 }
 
 static void ReleaseScratchArena(u32 index)
