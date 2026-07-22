@@ -32,7 +32,7 @@
 ////////////////////////////////////////////////////////////////////////
 // Helper macros and types
 
-// NOTE: We can get rid of the dependency on "tools.h" by providing an
+// NOTE: We can get rid of the dependency on "ilu_core.h" by providing an
 // implementation for the following macros to support:
 // - Logging
 // - Compile-time and run-time assertions
@@ -46,7 +46,7 @@
 #endif // #ifndef CAST_USE_TOOLS
 
 #if CAST_USE_TOOLS
-#include "../tools.h"
+#include "../ilu_core.h"
 #define CAST_LOG LOG
 #define CAST_ASSERT ASSERT
 #define CAST_ARRAY_COUNT ARRAY_COUNT

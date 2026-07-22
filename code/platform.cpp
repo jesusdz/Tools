@@ -1,6 +1,6 @@
 
 #define TOOLS_GFX_FUNCTION_PROTOTYPES
-#include "tools_gfx.h"
+#include "ilu_gfx.h"
 
 #include "platform.h"
 
@@ -1212,5 +1212,5 @@ static void Main( int argc, char **argv )
 
 
 #define TOOLS_GFX_IMPLEMENTATION
-#include "tools_gfx.h"
+#include "ilu_gfx.h"
 

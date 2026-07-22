@@ -1,10 +1,10 @@
-#include "../tools.h"
+#include "../ilu_core.h"
 
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
 #define SPV_IMPLEMENTATION
 #define SPV_PRINT_FUNCTIONS
-#include "../tools_spirv.h"
+#include "../ilu_spirv.h"
 
 #define PRINT_DISASSEMBLY 0
 

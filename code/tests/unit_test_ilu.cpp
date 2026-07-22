@@ -1,11 +1,11 @@
 /*
- * unit_test_tools.cpp
- * Unit tests for code/tools.h
+ * unit_test_ilu.cpp
+ * Unit tests for code/ilu_core.h
  */
 
 #define STB_IMAGE_IMPLEMENTATION
 #define TOOLS_IMAGE_PIXELS
-#include "../tools.h"
+#include "../ilu_core.h"
 
 // ANSI color codes
 #ifdef _WIN32
@@ -747,7 +747,7 @@ void TestFilePaths()
         TEST("HasFileExtension cpp", HasFileExtension("main.cpp", "cpp"));
     }
     {
-        TEST("HasFileExtension h", HasFileExtension("tools.h", "h"));
+        TEST("HasFileExtension h", HasFileExtension("ilu_core.h", "h"));
     }
     {
         TEST("HasFileExtension no extension", !HasFileExtension("noextension", "txt"));
@@ -1447,7 +1447,7 @@ int main()
 #endif
 
     LOG(Info, ANSI_BOLD "====================================\n" ANSI_RESET);
-    LOG(Info, ANSI_BOLD "  tools.h Unit Tests\n" ANSI_RESET);
+    LOG(Info, ANSI_BOLD "  ilu_core.h Unit Tests\n" ANSI_RESET);
     LOG(Info, ANSI_BOLD "====================================\n" ANSI_RESET);
 
     TestSizedTypes();

@@ -1,4 +1,4 @@
-#include "../tools.h"
+#include "../ilu_core.h"
 
 #define CAST_IMPLEMENTATION
 #define CAST_PRINT

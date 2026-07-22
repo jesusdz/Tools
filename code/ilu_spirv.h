@@ -19,7 +19,7 @@ Before including this header file, some customization macros can be defined:
 	#define SPV_PRINT_FUNCTIONS // To include print functions
 	#define SPV_PRINTF printf   // To provide a custom print function
 	#define SPV_ASSERT assert   // To provide a custom assert macro
-	#include "tools_spirv.h"
+	#include "ilu_spirv.h"
 ```
 
 Check the following link for reference on the implementation of Spirv tools:
@@ -27,8 +27,8 @@ Check the following link for reference on the implementation of Spirv tools:
 - [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools/tree/main/source)
 */
 
-#ifndef TOOLS_SPIRV_H
-#define TOOLS_SPIRV_H
+#ifndef ILU_SPIRV_H
+#define ILU_SPIRV_H
 
 // Defines ///////////////////////////////////////////////////////////////////////////////
 
@@ -233,7 +233,7 @@ void SpvPrintDescriptorSetList(SpvDescriptorSetList *descriptorSetList);
 void SpvPrintDisassembly(SpvParser *parser);
 #endif // #if defined(SPV_PRINT_FUNCTIONS)
 
-#endif // #if TOOLS_SPIRV_H
+#endif // #if ILU_SPIRV_H
 
 
 #if defined(SPV_IMPLEMENTATION)

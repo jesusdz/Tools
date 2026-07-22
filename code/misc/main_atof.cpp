@@ -1,4 +1,4 @@
-#include "tools.h"
+#include "ilu_core.h"
 #include <stdlib.h> // atof
 
 #define TEST_FUNCTIONALITY 1

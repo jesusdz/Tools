@@ -2,10 +2,10 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#include "tools.h"
+#include "ilu_core.h"
 
-#ifndef TOOLS_GFX_H
-#error "tools_gfx.h must be included before this header"
+#ifndef ILU_GFX_H
+#error "ilu_gfx.h must be included before this header"
 #endif
 
 

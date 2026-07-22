@@ -1,4 +1,4 @@
-#include "../tools.h"
+#include "../ilu_core.h"
 
 #include <fcntl.h> // open
 #include <unistd.h> // read

@@ -38,7 +38,7 @@ REM ######################################################
 
 set target=%1
 if [%target%] == [] goto engine
-if "%target%" == "unit_test_tools" goto unit_test_tools
+if "%target%" == "unit_test_ilu" goto unit_test_ilu
 if "%target%" == "cast" goto cast
 if "%target%" == "reflex" goto reflex
 if "%target%" == "engine" goto engine
@@ -80,7 +80,7 @@ call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
-cl %CommonCompilerFlags% ..\code\platform.cpp /Feengine.exe /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\platform.cpp /Feilu.exe /link %CommonLinkerFlags%
 cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
 popd
 exit /b 0
@@ -175,15 +175,15 @@ exit /b 0
 
 
 REM ######################################################
-REM unit_test_tools
+REM unit_test_ilu
 REM ######################################################
-: unit_test_tools
+: unit_test_ilu
 
 call vcenv.bat
 set CommonCompilerFlags=%CommonCompilerFlags%
 set CommonLinkerFlags=%CommonLinkerFlags%
 pushd build
-cl %CommonCompilerFlags% ..\code\tests\unit_test_tools.cpp /link %CommonLinkerFlags%
+cl %CommonCompilerFlags% ..\code\tests\unit_test_ilu.cpp /link %CommonLinkerFlags%
 popd
 exit /b 0
 

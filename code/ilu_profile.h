@@ -1,5 +1,5 @@
-#ifndef TOOLS_PROFILE
-#define TOOLS_PROFILE
+#ifndef ILU_PROFILE
+#define ILU_PROFILE
 
 #ifndef USE_PROFILE
 #define USE_PROFILE 1
@@ -127,14 +127,14 @@ struct ProfileBlock
 
 #endif // USE_PROFILE
 
-#endif // TOOLS_PROFILE
+#endif // ILU_PROFILE
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation
 
 #if USE_PROFILE
-#ifdef TOOLS_PROFILE_IMPLEMENTATION
+#ifdef ILU_PROFILE_IMPLEMENTATION
 
 static Profile sProfile = {};
 thread_local u32 tThreadIndex = PROFILE_THREAD_NONE;
@@ -393,6 +393,6 @@ ProfileFrame ProfileGetFrame(u32 age)
 	return frame;
 }
 
-#endif // TOOLS_PROFILE_IMPLEMENTATION
+#endif // ILU_PROFILE_IMPLEMENTATION
 #endif // USE_PROFILE
 

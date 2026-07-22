@@ -1,5 +1,5 @@
 /*
- * tools_gfx.h
+ * ilu_gfx.h
  * Author: Jesus Diaz Garcia
  *
  * Graphics API abstraction made on top of Vulkan.
@@ -68,15 +68,15 @@
  * - SetObjectName
  */
 
-#ifndef TOOLS_GFX_H
-#define TOOLS_GFX_H
+#ifndef ILU_GFX_H
+#define ILU_GFX_H
 
 
 ////////////////////////////////////////////////////////////////////////
 // Includes
 ////////////////////////////////////////////////////////////////////////
 
-#include "tools.h"
+#include "ilu_core.h"
 
 // This extension removes a VK_ERROR_INCOMPATIBLE_DRIVER when calling vkCreateInstance
 // on some platforms implementing Vulkan on top of another API.
@@ -87,7 +87,7 @@
 #include <vulkan/vulkan_core.h>
 
 //#define SPV_PRINT_FUNCTIONS
-#include "tools_spirv.h"
+#include "ilu_spirv.h"
 
 #include "libs/offset_allocator/offsetAllocator.hpp"
 
@@ -931,7 +931,7 @@ inline bool IsValid(const BindGroup &bindGroup)
 	return res;
 }
 
-#endif // TOOLS_GFX_H
+#endif // ILU_GFX_H
 
 
 #ifdef TOOLS_GFX_IMPLEMENTATION
@@ -4780,7 +4780,7 @@ void CleanupGraphicsDriver(GraphicsDevice &device)
 #define SPV_IMPLEMENTATION
 #define SPV_ASSERT ASSERT
 #define SPV_PRINTF(...) LOG(Info, ##__VA_ARGS__)
-#include "tools_spirv.h"
+#include "ilu_spirv.h"
 
 #endif // TOOLS_GFX_IMPLEMENTATION_INCLUDED
 #endif // TOOLS_GFX_IMPLEMENTATION

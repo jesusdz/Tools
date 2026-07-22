@@ -1,135 +1,89 @@
-# Tools
+# ilu
 
-This repository contains a couple of projects in a very early stage and a set of general purpose tools contained in `tools.h`.
+A home-made game engine written from scratch in C++, with a Vulkan renderer and minimal external dependencies. It's a solo, early-stage project built for learning and for shipping small games, not a general-purpose engine for others to adopt (but who knows).
 
-
-## tools.h
-
-In `tools.h` one can find utility macros, types, and functions to help with the following stuff:
-
-* Platform identification
-* Assertions, debugging, errors, logging
-* Aliases for sized types
-* Intrinsics
-* Strings
-* Memory
-  - Linear memory arena allocators
-  - Virtual memory allocation abstraction
-* File reading
-* Process execution
-* Dynamic library loading
-* Mathematics
-* Clock / timing
-* Window creation
-* Input handling (mouse and keyboard)
+Supported platforms: Windows, Linux, and Android.
 
 
-## cast.h
+## Engine features
 
-Implementation of a basic C AST (abstract syntax tree) generator. For now it focuses on parsing type and data definitions.
-It's not complete at all but it allows populating a good amount of information about user type and data definitions
-(basic structs with trivial members, with nested structs inside, with fixed-length array members, pointer-type members, etc).
-It scans and parses a C text file and fills a `Cast` object containing the parsed information in the form of an AST.
-This structure can be then inspected by client programs to obtain information about the types and data declared in the code.
-
-
-## cast.cpp
-
-Sample application using `cast.h` that simply generates the AST of a C file and prints the whole structure to screen.
+* Vulkan-based renderer supporting both 2D (sprites, grids) and 3D (meshes, shadow mapping, sky) rendering
+* Hot-reloadable game module: gameplay code lives in a DLL/SO (`game.cpp`) that the engine can reload without restarting
+* Scene graph with rooms, layers, entities, materials, and textures
+* Immediate-mode UI, also used to build an in-engine editor (scene/entity/material/texture/audio inspection, texture and pipeline reloading, save/load of scenes as text or binary)
+* Audio playback: WAV clips plus tracker music (MOD/S3M/XM) via the bundled `ibxm` player
+* Data-driven assets with a reflection-based pipeline: asset descriptions are parsed and reflected into C structs, then serialized to a binary format the engine loads at runtime
+* HLSL shaders compiled to SPIRV via DXC, with reflection utilities to auto-generate descriptor set bindings
 
 
-## reflex.h
+## Repository layout
 
-Headers with container types needed for C reflection / RTTI (run time type information).
-An application that is able to get this information populated for its most relevant structures is able to perform certain tasks an a more automatic way.
-A couple of examples of tasks than can be automatized or improved by having a proper language reflection mechanism are data serialization or UI generation.
+The code is organized in three layers:
 
-
-## reflex.cpp
-
-C reflection data generator. It uses `cast.h` to parse a C file and generate its AST, and then it outputs the C code needed to populate the RTTI structs present in `reflex.h`.
-The generated code can be then included by applications using the parsed C file types so they can benefit from the reflected information.
+1. **Single-header libraries** (`code/*.h`) — reusable, dependency-light building blocks the rest of the engine is built on.
+2. **Core programs** (`code/*.cpp`) — the engine itself (`platform.cpp`, `engine.cpp`) and the game module (`game.cpp`).
+3. **Standalone/experimental programs** (`code/misc/`) — one-off tools and tech tests that aren't part of the engine proper. See [docs/MISC.md](docs/MISC.md).
 
 
-## tools_spirv.h
+## Single-header libraries
 
-In `tools_spirv.h` there are utils to parse SPIRV shader modules and extract lists of descriptor sets used by them.
-With this SPIRV reflection utility, client applications can automatize the creation of descriptors and binding of resources at different places in the code,
-thus avoiding unnecessary boilerplate code.
+### ilu_core.h
 
-## tools_gfx.h
+Platform and utility layer: platform identification, assertions/logging, sized type aliases, intrinsics, strings, memory (linear arena allocators, virtual memory abstraction), file reading, process execution, dynamic library loading, math, clock/timing, window creation, and mouse/keyboard input handling.
 
-Abstraction of a modern graphics API for now made on top of Vulkan.
+### ilu_gfx.h
 
-## tools_ui.h
+Abstraction of a modern graphics API, currently implemented on top of Vulkan.
 
-Implementation of a immediate mode UI library using `tools_gfx.h`.
+### ilu_ui.h
+
+Immediate-mode UI library built on `ilu_gfx.h`. Used both in-game and to build the engine's editor.
+
+### ilu_spirv.h
+
+Utilities to parse SPIRV shader modules and extract descriptor set layouts, so client code can automate descriptor/binding creation instead of hand-writing it.
+
+### ilu_profile.h
+
+Lightweight instrumentation/profiling macros for timing code blocks and frames, with multi-threading support.
 
 
-## Other projects
+## Building
 
-Currently, there are the following *in-progress* projects:
+```
+# Windows (requires Visual Studio; vcenv.bat auto-detects it)
+build.bat engine
+.\build\ilu.exe
 
-* `main_interpreter`: Implementation of a scripted language interpreter. Following the contents of the *Crafting interpreters* book (by Robert Nystrom).
-* `engine`: Implementation of a graphics application template using the `tools_gfx.h` header.
-* `main_d3d12`: Implementation of a graphics application template using the D3D12 graphics API.
-* `main_atof`: Custom implementation of the atof (ASCII to float) function.
-* `main_spirv`: Simple SPIRV parser to be used by a Vulkan engine potentially.
-* `main_reflect_serialize`: JSON serializer using C reflection utils.
+# Linux
+make engine
+./build/ilu
+```
+
+`build.bat`/`Makefile` have further targets for the game module, shader/data compilation, and the reflection pipeline. For unit tests specifically, see [docs/TESTS.md](docs/TESTS.md).
 
 
 ## Dependencies
 
-To the greatest extent possible, the projects and tools here present will not have heavy external dependencies. At most, dependencies will be included within this repository itself and will consist of lightweight source code files compiled along with the projects.
+To the greatest extent possible, the engine avoids heavy external dependencies. What it does depend on is vendored directly in this repository as lightweight source files compiled alongside the project:
 
-This is the list of the dependencies currently included in this repository:
-
-* [Android SDK](https://developer.android.com/studio) (actually all the tools and packages required to build and deploy .APK files)
-* [DXC](https://github.com/microsoft/DirectXShaderCompiler) (the DirectX Shader Compiler binary and library)
-* [IBXM](https://github.com/martincameron/micromod) (player library for the ProTracker MOD, Scream Tracker 3 S3M, and FastTracker 2 XM music formats by Martin Cameron)
-* [offset_allocator](https://github.com/sebbbi/OffsetAllocator) (Fast hard realtime O(1) offset allocator with minimal fragmentation by Sebastian Aaltonen)
-* [stb_image](https://github.com/nothings/stb) (public domain image loader by Seann Barrett)
-* [stb_truetype](https://github.com/nothings/stb) (public domain truetype font rasterizer by Seann Barrett)
-* [stb_rect_pack](https://github.com/nothings/stb) (public domain rectangle packing lib by Seann Barrett)
-
-
-## Supported platforms
-
-So far the current code is being tested on Windows, Linux, and Android platforms.
+* [Android SDK](https://developer.android.com/studio) (tools and packages required to build and deploy `.apk` files)
+* [DXC](https://github.com/microsoft/DirectXShaderCompiler) (the DirectX Shader Compiler binary and library, used to compile HLSL shaders to SPIRV)
+* [IBXM](https://github.com/martincameron/micromod) (player library for ProTracker MOD, Scream Tracker 3 S3M, and FastTracker 2 XM music formats, by Martin Cameron)
+* [offset_allocator](https://github.com/sebbbi/OffsetAllocator) (fast, hard-realtime O(1) offset allocator with minimal fragmentation, by Sebastian Aaltonen)
+* [STB libraries](https://github.com/nothings/stb) (public domain single-header libraries by Sean Barrett)
+	* *stb_image:* Image loader
+	* *stb_truetype:* TrueType font rasterizer
+	* *stb_rect_pack:* Rectangle packer
 
 
-## Interesting links
+## Further reading
 
-Here are some interesting links that I have been looking while writing some code:
-
-* [Crafting interpreters online book](https://craftinginterpreters.com/contents.html)
-* [Creating windows on Windows](https://learn.microsoft.com/en-us/windows/win32/learnwin32/your-first-windows-program)
-* [Creating windows on Linux](https://www.codeproject.com/articles/1089819/an-introduction-to-xcb-programming)
-* [XCB Documentation](https://xcb.freedesktop.org/manual/index.html)
-* [XCB tricks](http://metan.ucw.cz/blog/things-i-wanted-to-know-about-libxcb.html)
-* [Vulkan tutorial](https://vulkan-tutorial.com/)
-* [Vulkan guide: GPU driven rendering](https://vkguide.dev/docs/gpudriven/gpu_driven_engines)
-* [HLSL for Vulkan: Matrices](https://www.lei.chat/posts/hlsl-for-vulkan-matrices)
-* [HLSL for Vulkan: Resources](https://www.lei.chat/posts/hlsl-for-vulkan-resources)
-* [HLSL for Vulkan: Semantic strings and locations](https://www.lei.chat/posts/hlsl-for-vulkan-semantic-strings-and-location-numbers)
-* [D3D12 tutorial](https://www.3dgep.com/category/graphics-programming/directx/)
-* [Handmade Math](https://github.com/HandmadeMath/HandmadeMath)
-* [Untangling Lifetimes: The Arena Allocator](https://www.rfleury.com/p/untangling-lifetimes-the-arena-allocator)
-* [My personal gists](https://gist.github.com/jesusdz)
-* [ANSI C Yacc grammar](https://www.lysator.liu.se/c/ANSI-C-grammar-y.html)
-* [ANSI C Yacc grammar (based on 2011 ISO C standard)](https://www.quut.com/c/ANSI-C-grammar-y.html)
-* [Grammars and Parsing](https://www.cs.cornell.edu/courses/cs211/2006sp/Sections/S3/grammars.html)
-* [Reverse Z (and why it's so awesome)](https://tomhultonharrop.com/mathematics/graphics/2023/08/06/reverse-z.html)
-* [The best darn grid shader (Yet)](https://bgolus.medium.com/the-best-darn-grid-shader-yet-727f9278b9d8)
-* Fluid simulation
-	* [Real-Time Fluid Dynamics for Games (by Jos Stam)](https://graphics.cs.cmu.edu/nsp/course/15-464/Fall09/papers/StamFluidforGames.pdf)
-	* [Fluid simulation for dummies (by Mike Ash)](https://mikeash.com/pyblog/fluid-simulation-for-dummies.html)
-	* [(YouTube) Coding challenge (follows Mike Ask post)](https://www.youtube.com/watch?v=alhpH6ECFvQ)
-	* [(YouTube) But how DO fluid simulations work?](https://www.youtube.com/watch?v=qsYE1wMEMPA)
-	* [(YouTube) Fluid dynamics feel natural when you start with quantum mechanics](https://www.youtube.com/watch?v=MXs_vkc8hpY)
+* [docs/TESTS.md](docs/TESTS.md) — unit tests
+* [docs/MISC.md](docs/MISC.md) — experimental/misc tools in `code/misc/`
+* [docs/LINKS.md](docs/LINKS.md) — interesting links collected while writing this engine
 
 
 ## License
 
-All code here present is available to anybody free of charge without any legal obligation under the [Unlicense](./LICENSE) terms (no terms basically). However, if these tools or part of them are included in third projects, attribution will be happily appreciated.
-
+All code here is available to anybody free of charge, without any legal obligation, under the [Unlicense](./LICENSE) terms (no terms, basically). That said, if this engine or part of it ends up in third-party projects, attribution is happily appreciated.

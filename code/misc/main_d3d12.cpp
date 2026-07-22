@@ -1,5 +1,5 @@
 #define TOOLS_PLATFORM
-#include "tools.h"
+#include "ilu_core.h"
 
 // The min/max macros conflict with like-named member functions.
 // Only use std::min and std::max defined in <algorithm>.

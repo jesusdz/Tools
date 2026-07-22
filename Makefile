@@ -15,14 +15,14 @@ default: build_and_run
 
 build_and_run: engine
 	i3 workspace run
-	./build/engine; i3 workspace 2
+	./build/ilu; i3 workspace 2
 
 build_and_debug: engine
 	i3 workspace debug
-	gf2 ./build/engine; i3 workspace 2
+	gf2 ./build/ilu; i3 workspace 2
 
 engine: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/engine code/platform.cpp -I"vulkan/include" -lxcb -lpthread
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/ilu code/platform.cpp -I"vulkan/include" -lxcb -lpthread
 	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
 
 dll: directories
@@ -31,8 +31,8 @@ dll: directories
 game:
 	echo No build configuration to compile the game yet
 
-unit_test_tools: directories
-	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/unit_test_tools code/tests/unit_test_tools.cpp
+unit_test_ilu: directories
+	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/unit_test_ilu code/tests/unit_test_ilu.cpp
 
 main_interpreter: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/main_interpreter code/misc/main_interpreter.cpp
@@ -64,7 +64,7 @@ directories:
 	mkdir -p build/shaders
 
 data: engine
-	./build/engine --build-data
+	./build/ilu --build-data
 
 clean:
 	rm -rf build

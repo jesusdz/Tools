@@ -1,5 +1,5 @@
 /*
- * tools.h
+ * ilu_core.h
  * Author: Jesus Diaz Garcia
  *
  * Single file library with several utilities among the following:
@@ -18,8 +18,8 @@
  * - Clock / timing
  */
 
-#ifndef TOOLS_H
-#define TOOLS_H
+#ifndef ILU_CORE_H
+#define ILU_CORE_H
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform definitions
@@ -2858,5 +2858,5 @@ struct MutexScope
 
 
 
-#endif // #ifndef TOOLS_H
+#endif // #ifndef ILU_CORE_H
 

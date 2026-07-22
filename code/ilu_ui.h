@@ -1,15 +1,15 @@
 /*
- * tools_ui.h
+ * ilu_ui.h
  * Author: Jesus Diaz Garcia
  *
  * Immediate mode UI API.
  */
 
-#ifndef TOOLS_UI_H
-#define TOOLS_UI_H
+#ifndef ILU_UI_H
+#define ILU_UI_H
 
-#ifndef TOOLS_GFX_H
-#error "tools_gfx.h needs to be defined before tools_ui.h"
+#ifndef ILU_GFX_H
+#error "ilu_gfx.h needs to be defined before ilu_ui.h"
 #endif
 
 #define UI_TEMP_STRING_SIZE KB(4)
@@ -3416,7 +3416,7 @@ void * UI_DragAndDropPayload(UI &ui)
 	return ui.dragAndDrop.payload;
 }
 
-// TODO: We should depend only on tools_gfx.h while this is a feature in engine.cpp.
+// TODO: We should depend only on ilu_gfx.h while this is a feature in engine.cpp.
 struct Graphics;
 ImageH EngineCreateImage(Graphics &gfx, const char *name, int width, int height, int channels, bool mipmap, const byte *pixels);
 
@@ -3848,4 +3848,4 @@ void UI_Cleanup(const UI &ui)
 	// Nothing to do as gfx resources are cleaned up on gfx lib shutdown
 }
 
-#endif // #ifndef TOOLS_UI_H
+#endif // #ifndef ILU_UI_H

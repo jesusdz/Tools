@@ -1,9 +1,9 @@
-#include "tools.h"
+#include "ilu_core.h"
 
 #define TOOLS_GFX_FUNCTION_POINTERS
-#include "tools_gfx.h"
+#include "ilu_gfx.h"
 
-#include "tools_profile.h"
+#include "ilu_profile.h"
 
 #define PLATFORM_API
 #include "platform.h"
@@ -28,7 +28,7 @@
 
 #endif // #if USE_UI
 
-// Needed before tools_ui.h
+// Needed before ilu_ui.h
 struct ImagePixels
 {
 	stbi_uc* pixels;
@@ -39,7 +39,7 @@ struct ImagePixels
 };
 
 #if USE_UI
-#include "tools_ui.h"
+#include "ilu_ui.h"
 #endif
 
 // C/HLSL shared types and bindings
@@ -4328,8 +4328,8 @@ void PlayMusic(Handle handle)
 #include "data.cpp"
 #include "audio.cpp"
 
-#define TOOLS_PROFILE_IMPLEMENTATION
-#include "tools_profile.h"
+#define ILU_PROFILE_IMPLEMENTATION
+#include "ilu_profile.h"
 
 #if USE_EDITOR
 #include "editor.cpp"

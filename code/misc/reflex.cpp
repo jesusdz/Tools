@@ -1,6 +1,6 @@
 #define CAST_IMPLEMENTATION
 #include "cast.h"
-#include "../tools.h"
+#include "../ilu_core.h"
 
 #define StringPrintfArgs(string) string.size, string.str
 
