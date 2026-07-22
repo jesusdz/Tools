@@ -17,8 +17,8 @@ static struct android_app *androidApp;
 
 static AAudioStream *audioStream;
 
-static const char *engineLibFilename = "engine_lib.so";
-static const char *engineLibTmpFilename = "engine_lib.tmp.so";
+static const char *engineLibFilename = "engine.so";
+static const char *engineLibTmpFilename = "engine.tmp.so";
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

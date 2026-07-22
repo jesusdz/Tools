@@ -290,8 +290,8 @@ static int gamepadFd = -1;
 static DynamicLibrary audioLibrary;
 static snd_pcm_t *audioPcm;
 
-static const char *engineLibFilename = "engine_lib.so";
-static const char *engineLibTmpFilename = "engine_lib.tmp.so";
+static const char *engineLibFilename = "engine.so";
+static const char *engineLibTmpFilename = "engine.tmp.so";
 
 static void XcbReportError( int xcbErrorCode, const char *context )
 {

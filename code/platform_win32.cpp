@@ -293,8 +293,8 @@ static LPDIRECTSOUNDBUFFER audioBuffer;
 
 typedef HRESULT FP_DirectSoundCreate( LPGUID lpGuid, LPDIRECTSOUND* ppDS, LPUNKNOWN  pUnkOuter );
 
-static const char *engineLibFilename = "engine_lib.dll";
-static const char *engineLibTmpFilename = "engine_lib.tmp.dll";
+static const char *engineLibFilename = "engine.dll";
+static const char *engineLibTmpFilename = "engine.tmp.dll";
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

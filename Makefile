@@ -23,10 +23,10 @@ build_and_debug: engine
 
 engine: directories
 	${CXX} ${CXXFLAGS} -o ${BUILD_DIR}/ilu code/platform.cpp -I"vulkan/include" -lxcb -lpthread
-	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
+	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine.so code/engine.cpp -I"vulkan/include"
 
 dll: directories
-	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine_lib.so code/engine.cpp -I"vulkan/include"
+	${CXX} ${CXXFLAGS} -fPIC -shared -o ${BUILD_DIR}/engine.so code/engine.cpp -I"vulkan/include"
 
 game:
 	echo No build configuration to compile the game yet

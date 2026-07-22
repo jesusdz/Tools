@@ -81,7 +81,7 @@ pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
 set CommonLinkerFlags=%CommonLinkerFlags% user32.lib
 cl %CommonCompilerFlags% ..\code\platform.cpp /Feilu.exe /link %CommonLinkerFlags%
-cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
+cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine.dll
 popd
 exit /b 0
 
@@ -95,7 +95,7 @@ REM ######################################################
 call vcenv.bat
 pushd build
 set CommonCompilerFlags=%CommonCompilerFlags% -I %RootDir%\vulkan\include
-cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine_lib.dll
+cl %CommonCompilerFlags% /LD ..\code\engine.cpp /Feengine.dll
 popd
 exit /b 0
 
