@@ -91,32 +91,55 @@ void GameSimulate(Game &game)
 			game.speed2.x = game.speed2.x + direction * game.accel2 * deltaSeconds;
 		}
 
-		game.speed2.x = Clamp(game.speed2.x, -15.0f, 15.0f);
+		game.speed2.x = Clamp(game.speed2.x, -10.0f, 10.0f);
 
 		const f32 prevX = playerPos.x;
 		playerPos.x += game.speed2.x * deltaSeconds;
-		if (IsColliderInBox(playerPos, playerSize)) {
+		if (IsColliderInBox(playerPos, playerSize, 1)) {
 			playerPos.x = prevX;
 			game.speed2.x = 0.0f;
 		}
 
 		// Y ///////////////////////////////////////////////////////////
 
+		constexpr f32 gravityRise = -30.0f; // Lighter gravity while ascending so holding the button controls jump height
+		constexpr f32 gravityFall = -50.0f; // Stronger gravity while falling for a snappier landing
+		constexpr f32 jumpSpeed = 14.0f;
+		constexpr f32 jumpCutMultiplier = 0.35f; // Kills upward speed quickly if the button is released early
+
 		if (KeyPress(game.input.keyboard, K_SPACE)) {
 			if (game.speed2.y == 0) {
-				game.speed2.y = 12;
+				game.speed2.y = jumpSpeed;
 				PlayAudioClip(game.sndJump);
 			}
 		}
+
+		if (game.speed2.y > 0 && !KeyPressed(game.input.keyboard, K_SPACE)) {
+			game.speed2.y *= jumpCutMultiplier;
+		}
+
+		const f32 gravity2 = game.speed2.y > 0 ? gravityRise : gravityFall;
 		const f32 prevY = playerPos.y;
-		playerPos.y += game.speed2.y * deltaSeconds + 0.5 * gravity * deltaSeconds * deltaSeconds;
-		game.speed2.y = game.speed2.y + gravity * deltaSeconds;
-		if (IsColliderInBox(playerPos, playerSize)) {
+		playerPos.y += game.speed2.y * deltaSeconds + 0.5 * gravity2 * deltaSeconds * deltaSeconds;
+		game.speed2.y = game.speed2.y + gravity2 * deltaSeconds;
+		if (IsColliderInBox(playerPos, playerSize, 1)) {
 			if (prevY < playerPos.y)
 				playerPos.y = Ceil(prevY);
 			else
 				playerPos.y = Floor(prevY);
 			game.speed2.y = 0.0f;
+		}
+
+		if (game.speed2.y < 0.0)
+		{
+			const float2 prevVertical = {playerPos.x, prevY};
+			if (GetColliderAtWorldPos(prevVertical) == 0 &&
+				GetColliderAtWorldPos(playerPos) == 2) {
+				if (prevY > playerPos.y) {
+					playerPos.y = Floor(prevY);
+					game.speed2.y = 0.0f;
+				}
+			}
 		}
 
 		if (playerPos.y < 0) {

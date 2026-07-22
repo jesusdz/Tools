@@ -244,12 +244,25 @@ static void EditorUpdateUI_ToolBar(Engine &engine)
 
 				UI_Separator(ui);
 
-				static EditorTool tool = EditorTool_Draw;;
-				if (UI_Radio(ui, "Draw", context.tool == EditorTool_Draw)) {
-					context.tool = EditorTool_Draw;
+				if (context.layer->isCollider)
+				{
+					static EditorTool tool = EditorTool_Draw;
+					if (UI_Radio(ui, "Solid", context.tool == EditorTool_ColliderSolid)) {
+						context.tool = EditorTool_ColliderSolid;
+					}
+					if (UI_Radio(ui, "Platform", context.tool == EditorTool_ColliderPlatform)) {
+						context.tool = EditorTool_ColliderPlatform;
+					}
 				}
-				if (UI_Radio(ui, "Erase", context.tool == EditorTool_Erase)) {
-					context.tool = EditorTool_Erase;
+				else
+				{
+					static EditorTool tool = EditorTool_Draw;
+					if (UI_Radio(ui, "Draw", context.tool == EditorTool_Draw)) {
+						context.tool = EditorTool_Draw;
+					}
+					if (UI_Radio(ui, "Erase", context.tool == EditorTool_Erase)) {
+						context.tool = EditorTool_Erase;
+					}
 				}
 			}
 		}
@@ -270,11 +283,26 @@ static void EditorSelectRoom(Editor &editor, Room &room)
 	editor.inspector.nextSelected.type = EditorSelectedType_Room;
 }
 
+static void EditorUnselectRoom(Editor &editor, Room &room)
+{
+	if (editor.context.room == &room) {
+		editor.context.room = nullptr;
+		editor.inspector.nextSelected.type = EditorSelectedType_None;
+	}
+}
+
 static void EditorSelectLayer(Editor &editor, Room &room, Layer &layer)
 {
 	editor.context.room = &room;
 	editor.context.layer = &layer;
 	editor.inspector.nextSelected.type = EditorSelectedType_Layer;
+}
+static void EditorUnselectLayer(Editor &editor, Layer &layer)
+{
+	if (editor.context.layer == &layer) {
+		editor.context.layer = nullptr;
+		editor.inspector.nextSelected.type = EditorSelectedType_None;
+	}
 }
 
 static void EditorSelectEntity(Editor &editor, Handle handle)
@@ -386,6 +414,15 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 		{
 			EditorSelectScene(editor, scene);
 		}
+		if (UI_BeginContextMenu(ui, "SceneContext"))
+		{
+			if (UI_MenuItem(ui, "Create room"))
+			{
+				CreateRoom(engine);
+			}
+			UI_EndContextMenu(ui);
+		}
+
 		if (UI_Button(ui, "+"))
 		{
 			CreateRoom(engine);
@@ -406,15 +443,27 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 				{
 					EditorSelectRoom(editor, room);
 				}
-				const bool removeRoom = UI_Button(ui, "-");
+				if (UI_BeginContextMenu(ui, "RoomContext"))
+				{
+					if (UI_MenuItem(ui, "Create layer"))
+					{
+						const LayerDesc desc = {
+							.name = "Layer",
+							.order = 0,
+							.visible = true,
+							.isCollider = false,
+						};
+						CreateLayer(room, desc);
+					}
+					UI_EndContextMenu(ui);
+				}
+				const bool removeRoom = UI_Button(ui, "x");
 				UI_EndLayout(ui);
 
 				if (removeRoom)
 				{
+					EditorUnselectRoom(editor, room);
 					RemoveRoom(engine, *it);
-					if ( editor.inspector.selected.type == EditorSelectedType_Room && editor.context.room == &room ) {
-						EditorUnselectAll(editor);
-					}
 					break;
 				}
 
@@ -440,6 +489,7 @@ static void EditorUpdateUI_Outliner(Engine &engine)
 						}
 						if (UI_Button(ui, "x")) // Remove
 						{
+							EditorUnselectLayer(editor, layer);
 							RemoveLayer(room, layerIndex);
 						}
 
@@ -1206,12 +1256,10 @@ static void EditorUpdateUI_ContextMenu(Engine &engine)
 	UI_SetNextWindowDisplacement(ui, pos);
 	if ( UI_BeginMenu(ui, "Context", &engine.editor.showContextMenu) )
 	{
-		UI_MenuItem(ui, "Caca");
-		UI_MenuItem(ui, "Caca 2");
-		UI_MenuItem(ui, "Caca 3");
-		UI_MenuItem(ui, "Caca 4");
-		UI_MenuItem(ui, "Caca 5");
-		UI_MenuItem(ui, "Caca 6");
+		UI_MenuItem(ui, "Option 1");
+		UI_MenuItem(ui, "Option 2");
+		UI_MenuItem(ui, "Option 3");
+		UI_MenuItem(ui, "Option 4");
 		UI_EndMenu(ui);
 	}
 }
@@ -1785,7 +1833,10 @@ static void EditorBeginSceneEditing(Engine &engine, const Mouse &mouse, bool han
 
 				if ( editor.context.layer->isCollider )
 				{
-					const bool collider = editor.context.tool == EditorTool_Draw;
+					const u32 collider =
+						editor.context.tool == EditorTool_ColliderSolid ? 1
+						: editor.context.tool == EditorTool_ColliderPlatform ? 2
+						: 0;
 					SetGridTileAtCoord(engine, grid, collider, gridCoord);
 				}
 				else
@@ -1829,7 +1880,7 @@ void EditorDebugDraw(Engine &engine)
 				{
 					for (u32 x = 0; x < layer.grid.size.x; ++x)
 					{
-						if ( layer.grid.cells[x][y] != InvalidHandle )
+						if ( layer.grid.cells[x][y].collider != 0 )
 						{
 							const float2 cellWorldPos = {(f32)x, (f32)y};
 							DrawBox(cellWorldPos, float2{1, 1}, color);

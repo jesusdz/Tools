@@ -265,9 +265,15 @@ struct Graphics
 #define TILE_GRID_SIZE_Y 30
 #define TILE_SIZE_PIXELS 16.0f // size of each grid cell, in pixels (at PIXELS_PER_METER scale)
 
+union Cell
+{
+	Handle handle;
+	u32 collider;
+};
+
 struct TileGrid
 {
-	Handle cells[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite per cell, InvalidHandle if empty
+	Cell cells[TILE_GRID_SIZE_X][TILE_GRID_SIZE_Y]; // sprite per cell, InvalidHandle if empty
 	uint2 size;
 };
 

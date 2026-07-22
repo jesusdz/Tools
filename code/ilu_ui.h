@@ -3281,6 +3281,26 @@ void UI_EndMenu(UI &ui)
 	UI_EndWindow(ui);
 }
 
+bool UI_BeginContextMenu(UI &ui, const char *name, bool *isOpen = nullptr)
+{
+	const u32 windowId = UI_MakeID(ui, name);
+	UIWindow &window = UI_FindOrCreateWindow(ui, windowId, name);
+
+	if (UI_IsMouseClick(ui, MOUSE_BUTTON_RIGHT) && UI_MouseInArea(ui, ui.lastWidgetPos, ui.lastWidgetSize))
+	{
+		ui.activeMenu = &window;
+		const float2 pos = Float2(ui.input.lastMouseClickPos);
+		UI_SetNextWindowDisplacement(ui, pos);
+	}
+
+	return UI_BeginMenu(ui, name, isOpen);
+}
+
+void UI_EndContextMenu(UI &ui)
+{
+	UI_EndMenu(ui);
+}
+
 bool UI_MenuItem(UI &ui, const char *name, bool checked = false)
 {
 	constexpr float2 padding = {8.0f, 4.0f};

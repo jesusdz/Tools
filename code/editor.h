@@ -66,6 +66,8 @@ CT_ASSERT(ARRAY_COUNT(EditorSelectedTypeName) == EditorSelectedType_Count);
 enum EditorTool
 {
 	EditorTool_Draw,
+	EditorTool_ColliderSolid,
+	EditorTool_ColliderPlatform,
 	EditorTool_Erase,
 };
 

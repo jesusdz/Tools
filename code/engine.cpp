@@ -1404,14 +1404,13 @@ int2 GetGridTileCoord(const Engine &engine, const Camera &camera, int2 pixelCoor
 	return res;
 }
 
-void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, bool collides, int2 coord)
+void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, u32 collider, int2 coord)
 {
 	const bool coordValid = coord.x >= 0 && coord.x < TILE_GRID_SIZE_X &&
 			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
 	if (coordValid)
 	{
-		const Handle collider = collides ? Handle{ 1 } : Handle{ 0 };
-		tileGrid.cells[coord.x][coord.y] = collider;
+		tileGrid.cells[coord.x][coord.y].collider = collider;
 	}
 }
 
@@ -1421,7 +1420,7 @@ void SetGridTileAtCoord(Engine &engine, TileGrid &tileGrid, SpriteH spriteH, int
 			coord.y >= 0 && coord.y < TILE_GRID_SIZE_Y;
 	if (coordValid)
 	{
-		tileGrid.cells[coord.x][coord.y] = spriteH;
+		tileGrid.cells[coord.x][coord.y].handle = spriteH;
 	}
 }
 
@@ -1431,7 +1430,7 @@ static int2 WorldPosToGridCoord(float2 worldPos)
 	return int2{ (i32)Floor(worldPos.x / cellWorldSize), (i32)Floor(worldPos.y / cellWorldSize) };
 }
 
-static bool IsColliderAtGridCoord(Scene &scene, int2 coord)
+static u32 GetColliderAtGridCoord(Scene &scene, int2 coord)
 {
 	for (HandleIter it = BeginIter(scene.roomHandles); it; it++)
 	{
@@ -1447,21 +1446,21 @@ static bool IsColliderAtGridCoord(Scene &scene, int2 coord)
 			const Layer &layer = room.layers[i];
 			if (!layer.initialized || !layer.isCollider) continue;
 
-			if (layer.grid.cells[localCoord.x][localCoord.y] != InvalidHandle)
-				return true;
+			if (layer.grid.cells[localCoord.x][localCoord.y].collider)
+				return layer.grid.cells[localCoord.x][localCoord.y].collider;
 		}
 	}
-	return false;
+	return 0;
 }
 
-bool IsColliderAtWorldPos(float2 worldPos)
+u32 GetColliderAtWorldPos(float2 worldPos)
 {
-	return IsColliderAtGridCoord(engine->scene, WorldPosToGridCoord(worldPos));
+	return GetColliderAtGridCoord(engine->scene, WorldPosToGridCoord(worldPos));
 }
 
 // pos is the box's bottom-left corner, size its width/height (same convention as DrawBox).
 // Tiles the box only touches at an edge count as colliding.
-bool IsColliderInBox(float2 pos, float2 size)
+bool IsColliderInBox(float2 pos, float2 size, u32 collider)
 {
 	const int2 minCoord = WorldPosToGridCoord(pos);
 	const int2 maxCoord = WorldPosToGridCoord(pos + size);
@@ -1470,7 +1469,7 @@ bool IsColliderInBox(float2 pos, float2 size)
 	{
 		for (i32 x = minCoord.x; x <= maxCoord.x; ++x)
 		{
-			if (IsColliderAtGridCoord(engine->scene, int2{x, y}))
+			if (GetColliderAtGridCoord(engine->scene, int2{x, y}) == collider)
 				return true;
 		}
 	}
@@ -2377,7 +2376,7 @@ AssetDescriptors GetAssetDescriptors(Engine &engine, Arena &arena)
 			layerDesc.tileCount = 0;
 			for (u32 x = 0; x < TILE_GRID_SIZE_X; ++x) {
 				for (u32 y = 0; y < TILE_GRID_SIZE_Y; ++y) {
-					const SpriteH spriteH = layer.grid.cells[x][y];
+					const SpriteH spriteH = layer.grid.cells[x][y].handle;
 					if (spriteH == InvalidHandle) continue;
 					if (!IsValidHandle(engine.scene.spriteHandles, spriteH)) continue;
 					TileDesc &tile = *PushStruct(arena, TileDesc);
@@ -2709,7 +2708,7 @@ Handle CreateRoom(Engine &engine, const RoomDesc &desc, const SpriteH *spriteHan
 			const TileDesc &tile = layerDesc.tiles[t];
 			if (tile.x < TILE_GRID_SIZE_X && tile.y < TILE_GRID_SIZE_Y && tile.spriteIndex < spriteHandleCount)
 			{
-				layer.grid.cells[tile.x][tile.y] = spriteHandles[tile.spriteIndex];
+				layer.grid.cells[tile.x][tile.y].handle = spriteHandles[tile.spriteIndex];
 			}
 		}
 	}
@@ -3268,7 +3267,7 @@ bool RenderGraphics(Engine &engine)
 					{
 						// TODO: Skip cell if not in camera
 
-						const Handle spriteH = layer.grid.cells[x][y];
+						const Handle spriteH = layer.grid.cells[x][y].handle;
 						if (IsValidHandle(scene.spriteHandles, spriteH) && tileCount < MAX_TILES)
 						{
 							tileDataPtr[tileCount].pos = room.pos + int2{x, y};
@@ -3485,7 +3484,7 @@ bool RenderGraphics(Engine &engine)
 					{
 						for (u32 x = 0; x < layer.grid.size.x; ++x)
 						{
-							const Handle spriteH = layer.grid.cells[x][y];
+							const Handle spriteH = layer.grid.cells[x][y].handle;
 							if (!IsValidHandle(scene.spriteHandles, spriteH)) continue;
 
 							const Sprite &sprite = GetSprite(scene, spriteH);
