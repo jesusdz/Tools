@@ -1081,7 +1081,7 @@ static bool InitializeAudioDevice(Platform &platform)
 	return audio.initialized;
 }
 
-static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
+static void UpdateAudioDevice(Platform &platform)
 {
 	AudioDevice &audio = platform.audio;
 
@@ -1097,13 +1097,10 @@ static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
 
 		const DWORD byteToLock = (audio.runningSampleIndex * audio.bytesPerSample * audio.channelCount) % audio.bufferSize;
 
-		const u32 gameUpdateHz = 30;
-		const f32 targetSecondsPerFrame = 1.0f / (f32)gameUpdateHz;
-
-		const DWORD expectedBytesPerFrame = (audio.samplesPerSecond * audio.channelCount * audio.bytesPerSample) / gameUpdateHz;
-		const f32 secondsLeftUntilFlip = targetSecondsPerFrame - secondsSinceFrameBegin;
-		const DWORD expectedBytesUntilFlip = (DWORD)((secondsLeftUntilFlip/targetSecondsPerFrame)*(f32)expectedBytesPerFrame);
-		const DWORD expectedFrameBoundaryByte = playCursor + expectedBytesPerFrame;
+		// Bytes of audio the device consumes during one write-ahead window.
+		const DWORD bytesPerSecond = audio.samplesPerSecond * audio.channelCount * audio.bytesPerSample;
+		const DWORD expectedBytesPerWindow = (bytesPerSecond * audio.writeAheadMillis) / 1000;
+		const DWORD expectedWindowBoundaryByte = playCursor + expectedBytesPerWindow;
 
 		DWORD safeWriteCursor = writeCursor;
 		if (safeWriteCursor < playCursor) {
@@ -1111,13 +1108,13 @@ static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
 		}
 		ASSERT(safeWriteCursor >= playCursor);
 
-		const bool audioCardIsLowLatency = safeWriteCursor < expectedFrameBoundaryByte;
+		const bool audioCardIsLowLatency = safeWriteCursor < expectedWindowBoundaryByte;
 
 		DWORD targetCursor = 0;
 		if (audioCardIsLowLatency) {
-			targetCursor = expectedFrameBoundaryByte + expectedBytesPerFrame;
+			targetCursor = expectedWindowBoundaryByte + expectedBytesPerWindow;
 		} else {
-			targetCursor = writeCursor + expectedBytesPerFrame + audio.safetyBytes;
+			targetCursor = writeCursor + expectedBytesPerWindow + audio.safetyBytes;
 		}
 		targetCursor = targetCursor % audio.bufferSize;
 

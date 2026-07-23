@@ -292,7 +292,7 @@ static bool InitializeAudioDevice(Platform &platform)
 		AAudioStreamBuilder_setSampleRate(builder, audio.samplesPerSecond);
 		AAudioStreamBuilder_setChannelCount(builder, audio.channelCount);
 		AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
-		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond/30);
+		AAudioStreamBuilder_setBufferCapacityInFrames(builder, audio.samplesPerSecond * audio.writeAheadMillis / 1000);
 		AAudioStreamBuilder_setDataCallback(builder, AAudioFillAudioBuffer, &platform);
 
 		AAudioStream *stream;
@@ -333,7 +333,7 @@ static bool InitializeAudioDevice(Platform &platform)
 	return audio.initialized;
 }
 
-static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
+static void UpdateAudioDevice(Platform &platform)
 {
 	// NOTE(jesus): AAudio makes an async call to AAudioFillAudioBuffer.
 }

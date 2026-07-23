@@ -10,14 +10,19 @@
 struct AudioDevice
 {
 	// Config
-	u16 channelCount;
-	u16 bytesPerSample;
-	u16 samplesPerSecond;
-	u16 bufferSize;
-	u16 latencyFrameCount;
-	u16 latencySampleCount;
-	u16 safetyBytes;
+	u32 channelCount;
+	u32 bytesPerSample;
+	u32 samplesPerSecond;
+
+	// How far ahead of the write cursor each update fills the ring buffer, plus the extra
+	// slack added when the device does not report a low latency write cursor. Both are in
+	// milliseconds, so audio latency no longer depends on an assumed game frame rate.
+	u32 writeAheadMillis;
+	u32 safetyMillis;
+
+	u32 safetyBytes;
 	u32 runningSampleIndex;
+	u32 bufferSize;
 
 	bool initialized;
 	bool isPlaying;
@@ -180,7 +185,7 @@ static void PlatformUpdateEventLoop(Platform &platform);
 static bool InitializeGamepad(Platform &platform);
 static void UpdateGamepad(Platform &platform);
 static bool InitializeAudioDevice(Platform &platform);
-static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin);
+static void UpdateAudioDevice(Platform &platform);
 static void PlatformQuit();
 static void PlatformWakeMainThread();
 
@@ -428,9 +433,9 @@ static void UpdateKeyModifiers(Window &window)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Audio
 
-static void UpdateAudio(Platform &platform, float secondsSinceFrameBegin)
+static void UpdateAudio(Platform &platform)
 {
-	UpdateAudioDevice(platform, secondsSinceFrameBegin);
+	UpdateAudioDevice(platform);
 
 	if ( platform.PreRenderAudioCallback )
 	{
@@ -455,16 +460,21 @@ static bool InitializeAudio(Platform &platform)
 
 	AudioDevice &audio = platform.audio;
 
-	const u16 gameUpdateHz = 30;
-
 	// Audio configuration
 	audio.channelCount = 2;
 	audio.bytesPerSample = 2; // 4 in HH
 	audio.samplesPerSecond = 48000; // per channel
+
+	// One second of audio. The device plays from this ring buffer while we write ahead of it.
 	audio.bufferSize = audio.channelCount * audio.samplesPerSecond * audio.bytesPerSample;
-	audio.latencyFrameCount = 3;
-	audio.latencySampleCount = audio.latencyFrameCount * audio.samplesPerSecond / gameUpdateHz;
-	audio.safetyBytes = (audio.samplesPerSecond * audio.bytesPerSample * audio.channelCount)/audio.latencyFrameCount;
+
+	// Tuning knobs for latency vs. underrun resistance: widening these makes dropouts less
+	// likely but delays how soon a newly triggered sound is heard.
+	audio.writeAheadMillis = 33;
+	audio.safetyMillis = 11;
+
+	const u32 bytesPerSecond = audio.samplesPerSecond * audio.channelCount * audio.bytesPerSample;
+	audio.safetyBytes = (bytesPerSecond * audio.safetyMillis) / 1000;
 
 	// Allocate buffer to output samples from the engine
 	audio.outputSamples = (i16*)AllocateVirtualMemory(audio.bufferSize);
@@ -479,17 +489,11 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
 
-	Clock lastClock = GetClock();
-
 	while ( platform.keepRunning )
 	{
 		if ( platform.audio.isPlaying )
 		{
-			Clock currentClock = GetClock();
-			const f32 secondsSinceLastIteration = GetSecondsElapsed(lastClock, currentClock);
-			lastClock = currentClock;
-
-			UpdateAudio(platform, secondsSinceLastIteration);
+			UpdateAudio(platform);
 		}
 
 		SleepMillis(10);
@@ -1253,8 +1257,7 @@ static bool Run(Platform &platform)
 #if !USE_AUDIO_THREAD
 		if ( platform.audio.isPlaying )
 		{
-			const f32 secondsSinceFrameBegin = GetSecondsElapsed(currentFrameBeginClock, GetClock());
-			UpdateAudio(platform, secondsSinceFrameBegin);
+			UpdateAudio(platform);
 		}
 #endif // USE_AUDIO_THREAD
 	}

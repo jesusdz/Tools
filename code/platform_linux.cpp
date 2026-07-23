@@ -937,7 +937,7 @@ static bool InitializeAudioDevice(Platform &platform)
 	return audio.initialized;
 }
 
-static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
+static void UpdateAudioDevice(Platform &platform)
 {
 	AudioDevice &audio = platform.audio;
 
@@ -950,9 +950,10 @@ static void UpdateAudioDevice(Platform &platform, float secondsSinceFrameBegin)
 
 		if ( res == 0 )
 		{
-			// TODO(jesus): Underruns seem to be fixed increasing this time window (but we add latency to reproduce new sounds)
-			const float time = 2.0f / 30.0f; // Two times what's needed to render two game frames
-			const snd_pcm_uframes_t maxFramesToRender = audio.samplesPerSecond * time;
+			// Keep up to two write-ahead windows queued. Widening the window makes underruns
+			// less likely, at the cost of latency before a new sound is heard.
+			const float time = 2.0f * (float)audio.writeAheadMillis / 1000.0f;
+			const snd_pcm_uframes_t maxFramesToRender = (snd_pcm_uframes_t)(audio.samplesPerSecond * time);
 
 			snd_pcm_uframes_t framesToRender = maxFramesToRender - delayFrames;
 
