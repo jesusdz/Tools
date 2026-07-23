@@ -7,13 +7,13 @@ Supported platforms: Windows, Linux, and Android.
 
 ## Engine features
 
+* Hot-reloadable engine: engine code (`engine.cpp`) lives in a DLL/SO that the main executable/platform (`platform.cpp`) can reload without restarting
 * Vulkan-based renderer supporting both 2D (sprites, grids) and 3D (meshes, shadow mapping, sky) rendering
-* Hot-reloadable game module: gameplay code lives in a DLL/SO (`game.cpp`) that the engine can reload without restarting
+* HLSL shaders compiled to SPIRV via DXC, with reflection utilities to auto-generate descriptor set bindings
 * Scene graph with rooms, layers, entities, materials, and textures
 * Immediate-mode UI, also used to build an in-engine editor (scene/entity/material/texture/audio inspection, texture and pipeline reloading, save/load of scenes as text or binary)
 * Audio playback: WAV clips plus tracker music (MOD/S3M/XM) via the bundled `ibxm` player
 * Data-driven assets with a reflection-based pipeline: asset descriptions are parsed and reflected into C structs, then serialized to a binary format the engine loads at runtime
-* HLSL shaders compiled to SPIRV via DXC, with reflection utilities to auto-generate descriptor set bindings
 
 
 ## Repository layout
@@ -21,8 +21,8 @@ Supported platforms: Windows, Linux, and Android.
 The code is organized in three layers:
 
 1. **Single-header libraries** (`code/*.h`) — reusable, dependency-light building blocks the rest of the engine is built on.
-2. **Core programs** (`code/*.cpp`) — the engine itself (`platform.cpp`, `engine.cpp`) and the game module (`game.cpp`).
-3. **Standalone/experimental programs** (`code/misc/`) — one-off tools and tech tests that aren't part of the engine proper. See [docs/MISC.md](docs/MISC.md).
+2. **Core program** — the engine itself (`platform.cpp`, `engine.cpp`) and the several modules (`data.cpp`,`audio.cpp`, etc).
+3. **Game** — gameplay code (`game.cpp`) built on top of the engine.
 
 
 ## Single-header libraries

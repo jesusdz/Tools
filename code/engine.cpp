@@ -3950,6 +3950,32 @@ void GameUpdate(Engine &engine, const Plat &platform)
 #define ENGINE_API extern "C"
 #endif
 
+// Bumped by hand whenever the layout of the retained engine state changes in a way its size
+// does not capture, for instance reordering fields that happen to have the same size.
+#define ENGINE_STATE_VERSION 1
+
+// Signature to let the platform know if the memory layout of engine data changed
+ENGINE_API u32 OnPlatformGetStateSignature()
+{
+	const u32 layout[] = {
+		ENGINE_STATE_VERSION,
+		sizeof(Engine),
+		sizeof(Graphics),
+		sizeof(Scene),
+		sizeof(Audio),
+		sizeof(Game),
+#if USE_UI
+		sizeof(UI),
+#endif
+#if USE_EDITOR
+		sizeof(Editor),
+#endif
+	};
+
+	const u32 signature = HashFNV(layout, sizeof(layout));
+	return signature;
+}
+
 ENGINE_API void OnPlatformSetupAPI(Plat &platform)
 {
 	SetPlatformAPI(platform);

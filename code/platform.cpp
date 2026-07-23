@@ -97,6 +97,7 @@ struct Platform
 	void (*CleanupCallback)(Plat &);
 	bool (*WindowInitCallback)(Plat &);
 	void (*WindowCleanupCallback)(Plat &);
+	u32 (*GetStateSignatureCallback)();
 
 	void *userData;
 
@@ -111,6 +112,9 @@ struct Platform
 	volatile_u32 scratchArenaLockMask;
 
 	DynamicLibrary engineLib;
+
+	u32 engineStateSignature;
+	bool engineStateSignatureInitialized;
 
 	StringInterning stringInterning;
 	Window window;
@@ -543,7 +547,12 @@ struct WorkQueueEntry
 
 struct WorkQueue
 {
-	Semaphore semaphore;
+	Semaphore workSemaphore;
+	Semaphore pauseSemaphore;
+	Semaphore finishSemaphore;
+
+	volatile_u32 workerPaused[WORK_QUEUE_WORKER_COUNT];
+
 	volatile_i64 head;
 	volatile_i64 tail;
 
@@ -565,7 +574,7 @@ static void WorkQueuePush(WorkQueueEntry entry)
 
 	AtomicIncrement(&workQueue.head);
 
-	SignalSemaphore(workQueue.semaphore);
+	SignalSemaphore(workQueue.workSemaphore);
 }
 
 static bool WorkQueueEmpty()
@@ -600,14 +609,25 @@ static bool WorkQueueProcess(const ThreadInfo &threadInfo)
 static THREAD_FUNCTION(WorkQueueThread) // void *WorkQueueThread(void* arguments)
 {
 	const ThreadInfo *threadInfo = (const ThreadInfo *)arguments;
+	const u32 workerIndex = threadInfo->globalIndex - THREAD_ID_WORKER_0;
 
-	while (1)
+	while ( platform.keepRunning )
 	{
+		if ( platform.paused )
+		{
+			workQueue.workerPaused[workerIndex] = 1;
+			WaitSemaphore(workQueue.pauseSemaphore);
+			workQueue.workerPaused[workerIndex] = 0;
+			continue;
+		}
+
 		if ( !WorkQueueProcess(*threadInfo) )
 		{
-			WaitSemaphore(workQueue.semaphore);
+			WaitSemaphore(workQueue.workSemaphore);
 		}
 	}
+
+	SignalSemaphore(workQueue.finishSemaphore);
 
 	return 0;
 }
@@ -634,9 +654,21 @@ static bool InitializeWorkQueue(Platform &platform)
 	static ThreadInfo threadInfos[WORK_QUEUE_WORKER_COUNT];
 	constexpr u32 threadCount = ARRAY_COUNT(threadInfos);
 
+	// The work semaphore is signalled once per queued job, and once more per worker when
+	// pausing them, so its maximum count has to cover a full queue plus one wake-up each.
 	const u32 iniCount = 0;
-	const u32 maxCount = threadCount;
-	if ( !CreateSemaphore( workQueue.semaphore, iniCount, maxCount ) )
+	const u32 maxCount = (u32)ARRAY_COUNT(workQueue.entries) + threadCount;
+	if ( !CreateSemaphore( workQueue.workSemaphore, iniCount, maxCount ) )
+	{
+		return false;
+	}
+
+	if ( !CreateSemaphore( workQueue.pauseSemaphore, iniCount, threadCount ) )
+	{
+		return false;
+	}
+
+	if ( !CreateSemaphore( workQueue.finishSemaphore, iniCount, threadCount ) )
 	{
 		return false;
 	}
@@ -1017,6 +1049,26 @@ static bool LoadEngineDLL(Platform &platform)
 	}
 	LOG(Info, "- Symbol loaded: OnPlatformWindowCleanup\n");
 
+	platform.GetStateSignatureCallback = (u32 (*)()) LoadSymbol(platform.engineLib, "OnPlatformGetStateSignature");
+	if( !platform.GetStateSignatureCallback ) {
+		LOG(Error, "- Couldn't load symbol: OnPlatformGetStateSignature\n");
+		return false;
+	}
+	LOG(Info, "- Symbol loaded: OnPlatformGetStateSignature\n");
+
+	const u32 stateSignature = platform.GetStateSignatureCallback();
+	if ( !platform.engineStateSignatureInitialized )
+	{
+		platform.engineStateSignature = stateSignature;
+		platform.engineStateSignatureInitialized = true;
+	}
+	else if ( stateSignature != platform.engineStateSignature )
+	{
+		LOG(Error, "- Engine state layout changed (0x%x -> 0x%x)\n", platform.engineStateSignature, stateSignature);
+		LOG(Error, "- The retained engine state cannot be reused by this module. Restart the engine.\n");
+		return false;
+	}
+
 	platform.RenderAudioCallback = (void (*)(Plat &, SoundBuffer &)) LoadSymbol(platform.engineLib, "OnPlatformRenderAudio");
 	if( !platform.RenderAudioCallback ) { LOG(Error, "- Couldn't load symbol: OnPlatformRenderAudio\n"); }
 	else { LOG( Info, "- Symbol loaded: OnPlatformRenderAudio\n" ); }
@@ -1047,16 +1099,42 @@ static void UnloadEngineDLL(Platform &platform)
 static void PauseThreads(Platform &platform)
 {
 	platform.paused = true;
+
+#if USE_AUDIO_THREAD
 	while ( !platform.audioPaused && platform.keepRunning )
 	{
 		Yield();
+	}
+#endif
+
+	// Wake up threads blocked waiting for work...
+	for (u32 i = 0; i < WORK_QUEUE_WORKER_COUNT; ++i)
+	{
+		SignalSemaphore(workQueue.workSemaphore);
+	}
+
+	// And wait until all of them are paused
+	for (u32 i = 0; i < WORK_QUEUE_WORKER_COUNT; ++i)
+	{
+		while ( !workQueue.workerPaused[i] && platform.keepRunning )
+		{
+			Yield();
+		}
 	}
 }
 
 static void ResumeThreads(Platform &platform)
 {
-	SignalSemaphore(platform.audioThreadPauseSemaphore);
 	platform.paused = false;
+
+	for (u32 i = 0; i < WORK_QUEUE_WORKER_COUNT; ++i)
+	{
+		SignalSemaphore(workQueue.pauseSemaphore);
+	}
+
+#if USE_AUDIO_THREAD
+	SignalSemaphore(platform.audioThreadPauseSemaphore);
+#endif
 }
 
 static void CheckEngineHotReload(Platform &platform)
@@ -1081,8 +1159,15 @@ static void CheckEngineHotReload(Platform &platform)
 			LOG(Info, "Engine DLL was updated. Reloading...\n");
 			PauseThreads(platform);
 			UnloadEngineDLL(platform);
-			LoadEngineDLL(platform);
+			const bool reloaded = LoadEngineDLL(platform);
 			ResumeThreads(platform);
+
+			if ( !reloaded )
+			{
+				// The previous module is already gone and the new one is unusable
+				LOG(Error, "Engine hot reload failed. Quitting.\n");
+				PlatformQuit();
+			}
 		}
 	}
 }
@@ -1172,6 +1257,14 @@ static bool Run(Platform &platform)
 			UpdateAudio(platform, secondsSinceFrameBegin);
 		}
 #endif // USE_AUDIO_THREAD
+	}
+
+	for (u32 i = 0; i < WORK_QUEUE_WORKER_COUNT; ++i) {
+		SignalSemaphore(workQueue.workSemaphore);
+		SignalSemaphore(workQueue.pauseSemaphore);
+	}
+	for (u32 i = 0; i < WORK_QUEUE_WORKER_COUNT; ++i) {
+		WaitSemaphore(workQueue.finishSemaphore);
 	}
 
 #if USE_UPDATE_THREAD
