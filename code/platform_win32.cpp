@@ -1081,6 +1081,14 @@ static bool InitializeAudioDevice(Platform &platform)
 	return audio.initialized;
 }
 
+// DirectSound exposes no readiness primitive to block on, so this backend is still paced by a
+// fixed sleep. Moving to WASAPI in event driven mode would replace this with a wait on the
+// event the device signals when it wants more samples.
+static void WaitForAudioDevice(Platform &platform)
+{
+	SleepMillis(10);
+}
+
 static void UpdateAudioDevice(Platform &platform)
 {
 	AudioDevice &audio = platform.audio;

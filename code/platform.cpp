@@ -186,6 +186,7 @@ static bool InitializeGamepad(Platform &platform);
 static void UpdateGamepad(Platform &platform);
 static bool InitializeAudioDevice(Platform &platform);
 static void UpdateAudioDevice(Platform &platform);
+static void WaitForAudioDevice(Platform &platform);
 static void PlatformQuit();
 static void PlatformWakeMainThread();
 
@@ -494,9 +495,14 @@ static THREAD_FUNCTION(AudioThread) // void *WorkQueueThread(void* arguments)
 		if ( platform.audio.isPlaying )
 		{
 			UpdateAudio(platform);
-		}
 
-		SleepMillis(10);
+			// Let the device pace this loop where it can, instead of a fixed sleep.
+			WaitForAudioDevice(platform);
+		}
+		else
+		{
+			SleepMillis(10);
+		}
 
 		if ( platform.paused )
 		{

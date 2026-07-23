@@ -816,6 +816,7 @@ typedef int SND_PCM_HW_PARAMS_SET_FORMAT(snd_pcm_t *pcm, snd_pcm_hw_params_t *pa
 typedef int SND_PCM_HW_PARAMS_SET_CHANNELS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int val);
 typedef int SND_PCM_HW_PARAMS_SET_RATE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val, int *dir);
+typedef int SND_PCM_HW_PARAMS_SET_BUFFER_SIZE_NEAR(snd_pcm_t *pcm, snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
 typedef int SND_PCM_HW_PARAMS(snd_pcm_t *pcm, snd_pcm_hw_params_t *params);
 typedef int SND_PCM_HW_PARAMS_GET_CHANNELS(const snd_pcm_hw_params_t *params, unsigned int *channelCount);
 typedef int SND_PCM_HW_PARAMS_GET_RATE(const snd_pcm_hw_params_t *params, unsigned int *sampleRate, int *dir);
@@ -823,6 +824,8 @@ typedef int SND_PCM_HW_PARAMS_GET_FORMAT(const snd_pcm_hw_params_t *params, snd_
 typedef int SND_PCM_HW_PARAMS_GET_ACCESS(const snd_pcm_hw_params_t *params, snd_pcm_access_t *access);
 typedef int SND_PCM_HW_PARAMS_GET_PERIOD_TIME(const snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int SND_PCM_HW_PARAMS_GET_PERIOD_SIZE(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *frames, int *dir);
+typedef int SND_PCM_HW_PARAMS_GET_BUFFER_SIZE(const snd_pcm_hw_params_t *params, snd_pcm_uframes_t *val);
+typedef int SND_PCM_WAIT(snd_pcm_t *pcm, int timeout);
 typedef int SND_PCM_AVAIL_DELAY(snd_pcm_t *pcm, snd_pcm_sframes_t *availp, snd_pcm_sframes_t *delayp);
 typedef snd_pcm_sframes_t SND_PCM_WRITEI(snd_pcm_t *pcm, const void *buffer, snd_pcm_uframes_t size);
 typedef int SND_PCM_RECOVER(snd_pcm_t *pcm, int err, int silent);
@@ -839,6 +842,7 @@ static SND_PCM_HW_PARAMS_SET_FORMAT* FP_snd_pcm_hw_params_set_format;
 static SND_PCM_HW_PARAMS_SET_CHANNELS* FP_snd_pcm_hw_params_set_channels;
 static SND_PCM_HW_PARAMS_SET_RATE_NEAR* FP_snd_pcm_hw_params_set_rate_near;
 static SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR* FP_snd_pcm_hw_params_set_period_size_near;
+static SND_PCM_HW_PARAMS_SET_BUFFER_SIZE_NEAR* FP_snd_pcm_hw_params_set_buffer_size_near;
 static SND_PCM_HW_PARAMS* FP_snd_pcm_hw_params;
 static SND_PCM_HW_PARAMS_GET_CHANNELS* FP_snd_pcm_hw_params_get_channels;
 static SND_PCM_HW_PARAMS_GET_RATE* FP_snd_pcm_hw_params_get_rate;
@@ -846,6 +850,8 @@ static SND_PCM_HW_PARAMS_GET_FORMAT* FP_snd_pcm_hw_params_get_format;
 static SND_PCM_HW_PARAMS_GET_ACCESS* FP_snd_pcm_hw_params_get_access;
 static SND_PCM_HW_PARAMS_GET_PERIOD_TIME* FP_snd_pcm_hw_params_get_period_time;
 static SND_PCM_HW_PARAMS_GET_PERIOD_SIZE* FP_snd_pcm_hw_params_get_period_size;
+static SND_PCM_HW_PARAMS_GET_BUFFER_SIZE* FP_snd_pcm_hw_params_get_buffer_size;
+static SND_PCM_WAIT* FP_snd_pcm_wait;
 static SND_PCM_AVAIL_DELAY* FP_snd_pcm_avail_delay;
 static SND_PCM_WRITEI* FP_snd_pcm_writei;
 static SND_PCM_RECOVER* FP_snd_pcm_recover;
@@ -873,6 +879,7 @@ static bool InitializeAudioDevice(Platform &platform)
 		FP_snd_pcm_hw_params_set_channels = (SND_PCM_HW_PARAMS_SET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_set_channels");
 		FP_snd_pcm_hw_params_set_rate_near = (SND_PCM_HW_PARAMS_SET_RATE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_rate_near");
 		FP_snd_pcm_hw_params_set_period_size_near = (SND_PCM_HW_PARAMS_SET_PERIOD_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_period_size_near");
+		FP_snd_pcm_hw_params_set_buffer_size_near = (SND_PCM_HW_PARAMS_SET_BUFFER_SIZE_NEAR*) LoadSymbol(alsa, "snd_pcm_hw_params_set_buffer_size_near");
 		FP_snd_pcm_hw_params = (SND_PCM_HW_PARAMS*) LoadSymbol(alsa, "snd_pcm_hw_params");
 		FP_snd_pcm_hw_params_get_channels = (SND_PCM_HW_PARAMS_GET_CHANNELS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_channels");
 		FP_snd_pcm_hw_params_get_rate = (SND_PCM_HW_PARAMS_GET_RATE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_rate");
@@ -880,6 +887,8 @@ static bool InitializeAudioDevice(Platform &platform)
 		FP_snd_pcm_hw_params_get_access = (SND_PCM_HW_PARAMS_GET_ACCESS*) LoadSymbol(alsa, "snd_pcm_hw_params_get_access");
 		FP_snd_pcm_hw_params_get_period_time = (SND_PCM_HW_PARAMS_GET_PERIOD_TIME*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_time");
 		FP_snd_pcm_hw_params_get_period_size = (SND_PCM_HW_PARAMS_GET_PERIOD_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_period_size");
+		FP_snd_pcm_hw_params_get_buffer_size = (SND_PCM_HW_PARAMS_GET_BUFFER_SIZE*) LoadSymbol(alsa, "snd_pcm_hw_params_get_buffer_size");
+		FP_snd_pcm_wait = (SND_PCM_WAIT*) LoadSymbol(alsa, "snd_pcm_wait");
 		FP_snd_pcm_avail_delay = (SND_PCM_AVAIL_DELAY*) LoadSymbol(alsa, "snd_pcm_avail_delay");
 		FP_snd_pcm_writei = (SND_PCM_WRITEI*) LoadSymbol(alsa, "snd_pcm_writei");
 		FP_snd_pcm_recover = (SND_PCM_RECOVER*) LoadSymbol(alsa, "snd_pcm_recover");
@@ -895,7 +904,14 @@ static bool InitializeAudioDevice(Platform &platform)
 			unsigned int sampleRate = audio.samplesPerSecond; // frames/second (CD quality)
 			unsigned int channelCount = audio.channelCount;
 			unsigned int bytesPerSample = audio.bytesPerSample;
-			snd_pcm_uframes_t frames = 32; // period size of 32 frames?
+			// snd_pcm_wait only blocks once the ring buffer is nearly full: it returns as soon
+			// as one period of space is free. So the buffer has to be sized to what we actually
+			// intend to keep queued, otherwise there is always free space and the wait spins
+			// instead of pacing us. The period sets the wake-up granularity, a few wake-ups
+			// per write-ahead window.
+			const u32 periodMillis = Max(1u, audio.writeAheadMillis / 3);
+			snd_pcm_uframes_t periodFrames = audio.samplesPerSecond * periodMillis / 1000;
+			snd_pcm_uframes_t bufferFrames = audio.samplesPerSecond * 2 * audio.writeAheadMillis / 1000;
 
 			// Allocate and configure hardware parameters
 			snd_pcm_hw_params_t *params;
@@ -905,12 +921,21 @@ static bool InitializeAudioDevice(Platform &platform)
 			FP_snd_pcm_hw_params_set_rate_near(audioPcm, params, &sampleRate, &dir);
 			FP_snd_pcm_hw_params_set_format(audioPcm, params, SND_PCM_FORMAT_S16_LE); // 16 bit little endian
 			FP_snd_pcm_hw_params_set_access(audioPcm, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-			FP_snd_pcm_hw_params_set_period_size_near(audioPcm, params, &frames, &dir);
+			FP_snd_pcm_hw_params_set_period_size_near(audioPcm, params, &periodFrames, &dir);
+			FP_snd_pcm_hw_params_set_buffer_size_near(audioPcm, params, &bufferFrames);
 
 			// Write the parameters to the driver
 			res = FP_snd_pcm_hw_params(audioPcm, params);
 			if (res == 0)
 			{
+				// The sizes above are only hints, so report what the driver actually granted.
+				snd_pcm_uframes_t actualPeriodFrames = 0;
+				snd_pcm_uframes_t actualBufferFrames = 0;
+				FP_snd_pcm_hw_params_get_period_size(params, &actualPeriodFrames, &dir);
+				FP_snd_pcm_hw_params_get_buffer_size(params, &actualBufferFrames);
+				LOG(Info, "- PCM period: %lu frames / buffer: %lu frames\n",
+					(unsigned long)actualPeriodFrames, (unsigned long)actualBufferFrames);
+
 				LOG(Info, "- PCM is playing...\n");
 				audio.initialized = true;
 				audio.isPlaying = true;
@@ -935,6 +960,19 @@ static bool InitializeAudioDevice(Platform &platform)
 	}
 
 	return audio.initialized;
+}
+
+// Blocks until the device has at least one period of free space (or timeout)
+static void WaitForAudioDevice(Platform &platform)
+{
+	const int timeoutMillis = 100;
+	const int res = FP_snd_pcm_wait(audioPcm, timeoutMillis);
+
+	// Error recovery
+	if ( res < 0 )
+	{
+		FP_snd_pcm_recover(audioPcm, res, 1);
+	}
 }
 
 static void UpdateAudioDevice(Platform &platform)

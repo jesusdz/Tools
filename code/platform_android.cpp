@@ -333,6 +333,12 @@ static bool InitializeAudioDevice(Platform &platform)
 	return audio.initialized;
 }
 
+static void WaitForAudioDevice(Platform &platform)
+{
+	// Unused: AAudio drives playback from its own thread, so USE_AUDIO_THREAD
+	// is 0 here and there is no audio thread of ours to pace.
+}
+
 static void UpdateAudioDevice(Platform &platform)
 {
 	// NOTE(jesus): AAudio makes an async call to AAudioFillAudioBuffer.
